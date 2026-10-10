@@ -11,6 +11,7 @@ import {
   Box, 
   ChevronRight,
   ShieldCheck,
+  Activity,
   Server
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -38,6 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
 
   const infraItems: NavGroupItem[] = [
     { id: 'overview', label: 'Dashboard & VPS', icon: LayoutDashboard },
+    { id: 'monitoring', label: 'Server Monitoring', icon: Activity, badge: 'Live Metrics' },
     { id: 'domains', label: 'Domains & SSL', icon: Globe },
     { id: 'tunnels', label: 'Cloudflare Tunnels', icon: CloudRain, badge: 'Zero-NAT' },
   ];

@@ -1,5 +1,6 @@
 export type NavItem = 
   | 'overview'
+  | 'monitoring'
   | 'apps'
   | 'pods'
   | 'databases'

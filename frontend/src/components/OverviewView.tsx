@@ -22,13 +22,24 @@ interface OverviewViewProps {
 export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, onOpenAddModal }) => {
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
-      {/* Title */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Overview & VPS Health</h1>
-        <p className="text-sm text-slate-500 mt-0.5">BarePod Host Monitor • Debian 12 (Bookworm) • Linux Kernel 6.1</p>
+      {/* Title & Quick Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Overview & VPS Health</h1>
+          <p className="text-sm text-slate-500 mt-0.5">BarePod Host Monitor • Debian 12 (Bookworm) • Linux Kernel 6.1</p>
+        </div>
+
+        <button
+          onClick={() => onNavigate('monitoring')}
+          className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/25 transition-all self-start sm:self-auto cursor-pointer"
+        >
+          <Activity className="w-4 h-4 animate-pulse" />
+          <span>Buka Server Monitor Lengkap</span>
+          <ArrowUpRight className="w-3.5 h-3.5" />
+        </button>
       </div>
 
-      {/* Metrics Row */}
+      {/* Metrics Row (Clickable to jump to monitoring) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* CPU */}
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">

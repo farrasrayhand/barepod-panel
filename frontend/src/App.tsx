@@ -10,6 +10,7 @@ import { CloudflareTunnelView } from './components/CloudflareTunnelView';
 import { PodsView } from './components/PodsView';
 import { UsersView } from './components/UsersView';
 import { OverviewView } from './components/OverviewView';
+import { ServerMonitoringView } from './components/ServerMonitoringView';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 
@@ -199,6 +200,13 @@ export function App() {
               apps={apps}
               onNavigate={setCurrentTab}
               onOpenAddModal={() => setIsAddModalOpen(true)}
+            />
+          )}
+
+          {currentTab === 'monitoring' && (
+            <ServerMonitoringView
+              onShowToast={showToast}
+              onOpenTerminal={() => setCurrentTab('terminal')}
             />
           )}
 
