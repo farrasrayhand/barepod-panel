@@ -1032,24 +1032,31 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     </div>
                   </label>
                   {pruneDocker && (
-                    <div className="grid grid-cols-1 gap-2 text-xs">
-                      {[
-                        { label: 'Dangling images', checked: dockerPruneDanglingImages, set: setDockerPruneDanglingImages },
-                        { label: 'Stopped containers', checked: dockerPruneStoppedContainers, set: setDockerPruneStoppedContainers },
-                        { label: 'Unused volumes', checked: dockerPruneUnusedVolumes, set: setDockerPruneUnusedVolumes },
-                        { label: 'Build cache', checked: dockerPruneBuildCache, set: setDockerPruneBuildCache },
-                      ].map((opt) => (
-                        <label key={opt.label} className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50/60 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={opt.checked}
-                            onChange={(e) => opt.set(e.target.checked)}
-                            className="w-4 h-4 rounded text-blue-600 border-slate-300"
-                          />
-                          <span className="text-slate-700">{opt.label}</span>
-                        </label>
-                      ))}
-                    </div>
+                    <>
+                      <div className="grid grid-cols-1 gap-2 text-xs">
+                        {[
+                          { label: 'Dangling images', checked: dockerPruneDanglingImages, set: setDockerPruneDanglingImages },
+                          { label: 'Stopped containers', checked: dockerPruneStoppedContainers, set: setDockerPruneStoppedContainers },
+                          { label: 'Unused volumes', checked: dockerPruneUnusedVolumes, set: setDockerPruneUnusedVolumes },
+                          { label: 'Build cache', checked: dockerPruneBuildCache, set: setDockerPruneBuildCache },
+                        ].map((opt) => (
+                          <label key={opt.label} className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50/60 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={opt.checked}
+                              onChange={(e) => opt.set(e.target.checked)}
+                              className="w-4 h-4 rounded text-blue-600 border-slate-300"
+                            />
+                            <span className="text-slate-700">{opt.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                      {dockerPruneUnusedVolumes && (
+                        <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                          Unused volumes can hold persistent data (e.g. a stopped pod's database or uploaded files). Pruned volumes cannot be recovered.
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
