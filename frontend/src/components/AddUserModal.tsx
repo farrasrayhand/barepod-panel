@@ -108,7 +108,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
                 {isEditing ? 'Edit Tenant Account' : 'Add New Tenant Account'}
               </h2>
               <p className="text-xs text-slate-500">
-                {isEditing ? 'Perbarui role, paket limit, status, dan kontak akun' : 'Configure role & assign resource limits package'}
+                {isEditing ? 'Update role, limit package, status, and account contact' : 'Configure role & assign resource limits package'}
               </p>
             </div>
           </div>
@@ -136,7 +136,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
             />
             {isEditing && (
               <p className="text-[11px] text-slate-400 mt-1">
-                Username Linux tenant tidak dapat diubah (perubahan akan memerlukan pembuatan ulang jail user).
+                The tenant Linux username cannot be changed (it would require recreating the jail user).
               </p>
             )}
           </div>
@@ -169,7 +169,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
                 }`}
               >
                 <span className="block font-semibold">Regular User</span>
-                <span className="text-[10px] text-slate-500 font-normal">Dibatasi sesuai grup</span>
+                <span className="text-[10px] text-slate-500 font-normal">Limited by group</span>
               </button>
               <button
                 type="button"
@@ -203,14 +203,14 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
                 ))}
               </select>
               <p className="text-[11px] text-slate-500 mt-1">
-                Resource pengguna ini akan dibatasi otomatis oleh cgroups v2 sesuai limit grup yang dipilih.
+                This user's resources are limited automatically by cgroups v2 according to the selected group.
               </p>
             </div>
           ) : (
             <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-start gap-2">
               <Sparkles className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
               <p className="text-[11px]">
-                Akun <strong>Administrator</strong> memiliki resource <strong>Unlimited</strong> tanpa batasan sites, disk, database, ataupun memori.
+                <strong>Administrator</strong> accounts have <strong>unlimited</strong> resources with no site, disk, database, or memory limits.
               </p>
             </div>
           )}

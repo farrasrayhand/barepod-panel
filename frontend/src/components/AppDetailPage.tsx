@@ -114,7 +114,7 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
 
   const handleExportAppBackup = () => {
     setIsExportingBackup(true);
-    onShowToast?.('Mengemas Snapshot App...', `Mengemas codebase ${app.name}, .env, dan vhost config...`, 'info');
+    onShowToast?.('Packaging App Snapshot...', `Packaging ${app.name} codebase, .env, and vhost config...`, 'info');
     setTimeout(() => {
       const bundleData = {
         format: 'BarePod-Application-Bundle',
@@ -141,7 +141,7 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
       a.click();
       URL.revokeObjectURL(url);
       setIsExportingBackup(false);
-      onShowToast?.('Backup Berhasil Diunduh', `Bundle barepod-${app.name}.bpod siap untuk migrasi antar server.`, 'success');
+      onShowToast?.('Backup Downloaded', `Bundle barepod-${app.name}.bpod is ready for cross-server migration.`, 'success');
     }, 1200);
   };
 
@@ -178,9 +178,9 @@ npm run build`;
   const [isDeployingNow, setIsDeployingNow] = useState(false);
   const [copiedDeployWebhook, setCopiedDeployWebhook] = useState(false);
   const [deployLogs, setDeployLogs] = useState<string[]>([
-    `[SYSTEM] Deployment terakhir: ${app.lastDeployedAt || '2026-10-10 18:34:12'} (Commit: ${app.lastDeployCommit || '7fa901a'})`,
-    `[SYSTEM] Webhook listener aktif pada https://${app.domain}/api/v1/webhook/${app.id}/deploy`,
-    `[SYSTEM] Skrip build disimpan permanen per-aplikasi dan siap dieksekusi saat auto-redeploy.`,
+    `[SYSTEM] Last deployment: ${app.lastDeployedAt || '2026-10-10 18:34:12'} (Commit: ${app.lastDeployCommit || '7fa901a'})`,
+    `[SYSTEM] Webhook listener active at https://${app.domain}/api/v1/webhook/${app.id}/deploy`,
+    `[SYSTEM] Build script stored persistently per app and ready to run on auto-redeploy.`,
   ]);
 
   useEffect(() => {
@@ -232,7 +232,7 @@ npm run build`;
   // Maintenance Mode & HTTP Basic Auth State
   const [maintenanceMode, setMaintenanceMode] = useState(app.maintenanceMode ?? false);
   const [maintenanceMessage, setMaintenanceMessage] = useState(
-    app.maintenanceMessage || 'Kami sedang melakukan pemeliharaan infrastruktur dan pembaruan sistem secara berkala. Layanan akan segera kembali online.'
+    app.maintenanceMessage || 'We are performing routine infrastructure maintenance and system updates. Service will be back online shortly.'
   );
   const [maintenanceBypassIps, setMaintenanceBypassIps] = useState(app.maintenanceBypassIps || '127.0.0.1, 103.147.154.82');
   const [isPreviewMaintenanceOpen, setIsPreviewMaintenanceOpen] = useState(false);
@@ -264,8 +264,8 @@ npm run build`;
     };
     onUpdateApp?.(updated);
     onShowToast?.(
-      'Retensi Metrik Disimpan',
-      `Histori telemetri aplikasi ${app.name} disimpan selama ${capped} hari (Batas maksimum 30 hari).`,
+      'Metric Retention Saved',
+      `${app.name} telemetry history is retained for ${capped} days (30-day maximum).`,
       'success'
     );
   };
@@ -286,10 +286,10 @@ npm run build`;
     };
     onUpdateApp?.(updated);
     onShowToast?.(
-      nextState ? 'Maintenance Mode Aktif (503)' : 'Maintenance Mode Dinonaktifkan',
+      nextState ? 'Maintenance Mode Enabled (503)' : 'Maintenance Mode Disabled',
       nextState 
-        ? `Pengunjung akan menerima HTTP 503. IP Whitelist [${maintenanceBypassIps || 'None'}] tetap dapat mengakses.`
-        : `Aplikasi ${app.name} kini kembali melayani trafik normal secara penuh.`,
+        ? `Visitors will receive HTTP 503. Whitelisted IPs [${maintenanceBypassIps || 'None'}] retain access.`
+        : `${app.name} is now serving normal traffic again.`,
       nextState ? 'info' : 'success'
     );
   };
@@ -311,7 +311,7 @@ npm run build`;
         basicAuthBypassIps,
       };
       onUpdateApp?.(updated);
-      onShowToast?.('Konfigurasi Maintenance Tersimpan', `Template vhost HTTP 503 dan IP bypass diperbarui di ${app.webServer.toUpperCase()}.`, 'success');
+      onShowToast?.('Maintenance Configuration Saved', `HTTP 503 vhost template and IP bypass updated on ${app.webServer.toUpperCase()}.`, 'success');
     }, 500);
   };
 
@@ -331,10 +331,10 @@ npm run build`;
     };
     onUpdateApp?.(updated);
     onShowToast?.(
-      nextState ? 'HTTP Basic Auth Aktif' : 'HTTP Basic Auth Dinonaktifkan',
+      nextState ? 'HTTP Basic Auth Enabled' : 'HTTP Basic Auth Disabled',
       nextState
-        ? `Akses ke https://${app.domain} kini diproteksi password (user: ${basicAuthUser}).`
-        : `Proteksi password untuk ${app.domain} telah dicabut.`,
+        ? `Access to https://${app.domain} is now password-protected (user: ${basicAuthUser}).`
+        : `Password protection for ${app.domain} has been removed.`,
       nextState ? 'info' : 'success'
     );
   };
@@ -364,7 +364,7 @@ npm run build`;
       pass += charset.charAt(Math.floor(Math.random() * charset.length));
     }
     setBasicAuthPassword(pass);
-    onShowToast?.('Password Baru Dibuat', 'Kombinasi 16-karakter acak berhasil dibuat.', 'info');
+    onShowToast?.('New Password Generated', 'A random 16-character combination was generated.', 'info');
   };
 
   const handleSaveBasicAuthConfig = (e: React.FormEvent) => {
@@ -384,7 +384,7 @@ npm run build`;
         basicAuthBypassIps,
       };
       onUpdateApp?.(updated);
-      onShowToast?.('.htpasswd & VHost Disimpan', `File otentikasi /etc/nginx/.htpasswd_${app.name} berhasil disinkronkan.`, 'success');
+      onShowToast?.('.htpasswd & VHost Saved', `Auth file /etc/nginx/.htpasswd_${app.name} synced successfully.`, 'success');
     }, 500);
   };
 
@@ -392,7 +392,7 @@ npm run build`;
     navigator.clipboard.writeText(cmd);
     setCopiedCurl(true);
     setTimeout(() => setCopiedCurl(false), 2000);
-    onShowToast?.('Perintah Copied', 'cURL command disalin ke clipboard.', 'info');
+    onShowToast?.('Command Copied', 'cURL command copied to clipboard.', 'info');
   };
 
   const handlePingUpstream = () => {
@@ -412,7 +412,7 @@ npm run build`;
     navigator.clipboard.writeText(url);
     setCopiedDeployWebhook(true);
     setTimeout(() => setCopiedDeployWebhook(false), 2000);
-    onShowToast?.('Webhook Disalin', 'GitHub webhook URL telah disalin ke clipboard.', 'info');
+    onShowToast?.('Webhook Copied', 'GitHub webhook URL copied to clipboard.', 'info');
   };
 
   const handleApplyPresetInDetail = (preset: 'laravel' | 'nextjs' | 'fastapi' | 'go' | 'static') => {
@@ -444,7 +444,7 @@ systemctl reload ${app.name}`;
       script = `git pull origin ${targetBranch}`;
     }
     setBuildScript(script);
-    onShowToast?.('Preset Diterapkan', `Template script ${preset.toUpperCase()} dimuat ke editor. Klik "Simpan Script" agar permanen.`, 'info');
+    onShowToast?.('Preset Applied', `${preset.toUpperCase()} script template loaded into the editor. Click "Save Script" to persist it.`, 'info');
   };
 
   const handleSaveDeployScript = (e?: React.FormEvent) => {
@@ -460,7 +460,7 @@ systemctl reload ${app.name}`;
         buildScript,
       };
       onUpdateApp?.(updated);
-      onShowToast?.('Build Script Tersimpan', `Deploy & Build Script untuk '${app.name}' telah disimpan secara permanen. Saat auto-redeploy terpicu, skrip ini yang akan dijalankan.`, 'success');
+      onShowToast?.('Build Script Saved', `Deploy & Build Script for '${app.name}' saved permanently. It runs whenever auto-redeploy is triggered.`, 'success');
     }, 400);
   };
 
@@ -468,9 +468,9 @@ systemctl reload ${app.name}`;
     setIsDeployingNow(true);
     const nowStr = new Date().toLocaleTimeString();
     setDeployLogs([
-      `[${nowStr}] ⚡ Redeploy dipicu untuk '${app.name}'`,
-      `[${nowStr}] 📦 Fetching repo ${gitRepo} (branch: ${gitBranch})...`,
-      `[${nowStr}] 🔒 Validasi isolasi tenant cgroup v2 /home/${app.tenantUser}...`,
+      `[${nowStr}] Redeploy triggered for '${app.name}'`,
+      `[${nowStr}] Fetching repo ${gitRepo} (branch: ${gitBranch})...`,
+      `[${nowStr}] Validating tenant isolation (cgroup v2) /home/${app.tenantUser}...`,
     ]);
 
     const updated: WebApp = {
@@ -487,7 +487,7 @@ systemctl reload ${app.name}`;
     setTimeout(() => {
       setDeployLogs(prev => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] 🛠️ Menjalankan build script tersimpan:`,
+        `[${new Date().toLocaleTimeString()}] Running saved build script:`,
         ...buildScript.split('\n').filter(Boolean).map(l => `    $ ${l}`),
       ]);
     }, 1000);
@@ -495,12 +495,12 @@ systemctl reload ${app.name}`;
     setTimeout(() => {
       setDeployLogs(prev => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] 🚀 Swap zero-downtime release symlink selesai.`,
-        `[${new Date().toLocaleTimeString()}] 🌐 Ingress Cloudflare status: 200 OK (${app.domain})`,
-        `[${new Date().toLocaleTimeString()}] ✅ Deployment Berhasil dalam 3.4s!`,
+        `[${new Date().toLocaleTimeString()}] Zero-downtime release symlink swap complete.`,
+        `[${new Date().toLocaleTimeString()}] Ingress Cloudflare status: 200 OK (${app.domain})`,
+        `[${new Date().toLocaleTimeString()}] [OK] Deployment succeeded in 3.4s!`,
       ]);
       setIsDeployingNow(false);
-      onShowToast?.('Redeploy Berhasil', `Build & deploy selesai tanpa downtime.`, 'success');
+      onShowToast?.('Redeploy Successful', `Build & deploy completed with zero downtime.`, 'success');
     }, 2400);
   };
 
@@ -522,16 +522,16 @@ systemctl reload ${app.name}`;
     setNewRouteUpstream('');
     setNewRouteTarget('');
     setShowAddRoute(false);
-    onShowToast?.('Route Ditambahkan', `Route ${cleanPath} -> ${newRouteUpstream} berhasil ditambahkan ke routing table.`, 'success');
+    onShowToast?.('Route Added', `Route ${cleanPath} -> ${newRouteUpstream} added to the routing table.`, 'success');
   };
 
   const handleDeleteRoute = (pathToDelete: string) => {
     if (pathToDelete === '/') {
-      onShowToast?.('Route Utama', 'Route root (/) merupakan gateway utama dan tidak dapat dihapus.', 'info');
+      onShowToast?.('Primary Route', 'The root route (/) is the main gateway and cannot be deleted.', 'info');
       return;
     }
     setRoutes(prev => prev.filter(r => r.path !== pathToDelete));
-    onShowToast?.('Route Dihapus', `Route ${pathToDelete} berhasil dihapus dari routing table.`, 'success');
+    onShowToast?.('Route Deleted', `Route ${pathToDelete} removed from the routing table.`, 'success');
   };
 
   const getReverseProxyConfigSnippet = () => {
@@ -717,15 +717,15 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
         ...prev
       ]);
       setCustomExtensionInput('');
-      onShowToast?.('Extension Installed', `Extension ${name} berhasil dikompilasi & diaktifkan di PHP ${app.version}.`, 'success');
+      onShowToast?.('Extension Installed', `Extension ${name} compiled and enabled in PHP ${app.version}.`, 'success');
     }, 900);
   };
 
   const handleResetToAdminDefault = () => {
     setPhpExtensions(MASTER_PHP_EXTENSIONS);
     onShowToast?.(
-      'Reset ke Blueprint Admin',
-      'Konfigurasi extension aplikasi ini dikembalikan ke default global admin. Pool PHP-FPM di-reload.',
+      'Reset to Admin Blueprint',
+      "This app's extension configuration was restored to the global admin default. PHP-FPM pool reloaded.",
       'info'
     );
   };
@@ -735,7 +735,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     setIsReloadingFpm(true);
     setTimeout(() => {
       setIsReloadingFpm(false);
-      onShowToast?.('php.ini Tersimpan', `Konfigurasi pool ${app.tenantUser} diterapkan. systemctl reload php-fpm [OK].`, 'success');
+      onShowToast?.('php.ini Saved', `${app.tenantUser} pool configuration applied. systemctl reload php-fpm [OK].`, 'success');
     }, 600);
   };
 
@@ -743,7 +743,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     setIsReloadingFpm(true);
     setTimeout(() => {
       setIsReloadingFpm(false);
-      onShowToast?.('PHP-FPM Reloaded', `Pool /run/php/php${app.version || '8.4'}-fpm.sock di-restart secara mulus.`, 'success');
+      onShowToast?.('PHP-FPM Reloaded', `Pool /run/php/php${app.version || '8.4'}-fpm.sock restarted gracefully.`, 'success');
     }, 500);
   };
 
@@ -1032,10 +1032,10 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 
   const visitorCountryNodes = [
     { country: 'ID', countryName: 'Indonesia', flag: '🇮🇩', city: 'Jakarta & Surabaya', ip: '114.124.180.52', isp: 'Telkomsel & Biznet', x: 796, y: 268, reqs: 3, percentage: 38, latency: '14ms', isThreat: false },
-    { country: 'SG', countryName: 'Singapura', flag: '🇸🇬', city: 'Singapore Edge', ip: '103.147.154.82', isp: 'MyRepublic Singapore', x: 788, y: 246, reqs: 2, percentage: 25, latency: '1ms', isThreat: false },
-    { country: 'US', countryName: 'Amerika Serikat', flag: '🇺🇸', city: 'Ashburn, VA', ip: '198.51.100.41', isp: 'Security Scanner', x: 285, y: 142, reqs: 1, percentage: 12, latency: '3ms', isThreat: true },
-    { country: 'DE', countryName: 'Jerman', flag: '🇩🇪', city: 'Frankfurt Node', ip: '45.33.32.156', isp: 'Hetzner Online', x: 524, y: 111, reqs: 1, percentage: 12, latency: '28ms', isThreat: false },
-    { country: 'JP', countryName: 'Jepang', flag: '🇯🇵', city: 'Tokyo Edge', ip: '139.162.112.50', isp: 'Linode Tokyo', x: 888, y: 151, reqs: 1, percentage: 12, latency: '36ms', isThreat: false },
+    { country: 'SG', countryName: 'Singapore', flag: '🇸🇬', city: 'Singapore Edge', ip: '103.147.154.82', isp: 'MyRepublic Singapore', x: 788, y: 246, reqs: 2, percentage: 25, latency: '1ms', isThreat: false },
+    { country: 'US', countryName: 'United States', flag: '🇺🇸', city: 'Ashburn, VA', ip: '198.51.100.41', isp: 'Security Scanner', x: 285, y: 142, reqs: 1, percentage: 12, latency: '3ms', isThreat: true },
+    { country: 'DE', countryName: 'Germany', flag: '🇩🇪', city: 'Frankfurt Node', ip: '45.33.32.156', isp: 'Hetzner Online', x: 524, y: 111, reqs: 1, percentage: 12, latency: '28ms', isThreat: false },
+    { country: 'JP', countryName: 'Japan', flag: '🇯🇵', city: 'Tokyo Edge', ip: '139.162.112.50', isp: 'Linode Tokyo', x: 888, y: 151, reqs: 1, percentage: 12, latency: '36ms', isThreat: false },
     { country: 'AU', countryName: 'Australia', flag: '🇦🇺', city: 'Sydney Edge', ip: '13.236.40.91', isp: 'AWS Sydney', x: 920, y: 344, reqs: 1, percentage: 12, latency: '42ms', isThreat: false },
   ];
 
@@ -1083,7 +1083,7 @@ QUEUE_CONNECTION=redis`;
             className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs group cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4 text-slate-500 group-hover:-translate-x-0.5 transition-transform" />
-            <span>Kembali ke Semua Apps</span>
+            <span>Back to All Apps</span>
           </button>
           
           <span className="text-slate-300 font-mono">/</span>
@@ -1161,7 +1161,7 @@ QUEUE_CONNECTION=redis`;
                       ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200' 
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
-                  title="Klik untuk Toggle HTTP 503 Maintenance Mode"
+                  title="Click to toggle HTTP 503 Maintenance Mode"
                 >
                   <AlertTriangle className={`w-3 h-3 ${maintenanceMode ? 'text-amber-600' : 'text-slate-400'}`} />
                   <span>503 Maintenance: {maintenanceMode ? 'ON' : 'OFF'}</span>
@@ -1175,7 +1175,7 @@ QUEUE_CONNECTION=redis`;
                       ? 'bg-purple-100 text-purple-800 border border-purple-300 hover:bg-purple-200'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
-                  title="Klik untuk Toggle HTTP Basic Auth Protection"
+                  title="Click to toggle HTTP Basic Auth Protection"
                 >
                   <Lock className={`w-3 h-3 ${basicAuthEnabled ? 'text-purple-600' : 'text-slate-400'}`} />
                   <span>Basic Auth: {basicAuthEnabled ? 'ON' : 'OFF'}</span>
@@ -1193,7 +1193,7 @@ QUEUE_CONNECTION=redis`;
               className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs"
             >
               <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
-              <span>Buka Web</span>
+              <span>Open Web</span>
             </a>
 
             <button
@@ -1228,7 +1228,7 @@ QUEUE_CONNECTION=redis`;
               title="Download portable backup archive (.bpod) for migration"
             >
               <Archive className={`w-3.5 h-3.5 text-blue-600 ${isExportingBackup ? 'animate-spin' : ''}`} />
-              <span>{isExportingBackup ? 'Mengemas...' : 'Backup (.bpod)'}</span>
+              <span>{isExportingBackup ? 'Packaging...' : 'Backup (.bpod)'}</span>
             </button>
 
             <button
@@ -1240,7 +1240,7 @@ QUEUE_CONNECTION=redis`;
               }`}
             >
               {isRunning ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-              <span>{isRunning ? 'Hentikan App' : 'Jalankan App'}</span>
+              <span>{isRunning ? 'Stop App' : 'Start App'}</span>
             </button>
           </div>
         </div>
@@ -1287,7 +1287,7 @@ QUEUE_CONNECTION=redis`;
           <FolderGit2 className="w-4 h-4 text-blue-600" />
           <span>Deploy & Build Script</span>
           <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">
-            Tersimpan
+            Saved
           </span>
         </button>
 
@@ -1380,7 +1380,7 @@ QUEUE_CONNECTION=redis`;
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Rentang Waktu:</span>
+                  <span>Time Range:</span>
                 </span>
                 <div className="flex items-center bg-white rounded-lg p-0.5 border border-slate-200 text-xs">
                   {(['1h', '24h', '7d', '14d', '30d'] as const).map(range => (
@@ -1389,7 +1389,7 @@ QUEUE_CONNECTION=redis`;
                       type="button"
                       onClick={() => {
                         setSelectedMetricsRange(range);
-                        onShowToast?.('Filter Waktu Diperbarui', `Menampilkan agregasi telemetri ${range === '1h' ? '1 Jam Terakhir' : range === '24h' ? '24 Jam Terakhir' : range === '7d' ? '7 Hari Terakhir' : range === '14d' ? '14 Hari Terakhir' : '30 Hari (Maksimal App)'}.`, 'info');
+                        onShowToast?.('Time Filter Updated', `Showing telemetry aggregation for ${range === '1h' ? 'the last 1 hour' : range === '24h' ? 'the last 24 hours' : range === '7d' ? 'the last 7 days' : range === '14d' ? 'the last 14 days' : '30 days (App maximum)'}.`, 'info');
                       }}
                       className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
                         selectedMetricsRange === range
@@ -1397,7 +1397,7 @@ QUEUE_CONNECTION=redis`;
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      {range === '1h' ? '1 Jam' : range === '24h' ? '24 Jam' : range === '7d' ? '7 Hari' : range === '14d' ? '14 Hari' : '30 Hari'}
+                      {range === '1h' ? '1 Hour' : range === '24h' ? '24 Hours' : range === '7d' ? '7 Days' : range === '14d' ? '14 Days' : '30 Days'}
                     </button>
                   ))}
                 </div>
@@ -1406,7 +1406,7 @@ QUEUE_CONNECTION=redis`;
               {/* Per-App Retention Selector (Strictly max 30 days) */}
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
-                  Retensi Metrik App:
+                  App Metric Retention:
                 </span>
                 <div className="flex items-center gap-1.5">
                   <select
@@ -1414,14 +1414,14 @@ QUEUE_CONNECTION=redis`;
                     onChange={(e) => handleUpdateAppMetricsRetention(Number(e.target.value))}
                     className="px-2.5 py-1 text-xs font-bold bg-white border border-purple-200 text-purple-900 rounded-lg focus:outline-hidden focus:border-purple-500 shadow-2xs"
                   >
-                    <option value={1}>1 Hari (24 Jam)</option>
-                    <option value={3}>3 Hari</option>
-                    <option value={7}>7 Hari (1 Minggu)</option>
-                    <option value={14}>14 Hari (2 Minggu)</option>
-                    <option value={30}>30 Hari (Batas Maksimum Panel)</option>
+                    <option value={1}>1 Day (24 Hours)</option>
+                    <option value={3}>3 Days</option>
+                    <option value={7}>7 Days (1 Week)</option>
+                    <option value={14}>14 Days (2 Weeks)</option>
+                    <option value={30}>30 Days (Panel Maximum)</option>
                   </select>
-                  <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-1 rounded-lg border border-purple-200" title="Batas retensi metrik per-aplikasi di BarePod Panel adalah maksimal 30 hari untuk efisiensi ruang disk tenant.">
-                    Max 30 Hari
+                  <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-1 rounded-lg border border-purple-200" title="Per-app metric retention in BarePod Panel is capped at 30 days to save tenant disk space.">
+                    Max 30 Days
                   </span>
                 </div>
               </div>
@@ -1520,7 +1520,7 @@ QUEUE_CONNECTION=redis`;
                   <span>SSL/TLS Automated Let's Encrypt Certificate</span>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Domain <code>{app.domain}</code> dilindungi enkripsi TLS 1.3 dengan auto-renewal setiap 60 hari.
+                  Domain <code>{app.domain}</code> is protected by TLS 1.3 encryption with auto-renewal every 60 days.
                 </p>
                 <div className="text-[11px] text-slate-400 font-mono pt-1">
                   Issuer: Let's Encrypt Authority X3 • Valid until: 2026-12-10
@@ -1533,7 +1533,7 @@ QUEUE_CONNECTION=redis`;
                   <span>Cloudflare Zero-NAT Tunnel Status</span>
                 </div>
                 <p className="text-xs text-slate-500">
-                  Koneksi ingress tunnel terisolasi aktif untuk tenant <code>{app.tenantUser}</code>.
+                  Isolated tunnel ingress connection active for tenant <code>{app.tenantUser}</code>.
                 </p>
                 <div className="text-[11px] text-slate-400 font-mono pt-1">
                   Tunnel ID: cf-tun-71fa80c • Direct Edge Routing Active
@@ -1550,9 +1550,9 @@ QUEUE_CONNECTION=redis`;
             <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-900">
               <div className="flex items-center gap-2 font-mono">
                 <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span className="font-bold">Real-IP Ingress Aktif:</span>
+                <span className="font-bold">Real-IP Ingress Active:</span>
                 <span className="text-emerald-700">
-                  IP asli pengunjung direstorasi langsung dari header <code>CF-Connecting-IP</code> & <code>X-Forwarded-For</code> (Zero-NAT bypass, bukan IP Docker/Proxy 127.0.0.1).
+                  The visitor's real IP is restored directly from the <code>CF-Connecting-IP</code> & <code>X-Forwarded-For</code> headers (Zero-NAT bypass, not the Docker/Proxy IP 127.0.0.1).
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -1565,7 +1565,7 @@ QUEUE_CONNECTION=redis`;
                   className="flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] bg-white border border-emerald-300 text-emerald-800 font-bold hover:bg-emerald-50 transition-colors cursor-pointer"
                 >
                   <Globe className="w-3 h-3 text-emerald-600" />
-                  <span>{showWorldMap ? 'Tutup Peta' : 'Buka Peta Dunia'}</span>
+                  <span>{showWorldMap ? 'Close Map' : 'Open World Map'}</span>
                 </button>
               </div>
             </div>
@@ -1580,13 +1580,13 @@ QUEUE_CONNECTION=redis`;
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                        <span>Peta Distribusi Pengunjung Global (Live Geo Ingress)</span>
+                        <span>Global Visitor Distribution Map (Live Geo Ingress)</span>
                         <span className="px-1.5 py-0.2 text-[9px] bg-emerald-100 text-emerald-800 font-mono font-bold rounded">
                           Live Pulse
                         </span>
                       </h4>
                       <p className="text-[11px] text-slate-500">
-                        Visualisasi real-time asal negara traffic & edge node Cloudflare yang mengakses {app.domain}
+                        Real-time visualization of visitor-origin countries & Cloudflare edge nodes accessing {app.domain}
                       </p>
                     </div>
                   </div>
@@ -1602,7 +1602,7 @@ QUEUE_CONNECTION=redis`;
                       </button>
                     )}
                     <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200 font-semibold">
-                      {visitorCountryNodes.length} Lokasi Aktif di 5 Benua
+                      {visitorCountryNodes.length} Active Locations across 5 Continents
                     </span>
                   </div>
                 </div>
@@ -1699,10 +1699,10 @@ QUEUE_CONNECTION=redis`;
                         <span className="text-[10px] text-slate-400">({hoveredMapPin.city})</span>
                       </div>
                       <div className="space-y-0.5 text-[11px] text-slate-600">
-                        <div><strong>IP Sampel:</strong> <code className="text-amber-700">{hoveredMapPin.ip}</code></div>
+                        <div><strong>Sample IP:</strong> <code className="text-amber-700">{hoveredMapPin.ip}</code></div>
                         <div><strong>ISP / Cloud:</strong> {hoveredMapPin.isp}</div>
-                        <div><strong>Latensi:</strong> <span className="text-emerald-600 font-bold">{hoveredMapPin.latency}</span></div>
-                        <div className="text-[10px] text-blue-600 pt-0.5">Klik pin untuk memfilter log ke negara ini</div>
+                        <div><strong>Latency:</strong> <span className="text-emerald-600 font-bold">{hoveredMapPin.latency}</span></div>
+                        <div className="text-[10px] text-blue-600 pt-0.5">Click a pin to filter logs by this country</div>
                       </div>
                     </div>
                   )}
@@ -1712,7 +1712,7 @@ QUEUE_CONNECTION=redis`;
                 <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
                   <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center gap-1">
                     <Filter className="w-3 h-3 text-slate-400" />
-                    Filter Negara:
+                    Filter Country:
                   </span>
                   <button
                     type="button"
@@ -1723,7 +1723,7 @@ QUEUE_CONNECTION=redis`;
                         : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
                     }`}
                   >
-                    🌐 Semua ({logs.length})
+                    All ({logs.length})
                   </button>
                   {visitorCountryNodes.map((n) => (
                     <button
@@ -1760,7 +1760,7 @@ QUEUE_CONNECTION=redis`;
                   <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Cari IP (misal: 114.124), path, status code, user agent, ISP..."
+                    placeholder="Search IP (e.g. 114.124), path, status code, user agent, ISP..."
                     value={logSearch}
                     onChange={(e) => setLogSearch(e.target.value)}
                     className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white font-mono transition-colors"
@@ -1788,7 +1788,7 @@ QUEUE_CONNECTION=redis`;
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      Tabel Kolom
+                      Column Table
                     </button>
                     <button
                       onClick={() => setLogFormat('raw')}
@@ -1811,9 +1811,9 @@ QUEUE_CONNECTION=redis`;
                         ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold' 
                         : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                     }`}
-                    title="Bungkus teks agar path dan user-agent tidak terpotong"
+                    title="Wrap text so paths and user-agents are not cut off"
                   >
-                    <span>Bungkus Teks</span>
+                    <span>Wrap Text</span>
                     {wrapLogText && <span className="text-[10px]">✓</span>}
                   </button>
 
@@ -1822,17 +1822,17 @@ QUEUE_CONNECTION=redis`;
                     type="button"
                     onClick={() => setLogTheme(logTheme === 'light' ? 'dark' : 'light')}
                     className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors cursor-pointer font-medium"
-                    title={`Ganti tema konsol ke ${logTheme === 'light' ? 'Dark Console' : 'Light Mode'}`}
+                    title={`Switch console theme to ${logTheme === 'light' ? 'Dark Console' : 'Light Mode'}`}
                   >
                     {logTheme === 'light' ? (
                       <>
                         <Moon className="w-3 h-3 text-slate-500" />
-                        <span>Gelap</span>
+                        <span>Dark</span>
                       </>
                     ) : (
                       <>
                         <Sun className="w-3 h-3 text-amber-500" />
-                        <span>Terang</span>
+                        <span>Light</span>
                       </>
                     )}
                   </button>
@@ -1873,7 +1873,7 @@ QUEUE_CONNECTION=redis`;
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
-                    {type === 'all' ? 'Semua Log' : type === 'access' ? 'Access Logs' : type === 'error' ? 'Errors / WAF' : 'Deploy Logs'}
+                    {type === 'all' ? 'All Logs' : type === 'access' ? 'Access Logs' : type === 'error' ? 'Errors / WAF' : 'Deploy Logs'}
                   </button>
                 ))}
               </div>
@@ -1891,12 +1891,12 @@ QUEUE_CONNECTION=redis`;
                   <div className={`flex items-center gap-3 pb-2.5 mb-2 border-b text-[10px] font-bold uppercase tracking-wider select-none ${
                     logTheme === 'light' ? 'border-slate-200 text-slate-500 bg-slate-50/50 -mx-2 px-2 py-1.5 rounded-t' : 'border-slate-800 text-slate-400'
                   }`}>
-                    <div className="w-[85px] shrink-0">WAKTU</div>
-                    <div className="w-[170px] shrink-0">IP PENGUNJUNG</div>
-                    <div className="w-[125px] shrink-0">METODE & STATUS</div>
-                    <div className="w-[300px] shrink-0">PATH REQUEST</div>
-                    <div className="flex-1 min-w-[320px]">LATENSI & CLIENT INFO (USER-AGENT)</div>
-                    <div className="w-[70px] shrink-0 text-center">DETAIL</div>
+                    <div className="w-[85px] shrink-0">TIME</div>
+                    <div className="w-[170px] shrink-0">VISITOR IP</div>
+                    <div className="w-[125px] shrink-0">METHOD & STATUS</div>
+                    <div className="w-[300px] shrink-0">REQUEST PATH</div>
+                    <div className="flex-1 min-w-[320px]">LATENCY & CLIENT INFO (USER-AGENT)</div>
+                    <div className="w-[70px] shrink-0 text-center">DETAILS</div>
                   </div>
                 )}
 
@@ -1911,7 +1911,7 @@ QUEUE_CONNECTION=redis`;
                             : (logTheme === 'light' ? 'hover:bg-slate-50 border-transparent hover:border-slate-200' : 'hover:bg-slate-900/80 border-transparent hover:border-slate-800')
                         }`}
                       >
-                        {/* Waktu */}
+                        {/* Time */}
                         <div className={`w-[85px] shrink-0 text-[11px] font-mono ${
                           logTheme === 'light' ? 'text-slate-400 font-semibold' : 'text-slate-500'
                         }`}>
@@ -2020,7 +2020,7 @@ QUEUE_CONNECTION=redis`;
                               ? 'bg-blue-600 text-white'
                               : (logTheme === 'light' ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-slate-800 text-slate-300 hover:bg-slate-700')
                           }`}>
-                            <span>Detail</span>
+                            <span>Details</span>
                             {expandedLogIdx === idx ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                           </span>
                         </div>
@@ -2034,19 +2034,19 @@ QUEUE_CONNECTION=redis`;
                           <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
                             <span className="font-bold flex items-center gap-1.5 text-blue-600 text-xs">
                               <Search className="w-3.5 h-3.5" />
-                              Detail Lengkap Request #{idx + 1} ({log.time})
+                              Full Request Details #{idx + 1} ({log.time})
                             </span>
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 navigator.clipboard.writeText(log.rawLine || log.msg);
-                                onShowToast?.('Log Disalin', 'Baris raw log berhasil disalin ke clipboard.', 'success');
+                                onShowToast?.('Log Copied', 'Raw log line copied to clipboard.', 'success');
                               }}
                               className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer shadow-2xs"
                             >
                               <Copy className="w-3 h-3 text-slate-500" />
-                              <span>Salin Raw Log</span>
+                              <span>Copy Raw Log</span>
                             </button>
                           </div>
 
@@ -2072,13 +2072,13 @@ QUEUE_CONNECTION=redis`;
                           <div className="flex flex-wrap items-center gap-4 pt-1.5 text-[11px] border-t border-slate-200/40">
                             {log.ip && (
                               <span>
-                                <strong>IP Asli:</strong> <code className="text-amber-700 font-bold px-1 bg-amber-50 rounded border border-amber-200">{log.ip}</code> ({log.country} • {log.isp})
+                                <strong>Real IP:</strong> <code className="text-amber-700 font-bold px-1 bg-amber-50 rounded border border-amber-200">{log.ip}</code> ({log.country} • {log.isp})
                               </span>
                             )}
-                            {log.latency && <span><strong>Latensi:</strong> <code className="text-emerald-700 font-bold">{log.latency}</code></span>}
+                            {log.latency && <span><strong>Latency:</strong> <code className="text-emerald-700 font-bold">{log.latency}</code></span>}
                             {log.size && <span><strong>Payload:</strong> <code>{log.size}</code></span>}
-                            {log.status && <span><strong>Status HTTP:</strong> <code className="text-blue-700 font-bold">{log.status}</code></span>}
-                            {log.method && <span><strong>Metode:</strong> <code className="text-purple-700 font-bold">{log.method}</code></span>}
+                            {log.status && <span><strong>HTTP Status:</strong> <code className="text-blue-700 font-bold">{log.status}</code></span>}
+                            {log.method && <span><strong>Method:</strong> <code className="text-purple-700 font-bold">{log.method}</code></span>}
                           </div>
                         </div>
                       )}
@@ -2127,7 +2127,7 @@ QUEUE_CONNECTION=redis`;
 
                 {filteredLogs.length === 0 && (
                   <div className="text-center py-12 text-slate-500">
-                    Tidak ada baris log yang sesuai dengan filter pencarian atau negara yang dipilih.
+                    No log lines match the current search or selected country filter.
                   </div>
                 )}
               </div>
@@ -2153,8 +2153,8 @@ QUEUE_CONNECTION=redis`;
                 </div>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
                   {app.runtime === 'proxy' 
-                    ? `Domain ${app.domain} meneruskan seluruh traffic HTTP/WebSocket secara aman ke upstream backend internal.` 
-                    : `Arsitektur hybrid memungkinkan satu domain membagi traffic ke beberapa runtime (PHP-FPM, Node.js, Python, & Static).`}
+                    ? `Domain ${app.domain} securely forwards all HTTP/WebSocket traffic to the internal backend upstream.` 
+                    : `The hybrid architecture lets one domain split traffic across multiple runtimes (PHP-FPM, Node.js, Python, & Static).`}
                 </p>
               </div>
 
@@ -2165,7 +2165,7 @@ QUEUE_CONNECTION=redis`;
                   className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm shadow-blue-500/25"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Tambah Path Route</span>
+                  <span>Add Path Route</span>
                 </button>
               </div>
             </div>
@@ -2181,7 +2181,7 @@ QUEUE_CONNECTION=redis`;
                     Root Gateway — Target Upstream (Route <code className="font-mono bg-slate-100 px-1 rounded">/</code>)
                   </h4>
                   <p className="text-[11px] text-slate-500">
-                    Service default penerima <strong>semua</strong> traffic {app.domain} yang tidak di-match oleh Path Route lain di bawah.
+                    Default service that receives <strong>all</strong> {app.domain} traffic not matched by other Path Routes below.
                   </p>
                 </div>
               </div>
@@ -2189,7 +2189,7 @@ QUEUE_CONNECTION=redis`;
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Upstream URL / IP Address (tujuan route <code>/</code>)
+                    Upstream URL / IP Address (target for route <code>/</code>)
                   </label>
                   <div className="flex items-center gap-2">
                     <input
@@ -2202,7 +2202,7 @@ QUEUE_CONNECTION=redis`;
                       type="button"
                       onClick={handlePingUpstream}
                       disabled={isPingingUpstream}
-                      title="Cek konektivitas upstream (test saja — tidak menyimpan config)"
+                      title="Check upstream connectivity (test only — does not save config)"
                       className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors whitespace-nowrap shrink-0"
                     >
                       <RotateCw className={`w-3.5 h-3.5 ${isPingingUpstream ? 'animate-spin' : ''}`} />
@@ -2210,7 +2210,7 @@ QUEUE_CONNECTION=redis`;
                     </button>
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Ping hanya mengetes konektivitas (tidak menyimpan config). Field di kartu ini langsung dirender ke vhost di bawah.
+                    Ping only tests connectivity (it does not save config). Fields in this card render directly into the vhost below.
                   </p>
                   {pingStatus && (
                     <div className="inline-flex items-center gap-1.5 mt-1.5 px-2.5 py-1 text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg">
@@ -2222,24 +2222,24 @@ QUEUE_CONNECTION=redis`;
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Timeout Koneksi & Stream
+                    Connection & Stream Timeout
                   </label>
                   <select
                     value={proxyTimeout}
                     onChange={(e) => setProxyTimeout(Number(e.target.value))}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono focus:border-purple-500"
                   >
-                    <option value={60}>60 Detik (Standar Web)</option>
-                    <option value={180}>180 Detik (Long-Polling)</option>
-                    <option value={300}>300 Detik (Streaming LLM / AI)</option>
-                    <option value={600}>600 Detik (Heavy Export/Upload)</option>
+                    <option value={60}>60 Seconds (Standard Web)</option>
+                    <option value={180}>180 Seconds (Long-Polling)</option>
+                    <option value={300}>300 Seconds (LLM / AI Streaming)</option>
+                    <option value={600}>600 Seconds (Heavy Export/Upload)</option>
                   </select>
                 </div>
               </div>
 
               {/* Ingress Protocol Feature Toggles */}
               <span className="block text-[11px] font-bold text-slate-600 pt-2 border-t border-slate-100">
-                Perilaku Proxy Route <code className="font-mono bg-slate-100 px-1 rounded">/</code> (berlaku global untuk root gateway)
+                Proxy Route <code className="font-mono bg-slate-100 px-1 rounded">/</code> Behavior (applies globally to the root gateway)
               </span>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
@@ -2269,7 +2269,7 @@ QUEUE_CONNECTION=redis`;
                     <span className="font-bold text-slate-800">
                       Preserve Host Header ($host)
                     </span>
-                    <span className="text-[10px] text-slate-500 block">Teruskan domain asli ke service</span>
+                    <span className="text-[10px] text-slate-500 block">Forward the original domain to the service</span>
                   </div>
                 </label>
 
@@ -2294,13 +2294,13 @@ QUEUE_CONNECTION=redis`;
             {showAddRoute && (
               <form onSubmit={handleAddCustomRoute} className="p-4 bg-blue-50/50 border border-blue-200 rounded-2xl space-y-3 animate-in fade-in duration-150">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-blue-900">Tambah Route Split / Forward Baru</h4>
+                  <h4 className="text-xs font-bold text-blue-900">Add New Split / Forward Route</h4>
                   <button
                     type="button"
                     onClick={() => setShowAddRoute(false)}
                     className="text-xs text-blue-600 hover:underline"
                   >
-                    Batal
+                    Cancel
                   </button>
                 </div>
 
@@ -2312,7 +2312,7 @@ QUEUE_CONNECTION=redis`;
                     <input
                       type="text"
                       required
-                      placeholder="/api/v2/* atau /webhook/*"
+                      placeholder="/api/v2/* or /webhook/*"
                       value={newRoutePath}
                       onChange={(e) => setNewRoutePath(e.target.value)}
                       className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
@@ -2335,7 +2335,7 @@ QUEUE_CONNECTION=redis`;
 
                   <div>
                     <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Keterangan Service
+                      Service Description
                     </label>
                     <div className="flex items-center gap-2">
                       <input
@@ -2349,7 +2349,7 @@ QUEUE_CONNECTION=redis`;
                         type="submit"
                         className="px-3.5 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
                       >
-                        Simpan
+                        Save
                       </button>
                     </div>
                   </div>
@@ -2367,7 +2367,7 @@ QUEUE_CONNECTION=redis`;
                     <th className="py-3 px-4">SERVICE / RUNTIME</th>
                     <th className="py-3 px-4">CACHE STRATEGY</th>
                     <th className="py-3 px-4">STATUS</th>
-                    <th className="py-3 px-4 text-center">AKSI</th>
+                    <th className="py-3 px-4 text-center">ACTION</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -2398,7 +2398,7 @@ QUEUE_CONNECTION=redis`;
                           <button
                             type="button"
                             onClick={() => handleDeleteRoute(r.path)}
-                            title={`Hapus route ${r.path}`}
+                            title={`Delete route ${r.path}`}
                             className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors inline-flex items-center justify-center"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -2429,7 +2429,7 @@ QUEUE_CONNECTION=redis`;
                   className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
                 >
                   {copiedVhost ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedVhost ? 'Tersalin' : 'Salin Konfigurasi'}</span>
+                  <span>{copiedVhost ? 'Copied' : 'Copy Config'}</span>
                 </button>
               </div>
 
@@ -2447,10 +2447,10 @@ QUEUE_CONNECTION=redis`;
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  File Konfigurasi .env (Production Secrets)
+                  .env Configuration File (Production Secrets)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Tersimpan aman di <code>{appPath}/.env</code> dengan permission <code>0600</code> (chown {app.tenantUser}).
+                  Stored securely at <code>{appPath}/.env</code> with permission <code>0600</code> (chown {app.tenantUser}).
                 </p>
               </div>
 
@@ -2460,7 +2460,7 @@ QUEUE_CONNECTION=redis`;
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg"
                 >
                   {maskSecrets ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                  <span>{maskSecrets ? 'Tampilkan Secrets' : 'Sembunyikan Secrets'}</span>
+                  <span>{maskSecrets ? 'Show Secrets' : 'Hide Secrets'}</span>
                 </button>
 
                 <button
@@ -2468,7 +2468,7 @@ QUEUE_CONNECTION=redis`;
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg border border-blue-200"
                 >
                   {copiedEnv ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedEnv ? 'Copied!' : 'Salin ke Clipboard'}</span>
+                  <span>{copiedEnv ? 'Copied!' : 'Copy to Clipboard'}</span>
                 </button>
               </div>
             </div>
@@ -2574,10 +2574,10 @@ QUEUE_CONNECTION=redis`}
                   <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
                   <div>
                     <span className="font-bold text-purple-950 block">
-                      Konfigurasi Terisolasi per Aplikasi ({app.tenantUser})
+                      Per-App Isolated Configuration ({app.tenantUser})
                     </span>
                     <p className="text-[11px] text-purple-800 leading-relaxed">
-                      Seluruh 28+ extension bawaan dan PECL populer sudah di-index di bawah. Mengubah toggle di sini hanya berlaku untuk aplikasi ini (terisolasi dalam jail). Tidak akan mengubah default admin atau merusak aplikasi user lain.
+                      All 28+ built-in and popular PECL extensions are indexed below. Toggling here applies only to this app (jail-isolated). It will not change admin defaults or break other users' apps.
                     </p>
                   </div>
                 </div>
@@ -2598,7 +2598,7 @@ QUEUE_CONNECTION=redis`}
                     <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="Cari extension (e.g. redis, swoole, grpc, imagick)..."
+                      placeholder="Search extensions (e.g. redis, swoole, grpc, imagick)..."
                       value={extensionSearch}
                       onChange={(e) => setExtensionSearch(e.target.value)}
                       className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg w-64 focus:outline-hidden focus:ring-2 focus:ring-purple-500/20"
@@ -2633,7 +2633,7 @@ QUEUE_CONNECTION=redis`}
                   }`}
                 >
                   <Plus className="w-3.5 h-3.5 text-purple-600" />
-                  <span>{showCustomPeclForm ? 'Tutup Form PECL Kustom' : '+ Install PECL Lainnya'}</span>
+                  <span>{showCustomPeclForm ? 'Close Custom PECL Form' : '+ Install Other PECL'}</span>
                 </button>
               </div>
 
@@ -2642,16 +2642,16 @@ QUEUE_CONNECTION=redis`}
                 <div className="p-4 rounded-xl border border-purple-200 bg-purple-50/50 space-y-2 animate-in fade-in duration-150">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-purple-950">
-                      📦 Compile Paket PECL Kustom / Unlisted
+                      Compile Custom / Unlisted PECL Package
                     </span>
                     <span className="text-[10px] text-purple-700 font-medium">
-                      Gunakan ini hanya jika extension yang Anda butuhkan belum ada di daftar di bawah
+                      Use this only if the extension you need is not listed below
                     </span>
                   </div>
                   <form onSubmit={handleInstallCustomExtension} className="flex items-center gap-2">
                     <input
                       type="text"
-                      placeholder="Ketik nama paket PECL (e.g. excimer, uopz, v8js)..."
+                      placeholder="Type the PECL package name (e.g. excimer, uopz, v8js)..."
                       value={customExtensionInput}
                       onChange={(e) => setCustomExtensionInput(e.target.value)}
                       className="flex-1 px-3 py-2 text-xs bg-white border border-purple-300 rounded-lg font-mono focus:outline-hidden focus:ring-2 focus:ring-purple-500/20"
@@ -2662,7 +2662,7 @@ QUEUE_CONNECTION=redis`}
                       className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors disabled:opacity-50 whitespace-nowrap"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>{isInstallingExtension ? 'Mengompilasi PECL...' : 'Kompilasi & Pasang'}</span>
+                      <span>{isInstallingExtension ? 'Compiling PECL...' : 'Compile & Install'}</span>
                     </button>
                   </form>
                 </div>
@@ -2742,7 +2742,7 @@ QUEUE_CONNECTION=redis`}
                     Core php.ini Runtime Directives
                   </h4>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Modifikasi parameter runtime PHP-FPM khusus untuk tenant <code>{app.tenantUser}</code> tanpa mempengaruhi website lain.
+                    Modify PHP-FPM runtime parameters for tenant <code>{app.tenantUser}</code> without affecting other websites.
                   </p>
                 </div>
                 <button
@@ -2752,7 +2752,7 @@ QUEUE_CONNECTION=redis`}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors disabled:opacity-50"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  <span>{isReloadingFpm ? 'Menyimpan...' : 'Simpan & Terapkan php.ini'}</span>
+                  <span>{isReloadingFpm ? 'Saving...' : 'Save & Apply php.ini'}</span>
                 </button>
               </div>
 
@@ -2818,11 +2818,11 @@ QUEUE_CONNECTION=redis`}
                     onChange={(e) => setMaxExecutionTime(e.target.value)}
                     className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
                   >
-                    <option value="30">30 detik</option>
-                    <option value="60">60 detik</option>
-                    <option value="120">120 detik</option>
-                    <option value="300">300 detik (5 menit)</option>
-                    <option value="600">600 detik (10 menit)</option>
+                    <option value="30">30 seconds</option>
+                    <option value="60">60 seconds</option>
+                    <option value="120">120 seconds</option>
+                    <option value="300">300 seconds (5 minutes)</option>
+                    <option value="600">600 seconds (10 minutes)</option>
                   </select>
                 </div>
 
@@ -2895,7 +2895,7 @@ QUEUE_CONNECTION=redis`}
                     Edge Access Control & Traffic Protection
                   </h3>
                   <p className="text-xs text-slate-600 mt-0.5">
-                    Diterapkan langsung pada layer web server ({app.webServer.toUpperCase()}) tanpa membebani runtime {app.runtime.toUpperCase()}.
+                    Enforced directly at the web server layer ({app.webServer.toUpperCase()}) without burdening the {app.runtime.toUpperCase()} runtime.
                   </p>
                 </div>
               </div>
@@ -2935,7 +2935,7 @@ QUEUE_CONNECTION=redis`}
                           Maintenance Mode (HTTP 503)
                         </h4>
                         <p className="text-xs text-slate-500">
-                          Alihkan pengunjung ke layar downtime pemeliharaan berkala
+                          Redirect visitors to a scheduled maintenance downtime page
                         </p>
                       </div>
                     </div>
@@ -2964,15 +2964,15 @@ QUEUE_CONNECTION=redis`}
                       <div className="flex items-start gap-2">
                         <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping mt-1 shrink-0" />
                         <div>
-                          <strong>Mode Pemeliharaan Sedang Aktif!</strong>
+                          <strong>Maintenance Mode Is Active!</strong>
                           <p className="mt-0.5 text-[11px] text-amber-800">
-                            Pengunjung umum menerima HTTP 503 Service Unavailable. IP terdaftar di Whitelist tetap memiliki akses penuh ke aplikasi.
+                            General visitors receive HTTP 503 Service Unavailable. Whitelisted IPs retain full access to the app.
                           </p>
                         </div>
                       </div>
                     ) : (
                       <p className="text-[11px]">
-                        Website sedang beroperasi normal. Aktifkan toggle di atas jika Anda ingin melakukan migrasi database, upgrade framework, atau maintenance darurat.
+                        The website is operating normally. Turn on the toggle above to run a database migration, framework upgrade, or emergency maintenance.
                       </p>
                     )}
                   </div>
@@ -2980,13 +2980,13 @@ QUEUE_CONNECTION=redis`}
                   <form onSubmit={handleSaveMaintenanceConfig} className="space-y-3.5">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Pesan Pemeliharaan Kustom (Ditampilkan ke Pengunjung)
+                        Custom Maintenance Message (shown to visitors)
                       </label>
                       <textarea
                         rows={3}
                         value={maintenanceMessage}
                         onChange={(e) => setMaintenanceMessage(e.target.value)}
-                        placeholder="Tulis pesan alasan maintenance untuk pengunjung..."
+                        placeholder="Write the maintenance message shown to visitors..."
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-amber-500 focus:outline-hidden resize-none font-medium"
                       />
                     </div>
@@ -2999,11 +2999,11 @@ QUEUE_CONNECTION=redis`}
                         type="text"
                         value={maintenanceBypassIps}
                         onChange={(e) => setMaintenanceBypassIps(e.target.value)}
-                        placeholder="Contoh: 127.0.0.1, 103.147.154.82, 192.168.1.100"
+                        placeholder="Example: 127.0.0.1, 103.147.154.82, 192.168.1.100"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono focus:bg-white focus:border-amber-500 focus:outline-hidden"
                       />
                       <p className="text-[10px] text-slate-400 mt-1">
-                        Pisahkan dengan koma. IP di atas tidak akan terkena HTTP 503 sehingga Anda tetap bisa testing.
+                        Separate with commas. These IPs bypass HTTP 503 so you can keep testing.
                       </p>
                     </div>
 
@@ -3014,7 +3014,7 @@ QUEUE_CONNECTION=redis`}
                         className="px-3 py-2 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors flex items-center gap-1.5"
                       >
                         <Eye className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Preview Halaman 503</span>
+                        <span>Preview 503 Page</span>
                       </button>
 
                       <button
@@ -3022,7 +3022,7 @@ QUEUE_CONNECTION=redis`}
                         disabled={isSavingMaintenance}
                         className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-colors shadow-2xs"
                       >
-                        {isSavingMaintenance ? 'Menerapkan...' : 'Simpan Pengaturan 503'}
+                        {isSavingMaintenance ? 'Applying...' : 'Save 503 Settings'}
                       </button>
                     </div>
                   </form>
@@ -3141,7 +3141,7 @@ QUEUE_CONNECTION=redis`}
                           HTTP Basic Authentication
                         </h4>
                         <p className="text-xs text-slate-500">
-                          Wajibkan kredensial login via dialog bawaan browser (.htpasswd)
+                          Require login credentials via the browser's built-in dialog (.htpasswd)
                         </p>
                       </div>
                     </div>
@@ -3170,15 +3170,15 @@ QUEUE_CONNECTION=redis`}
                       <div className="flex items-start gap-2">
                         <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
                         <div>
-                          <strong>Proteksi Password Aktif</strong>
+                          <strong>Password Protection Active</strong>
                           <p className="mt-0.5 text-[11px] text-purple-800">
-                            Setiap request ke <code className="font-mono">{app.domain}</code> akan ditantang dengan HTTP 401 Unauthorized sampai pengunjung memasukkan user & password yang sesuai.
+                            Every request to <code className="font-mono">{app.domain}</code> is challenged with HTTP 401 Unauthorized until the visitor enters valid credentials.
                           </p>
                         </div>
                       </div>
                     ) : (
                       <p className="text-[11px]">
-                        Akses publik terbuka tanpa password. Sangat cocok diaktifkan untuk situs staging, API internal, atau dashboard sebelum rilis publik.
+                        Public access is open without a password. Ideal for staging sites, internal APIs, or dashboards before public release.
                       </p>
                     )}
                   </div>
@@ -3209,7 +3209,7 @@ QUEUE_CONNECTION=redis`}
                             onClick={handleGeneratePassword}
                             className="text-[10px] font-bold text-purple-600 hover:text-purple-800"
                           >
-                            ⚡ Generate
+                            Generate
                           </button>
                         </div>
                         <div className="relative">
@@ -3218,7 +3218,7 @@ QUEUE_CONNECTION=redis`}
                             required
                             value={basicAuthPassword}
                             onChange={(e) => setBasicAuthPassword(e.target.value)}
-                            placeholder="Ketik password"
+                            placeholder="Type password"
                             className="w-full px-3 py-2 pr-9 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono focus:bg-white focus:border-purple-500 focus:outline-hidden"
                           />
                           <button
@@ -3234,13 +3234,13 @@ QUEUE_CONNECTION=redis`}
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Realm Title (Pesan Dialog Browser)
+                        Realm Title (Browser Dialog Message)
                       </label>
                       <input
                         type="text"
                         value={basicAuthRealm}
                         onChange={(e) => setBasicAuthRealm(e.target.value)}
-                        placeholder="Contoh: Protected Staging Area"
+                        placeholder="Example: Protected Staging Area"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-purple-500 focus:outline-hidden"
                       />
                     </div>
@@ -3267,7 +3267,7 @@ QUEUE_CONNECTION=redis`}
                         className="px-3 py-2 text-xs font-bold text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-colors flex items-center gap-1.5"
                       >
                         <Key className="w-3.5 h-3.5 text-purple-600" />
-                        <span>Uji Prompt Dialog (Simulator)</span>
+                        <span>Test Prompt Dialog (Simulator)</span>
                       </button>
 
                       <button
@@ -3275,7 +3275,7 @@ QUEUE_CONNECTION=redis`}
                         disabled={isSavingBasicAuth}
                         className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-sm shadow-purple-500/25"
                       >
-                        {isSavingBasicAuth ? 'Menyimpan...' : 'Simpan .htpasswd'}
+                        {isSavingBasicAuth ? 'Saving...' : 'Save .htpasswd'}
                       </button>
                     </div>
                   </form>
@@ -3346,7 +3346,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-bold text-slate-900">
-                      Deploy & Build Script Tersimpan per-Aplikasi
+                      Deploy & Build Script Saved Per App
                     </h3>
                     <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1 font-mono">
                       <CheckCircle2 className="w-3 h-3 text-emerald-600" />
@@ -3354,7 +3354,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 mt-0.5">
-                    Skrip ini disimpan secara permanen untuk <strong>{app.name}</strong>. Setiap kali commit di-push ke GitHub atau webhook dipanggil, server otomatis mengeksekusi skrip ini di sandbox <code>{appPath}</code>.
+                    This script is stored permanently for <strong>{app.name}</strong>. Whenever a commit is pushed to GitHub or the webhook is called, the server runs it automatically in the sandbox <code>{appPath}</code>.
                   </p>
                 </div>
               </div>
@@ -3367,7 +3367,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                   className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
                 >
                   <Save className={`w-3.5 h-3.5 ${isSavingDeployScript ? 'animate-spin' : 'text-blue-600'}`} />
-                  <span>{isSavingDeployScript ? 'Menyimpan...' : 'Simpan Konfigurasi Script'}</span>
+                  <span>{isSavingDeployScript ? 'Saving...' : 'Save Script Config'}</span>
                 </button>
                 <button
                   type="button"
@@ -3376,7 +3376,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                   className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center gap-2 shadow-sm shadow-blue-500/25 disabled:opacity-50 cursor-pointer"
                 >
                   <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
-                  <span>{isDeployingNow ? 'Sedang Deploy...' : 'Redeploy Sekarang'}</span>
+                  <span>{isDeployingNow ? 'Deploying...' : 'Redeploy Now'}</span>
                 </button>
               </div>
             </div>
@@ -3395,7 +3395,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                   className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white"
                 />
                 <span className="text-[11px] text-slate-500 block">
-                  Alamat remote git upstream yang digunakan untuk penarikan kode (git pull).
+                  Upstream git remote used to pull code (git pull).
                 </span>
               </div>
 
@@ -3414,7 +3414,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                   />
                 </div>
                 <span className="text-[11px] text-slate-500 block">
-                  Branch yang di-checkout otomatis saat deploy.
+                  Branch checked out automatically on deploy.
                 </span>
               </div>
             </div>
@@ -3433,7 +3433,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                     onChange={(e) => setAutoDeploy(e.target.checked)}
                     className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <span className="font-semibold">Aktifkan Auto Redeploy saat Git Push</span>
+                  <span className="font-semibold">Enable Auto Redeploy on Git Push</span>
                 </label>
               </div>
 
@@ -3450,11 +3450,11 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                   className="px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer"
                 >
                   {copiedDeployWebhook ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedDeployWebhook ? 'Tersalin' : 'Copy'}</span>
+                  <span>{copiedDeployWebhook ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>
               <p className="text-[11px] text-slate-500">
-                Salin Webhook URL di atas dan masukkan ke <strong>GitHub: Repo Settings → Webhooks → Add Webhook</strong> (Content-Type: <code>application/json</code>). Setiap push commit ke branch <code>{gitBranch}</code> akan otomatis menjalankan build script di bawah!
+                Copy the Webhook URL above into <strong>GitHub: Repo Settings → Webhooks → Add Webhook</strong> (Content-Type: <code>application/json</code>). Every commit pushed to branch <code>{gitBranch}</code> automatically runs the build script below!
               </p>
             </div>
 
@@ -3467,7 +3467,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                     <span>Deploy & Build Script Editor</span>
                   </h4>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Perintah shell bash yang dijalankan berurutan di dalam tenant sandbox saat build/redeploy.
+                    Bash shell commands run sequentially inside the tenant sandbox on build/redeploy.
                   </p>
                 </div>
 
@@ -3475,7 +3475,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
                     <Sparkles className="w-3 h-3 text-amber-500" />
-                    <span>Muat Preset:</span>
+                    <span>Load Preset:</span>
                   </span>
                   <button
                     type="button"
@@ -3521,14 +3521,14 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                   rows={7}
                   value={buildScript}
                   onChange={(e) => setBuildScript(e.target.value)}
-                  placeholder="Contoh:&#10;git pull origin main&#10;composer install --no-dev&#10;php artisan migrate --force&#10;systemctl reload-app"
+                  placeholder="Example:&#10;git pull origin main&#10;composer install --no-dev&#10;php artisan migrate --force&#10;systemctl reload-app"
                   className="w-full bg-transparent border-none outline-hidden text-emerald-400 resize-y font-mono text-xs focus:ring-0 leading-relaxed min-h-[140px]"
                 />
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-1">
                 <div className="text-[11px] text-slate-400">
-                  Environment variables tersedia: <code>$APP_NAME</code>, <code>$APP_PORT</code>, <code>$APP_DOMAIN</code>, <code>$TENANT_USER</code>.
+                  Available environment variables: <code>$APP_NAME</code>, <code>$APP_PORT</code>, <code>$APP_DOMAIN</code>, <code>$TENANT_USER</code>.
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -3538,7 +3538,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                     className="px-4 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
                     <Save className="w-3.5 h-3.5 text-blue-600" />
-                    <span>{isSavingDeployScript ? 'Menyimpan...' : 'Simpan Script'}</span>
+                    <span>{isSavingDeployScript ? 'Saving...' : 'Save Script'}</span>
                   </button>
                   <button
                     type="button"
@@ -3547,7 +3547,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
                     className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center gap-2 shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50"
                   >
                     <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
-                    <span>{isDeployingNow ? 'Sedang Deploy...' : 'Simpan & Redeploy Sekarang'}</span>
+                    <span>{isDeployingNow ? 'Deploying...' : 'Save & Redeploy Now'}</span>
                   </button>
                 </div>
               </div>
@@ -3568,7 +3568,7 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
               </div>
               <div className="bg-slate-950 rounded-xl p-4 border border-slate-800 font-mono text-xs text-slate-200 min-h-[140px] max-h-[220px] overflow-y-auto space-y-1.5 shadow-inner">
                 {deployLogs.map((log, idx) => (
-                  <div key={idx} className={log.includes('✅') ? 'text-emerald-400 font-bold' : log.includes('❌') ? 'text-rose-400 font-bold' : 'text-slate-300'}>
+                  <div key={idx} className={log.includes('[OK]') ? 'text-emerald-400 font-bold' : log.includes('[FAIL]') ? 'text-rose-400 font-bold' : 'text-slate-300'}>
                     {log}
                   </div>
                 ))}

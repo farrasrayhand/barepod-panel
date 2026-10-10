@@ -138,10 +138,10 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
   const handlePruneOldMetrics = () => {
     setIsPruning(true);
-    onShowToast?.('Pruning Metrics Dimulai', `Membersihkan time-series metrics yang lebih lama dari ${serverMetricsRetentionDays} hari...`, 'info');
+    onShowToast?.('Pruning Metrics Started', `Cleaning time-series metrics older than ${serverMetricsRetentionDays} days...`, 'info');
     setTimeout(() => {
       setIsPruning(false);
-      onShowToast?.('Pruning Selesai', `1.42 juta data poin lama dibersihkan. 420 MB ruang disk berhasil dibebaskan.`, 'success');
+      onShowToast?.('Pruning Complete', `1.42 million old data points removed. 420 MB of disk space freed.`, 'success');
     }, 1100);
   };
 
@@ -154,7 +154,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Panel Settings & System</h1>
             <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">
-              Prototype UI • Simulasi
+              Prototype UI • Simulated
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
@@ -179,7 +179,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-500/25 transition-all"
           >
             {isSaving ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            <span>{isSaving ? 'Menyimpan...' : 'Simpan Semua'}</span>
+            <span>{isSaving ? 'Saving...' : 'Save All'}</span>
           </button>
         </div>
       </div>
@@ -210,7 +210,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             }`}
           >
             <Activity className="w-4 h-4" />
-            <span>Monitoring Policy (Retensi)</span>
+            <span>Monitoring Policy (Retention)</span>
           </button>
 
           <button
@@ -246,7 +246,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             }`}
           >
             <HardDrive className="w-4 h-4" />
-            <span>Backup Policy (Jadwal)</span>
+            <span>Backup Policy (Schedule)</span>
           </button>
 
           <button
@@ -294,7 +294,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             <div className="space-y-6 max-w-2xl">
               <div>
                 <h2 className="text-base font-bold text-slate-900">General Panel Preferences</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Konfigurasi port daemon, domain panel, dan default web server.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Daemon port, panel domain, and default web server.</p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -321,23 +321,23 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     onChange={(e) => setPanelDomain(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">Domain untuk mengakses dashboard</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Domain used to access the dashboard</p>
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Default Web Server Engine untuk Aplikasi Baru
+                  Default Web Server Engine for New Apps
                 </label>
                 <select
                   value={defaultWebServer}
                   onChange={(e) => setDefaultWebServer(e.target.value as WebServerType)}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-semibold focus:border-blue-500"
                 >
-                  <option value="openlitespeed">OpenLiteSpeed (Rekomendasi - LSCache & Tercepat untuk PHP)</option>
-                  <option value="nginx">Nginx (Standar Industri & Reverse Proxy Unggul)</option>
-                  <option value="caddy">Caddy (Otomatis HTTPS & HTTP/3 Modern)</option>
-                  <option value="apache">Apache 2.4 (Maksimal Kompatibilitas .htaccess)</option>
+                  <option value="openlitespeed">OpenLiteSpeed (Recommended - LSCache, fastest for PHP)</option>
+                  <option value="nginx">Nginx (Industry standard, strong reverse proxy)</option>
+                  <option value="caddy">Caddy (Automatic HTTPS & modern HTTP/3)</option>
+                  <option value="apache">Apache 2.4 (Best .htaccess compatibility)</option>
                 </select>
               </div>
 
@@ -361,14 +361,14 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Bahasa Antarmuka
+                    Interface Language
                   </label>
                   <select
                     value={language}
                     onChange={(e) => setLanguage(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
                   >
-                    <option value="id">Bahasa Indonesia</option>
+                    <option value="id">Indonesian</option>
                     <option value="en">English (US)</option>
                   </select>
                 </div>
@@ -387,7 +387,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     Automatic Core & Security Patches
                   </label>
                   <p className="text-[11px] text-slate-500">
-                    Otomatis mengunduh patch keamanan dan pembaharuan kernel cgroups pada jam 03:00 WIB.
+                    Automatically downloads security patches and cgroup kernel updates at 03:00 WIB.
                   </p>
                 </div>
               </div>
@@ -402,7 +402,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   Monitoring & Telemetry Retention Policy
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Atur berapa lama data metrik historis CPU, RAM, Network, Disk I/O, dan S.M.A.R.T. disimpan di sistem time-series database.
+                  How long historical CPU, RAM, network, disk I/O, and S.M.A.R.T. metrics are kept in the time-series database.
                 </p>
               </div>
 
@@ -415,56 +415,56 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-slate-900">
-                        Retensi Metrik Server (Host Global)
+                        Server Metrics Retention (Global Host)
                       </h3>
                       <p className="text-xs text-slate-500">
-                        Data performa hardware host bare-metal / VPS (CPU per-core, RAM, S.M.A.R.T. disk, NIC bandwidth)
+                        Bare-metal / VPS hardware metrics (per-core CPU, RAM, S.M.A.R.T. disk, NIC bandwidth)
                       </p>
                     </div>
                   </div>
                   <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-100 text-blue-800 font-mono">
-                    {serverMetricsRetentionDays} Hari
+                    {serverMetricsRetentionDays} Days
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Durasi Penyimpanan Metrik Server
+                      Server Metrics Retention Duration
                     </label>
                     <select
                       value={serverMetricsRetentionDays}
                       onChange={(e) => setServerMetricsRetentionDays(Number(e.target.value))}
                       className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-blue-500"
                     >
-                      <option value={7}>7 Hari (1 Minggu - Storage Minimal)</option>
-                      <option value={14}>14 Hari (2 Minggu)</option>
-                      <option value={30}>30 Hari (1 Bulan)</option>
-                      <option value={60}>60 Hari (2 Bulan)</option>
-                      <option value={90}>90 Hari (3 Bulan - Sangat Disarankan)</option>
-                      <option value={180}>180 Hari (6 Bulan - Audit Semi-Tahunan)</option>
-                      <option value={365}>365 Hari (1 Tahun - Kapasitas Panjang)</option>
+                      <option value={7}>7 Days (1 week - minimal storage)</option>
+                      <option value={14}>14 Days (2 weeks)</option>
+                      <option value={30}>30 Days (1 month)</option>
+                      <option value={60}>60 Days (2 months)</option>
+                      <option value={90}>90 Days (3 months - recommended)</option>
+                      <option value={180}>180 Days (6 months - semi-annual audit)</option>
+                      <option value={365}>365 Days (1 year - long-term capacity)</option>
                     </select>
                     <p className="text-[10px] text-slate-400 mt-1">
-                      Metrik server yang lebih tua dari batas ini akan di-prune secara otomatis oleh daemon.
+                      Server metrics older than this limit are pruned automatically by the daemon.
                     </p>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Interval Sampling (Frekuensi Probe)
+                      Sampling Interval (Probe Frequency)
                     </label>
                     <select
                       value={metricsSampleIntervalSecs}
                       onChange={(e) => setMetricsSampleIntervalSecs(Number(e.target.value))}
                       className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-blue-500"
                     >
-                      <option value={5}>Setiap 5 Detik (Resolusi Tinggi / Realtime)</option>
-                      <option value={15}>Setiap 15 Detik (Standar Rekomendasi)</option>
-                      <option value={60}>Setiap 60 Detik (Hemat I/O Disk)</option>
+                      <option value={5}>Every 5 Seconds (high resolution / realtime)</option>
+                      <option value={15}>Every 15 Seconds (recommended)</option>
+                      <option value={60}>Every 60 Seconds (low disk I/O)</option>
                     </select>
                     <p className="text-[10px] text-slate-400 mt-1">
-                      Frekuensi penulisan metrik ke time-series buffer disk.
+                      How often metrics are written to the time-series disk buffer.
                     </p>
                   </div>
                 </div>
@@ -472,10 +472,10 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 {/* Storage estimation banner */}
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                   <div className="space-y-0.5">
-                    <span className="text-[11px] font-bold text-slate-700">Estimasi Ruang Disk Database TSDB:</span>
+                    <span className="text-[11px] font-bold text-slate-700">Estimated TSDB Disk Usage:</span>
                     <p className="text-[11px] text-slate-500 font-mono">
                       ~{(serverMetricsRetentionDays * (metricsSampleIntervalSecs === 5 ? 14 : metricsSampleIntervalSecs === 15 ? 5.2 : 1.4)).toFixed(0)} MB 
-                      (Engine: SQLite-WAL Compressed TSDB di /var/lib/barepod/metrics)
+                      (Engine: SQLite-WAL compressed TSDB in /var/lib/barepod/metrics)
                     </p>
                   </div>
                   <button
@@ -485,7 +485,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     className="px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors flex items-center gap-1.5 shrink-0"
                   >
                     <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                    <span>{isPruning ? 'Membersihkan...' : 'Prune Metrik Lama Sekarang'}</span>
+                    <span>{isPruning ? 'Cleaning...' : 'Prune Old Metrics Now'}</span>
                   </button>
                 </div>
               </div>
@@ -499,15 +499,15 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-slate-900">
-                        Batas Retensi Metrik Aplikasi (Tenant Web Apps)
+                        App Metrics Retention Limit (Tenant Web Apps)
                       </h3>
                       <p className="text-xs text-slate-500">
-                        Kebijakan isolasi penyimpanan per-aplikasi (Laravel, Node.js, Python, Reverse Proxy)
+                        Per-app storage isolation policy (Laravel, Node.js, Python, reverse proxy)
                       </p>
                     </div>
                   </div>
                   <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-100 text-purple-800 font-mono">
-                    Maksimal 30 Hari
+                    Max 30 Days
                   </span>
                 </div>
 
@@ -515,9 +515,9 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   <div className="flex items-start gap-2">
                     <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
                     <div>
-                      <strong className="text-purple-900">Kebijakan Panel: Batas Maksimal Retensi App = 30 Hari</strong>
+                      <strong className="text-purple-900">Panel Policy: Maximum App Retention = 30 Days</strong>
                       <p className="text-[11px] text-slate-600 mt-0.5">
-                        Sesuai arsitektur isolasi BarePod Panel, monitoring level aplikasi dibatasi maksimal <strong>30 hari</strong> agar partisi direktori home tenant (<code className="font-mono text-purple-800">/home/[user]/apps/</code>) tidak mengalami disk exhaustion atau degradasi performa agregasi cgroups v2.
+                        App-level monitoring is capped at <strong>30 days</strong> to avoid disk exhaustion in tenant home partitions (<code className="font-mono text-purple-800">/home/[user]/apps/</code>).
                       </p>
                     </div>
                   </div>
@@ -526,25 +526,25 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Default Retensi Metrik Aplikasi Baru
+                      Default Retention for New App Metrics
                     </label>
                     <select
                       value={appDefaultRetentionDays}
                       onChange={(e) => setAppDefaultRetentionDays(Number(e.target.value))}
                       className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl font-medium focus:border-purple-500"
                     >
-                      <option value={7}>7 Hari (1 Minggu)</option>
-                      <option value={14}>14 Hari (2 Minggu)</option>
-                      <option value={30}>30 Hari (Batas Maksimum Panel)</option>
+                      <option value={7}>7 Days (1 week)</option>
+                      <option value={14}>14 Days (2 weeks)</option>
+                      <option value={30}>30 Days (panel maximum)</option>
                     </select>
                     <p className="text-[10px] text-slate-400 mt-1">
-                      Setiap pemilik aplikasi dapat menyesuaikan durasi ini hingga batas maksimal 30 hari di halaman App Detail.
+                      App owners can adjust this up to 30 days on the App Detail page.
                     </p>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Jadwal Auto-Cleanup Cron Daemon
+                      Cron Auto-Cleanup Schedule
                     </label>
                     <div className="flex items-center gap-2">
                       <input
@@ -559,7 +559,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                       </span>
                     </div>
                     <p className="text-[10px] text-slate-400 mt-1">
-                      Cronjob otomatis memangkas metrik kedaluwarsa tanpa menghentikan trafik web.
+                      An automatic cron job prunes expired metrics without interrupting web traffic.
                     </p>
                   </div>
                 </div>
@@ -574,7 +574,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   className="px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-500/25 transition-all flex items-center gap-1.5"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>Simpan Kebijakan Retensi</span>
+                  <span>Save Retention Policy</span>
                 </button>
               </div>
             </div>
@@ -585,22 +585,22 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             <div className="space-y-6 max-w-2xl">
               <div>
                 <h2 className="text-base font-bold text-slate-900">Security & Access Control</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Kebijakan autentikasi panel, proteksi brute-force, dan restriksi IP.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Panel authentication policy, brute-force protection, and IP restrictions.</p>
               </div>
 
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-xs font-bold text-slate-900">Two-Factor Authentication (2FA TOTP)</h3>
-                    <p className="text-[11px] text-slate-500">Wajibkan Google Authenticator / Authy untuk login akun Admin.</p>
+                    <p className="text-[11px] text-slate-500">Require Google Authenticator / Authy for admin account logins.</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
                       setEnable2FA(!enable2FA);
                       onShowToast?.(
-                        !enable2FA ? '2FA Diaktifkan' : '2FA Dinonaktifkan',
-                        !enable2FA ? 'Scan QR Code dengan Google Authenticator.' : 'Autentikasi 2FA dimatikan.',
+                        !enable2FA ? '2FA Enabled' : '2FA Disabled',
+                        !enable2FA ? 'Scan the QR code with Google Authenticator.' : 'Two-factor authentication is now off.',
                         'info'
                       );
                     }}
@@ -608,7 +608,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                       enable2FA ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
                     }`}
                   >
-                    {enable2FA ? '2FA Aktif' : 'Aktifkan 2FA'}
+                    {enable2FA ? '2FA Active' : 'Enable 2FA'}
                   </button>
                 </div>
               </div>
@@ -616,7 +616,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Batas Percobaan Login (Fail2ban)
+                    Login Attempt Limit (Fail2ban)
                   </label>
                   <input
                     type="number"
@@ -624,39 +624,39 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     onChange={(e) => setMaxLoginAttempts(Number(e.target.value))}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">Blokir IP selama 30 menit jika gagal 5x.</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Block the IP for 30 minutes after 5 failed attempts.</p>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Masa Berlaku Sesi Admin
+                    Admin Session Lifetime
                   </label>
                   <select
                     value={sessionTimeoutHours}
                     onChange={(e) => setSessionTimeoutHours(Number(e.target.value))}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
                   >
-                    <option value={12}>12 Jam</option>
-                    <option value={24}>24 Jam (1 Hari)</option>
-                    <option value={72}>3 Hari</option>
-                    <option value={168}>7 Hari</option>
+                    <option value={12}>12 Hours</option>
+                    <option value={24}>24 Hours (1 day)</option>
+                    <option value={72}>3 Days</option>
+                    <option value={168}>7 Days</option>
                   </select>
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Whitelist IP untuk Akses Panel Admin
+                  IP Whitelist for Admin Panel Access
                 </label>
                 <textarea
                   rows={3}
                   value={ipWhitelist}
                   onChange={(e) => setIpWhitelist(e.target.value)}
-                  placeholder="Contoh: 192.168.1.100&#10;103.45.12.0/24&#10;(Kosongkan jika ingin mengizinkan dari semua IP)"
+                  placeholder="Example: 192.168.1.100&#10;103.45.12.0/24&#10;(Leave empty to allow all IPs)"
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Hanya IP di atas yang diizinkan membuka port panel admin.
+                  Only the IPs listed above may open the admin panel port.
                 </p>
               </div>
 
@@ -687,7 +687,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             <div className="space-y-6 max-w-2xl">
               <div>
                 <h2 className="text-base font-bold text-slate-900">Reverse Proxy & SSL Protocols</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Pengaturan port ingress publik, HTTP/3, Let's Encrypt email, dan Cloudflare IP restore.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Public ingress ports, HTTP/3, Let's Encrypt email, and Cloudflare IP restore.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -729,7 +729,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Digunakan untuk notifikasi pembaharuan sertifikat SSL TLS otomatis.
+                  Used for automatic SSL/TLS certificate renewal notices.
                 </p>
               </div>
 
@@ -746,7 +746,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     <label htmlFor="http3Check" className="text-xs font-bold text-slate-900 cursor-pointer block">
                       HTTP/3 (QUIC Protocol via UDP)
                     </label>
-                    <p className="text-[11px] text-slate-500">Meningkatkan kecepatan koneksi mobile dengan handshake 0-RTT.</p>
+                    <p className="text-[11px] text-slate-500">Speeds up mobile connections with 0-RTT handshakes.</p>
                   </div>
                 </div>
 
@@ -762,7 +762,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     <label htmlFor="brotliCheck" className="text-xs font-bold text-slate-900 cursor-pointer block">
                       Brotli & Gzip Compression
                     </label>
-                    <p className="text-[11px] text-slate-500">Kompresi dinamis otomatis untuk file CSS, JS, HTML, dan SVG.</p>
+                    <p className="text-[11px] text-slate-500">Automatic dynamic compression for CSS, JS, HTML, and SVG files.</p>
                   </div>
                 </div>
 
@@ -779,7 +779,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                       Restore Cloudflare Real IP (CF-Connecting-IP)
                     </label>
                     <p className="text-[11px] text-slate-500">
-                      Mengembalikan IP asli pengunjung website di log Nginx/OLS saat menggunakan proxy Cloudflare CDN.
+                      Restores real visitor IPs in Nginx/OLS logs when the Cloudflare CDN proxy is used.
                     </p>
                   </div>
                 </div>
@@ -793,7 +793,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-base font-bold text-slate-900">Automated Backups & Storage</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Cadangkan seluruh website, basis data, dan konfigurasi panel.</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Back up all websites, databases, and panel configuration.</p>
                 </div>
                 <button
                   type="button"
@@ -802,45 +802,45 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 transition-colors shadow-2xs"
                 >
                   <RotateCw className={`w-3.5 h-3.5 ${isBackingUp ? 'animate-spin' : ''}`} />
-                  <span>{isBackingUp ? 'Memproses Snapshot...' : 'Create Snapshot Now'}</span>
+                  <span>{isBackingUp ? 'Processing Snapshot...' : 'Create Snapshot Now'}</span>
                 </button>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Jadwal Backup Otomatis
+                    Automatic Backup Schedule
                   </label>
                   <select
                     value={backupSchedule}
                     onChange={(e) => setBackupSchedule(e.target.value as any)}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-semibold"
                   >
-                    <option value="daily">Harian (Setiap 02:00 WIB)</option>
-                    <option value="weekly">Mingguan (Setiap Minggu)</option>
-                    <option value="disabled">Nonaktifkan Otomatis</option>
+                    <option value="daily">Daily (02:00 WIB)</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="disabled">Disable Automatic</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Masa Retensi Backup
+                    Backup Retention Period
                   </label>
                   <select
                     value={backupRetentionDays}
                     onChange={(e) => setBackupRetentionDays(Number(e.target.value))}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
                   >
-                    <option value={7}>Simpan 7 Hari Terakhir</option>
-                    <option value={14}>Simpan 14 Hari Terakhir</option>
-                    <option value={30}>Simpan 30 Hari Terakhir</option>
+                    <option value={7}>Keep Last 7 Days</option>
+                    <option value={14}>Keep Last 14 Days</option>
+                    <option value={30}>Keep Last 30 Days</option>
                   </select>
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Penyimpanan Target (Destination)
+                  Target Storage (Destination)
                 </label>
                 <div className="grid grid-cols-3 gap-2.5">
                   {(['local', 's3', 'r2'] as const).map(dest => (
@@ -854,9 +854,9 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                           : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                       }`}
                     >
-                      {dest === 'local' && '📁 Local VPS Disk'}
-                      {dest === 's3' && '☁️ AWS S3 Compatible'}
-                      {dest === 'r2' && '⚡ Cloudflare R2'}
+                      {dest === 'local' && 'Local VPS Disk'}
+                      {dest === 's3' && 'AWS S3 Compatible'}
+                      {dest === 'r2' && 'Cloudflare R2'}
                     </button>
                   ))}
                 </div>
@@ -865,7 +865,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               {backupStorageType === 'local' ? (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Direktori Backup Lokal Host
+                    Local Host Backup Directory
                   </label>
                   <input
                     type="text"
@@ -911,7 +911,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-base font-bold text-slate-900">Notifications & Alert Channels</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Dapatkan peringatan instan saat CPU &gt; 90%, disk penuh, atau ada serangan brute force.</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Get instant alerts when CPU &gt; 90%, disks fill up, or brute-force attacks occur.</p>
                 </div>
                 <button
                   type="button"
@@ -982,7 +982,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
                 <div className="flex items-center gap-2">
                   <Mail className="w-4 h-4 text-slate-600" />
-                  <h3 className="text-xs font-bold text-slate-900">SMTP Server untuk Email Notifikasi</h3>
+                  <h3 className="text-xs font-bold text-slate-900">SMTP Server for Email Notifications</h3>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="col-span-2">
@@ -1013,7 +1013,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             <div className="space-y-6 max-w-2xl">
               <div>
                 <h2 className="text-base font-bold text-slate-900">Database Engine Default Ports</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Port listening lokal untuk engine PostgreSQL, MariaDB, dan Redis.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Local listening ports for the PostgreSQL, MariaDB, and Redis engines.</p>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
@@ -1053,19 +1053,19 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Masa Berlaku Sesi Web GUI SSO (phpMyAdmin / DbGate)
+                  Web GUI SSO Session Lifetime (phpMyAdmin / DbGate)
                 </label>
                 <select
                   value={ssoSessionMinutes}
                   onChange={(e) => setSsoSessionMinutes(Number(e.target.value))}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
                 >
-                  <option value={60}>60 Menit (1 Jam)</option>
-                  <option value={120}>120 Menit (2 Jam)</option>
-                  <option value={360}>360 Menit (6 Jam)</option>
+                  <option value={60}>60 Minutes (1 hour)</option>
+                  <option value={120}>120 Minutes (2 hours)</option>
+                  <option value={360}>360 Minutes (6 hours)</option>
                 </select>
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Otomatis me-logout autologin SSO jika tidak ada aktivitas pengguna.
+                  Automatically logs out SSO sessions after inactivity.
                 </p>
               </div>
             </div>
@@ -1082,18 +1082,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Atur extension bawaan dan resource limit yang otomatis terpasang saat user membuat aplikasi PHP baru.
-                </p>
-              </div>
-
-              {/* Isolation Guarantee Banner */}
-              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/70 text-blue-900 space-y-1.5 text-xs">
-                <div className="flex items-center gap-2 font-bold text-blue-950">
-                  <ShieldCheck className="w-4 h-4 text-blue-600" />
-                  <span>Jaminan Isolasi Tenant & User</span>
-                </div>
-                <p className="text-[11px] text-blue-800 leading-relaxed">
-                  Pengaturan ini berfungsi sebagai <strong>Blueprint / Default Awal</strong>. Ketika seorang user mengubah, menambah, atau menonaktifkan extension di halaman aplikasi miliknya (App Detail), perubahan tersebut <strong>100% terisolasi</strong> di dalam cgroups jail / FPM pool aplikasi tersebut. Pengaturan global admin ini tidak akan tertimpa dan aplikasi user lain tidak akan terganggu.
+                  Set the default extensions and resource limits applied when a user creates a new PHP app.
                 </p>
               </div>
 
@@ -1158,7 +1147,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                       Master Extension Catalog ({globalPhpExtensions.filter(e => e.enabled).length} Enabled by Default / {globalPhpExtensions.length} Available)
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Toggle extension yang ingin langsung aktif saat user men-deploy aplikasi PHP baru.
+                      Toggle extensions to activate automatically when a user deploys a new PHP app.
                     </p>
                   </div>
 
@@ -1166,7 +1155,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
-                      placeholder="Cari extension..."
+                      placeholder="Search extensions..."
                       value={extSearchAdmin}
                       onChange={(e) => setExtSearchAdmin(e.target.value)}
                       className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg w-40"

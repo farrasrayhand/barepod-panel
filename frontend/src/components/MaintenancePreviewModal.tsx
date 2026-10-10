@@ -24,7 +24,7 @@ export const MaintenancePreviewModal: React.FC<MaintenancePreviewModalProps> = (
   if (!isOpen) return null;
 
   const displayMessage = message?.trim() || 
-    'Kami sedang melakukan pemeliharaan infrastruktur dan pembaruan sistem secara berkala. Layanan akan segera kembali online dalam beberapa saat.';
+    'We are performing scheduled infrastructure maintenance and system updates. Service will be back online shortly.';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-200">
@@ -72,7 +72,7 @@ export const MaintenancePreviewModal: React.FC<MaintenancePreviewModalProps> = (
                 onChange={(e) => setSimulateBypass(e.target.checked)}
                 className="w-3.5 h-3.5 rounded text-blue-500"
               />
-              <span className="text-[11px] font-medium">Tes IP Whitelist Bypass</span>
+              <span className="text-[11px] font-medium">Test IP Whitelist Bypass</span>
             </label>
 
             <button
@@ -93,7 +93,7 @@ export const MaintenancePreviewModal: React.FC<MaintenancePreviewModalProps> = (
             <span>https://{domain}</span>
             {simulateBypass ? (
               <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
-                200 OK (Bypass IP Aktif)
+                200 OK (IP Bypass Active)
               </span>
             ) : (
               <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
@@ -129,11 +129,11 @@ export const MaintenancePreviewModal: React.FC<MaintenancePreviewModalProps> = (
                   </span>
                   <h3 className="text-xl font-bold text-slate-900">{appName} Active & Operational</h3>
                   <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-                    Koneksi Anda berasal dari IP yang terdaftar di whitelist ({bypassIps || '127.0.0.1, 103.147.154.82'}), sehingga Anda melewati halaman 503 Maintenance Mode dan dapat mengakses aplikasi seperti biasa.
+                    Your connection comes from a whitelisted IP ({bypassIps || '127.0.0.1, 103.147.154.82'}), so you bypass the 503 maintenance page and reach the app normally.
                   </p>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-left font-mono text-[11px] text-slate-600 max-w-md mx-auto">
-                  <p className="text-slate-400 font-sans text-[10px] mb-1 font-semibold uppercase">Simulasi Web Application Body:</p>
+                  <p className="text-slate-400 font-sans text-[10px] mb-1 font-semibold uppercase">Simulated Web Application Body:</p>
                   <p>HTTP/2 200 OK</p>
                   <p>Server: BarePod High-Performance Web Engine</p>
                   <p>X-Maintenance-Bypass: Granted (Client IP matched)</p>
@@ -181,7 +181,7 @@ export const MaintenancePreviewModal: React.FC<MaintenancePreviewModalProps> = (
 
                 <div className="pt-2 text-center">
                   <p className="text-[11px] text-slate-400">
-                    Ditenagai oleh BarePod Panel Zero-Downtime Traffic Orchestrator
+                    Powered by BarePod Panel Zero-Downtime Traffic Orchestrator
                   </p>
                 </div>
               </div>
@@ -192,13 +192,13 @@ export const MaintenancePreviewModal: React.FC<MaintenancePreviewModalProps> = (
         {/* Footer */}
         <div className="px-5 py-3 bg-white border-t border-slate-200 flex items-center justify-between">
           <p className="text-xs text-slate-500">
-            Halaman ini dikirim langsung oleh web server (Nginx/Caddy/OpenLiteSpeed) tanpa membebani runtime PHP/Node.js/Container Anda.
+            This page is served directly by the web server (Nginx/Caddy/OpenLiteSpeed) without loading your PHP/Node.js/container runtime.
           </p>
           <button
             onClick={onClose}
             className="px-4 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
           >
-            Tutup Preview
+            Close Preview
           </button>
         </div>
 

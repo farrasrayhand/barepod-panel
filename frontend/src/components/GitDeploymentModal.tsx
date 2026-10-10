@@ -79,9 +79,9 @@ npm run build`;
       setBuildScript(app.buildScript || getDefaultScript(app.runtime));
       if (app.lastDeployedAt) {
         setDeployLogs([
-          `[SYSTEM] Deployment terakhir: ${app.lastDeployedAt} (Commit: ${app.lastDeployCommit || '7fa901a'})`,
-          `[SYSTEM] Webhook listener aktif pada domain: ${app.domain}`,
-          `[SYSTEM] Script build tersimpan per-aplikasi dan siap dieksekusi saat auto-redeploy.`,
+          `[SYSTEM] Last deployment: ${app.lastDeployedAt} (Commit: ${app.lastDeployCommit || '7fa901a'})`,
+          `[SYSTEM] Webhook listener active on domain: ${app.domain}`,
+          `[SYSTEM] Build script stored per app and ready to run on auto-redeploy.`,
         ]);
       }
     }
@@ -95,7 +95,7 @@ npm run build`;
     navigator.clipboard?.writeText(webhookUrl);
     setCopiedWebhook(true);
     setTimeout(() => setCopiedWebhook(false), 1500);
-    onShowToast?.('Webhook Disalin', 'GitHub webhook URL telah disalin ke clipboard.', 'info');
+    onShowToast?.('Webhook Copied', 'GitHub webhook URL copied to clipboard.', 'info');
   };
 
   const applyPreset = (preset: 'laravel' | 'nextjs' | 'fastapi' | 'go' | 'static') => {
@@ -127,7 +127,7 @@ systemctl reload ${app.name}`;
       script = `git pull origin ${targetBranch}`;
     }
     setBuildScript(script);
-    onShowToast?.('Preset Diterapkan', `Template script ${preset.toUpperCase()} dimuat. Silakan klik "Simpan Script" agar permanen.`, 'info');
+    onShowToast?.('Preset Applied', `${preset.toUpperCase()} script template loaded. Click "Save Script" to keep it.`, 'info');
   };
 
   const handleSaveScript = () => {
@@ -142,7 +142,7 @@ systemctl reload ${app.name}`;
         buildScript,
       };
       onUpdateApp?.(updated);
-      onShowToast?.('Script Tersimpan Permanen', `Deploy & Build script untuk '${app.name}' berhasil disimpan. Saat auto-redeploy berjalan, script ini yang akan digunakan.`, 'success');
+      onShowToast?.('Script Saved', `Deploy & Build script for '${app.name}' saved. This script runs on every auto-redeploy.`, 'success');
     }, 400);
   };
 
@@ -150,9 +150,9 @@ systemctl reload ${app.name}`;
     setIsDeploying(true);
     const nowStr = new Date().toLocaleTimeString();
     const initialLogs = [
-      `[${nowStr}] ⚡ Redeploy manual dipicu untuk '${app.name}'`,
-      `[${nowStr}] 📦 Menghubungkan ke ${repoUrl} (branch: ${branch})...`,
-      `[${nowStr}] 🔒 Validasi isolasi tenant cgroup v2: /home/${app.tenantUser}`,
+      `[${nowStr}] Manual redeploy triggered for '${app.name}'`,
+      `[${nowStr}] Connecting to ${repoUrl} (branch: ${branch})...`,
+      `[${nowStr}] Validating tenant isolation cgroup v2: /home/${app.tenantUser}`,
     ];
     setDeployLogs(initialLogs);
 
@@ -171,8 +171,8 @@ systemctl reload ${app.name}`;
     setTimeout(() => {
       setDeployLogs((prev) => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] 🔄 Mengambil commit terbaru (git fetch & fast-forward)...`,
-        `[${new Date().toLocaleTimeString()}] 🛠️ Menjalankan build script tersimpan:`,
+        `[${new Date().toLocaleTimeString()}] Fetching latest commit (git fetch & fast-forward)...`,
+        `[${new Date().toLocaleTimeString()}] Running stored build script:`,
         ...buildScript.split('\n').filter(Boolean).map(line => `    $ ${line}`),
       ]);
     }, 1200);
@@ -180,12 +180,12 @@ systemctl reload ${app.name}`;
     setTimeout(() => {
       setDeployLogs((prev) => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] 🚀 Reload runtime service di isolated jail (PID 49102)...`,
-        `[${new Date().toLocaleTimeString()}] 🌐 Health probe Cloudflare Ingress: HTTP 200 OK (${app.domain})`,
-        `[${new Date().toLocaleTimeString()}] ✅ Zero-Downtime Deployment Selesai dalam 3.8 detik!`,
+        `[${new Date().toLocaleTimeString()}] Reloading runtime service in isolated jail (PID 49102)...`,
+        `[${new Date().toLocaleTimeString()}] Cloudflare Ingress health probe: HTTP 200 OK (${app.domain})`,
+        `[${new Date().toLocaleTimeString()}] [OK] Zero-Downtime Deployment finished in 3.8s!`,
       ]);
       setIsDeploying(false);
-      onShowToast?.('Redeploy Berhasil', `Aplikasi '${app.name}' berhasil di-build dan di-deploy ulang.`, 'success');
+      onShowToast?.('Redeploy Complete', `App '${app.name}' rebuilt and redeployed.`, 'success');
     }, 2800);
   };
 
@@ -203,11 +203,11 @@ systemctl reload ${app.name}`;
                 <h2 className="text-base font-bold text-slate-900">GitHub CI/CD & Deploy Script</h2>
                 <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                  <span>Tersimpan per-Aplikasi</span>
+                  <span>Saved per App</span>
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Atur skrip build dan webhook auto-redeploy khusus untuk <strong>{app.name}</strong> ({app.domain})
+                Configure the build script and auto-redeploy webhook for <strong>{app.name}</strong> ({app.domain})
               </p>
             </div>
           </div>
@@ -281,11 +281,11 @@ systemctl reload ${app.name}`;
                 className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-medium flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs"
               >
                 {copiedWebhook ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedWebhook ? 'Tersalin' : 'Copy'}</span>
+                <span>{copiedWebhook ? 'Copied' : 'Copy'}</span>
               </button>
             </div>
             <p className="text-[11px] text-slate-500">
-              Paste URL ini pada GitHub: <strong>Repo Settings → Webhooks → Add Webhook</strong>. Saat developer melakukan <code>git push</code>, server akan mengeksekusi <strong>Deploy & Build Script</strong> di bawah secara otomatis dan permanen!
+              Paste this URL into GitHub: <strong>Repo Settings → Webhooks → Add Webhook</strong>. On <code>git push</code>, the server runs the <strong>Deploy & Build Script</strong> below automatically.
             </p>
           </div>
 
@@ -295,10 +295,10 @@ systemctl reload ${app.name}`;
               <div className="flex items-center gap-2">
                 <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Code2 className="w-3.5 h-3.5 text-slate-600" />
-                  <span>Deploy & Build Script (Tersimpan untuk Auto Redeploy)</span>
+                  <span>Deploy & Build Script (Saved for Auto Redeploy)</span>
                 </label>
                 <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded font-mono font-semibold">
-                  Tiap App Bebas Beda Script
+                  Per-App Script
                 </span>
               </div>
 
@@ -341,19 +341,19 @@ systemctl reload ${app.name}`;
 
             <div className="bg-slate-900 rounded-xl p-3.5 border border-slate-800 font-mono text-xs text-slate-200 shadow-inner">
               <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-[10px] text-slate-400">
-                <span>Eksekusi di dalam Tenant Sandbox: <code>/home/{app.tenantUser}/apps/{app.name}</code></span>
+                <span>Runs inside tenant sandbox: <code>/home/{app.tenantUser}/apps/{app.name}</code></span>
                 <span className="text-emerald-400">Bash Shell</span>
               </div>
               <textarea
                 rows={6}
                 value={buildScript}
                 onChange={(e) => setBuildScript(e.target.value)}
-                placeholder="Contoh:&#10;git pull origin main&#10;composer install --no-dev&#10;php artisan migrate --force&#10;systemctl reload-app"
+                placeholder="Example:&#10;git pull origin main&#10;composer install --no-dev&#10;php artisan migrate --force&#10;systemctl reload-app"
                 className="w-full bg-transparent border-none outline-hidden text-emerald-400 resize-y font-mono text-xs focus:ring-0 leading-relaxed min-h-[110px]"
               />
             </div>
             <p className="text-[11px] text-slate-500">
-              Variabel yang tersedia dalam build context: <code>$APP_NAME</code>, <code>$APP_PORT</code>, <code>$APP_DOMAIN</code>, <code>$TENANT_USER</code>.
+              Variables available in the build context: <code>$APP_NAME</code>, <code>$APP_PORT</code>, <code>$APP_DOMAIN</code>, <code>$TENANT_USER</code>.
             </p>
           </div>
 
@@ -368,7 +368,7 @@ systemctl reload ${app.name}`;
             </div>
             <div className="bg-slate-950 rounded-xl p-3.5 border border-slate-800 font-mono text-[11px] text-slate-300 min-h-[110px] max-h-[150px] overflow-y-auto space-y-1">
               {deployLogs.map((log, idx) => (
-                <div key={idx} className={log.includes('✅') ? 'text-emerald-400 font-bold' : log.includes('❌') ? 'text-rose-400 font-bold' : ''}>
+                <div key={idx} className={log.includes('[OK]') ? 'text-emerald-400 font-bold' : log.includes('[FAIL]') ? 'text-rose-400 font-bold' : ''}>
                   {log}
                 </div>
               ))}
@@ -381,7 +381,7 @@ systemctl reload ${app.name}`;
           <div className="text-xs text-slate-500 flex items-center gap-1.5 font-mono">
             <span>Branch: <strong className="text-slate-800">{branch}</strong></span>
             <span>•</span>
-            <span className="text-emerald-700 font-semibold">Tersimpan per app</span>
+            <span className="text-emerald-700 font-semibold">Saved per app</span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -390,7 +390,7 @@ systemctl reload ${app.name}`;
               className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
             >
               <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-spin' : 'text-blue-600'}`} />
-              <span>{isSaving ? 'Menyimpan...' : 'Simpan Script Saja'}</span>
+              <span>{isSaving ? 'Saving...' : 'Save Script Only'}</span>
             </button>
 
             <button
@@ -399,7 +399,7 @@ systemctl reload ${app.name}`;
               className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-2 shadow-sm shadow-blue-500/25 disabled:opacity-50 cursor-pointer"
             >
               <RotateCw className={`w-3.5 h-3.5 ${isDeploying ? 'animate-spin' : ''}`} />
-              <span>{isDeploying ? 'Sedang Deploy...' : 'Simpan & Redeploy Sekarang'}</span>
+              <span>{isDeploying ? 'Deploying...' : 'Save & Redeploy Now'}</span>
             </button>
           </div>
         </div>

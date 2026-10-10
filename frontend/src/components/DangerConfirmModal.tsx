@@ -6,7 +6,7 @@ interface DangerConfirmModalProps {
   onClose: () => void;
   onConfirm: () => void;
   title: string;
-  itemType: string; // e.g. "Database" | "Aplikasi" | "Container Pod"
+  itemType: string; // e.g. "Database" | "Application" | "Container Pod"
   itemName: string; // e.g. "larastore_production"
   warningDescription?: string;
 }
@@ -74,11 +74,11 @@ export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
               <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
               <div>
                 <p className="font-semibold text-rose-950 mb-1">
-                  Peringatan: Tindakan ini bersifat PERMANEN dan tidak dapat dibatalkan!
+                  Warning: This action is PERMANENT and cannot be undone!
                 </p>
                 <p className="text-[11px] text-rose-800">
                   {warningDescription || 
-                    `Seluruh data, tabel, skema, konfigurasi, dan file yang terkait dengan ${itemType.toLowerCase()} ini akan dihapus selamanya dari server.`}
+                    `All data, tables, schema, configuration, and files related to this ${itemType.toLowerCase()} will be permanently deleted from the server.`}
                 </p>
               </div>
             </div>
@@ -87,13 +87,13 @@ export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
           {/* Type to Confirm Input */}
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold text-slate-700">
-              Ketik nama {itemType.toLowerCase()} <span className="font-mono font-bold text-rose-600 select-all px-1.5 py-0.5 bg-rose-50 rounded border border-rose-200">{itemName}</span> untuk konfirmasi:
+              Type the {itemType.toLowerCase()} name <span className="font-mono font-bold text-rose-600 select-all px-1.5 py-0.5 bg-rose-50 rounded border border-rose-200">{itemName}</span> to confirm:
             </label>
             <input
               type="text"
               autoFocus
               required
-              placeholder={`Ketik "${itemName}" di sini...`}
+              placeholder={`Type "${itemName}" here...`}
               value={confirmInput}
               onChange={(e) => setConfirmInput(e.target.value)}
               className={`w-full px-3 py-2 text-xs font-mono rounded-lg border focus:outline-hidden transition-all ${
@@ -104,7 +104,7 @@ export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
             />
             {confirmInput.length > 0 && !isMatch && (
               <p className="text-[10px] text-rose-600 font-medium">
-                Teks yang Anda ketik belum cocok dengan "{itemName}".
+                The text you typed does not match "{itemName}".
               </p>
             )}
           </div>
@@ -119,7 +119,7 @@ export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
                 className="mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500 w-4 h-4"
               />
               <span className="text-[11px] leading-snug">
-                Saya mengonfirmasi bahwa saya sadar seluruh data akan hilang secara permanen dan tidak dapat dipulihkan kembali.
+                I confirm that I understand all data will be permanently lost and cannot be recovered.
               </span>
             </label>
           </div>
@@ -131,7 +131,7 @@ export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
             >
-              Batalkan
+              Cancel
             </button>
             <button
               type="submit"
@@ -143,7 +143,7 @@ export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
               }`}
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Hapus Permanen</span>
+              <span>Delete Permanently</span>
             </button>
           </div>
         </form>

@@ -144,8 +144,8 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
     setSelectedDbForDetails(updated);
     if (onShowToast) {
       onShowToast(
-        'Quota Max Connection Diperbarui', 
-        `Batas koneksi untuk ${updated.username} berhasil diubah ke ${updated.maxConnections || 25} connections (ALTER ROLE/USER executed).`, 
+        'Max Connection Quota Updated', 
+        `Connection limit for ${updated.username} changed to ${updated.maxConnections || 25} connections (ALTER ROLE/USER executed).`, 
         'success'
       );
     }
@@ -213,7 +213,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Databases & Caches</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Kelola database PostgreSQL, MySQL, MariaDB, MongoDB, dan Redis terisolasi untuk aplikasi Anda.
+            Manage isolated PostgreSQL, MySQL, MariaDB, MongoDB, and Redis databases for your apps.
           </p>
         </div>
 
@@ -356,7 +356,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                           type="button"
                           onClick={() => setSelectedDbForDetails(db)}
                           className="text-slate-500 hover:text-blue-600 font-mono cursor-pointer hover:underline decoration-dotted transition-colors"
-                          title="Klik untuk ubah quota connection"
+                          title="Click to edit connection quota"
                         >
                           Max {db.maxConnections || 25} conn
                         </button>
@@ -376,7 +376,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                       <button
                         onClick={() => setSelectedDbForCredentials(db)}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
-                        title="Buka Password Vault (butuh password akun panel)"
+                        title="Open Password Vault (requires panel account password)"
                       >
                         <Lock className="w-3.5 h-3.5" />
                       </button>
@@ -384,7 +384,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                       <button
                         onClick={() => setSelectedDbForDetails(db)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all text-xs font-semibold border border-blue-200/80 shadow-2xs group cursor-pointer"
-                        title="Lihat host, port, kredensial, URL connection & buka visual manager"
+                        title="View host, port, credentials, connection URL & open visual manager"
                       >
                         <Zap className="w-3.5 h-3.5 text-blue-600 group-hover:text-white transition-colors" />
                         <span>Details & Connect</span>
@@ -429,10 +429,10 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
             setDbToDelete(null);
           }
         }}
-        title={`Hapus / Drop Database "${dbToDelete?.name}"`}
+        title={`Drop Database "${dbToDelete?.name}"`}
         itemType="Database"
         itemName={dbToDelete?.name || ''}
-        warningDescription={`Database ${dbToDelete?.name} (${dbToDelete?.type.toUpperCase()}) beserta seluruh tabel, skema, data rows, dan hak akses user akan dihapus secara permanen.`}
+        warningDescription={`Database ${dbToDelete?.name} (${dbToDelete?.type.toUpperCase()}) along with all its tables, schemas, data rows, and user grants will be permanently deleted.`}
       />
 
       {/* Create Database Modal */}

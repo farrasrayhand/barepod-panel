@@ -158,8 +158,8 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
       setIsTestingHandshake(false);
       setHandshakeSuccess(true);
       onShowToast?.(
-        'Koneksi Berhasil Disetujui',
-        `Daemon di ${oldServerIp}:${oldServerPort} terverifikasi (BarePod v2.4, Latensi: 1.8ms, TLS 1.3).`,
+        'Connection Approved',
+        `Daemon at ${oldServerIp}:${oldServerPort} verified (BarePod v2.4, latency: 1.8ms, TLS 1.3).`,
         'success'
       );
     }, 1200);
@@ -170,18 +170,18 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
     setIsMigrating(true);
     setMigrationStep(1);
     setMigrationLogs([
-      `[${new Date().toLocaleTimeString()}] 🚀 Memulai protokol migrasi server-to-server...`,
-      `[${new Date().toLocaleTimeString()}] 🔑 Handshake token autentikasi ke ${oldServerIp}:${oldServerPort}...`,
+      `[${new Date().toLocaleTimeString()}] Starting server-to-server migration protocol...`,
+      `[${new Date().toLocaleTimeString()}] Handshake authentication token to ${oldServerIp}:${oldServerPort}...`,
     ]);
 
     setTimeout(() => {
       setMigrationStep(2);
       setMigrationLogs(prev => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] 📡 Stream rsync zero-copy aktif: menyalin codebase /var/www/apps (142 MB)...`,
-        `[${new Date().toLocaleTimeString()}]    - flask-sentiment-api: 42 MB disalin`,
-        `[${new Date().toLocaleTimeString()}]    - larastore-commerce: 54 MB disalin`,
-        `[${new Date().toLocaleTimeString()}]    - billing-backend-api: 28 MB disalin`,
+        `[${new Date().toLocaleTimeString()}] Zero-copy rsync stream active: copying /var/www/apps codebase (142 MB)...`,
+        `[${new Date().toLocaleTimeString()}]    - flask-sentiment-api: 42 MB copied`,
+        `[${new Date().toLocaleTimeString()}]    - larastore-commerce: 54 MB copied`,
+        `[${new Date().toLocaleTimeString()}]    - billing-backend-api: 28 MB copied`,
       ]);
     }, 1800);
 
@@ -189,7 +189,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
       setMigrationStep(3);
       setMigrationLogs(prev => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] 🗄️ Melakukan stream logical dump & import basis data:`,
+        `[${new Date().toLocaleTimeString()}] Streaming logical dump & database import:`,
         `[${new Date().toLocaleTimeString()}]    - PostgreSQL: pg_dump | pg_restore cluster app_production (200 OK)`,
         `[${new Date().toLocaleTimeString()}]    - MySQL: mysqldump --single-transaction larastore_db (200 OK)`,
       ]);
@@ -199,10 +199,10 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
       setMigrationStep(4);
       setMigrationLogs(prev => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] 🌐 Mentransfer konfigurasi VirtualHost & SSL:`,
-        `[${new Date().toLocaleTimeString()}]    - Let's Encrypt sertifikat symlinked`,
-        `[${new Date().toLocaleTimeString()}]    - OpenLiteSpeed & Nginx vhost binding aktif`,
-        `[${new Date().toLocaleTimeString()}]    - Mengalihkan Cloudflare Tunnel token ke server baru...`,
+        `[${new Date().toLocaleTimeString()}] Transferring VirtualHost & SSL configuration:`,
+        `[${new Date().toLocaleTimeString()}]    - Let's Encrypt certificates symlinked`,
+        `[${new Date().toLocaleTimeString()}]    - OpenLiteSpeed & Nginx vhost binding active`,
+        `[${new Date().toLocaleTimeString()}]    - Repointing Cloudflare Tunnel token to the new server...`,
       ]);
     }, 5400);
 
@@ -210,12 +210,12 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
       setMigrationStep(5);
       setMigrationLogs(prev => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] ✅ Migrasi server selesai 100%! Semua aplikasi & database live di VPS ini tanpa downtime.`,
+        `[${new Date().toLocaleTimeString()}] [OK] Migration completed 100%! All apps & databases are live on this VPS with zero downtime.`,
       ]);
       setIsMigrating(false);
       onShowToast?.(
-        'Migrasi Berhasil!',
-        'Seluruh website, basis data, dan konfigurasi telah aktif di server ini.',
+        'Migration Successful!',
+        'All websites, databases, and configuration are now live on this server.',
         'success'
       );
     }, 7200);
@@ -225,7 +225,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
   const handleCreateSnapshot = () => {
     setIsCreatingSnapshot(true);
     setSnapshotModalOpen(false);
-    onShowToast?.('Membuat Snapshot...', 'Mengumpulkan file, logical dump database, dan konfigurasi vhost.', 'info');
+    onShowToast?.('Creating Snapshot...', 'Collecting files, database dumps, and vhost configuration.', 'info');
 
     setTimeout(() => {
       const newSnap: BackupSnapshotItem = {
@@ -242,7 +242,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
       };
       setSnapshots([newSnap, ...snapshots]);
       setIsCreatingSnapshot(false);
-      onShowToast?.('Snapshot Berhasil Dibuat', `File ${newSnap.filename} siap diunduh atau dipindahkan.`, 'success');
+      onShowToast?.('Snapshot Created', `File ${newSnap.filename} is ready to download or move.`, 'success');
     }, 2000);
   };
 
@@ -270,7 +270,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
     a.download = snap.filename;
     a.click();
     URL.revokeObjectURL(url);
-    onShowToast?.('Mengunduh Archive', `File ${snap.filename} sedang diunduh ke perangkat Anda.`, 'success');
+    onShowToast?.('Downloading Archive', `Downloading ${snap.filename} to your device.`, 'success');
   };
 
   // Execute Restore from File
@@ -284,7 +284,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
         if (prev >= 100) {
           clearInterval(interval);
           setIsRestoring(false);
-          onShowToast?.('Restore Berhasil', `Seluruh file dan basis data dari ${uploadedFile.name} telah dipulihkan.`, 'success');
+          onShowToast?.('Restore Successful', `All files and databases from ${uploadedFile.name} have been restored.`, 'success');
           return 100;
         }
         return prev + 25;
@@ -309,7 +309,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                 </span>
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Pindah server VPS tanpa pusing, export/import archive bundle (<code>.bpod</code>), dan sync otomatis ke Cloudflare R2 / AWS S3.
+                Move between VPS servers, export/import bundle archives (<code>.bpod</code>), and auto-sync to Cloudflare R2 / AWS S3.
               </p>
             </div>
           </div>
@@ -323,7 +323,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
             className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm shadow-blue-500/25 cursor-pointer"
           >
             <Archive className={`w-3.5 h-3.5 ${isCreatingSnapshot ? 'animate-spin' : ''}`} />
-            <span>{isCreatingSnapshot ? 'Membuat Snapshot...' : 'Buat Snapshot (.bpod)'}</span>
+            <span>{isCreatingSnapshot ? 'Creating Snapshot...' : 'Create Snapshot (.bpod)'}</span>
           </button>
         </div>
       </div>
@@ -339,7 +339,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
           }`}
         >
           <ArrowRightLeft className="w-4 h-4" />
-          <span>1-Click Pindah Server (Live Migration)</span>
+          <span>1-Click Server Move (Live Migration)</span>
         </button>
 
         <button
@@ -351,7 +351,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
           }`}
         >
           <Archive className="w-4 h-4" />
-          <span>Daftar Snapshot (.bpod)</span>
+          <span>Snapshot List (.bpod)</span>
           <span className="px-1.5 py-0.2 bg-white/20 rounded text-[10px] font-mono">{snapshots.length}</span>
         </button>
 
@@ -393,7 +393,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              📥 Tarik Data dari Server Lama (Pull to this VPS)
+              📥 Pull Data from Old Server (to this VPS)
             </button>
             <button
               onClick={() => setMigrationMode('source')}
@@ -403,7 +403,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              📤 Jadikan Server Ini Sumber Migrasi (Source Node)
+              📤 Make This Server the Migration Source (Source Node)
             </button>
           </div>
 
@@ -413,17 +413,17 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
               <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-5">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    Koneksi ke Server Lama (Source VPS)
+                    Connect to Old Server (Source VPS)
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Masukkan IP server lama dan Migration Token dari panel lama. BarePod daemon akan langsung melakukan stream rsync zero-copy.
+                    Enter the old server IP and its Migration Token to start a zero-copy rsync stream.
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      IP Address Server Lama / Hostname
+                      Old Server IP Address / Hostname
                     </label>
                     <input
                       type="text"
@@ -436,7 +436,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Port Daemon
+                      Daemon Port
                     </label>
                     <input
                       type="text"
@@ -466,20 +466,20 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                       className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors cursor-pointer"
                     >
                       <RotateCw className={`w-3.5 h-3.5 ${isTestingHandshake ? 'animate-spin' : ''}`} />
-                      <span>{isTestingHandshake ? 'Pinging...' : 'Uji Handshake'}</span>
+                      <span>{isTestingHandshake ? 'Pinging...' : 'Test Handshake'}</span>
                     </button>
                   </div>
                   {handshakeSuccess && (
                     <div className="flex items-center gap-2 mt-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>Daemon server lama terverifikasi & terhubung! (Latensi: 1.8ms • TLS 1.3 Aktif)</span>
+                      <span>Old server daemon verified and connected! (Latency: 1.8ms • TLS 1.3 Active)</span>
                     </div>
                   )}
                 </div>
 
                 {/* Scope Selection */}
                 <div className="pt-2 border-t border-slate-100 space-y-2.5">
-                  <span className="text-xs font-bold text-slate-800 block">Pilih Komponen yang Ingin Dipindahkan:</span>
+                  <span className="text-xs font-bold text-slate-800 block">Select Components to Migrate:</span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
                     <label className="flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
                       <input
@@ -489,7 +489,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                         className="rounded text-blue-600 border-slate-300"
                       />
                       <div>
-                        <span className="font-bold text-slate-800 block">Semua Aplikasi & Codebase</span>
+                        <span className="font-bold text-slate-800 block">All Applications & Codebase</span>
                         <span className="text-[10px] text-slate-500">Folder /var/www/apps, .env, build scripts</span>
                       </div>
                     </label>
@@ -502,7 +502,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                         className="rounded text-blue-600 border-slate-300"
                       />
                       <div>
-                        <span className="font-bold text-slate-800 block">Seluruh Basis Data & Grants</span>
+                        <span className="font-bold text-slate-800 block">All Databases & Grants</span>
                         <span className="text-[10px] text-slate-500">PostgreSQL, MySQL, Redis Snapshots</span>
                       </div>
                     </label>
@@ -529,7 +529,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                       />
                       <div>
                         <span className="font-bold text-slate-800 block">Cloudflare Tunnel Route</span>
-                        <span className="text-[10px] text-slate-500">Auto repoint ingress ke IP VPS baru ini</span>
+                        <span className="text-[10px] text-slate-500">Auto-repoint ingress to this new VPS IP</span>
                       </div>
                     </label>
                   </div>
@@ -543,7 +543,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:opacity-50 rounded-xl transition-all shadow-md shadow-purple-500/25 cursor-pointer"
                   >
                     <Play className={`w-4 h-4 ${isMigrating ? 'animate-spin' : ''}`} />
-                    <span>{isMigrating ? 'Sedang Memproses Migrasi Server...' : 'Mulai Migrasi Server (Live Zero-Downtime)'}</span>
+                    <span>{isMigrating ? 'Migrating Server...' : 'Start Server Migration (Live, Zero-Downtime)'}</span>
                   </button>
                 </div>
               </div>
@@ -580,7 +580,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                   </div>
                   <div className={`flex items-center gap-2 ${migrationStep >= 5 ? 'text-emerald-600' : 'text-slate-400'}`}>
                     <span>{migrationStep >= 5 ? '✓' : '5.'}</span>
-                    <span>Selesai & Services Live</span>
+                    <span>Complete & Services Live</span>
                   </div>
                 </div>
 
@@ -588,7 +588,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                 <div className="flex-1 bg-slate-50 p-3 rounded-xl border border-slate-200 overflow-y-auto max-h-52 text-[10px] space-y-1 text-slate-600">
                   {migrationLogs.length === 0 ? (
                     <div className="text-slate-400 text-center py-6">
-                      Menunggu perintah migrasi dimulai...
+                      Waiting for migration to start...
                     </div>
                   ) : (
                     migrationLogs.map((log, idx) => (
@@ -603,10 +603,10 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
             <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-4 max-w-2xl">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">
-                  Kunci Migrasi Server Ini (Source VPS Credentials)
+                  This Server's Migration Credentials (Source VPS)
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Salin informasi di bawah ini lalu tempelkan ke panel BarePod di server baru Anda.
+                  Copy the details below into the BarePod panel on your new server.
                 </p>
               </div>
 
@@ -620,7 +620,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                   <div className="text-slate-900 font-bold">103.147.154.82</div>
                 </div>
                 <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Port Daemon:</span>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Daemon Port:</span>
                   <div className="text-slate-900 font-bold">8443</div>
                 </div>
                 <div>
@@ -637,7 +637,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                       className="px-2 py-1 text-xs bg-purple-50 text-purple-700 hover:bg-purple-100 rounded font-semibold transition-colors cursor-pointer flex items-center gap-1"
                     >
                       {copiedKey ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedKey ? 'Tersalin' : 'Salin Token'}</span>
+                      <span>{copiedKey ? 'Copied' : 'Copy Token'}</span>
                     </button>
                   </div>
                 </div>
@@ -645,7 +645,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
 
               <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 p-3 rounded-xl">
                 <Clock className="w-4 h-4 shrink-0 text-amber-600" />
-                <span>Token ini berlaku selama 2 jam dan akan hangus otomatis setelah proses stream migrasi selesai demi keamanan tenant.</span>
+                <span>This token is valid for 2 hours and expires automatically once the migration stream finishes.</span>
               </div>
             </div>
           )}
@@ -657,8 +657,8 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
         <div className="space-y-4 animate-in fade-in duration-200">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Arsip Snapshot Tersimpan</h3>
-              <p className="text-xs text-slate-500">File archive <code>.bpod</code> yang dapat diunduh atau dipindahkan ke server mana pun.</p>
+              <h3 className="text-sm font-bold text-slate-900">Saved Snapshot Archives</h3>
+              <p className="text-xs text-slate-500">Portable <code>.bpod</code> archives you can download or move to any server.</p>
             </div>
 
             <button
@@ -667,7 +667,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-2xs cursor-pointer"
             >
               <Archive className="w-3.5 h-3.5" />
-              <span>Buat Snapshot Baru</span>
+              <span>Create New Snapshot</span>
             </button>
           </div>
 
@@ -676,12 +676,12 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
                 <tr>
-                  <th className="py-3 px-4">NAMA ARCHIVE (.BPOD)</th>
-                  <th className="py-3 px-4">TIPE & TARGET</th>
-                  <th className="py-3 px-4">UKURAN</th>
-                  <th className="py-3 px-4">PENYIMPANAN</th>
-                  <th className="py-3 px-4">TANGGAL DIBUAT</th>
-                  <th className="py-3 px-4 text-center">AKSI</th>
+                  <th className="py-3 px-4">ARCHIVE NAME (.BPOD)</th>
+                  <th className="py-3 px-4">TYPE & TARGET</th>
+                  <th className="py-3 px-4">SIZE</th>
+                  <th className="py-3 px-4">STORAGE</th>
+                  <th className="py-3 px-4">CREATED</th>
+                  <th className="py-3 px-4 text-center">ACTIONS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -711,7 +711,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                       <span className={`px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 w-fit ${
                         snap.storage === 'r2' ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-slate-100 text-slate-700'
                       }`}>
-                        {snap.storage === 'r2' ? '⚡ Cloudflare R2' : '📁 Local Disk'}
+                        {snap.storage === 'r2' ? 'Cloudflare R2' : 'Local Disk'}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">{snap.createdAt}</td>
@@ -720,18 +720,18 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                         <button
                           type="button"
                           onClick={() => handleDownloadSnapshot(snap)}
-                          title="Unduh file .bpod ke komputer"
+                          title="Download .bpod file to your computer"
                           className="flex items-center gap-1 px-2.5 py-1 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors cursor-pointer"
                         >
                           <Download className="w-3.5 h-3.5 text-slate-600" />
-                          <span>Unduh</span>
+                          <span>Download</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => {
-                            onShowToast?.('Restore Dimulai', `Merestore snapshot ${snap.filename}...`, 'info');
+                            onShowToast?.('Restore Started', `Restoring snapshot ${snap.filename}...`, 'info');
                           }}
-                          title="Restore langsung dari snapshot ini"
+                          title="Restore directly from this snapshot"
                           className="flex items-center gap-1 px-2.5 py-1 text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-lg font-bold border border-emerald-200 transition-colors cursor-pointer"
                         >
                           <RotateCw className="w-3 h-3 text-emerald-600" />
@@ -753,7 +753,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
           <div>
             <h3 className="text-sm font-bold text-slate-900">Import & Restore File Archive (.bpod)</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Punya file backup dari server lama? Drag & drop file <code>.bpod</code> atau <code>.tar.gz</code> ke sini untuk restore otomatis.
+              Have a backup from another server? Drag & drop a <code>.bpod</code> or <code>.tar.gz</code> file here to restore it automatically.
             </p>
           </div>
 
@@ -784,10 +784,10 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
             }`}
           >
             <Upload className="w-10 h-10 text-slate-400 mx-auto mb-2" />
-            <h4 className="text-xs font-bold text-slate-800">Tarik & Lepas File .bpod di Sini</h4>
-            <p className="text-[11px] text-slate-500 mt-0.5">Mendukung file bundle BarePod (*.bpod, *.tar.gz, *.sql.gz)</p>
+            <h4 className="text-xs font-bold text-slate-800">Drag & Drop .bpod File Here</h4>
+            <p className="text-[11px] text-slate-500 mt-0.5">Supports BarePod bundle files (*.bpod, *.tar.gz, *.sql.gz)</p>
             <label className="mt-3 inline-block px-3 py-1.5 text-xs font-bold text-blue-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl cursor-pointer shadow-2xs">
-              Pilih File dari Komputer
+              Choose File from Computer
               <input
                 type="file"
                 accept=".bpod,.tar.gz,.gz,.sql"
@@ -822,7 +822,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                   </div>
                 </div>
                 <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold text-[10px]">
-                  Archive Terverifikasi
+                  Verified Archive
                 </span>
               </div>
 
@@ -830,7 +830,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
               {isRestoring && (
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                    <span>Mengekstrak file & merestore database...</span>
+                    <span>Extracting files and restoring databases...</span>
                     <span>{restoreProgress}%</span>
                   </div>
                   <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -849,7 +849,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                   disabled={isRestoring}
                   className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800 cursor-pointer"
                 >
-                  Batal
+                  Cancel
                 </button>
                 <button
                   type="button"
@@ -858,7 +858,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                   className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 rounded-xl transition-all shadow-sm shadow-emerald-500/25 cursor-pointer"
                 >
                   <RotateCw className={`w-3.5 h-3.5 ${isRestoring ? 'animate-spin' : ''}`} />
-                  <span>{isRestoring ? 'Merestore...' : 'Jalankan Restore Otomatis'}</span>
+                  <span>{isRestoring ? 'Restoring...' : 'Run Automatic Restore'}</span>
                 </button>
               </div>
             </div>
@@ -870,15 +870,15 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
       {activeTab === 'cloud_sync' && (
         <div className="space-y-6 max-w-2xl animate-in fade-in duration-200">
           <div>
-            <h3 className="text-sm font-bold text-slate-900">Cloud Storage Sync & Otomasi Cron</h3>
+            <h3 className="text-sm font-bold text-slate-900">Cloud Storage Sync & Cron Automation</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Setiap kali backup dibuat, arsip otomatis di-upload ke bucket remote untuk redundansi di luar server VPS.
+              Every backup is uploaded to a remote bucket for off-server redundancy.
             </p>
           </div>
 
           {/* Provider Selection */}
           <div className="space-y-2">
-            <label className="block text-xs font-bold text-slate-700">Pilih Cloud Provider</label>
+            <label className="block text-xs font-bold text-slate-700">Select Cloud Provider</label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               {(['r2', 's3', 'gcs', 'wasabi'] as const).map(p => (
                 <button
@@ -891,10 +891,10 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                       : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   }`}
                 >
-                  {p === 'r2' && '⚡ Cloudflare R2'}
-                  {p === 's3' && '☁️ AWS S3'}
-                  {p === 'gcs' && '🌐 Google Cloud'}
-                  {p === 'wasabi' && '🗄️ Wasabi / MinIO'}
+                  {p === 'r2' && 'Cloudflare R2'}
+                  {p === 's3' && 'AWS S3'}
+                  {p === 'gcs' && 'Google Cloud'}
+                  {p === 'wasabi' && 'Wasabi / MinIO'}
                 </button>
               ))}
             </div>
@@ -945,29 +945,29 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Jadwal Backup Otomatis</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Automatic Backup Schedule</label>
                 <select
                   value={cloudSchedule}
                   onChange={(e) => setCloudSchedule(e.target.value as any)}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-semibold"
                 >
-                  <option value="daily">Harian (Setiap 02:00 WIB)</option>
-                  <option value="weekly">Mingguan (Setiap Minggu)</option>
-                  <option value="hourly">Tiap 6 Jam (High-Traffic App)</option>
+                  <option value="daily">Daily (02:00 WIB)</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="hourly">Every 6 Hours (High-Traffic Apps)</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Masa Retensi Cloud</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Cloud Retention Period</label>
                 <select
                   value={cloudRetentionDays}
                   onChange={(e) => setCloudRetentionDays(Number(e.target.value))}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium"
                 >
-                  <option value={7}>Simpan 7 Hari Terakhir</option>
-                  <option value={14}>Simpan 14 Hari Terakhir</option>
-                  <option value={30}>Simpan 30 Hari Terakhir</option>
-                  <option value={90}>Simpan 90 Hari (Enterprise)</option>
+                  <option value={7}>Keep Last 7 Days</option>
+                  <option value={14}>Keep Last 14 Days</option>
+                  <option value={30}>Keep Last 30 Days</option>
+                  <option value={90}>Keep 90 Days (Enterprise)</option>
                 </select>
               </div>
             </div>
@@ -979,24 +979,24 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                   setIsTestingCloud(true);
                   setTimeout(() => {
                     setIsTestingCloud(false);
-                    onShowToast?.('Bucket Terverifikasi', 'Koneksi ke Cloudflare R2 bucket berhasil (Read/Write OK).', 'success');
+                    onShowToast?.('Bucket Verified', 'Connection to the Cloudflare R2 bucket succeeded (read/write OK).', 'success');
                   }, 1000);
                 }}
                 disabled={isTestingCloud}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
               >
                 <RotateCw className={`w-3.5 h-3.5 ${isTestingCloud ? 'animate-spin' : ''}`} />
-                <span>{isTestingCloud ? 'Memverifikasi...' : 'Tes Koneksi Cloud'}</span>
+                <span>{isTestingCloud ? 'Verifying...' : 'Test Cloud Connection'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => {
-                  onShowToast?.('Konfigurasi Tersimpan', 'Jadwal backup remote cloud telah diperbarui & aktif.', 'success');
+                  onShowToast?.('Configuration Saved', 'Remote cloud backup schedule updated and active.', 'success');
                 }}
                 className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-2xs cursor-pointer"
               >
-                Simpan & Aktifkan Sync
+                Save & Enable Sync
               </button>
             </div>
           </div>
@@ -1010,7 +1010,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <Archive className="w-5 h-5 text-blue-600" />
-                <h3 className="text-sm font-bold text-slate-900">Buat Snapshot Bundle (.bpod)</h3>
+                <h3 className="text-sm font-bold text-slate-900">Create Snapshot Bundle (.bpod)</h3>
               </div>
               <button
                 onClick={() => setSnapshotModalOpen(false)}
@@ -1022,7 +1022,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Scope Backup</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Backup Scope</label>
                 <div className="grid grid-cols-3 gap-2">
                   {(['full', 'app', 'database'] as const).map(sc => (
                     <button
@@ -1045,7 +1045,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
 
               {snapshotScope === 'app' && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Pilih Aplikasi</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Select Application</label>
                   <select
                     value={selectedAppForSnapshot}
                     onChange={(e) => setSelectedAppForSnapshot(e.target.value)}
@@ -1066,14 +1066,14 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                   className="rounded text-blue-600 border-slate-300"
                 />
                 <div className="text-xs">
-                  <span className="font-bold text-slate-800 block">Enkripsi AES-256</span>
-                  <span className="text-[10px] text-slate-500">Kunci file archive dengan passphrase rahasia</span>
+                  <span className="font-bold text-slate-800 block">AES-256 Encryption</span>
+                  <span className="text-[10px] text-slate-500">Lock the archive with a secret passphrase</span>
                 </div>
               </label>
 
               {encryptBackup && (
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Passphrase Enkripsi</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Encryption Passphrase</label>
                   <input
                     type="password"
                     value={encryptionPassword}
@@ -1090,14 +1090,14 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                 onClick={() => setSnapshotModalOpen(false)}
                 className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800"
               >
-                Batal
+                Cancel
               </button>
               <button
                 type="button"
                 onClick={handleCreateSnapshot}
                 className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-2xs"
               >
-                Buat Snapshot Sekarang
+                Create Snapshot Now
               </button>
             </div>
           </div>

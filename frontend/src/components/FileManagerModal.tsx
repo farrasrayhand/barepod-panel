@@ -205,7 +205,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     a.download = file.name;
     a.click();
     URL.revokeObjectURL(url);
-    showToast(`Mengunduh ${file.name}`);
+    showToast(`Downloading ${file.name}`);
   };
 
   const handleDownloadSelected = () => {
@@ -229,7 +229,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     a.download = `${app?.name || 'files'}-export.zip`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast(`Mengunduh ${files.length} file sebagai arsip .zip`);
+    showToast(`Downloading ${files.length} files as a .zip archive`);
   };
 
   const handleSaveFile = () => {
@@ -242,7 +242,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       };
     });
     setIsSaved(true);
-    showToast(`Berhasil menyimpan ${editingFile.name}`);
+    showToast(`Saved ${editingFile.name}`);
     setTimeout(() => setIsSaved(false), 1500);
   };
 
@@ -268,16 +268,16 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (files.length === 0) return;
     setClipboard({ files, operation: 'copy', sourcePath: currentPath });
     showToast(files.length === 1
-      ? `Tersalin ke clipboard: ${files[0].name}`
-      : `${files.length} item tersalin ke clipboard`);
+      ? `Copied to clipboard: ${files[0].name}`
+      : `${files.length} items copied to clipboard`);
   };
 
   const handleCut = (files: FileEntry[]) => {
     if (files.length === 0) return;
     setClipboard({ files, operation: 'cut', sourcePath: currentPath });
     showToast(files.length === 1
-      ? `Dipindah ke clipboard (Cut): ${files[0].name}`
-      : `${files.length} item siap dipindah (Cut)`);
+      ? `Cut to clipboard: ${files[0].name}`
+      : `${files.length} items ready to move (cut)`);
   };
 
   const handlePaste = () => {
@@ -310,8 +310,8 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     });
 
     showToast(operation === 'copy'
-      ? `${files.length} item ditempelkan ke ${currentPath}`
-      : `${files.length} item dipindahkan ke ${currentPath}`);
+      ? `${files.length} items pasted into ${currentPath}`
+      : `${files.length} items moved to ${currentPath}`);
     if (operation === 'cut') setClipboard(null);
   };
 
@@ -323,7 +323,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (selectedFile?.name === file.name) setSelectedFile(null);
     if (editingFile?.name === file.name) setEditingFile(null);
     setSelectedFiles(prev => prev.filter(n => n !== file.name));
-    showToast(`File ${file.name} telah dihapus.`);
+    showToast(`File ${file.name} deleted.`);
   };
 
   const handleDeleteSelected = () => {
@@ -336,7 +336,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (selectedFile && selectedFiles.includes(selectedFile.name)) setSelectedFile(null);
     if (editingFile && selectedFiles.includes(editingFile.name)) setEditingFile(null);
     setSelectedFiles([]);
-    showToast(`${count} item berhasil dihapus.`);
+    showToast(`${count} items deleted.`);
   };
 
   const handleDuplicate = (file: FileEntry) => {
@@ -354,7 +354,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       ...prev,
       [currentPath]: [...(prev[currentPath] || []), newEntry]
     }));
-    showToast(`Berhasil menggandakan ${newName}`);
+    showToast(`Duplicated ${newName}`);
   };
 
   const handleRenameSubmit = (e: React.FormEvent) => {
@@ -368,7 +368,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       [currentPath]: (prev[currentPath] || []).map(f => f.name === oldName ? { ...f, name: newName } : f)
     }));
 
-    showToast(`Berhasil mengubah nama menjadi ${newName}`);
+    showToast(`Renamed to ${newName}`);
     setRenameModal({ isOpen: false, file: null, newName: '' });
   };
 
@@ -393,7 +393,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     }));
 
     setNewFileModal({ isOpen: false, name: '' });
-    showToast(`File ${name} berhasil dibuat.`);
+    showToast(`File ${name} created.`);
   };
 
   const handleCreateFolderSubmit = (e: React.FormEvent) => {
@@ -415,7 +415,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     }));
 
     setNewFolderModal({ isOpen: false, name: '' });
-    showToast(`Folder ${name} berhasil dibuat.`);
+    showToast(`Folder ${name} created.`);
   };
 
   const getFileIcon = (file: FileEntry) => {
@@ -500,19 +500,19 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               <>
                 <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg text-xs font-semibold">
                   <Check className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{selectedFiles.length} dipilih</span>
+                  <span>{selectedFiles.length} selected</span>
                   <button
                     onClick={() => setSelectedFiles([])}
                     className="ml-1 text-slate-500 hover:text-slate-900 text-[10px] underline cursor-pointer"
                   >
-                    Batal
+                    Clear
                   </button>
                 </div>
 
                 <button 
                   onClick={handleDownloadSelected}
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
-                  title="Unduh File Terpilih"
+                  title="Download selected files"
                 >
                   <Download className="w-3.5 h-3.5 text-blue-600" />
                   <span>Download ({selectedFiles.length})</span>
@@ -521,7 +521,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 <button 
                   onClick={handleDeleteSelected}
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg text-xs font-semibold cursor-pointer"
-                  title="Hapus Semua Terpilih"
+                  title="Delete all selected"
                 >
                   <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                   <span>Delete ({selectedFiles.length})</span>
@@ -578,7 +578,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   ? 'bg-blue-600 text-white hover:bg-blue-700' 
                   : 'bg-white border border-slate-200 text-slate-400 opacity-40'
               }`}
-              title={clipboard ? `Paste ${clipboard.files.length} item ke ${currentPath}` : 'Clipboard kosong'}
+              title={clipboard ? `Paste ${clipboard.files.length} items into ${currentPath}` : 'Clipboard empty'}
             >
               <Clipboard className="w-3.5 h-3.5" />
               <span>Paste {clipboard ? `(${clipboard.files.length})` : ''}</span>
@@ -588,7 +588,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               <button 
                 onClick={() => handleDelete(selectedFile)}
                 className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg text-xs font-medium cursor-pointer"
-                title="Hapus File Terpilih"
+                title="Delete selected file"
               >
                 <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                 <span>Delete</span>
@@ -616,7 +616,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                       checked={currentFiles.length > 0 && selectedFiles.length === currentFiles.length}
                       onChange={(e) => handleToggleSelectAll(e.target.checked)}
                       className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer accent-blue-600"
-                      title="Pilih Semua (Select All)"
+                      title="Select all"
                     />
                   </th>
                   <th className="py-2.5 px-3">Name</th>
@@ -733,8 +733,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             <div className="hidden md:flex flex-1 items-center justify-center p-8 text-center text-slate-400">
               <div>
                 <Edit3 className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                <p className="text-xs font-medium text-slate-600">Klik ganda pada file untuk membuka Editor atau Preview</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Mendukung Klik Kanan, Cut, Copy, Paste, serta Preview Gambar & PDF</p>
+                <p className="text-xs font-medium text-slate-600">Double-click a file to open the editor or preview</p>
               </div>
             </div>
           )}
@@ -877,7 +876,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         {renameModal.isOpen && renameModal.file && (
           <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40">
             <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-sm w-full p-4 space-y-3">
-              <h4 className="text-xs font-bold text-slate-800">Ubah Nama File / Folder</h4>
+              <h4 className="text-xs font-bold text-slate-800">Rename File / Folder</h4>
               <form onSubmit={handleRenameSubmit} className="space-y-3">
                 <input
                   type="text"
@@ -892,13 +891,13 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     onClick={() => setRenameModal({ isOpen: false, file: null, newName: '' })}
                     className="px-3 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
                   >
-                    Batal
+                    Cancel
                   </button>
                   <button
                     type="submit"
                     className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer"
                   >
-                    Simpan
+                    Save
                   </button>
                 </div>
               </form>
@@ -910,11 +909,11 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         {newFileModal.isOpen && (
           <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40">
             <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-sm w-full p-4 space-y-3">
-              <h4 className="text-xs font-bold text-slate-800">Buat File Baru</h4>
+              <h4 className="text-xs font-bold text-slate-800">New File</h4>
               <form onSubmit={handleCreateFileSubmit} className="space-y-3">
                 <input
                   type="text"
-                  placeholder="e.g. script.py atau styles.css"
+                  placeholder="e.g. script.py or styles.css"
                   value={newFileModal.name}
                   onChange={(e) => setNewFileModal(prev => ({ ...prev, name: e.target.value }))}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:outline-hidden focus:border-blue-500"
@@ -926,13 +925,13 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     onClick={() => setNewFileModal({ isOpen: false, name: '' })}
                     className="px-3 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
                   >
-                    Batal
+                    Cancel
                   </button>
                   <button
                     type="submit"
                     className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer"
                   >
-                    Buat File
+                    Create File
                   </button>
                 </div>
               </form>
@@ -944,11 +943,11 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         {newFolderModal.isOpen && (
           <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40">
             <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-sm w-full p-4 space-y-3">
-              <h4 className="text-xs font-bold text-slate-800">Buat Folder Baru</h4>
+              <h4 className="text-xs font-bold text-slate-800">New Folder</h4>
               <form onSubmit={handleCreateFolderSubmit} className="space-y-3">
                 <input
                   type="text"
-                  placeholder="e.g. assets atau uploads"
+                  placeholder="e.g. assets or uploads"
                   value={newFolderModal.name}
                   onChange={(e) => setNewFolderModal(prev => ({ ...prev, name: e.target.value }))}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:outline-hidden focus:border-blue-500"
@@ -960,13 +959,13 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     onClick={() => setNewFolderModal({ isOpen: false, name: '' })}
                     className="px-3 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
                   >
-                    Batal
+                    Cancel
                   </button>
                   <button
                     type="submit"
                     className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer"
                   >
-                    Buat Folder
+                    Create Folder
                   </button>
                 </div>
               </form>
@@ -1064,7 +1063,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     <div className="pt-4 border-t flex items-center justify-between text-xs text-slate-400">
                       <span>Adobe PDF Standard 1.7 Encrypted</span>
                       <button 
-                        onClick={() => showToast(`Mengunduh ${previewModal.file?.name}...`)}
+                        onClick={() => showToast(`Downloading ${previewModal.file?.name}...`)}
                         className="flex items-center gap-1.5 px-3 py-1 bg-slate-900 text-white rounded-lg hover:bg-slate-800"
                       >
                         <Download className="w-3.5 h-3.5" />

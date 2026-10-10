@@ -393,10 +393,10 @@ export const PodsView: React.FC<PodsViewProps> = ({ onShowToast, onOpenTerminal 
             setPodToDelete(null);
           }
         }}
-        title={`Hapus Container Pod "${podToDelete?.name}"`}
+        title={`Delete Container Pod "${podToDelete?.name}"`}
         itemType="Container Pod"
         itemName={podToDelete?.name || ''}
-        warningDescription={`Container pod ${podToDelete?.name} (${podToDelete?.image}) akan dihentikan paksa dan dihapus permanen dari Docker runtime.`}
+        warningDescription={`Container pod ${podToDelete?.name} (${podToDelete?.image}) will be force-stopped and permanently removed from the Docker runtime.`}
       />
     </div>
   );

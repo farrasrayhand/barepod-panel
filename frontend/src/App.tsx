@@ -237,7 +237,7 @@ systemctl reload uvicorn-ai`,
       cpuUsage: '0%',
       createdAt: '2026-10-10',
       maintenanceMode: true,
-      maintenanceMessage: 'Portal berita sedang dalam pemeliharaan berkala upgrade sistem server.',
+      maintenanceMessage: 'News portal is undergoing scheduled server upgrade maintenance.',
       maintenanceBypassIps: '127.0.0.1, 103.147.154.82',
     },
     {

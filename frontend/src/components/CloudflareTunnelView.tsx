@@ -115,8 +115,8 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
     setInputToken(target ? target.token : '');
     setShowTokenText(false);
     onShowToast?.(
-      'Simulasi User Aktif Diubah',
-      `Sekarang mengelola akun & tunnel pribadi milik: "${username}".`,
+      'Active User Simulation Changed',
+      `Now managing the personal account and tunnel of: "${username}".`,
       'info'
     );
   };
@@ -137,8 +137,8 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
     setIsTokenSaved(true);
     setTimeout(() => setIsTokenSaved(false), 2000);
     onShowToast?.(
-      'Cloudflare Token Tersimpan',
-      `Proses daemon cloudflared untuk akun "${activeUser}" telah diperbarui.`,
+      'Cloudflare Token Saved',
+      `cloudflared daemon for account "${activeUser}" was updated.`,
       'success'
     );
   };
@@ -147,7 +147,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
   const handleRestartDaemon = () => {
     onShowToast?.(
       'Daemon Restarted',
-      `Proses daemon cloudflared milik akun "${activeUser}" di-restart ulang.`,
+      `cloudflared daemon for account "${activeUser}" was restarted.`,
       'info'
     );
   };
@@ -175,8 +175,8 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
     setIsAddRouteOpen(false);
     setNewHostname('');
     onShowToast?.(
-      'Domain Ingress Ditambahkan',
-      `Domain https://${newRoute.hostname} berhasil diarahkan ke ${newRoute.service} pada akun Anda.`,
+      'Ingress Domain Added',
+      `Domain https://${newRoute.hostname} now routes to ${newRoute.service} on your account.`,
       'success'
     );
   };
@@ -191,8 +191,8 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
       }
     }));
     onShowToast?.(
-      'Domain Ingress Dihapus',
-      `Rute hostname ${hostname} telah dicabut dari tunnel akun Anda.`,
+      'Ingress Domain Removed',
+      `Hostname ${hostname} was removed from your tunnel.`,
       'info'
     );
   };
@@ -209,21 +209,21 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Setiap user mengatur Cloudflare Tunnel mereka sendiri secara mandiri menggunakan akun Cloudflare Zero Trust pribadi.
+            Each user manages their own Cloudflare Tunnel with a personal Cloudflare Zero Trust account.
           </p>
         </div>
 
         {/* User Context Switcher (For Panel Owner Demonstration) */}
         <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-2 shadow-2xs">
           <UserCheck className="w-4 h-4 text-slate-500 ml-1" />
-          <span className="text-xs font-semibold text-slate-600">Akun Anda:</span>
+          <span className="text-xs font-semibold text-slate-600">Your Account:</span>
           <select
             value={activeUser}
             onChange={(e) => handleSwitchUser(e.target.value)}
             className="text-xs font-bold text-blue-700 bg-blue-50/80 px-2.5 py-1 rounded-lg border border-blue-200 focus:outline-hidden cursor-pointer font-mono"
           >
-            <option value="tenant_alex">tenant_alex (Akun Klien / Regular User)</option>
-            <option value="tenant_clientB">tenant_clientB (Akun Agensi / Regular User)</option>
+            <option value="tenant_alex">tenant_alex (Client Account / Regular User)</option>
+            <option value="tenant_clientB">tenant_clientB (Agency Account / Regular User)</option>
             <option value="farras">farras (Superadmin / Root)</option>
           </select>
         </div>
@@ -235,26 +235,26 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
           <div className="space-y-1 max-w-2xl">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-semibold">
               <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-              <span>Personal Tunnel Sandbox untuk @{activeUser}</span>
+              <span>Personal Tunnel Sandbox for @{activeUser}</span>
             </div>
             <h2 className="text-base font-bold text-white">
-              Tunnel Pribadi Anda: Tidak Tercampur dengan User Lain
+              Your Private Tunnel: Isolated from Other Users
             </h2>
             <p className="text-xs text-blue-100/80 leading-relaxed">
-              Anda memiliki kontrol penuh atas akun Cloudflare Anda. Cukup masukkan token tunnel dari akun Cloudflare pribadi Anda, lalu arahkan domain/subdomain Anda langsung ke port aplikasi Anda.
+              Paste your tunnel token and point your domains straight to your app ports.
             </p>
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
             <div className="bg-white/10 backdrop-blur-md rounded-xl px-4 py-2.5 border border-white/10 text-center">
               <span className="text-lg font-bold block">{currentTunnel.routes.length}</span>
-              <span className="text-[10px] text-blue-200 uppercase font-semibold">Domain Aktif</span>
+              <span className="text-[10px] text-blue-200 uppercase font-semibold">Active Domains</span>
             </div>
             <div className="bg-white/10 backdrop-blur-md rounded-xl px-4 py-2.5 border border-white/10 text-center">
               <span className="text-lg font-bold block text-emerald-400">
                 {currentTunnel.status === 'connected' ? 'Live' : 'Off'}
               </span>
-              <span className="text-[10px] text-blue-200 uppercase font-semibold">Status Tunnel</span>
+              <span className="text-[10px] text-blue-200 uppercase font-semibold">Tunnel Status</span>
             </div>
           </div>
         </div>
@@ -307,7 +307,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
         <form onSubmit={handleSaveToken} className="space-y-3">
           <div className="flex items-center justify-between">
             <label className="block text-xs font-bold text-slate-800">
-              Cloudflare Zero Trust Tunnel Token (Akun Pribadi Anda)
+              Cloudflare Zero Trust Tunnel Token (Your Personal Account)
             </label>
             <span className="text-[11px] text-slate-400">
               Cloudflare Dashboard → Zero Trust → Networks → Tunnels
@@ -329,7 +329,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                 type="button"
                 onClick={() => setShowTokenText(!showTokenText)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
-                title={showTokenText ? 'Sembunyikan Token' : 'Tampilkan Token'}
+                title={showTokenText ? 'Hide Token' : 'Show Token'}
               >
                 {showTokenText ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
@@ -342,7 +342,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
               {isTokenSaved ? (
                 <>
                   <Check className="w-4 h-4 text-emerald-200" />
-                  <span>Tersimpan!</span>
+                  <span>Saved!</span>
                 </>
               ) : (
                 <>
@@ -354,7 +354,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
           </div>
 
           <p className="text-[11px] text-slate-500 leading-relaxed">
-            💡 <strong>Tidak perlu setting port forwarding / IP publik:</strong> Cukup paste token dari akun Cloudflare Anda sendiri, daemon <code>cloudflared</code> yang berjalan di sandbox akun Anda akan otomatis menghubungkan seluruh domain di bawah ke aplikasi Anda.
+            <strong>No port forwarding or public IP needed:</strong> paste the token from your own Cloudflare account and <code>cloudflared</code> connects your domains to your apps.
           </p>
         </form>
       </div>
@@ -364,13 +364,13 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
         <div className="p-5 border-b border-slate-100 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-slate-900">Daftar Domain Ingress Anda</h2>
+              <h2 className="text-sm font-bold text-slate-900">Your Ingress Domains</h2>
               <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-semibold">
                 {currentTunnel.routes.length} Domain
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Domain-domain milik akun <strong>@{activeUser}</strong> yang diteruskan ke port lokal aplikasi
+              Domains on <strong>@{activeUser}</strong> forwarded to local app ports
             </p>
           </div>
 
@@ -379,16 +379,16 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
             className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 transition-all cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            <span>Tambah Domain Ingress</span>
+            <span>Add Ingress Domain</span>
           </button>
         </div>
 
         {currentTunnel.routes.length === 0 ? (
           <div className="p-8 text-center text-slate-400">
             <Globe className="w-8 h-8 mx-auto text-slate-300 mb-2" />
-            <p className="text-xs font-semibold text-slate-600">Belum ada domain yang diarahkan.</p>
+            <p className="text-xs font-semibold text-slate-600">No domains routed yet.</p>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Klik tombol "+ Tambah Domain Ingress" di atas untuk menghubungkan domain pertama Anda.
+              Click "+ Add Ingress Domain" above to connect your first domain.
             </p>
           </div>
         ) : (
@@ -396,10 +396,10 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
             <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
               <tr>
                 <th className="py-3 px-4">Public Hostname (Cloudflare)</th>
-                <th className="py-3 px-4">Target Aplikasi Anda</th>
+                <th className="py-3 px-4">Your App Target</th>
                 <th className="py-3 px-4">Internal Target Port</th>
                 <th className="py-3 px-4">Health Status</th>
-                <th className="py-3 px-4 text-right">Aksi</th>
+                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -437,7 +437,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                     <button
                       onClick={() => handleDeleteRoute(route.hostname)}
                       className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                      title="Hapus domain ini dari tunnel"
+                      title="Remove this domain from the tunnel"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -456,7 +456,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Globe className="w-4 h-4 text-blue-600" />
-                <h3 className="text-sm font-bold text-slate-900">Hubungkan Domain ke Aplikasi Anda</h3>
+                <h3 className="text-sm font-bold text-slate-900">Connect a Domain to Your App</h3>
               </div>
               <button
                 onClick={() => setIsAddRouteOpen(false)}
@@ -469,28 +469,28 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
             <form onSubmit={handleSaveRoute} className="p-6 space-y-4 text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Public Hostname (Domain / Subdomain Milik Anda)
+                  Public Hostname (Your Domain / Subdomain)
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. app.alexclient.com atau shop.domain.id"
+                  placeholder="e.g. app.alexclient.com or shop.domain.id"
                   value={newHostname}
                   onChange={(e) => setNewHostname(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Pastikan CNAME hostname ini sudah mengarah ke tunnel di dashboard Cloudflare Anda.
+                  Make sure this hostname's CNAME already points to the tunnel in your Cloudflare dashboard.
                 </p>
               </div>
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Nama Aplikasi / Label
+                  App Name / Label
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Toko Online Laravel atau REST API"
+                  placeholder="e.g. Laravel Online Store or REST API"
                   value={newAppName}
                   onChange={(e) => setNewAppName(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
@@ -510,7 +510,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Port internal aplikasi milik akun Anda (misal port 3000, 5000, atau 8001).
+                  Your app's internal port (e.g. 3000, 5000, or 8001).
                 </p>
               </div>
 
@@ -520,13 +520,13 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   onClick={() => setIsAddRouteOpen(false)}
                   className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
                 >
-                  Batal
+                  Cancel
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20"
                 >
-                  Simpan Domain
+                  Save Domain
                 </button>
               </div>
             </form>

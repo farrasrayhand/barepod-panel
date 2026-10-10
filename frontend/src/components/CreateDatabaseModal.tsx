@@ -114,19 +114,6 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
-          {/* Architecture Concept Explainer */}
-          <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-xl flex items-start gap-2.5 text-xs">
-            <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <span className="font-semibold text-blue-900 block">
-                Hemat RAM: 1 Shared Daemon per Versi, 100% User Terisolasi
-              </span>
-              <p className="text-[11px] text-blue-800 leading-relaxed">
-                Aplikasi dapat memilih versi yang berbeda (misal PG 16 vs PG 15, atau MySQL 8 vs MariaDB 11). Mesin dijalankan sebagai <strong>daemon bersama</strong> hemat RAM, sedangkan kredensial, database, dan hak akses dibatasi secara ketat per user tenant.
-              </p>
-            </div>
-          </div>
-
           {/* Engine Selector */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
@@ -173,7 +160,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
             </select>
             <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 font-mono">
               <Server className="w-3 h-3 text-slate-400" />
-              <span>Bind: 127.0.0.1:{activeVersion.port} (Hanya internal host / docker jail)</span>
+              <span>Bind: 127.0.0.1:{activeVersion.port} (internal host / docker jail only)</span>
             </p>
           </div>
 
@@ -192,11 +179,11 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
             />
             {type === 'redis' ? (
               <p className="text-[10px] text-amber-700 mt-1 bg-amber-50 p-1.5 rounded border border-amber-200/80">
-                ⚡ <strong>Redis ACL Isolation:</strong> Key akan di-isolate dengan pattern prefix <code>{name || 'app'}:*</code> dan dibatasi akses command berbahaya (FLUSHALL, CONFIG).
+                <strong>Redis ACL Isolation:</strong> Keys are isolated under the prefix pattern <code>{name || 'app'}:*</code> and dangerous commands (FLUSHALL, CONFIG) are blocked.
               </p>
             ) : (
               <p className="text-[10px] text-slate-400 mt-1">
-                Hanya huruf kecil, angka, dan underscore (_). Database terpisah 100% dari app lain.
+                Lowercase letters, numbers, and underscores (_) only. Fully separated from other apps.
               </p>
             )}
           </div>
@@ -230,7 +217,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
                 <option value={100}>100 connections (Heavy)</option>
               </select>
               <span className="text-[10px] text-slate-400 block mt-0.5">
-                Mencegah connection leak memakan seluruh pool daemon
+                Prevents connection leaks from exhausting the daemon pool
               </span>
             </div>
           </div>
@@ -255,14 +242,6 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
                 className="w-full px-3 py-2 text-xs bg-slate-100 border border-slate-200 rounded-lg font-mono text-slate-700"
               />
             </div>
-          </div>
-
-          {/* SSO Info */}
-          <div className="p-3 bg-blue-50/70 border border-blue-200/60 rounded-xl text-xs text-blue-900 flex items-start gap-2">
-            <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-blue-800">
-              Database ini otomatis dapat diakses langsung via <strong>Web GUI (SSO)</strong> tanpa perlu login manual lagi.
-            </p>
           </div>
 
           {/* Footer */}

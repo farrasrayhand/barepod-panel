@@ -310,7 +310,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
             </div>
             <div>
               <h2 className="text-base font-semibold text-slate-900">Deploy New App or Microservice</h2>
-              <p className="text-xs text-slate-500">Pilih Web Server (OLS/Nginx/Caddy/Apache) & runtime framework</p>
+              <p className="text-xs text-slate-500">Choose web server (OLS/Nginx/Caddy/Apache) & runtime framework</p>
             </div>
           </div>
           <button
@@ -411,7 +411,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                     required
                     value={upstreamUrl}
                     onChange={(e) => setUpstreamUrl(e.target.value)}
-                    placeholder="http://127.0.0.1:8080 atau unix:/run/app.sock"
+                    placeholder="http://127.0.0.1:8080 or unix:/run/app.sock"
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-purple-200 rounded-lg font-mono text-purple-900 focus:outline-hidden focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
                   />
                 </div>
@@ -446,7 +446,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                 </label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    { id: 'nginx' as WebServerType, label: 'Nginx', desc: 'Rekomendasi Utama (Tersolid)' },
+                    { id: 'nginx' as WebServerType, label: 'Nginx', desc: 'Top Recommendation (Most Stable)' },
                     { id: 'caddy' as WebServerType, label: 'Caddy', desc: 'Auto HTTPS & HTTP/3 QUIC' },
                     { id: 'openlitespeed' as WebServerType, label: 'OpenLiteSpeed', desc: 'LSCache Reverse Proxy' },
                     { id: 'apache' as WebServerType, label: 'Apache 2.4', desc: 'mod_proxy / ProxyPass' },
@@ -471,7 +471,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
               {/* Proxy Protocol & Header Features */}
               <div className="p-3.5 rounded-xl border border-purple-100 bg-purple-50/30 space-y-3">
                 <span className="text-xs font-bold text-slate-800 block">
-                  Fitur Ingress & Protokol Reverse Proxy
+                  Ingress & Reverse Proxy Protocol Features
                 </span>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -488,7 +488,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                         WebSocket Upgrade
                       </span>
                       <p className="text-[10px] text-slate-500 mt-0.5">
-                        Dukungan socket.io, Live Chat, Vite HMR, Streamlit, dan SSE.
+                        Supports socket.io, Live Chat, Vite HMR, Streamlit, and SSE.
                       </p>
                     </div>
                   </label>
@@ -505,7 +505,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                         Preserve Host Header ($host)
                       </span>
                       <p className="text-[10px] text-slate-500 mt-0.5">
-                        Meneruskan domain asli klien ke aplikasi backend.
+                        Forwards the client's original domain to the backend app.
                       </p>
                     </div>
                   </label>
@@ -540,7 +540,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                         Cloudflare Zero-NAT Tunnel
                       </span>
                       <p className="text-[10px] text-slate-500 mt-0.5">
-                        Ekspos domain tanpa perlu port publik 80/443 terbuka.
+                        Expose the domain without opening public ports 80/443.
                       </p>
                     </div>
                   </label>
@@ -556,10 +556,10 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                       onChange={(e) => setProxyTimeoutSecs(Number(e.target.value))}
                       className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
                     >
-                      <option value={60}>60 detik (Standar API)</option>
-                      <option value={180}>180 detik (Long Polling)</option>
-                      <option value={300}>300 detik (AI Streaming / LLM)</option>
-                      <option value={600}>600 detik (Heavy Upload / ETL)</option>
+                      <option value={60}>60 seconds (Standard API)</option>
+                      <option value={180}>180 seconds (Long Polling)</option>
+                      <option value={300}>300 seconds (AI Streaming / LLM)</option>
+                      <option value={600}>600 seconds (Heavy Upload / ETL)</option>
                     </select>
                   </div>
 
@@ -573,7 +573,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                       className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
                     >
                       <option value={20}>20 MB</option>
-                      <option value={100}>100 MB (Standar)</option>
+                      <option value={100}>100 MB (Standard)</option>
                       <option value={250}>250 MB</option>
                       <option value={1024}>1024 MB (1 GB)</option>
                     </select>
@@ -726,13 +726,6 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                 </div>
               </div>
 
-              {/* Auto CLI Sandbox Banner */}
-              <div className="p-3.5 rounded-xl bg-blue-50/60 border border-blue-200/60 flex items-start gap-2.5">
-                <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-                <div className="text-[11px] text-blue-800 leading-relaxed">
-                  <strong>Isolated Multi-Tenant Sandbox:</strong> Tenant <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold">{tenantUser}</code> akan memiliki terminal tersendiri. Menjalankan framework <strong>{framework}</strong> dengan web server <strong>{webServer.toUpperCase()}</strong> dan CLI langsung auto-linked ke <strong>{runtime.toUpperCase()} {version}</strong>.
-                </div>
-              </div>
 
               {/* Database & Cloudflare Tunnel Checkboxes */}
               <div className="space-y-3">
@@ -751,7 +744,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                         Auto-Provision Database / Cache Instance
                       </span>
                       <p className="text-[11px] text-slate-500 mt-0.5">
-                        Lengkap: PostgreSQL, MySQL/MariaDB, MongoDB, dan Redis.
+                        Full suite: PostgreSQL, MySQL/MariaDB, MongoDB, and Redis.
                       </p>
                     </div>
                   </label>
@@ -795,7 +788,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                       Enable Cloudflare Tunnel (Zero-NAT)
                     </span>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Ekspos domain secara instan tanpa perlu IP publik statis atau konfigurasi port di router.
+                      Expose the domain instantly without a static public IP or router port configuration.
                     </p>
                   </div>
                 </label>
@@ -808,12 +801,6 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
           {/* ============================================================ */}
           {appMode === 'static' && (
             <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/50 space-y-2">
-                <h4 className="text-xs font-bold text-emerald-900">High-Performance Static / Jamstack Hosting</h4>
-                <p className="text-xs text-emerald-700 leading-relaxed">
-                  Web server akan langsung melayani file HTML, CSS, JS dari direktori publik menggunakan <strong>Sendfile zero-copy</strong> kernel Linux dengan browser cache headers otomatis.
-                </p>
-              </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-2">
@@ -856,7 +843,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                     Enable Cloudflare Tunnel (Zero-NAT)
                   </span>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Akses domain statis secara global tanpa IP publik.
+                    Access the static domain globally without a public IP.
                   </p>
                 </div>
               </label>

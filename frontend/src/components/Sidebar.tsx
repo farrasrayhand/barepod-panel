@@ -135,7 +135,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
             <button
               onClick={handleCopyIp}
               className="group flex items-center gap-1 font-mono font-bold text-slate-800 text-[11px] bg-white hover:bg-blue-50 px-2 py-0.5 rounded border border-slate-200 hover:border-blue-300 transition-colors shadow-2xs"
-              title="Klik untuk salin IP Publik"
+              title="Click to copy Public IP"
             >
               <span>103.147.154.82</span>
               {copiedIp ? (
@@ -150,7 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
           <div 
             onClick={() => onSelectTab('tunnels')}
             className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-200/60 cursor-pointer group"
-            title="Kelola Cloudflare Tunnels"
+            title="Manage Cloudflare Tunnels"
           >
             <span className="flex items-center gap-1.5 text-slate-500 group-hover:text-slate-800 font-medium transition-colors">
               <CloudRain className="w-3.5 h-3.5 text-amber-500" />

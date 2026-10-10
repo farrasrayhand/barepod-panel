@@ -42,7 +42,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ apps, onShowToast }) =
   );
 
   const handleRenewSsl = (domainName: string) => {
-    onShowToast?.('SSL Certificate Renewed', `Sertifikat Let's Encrypt untuk ${domainName} berhasil diperbarui.`, 'success');
+    onShowToast?.('SSL Certificate Renewed', `Let's Encrypt certificate for ${domainName} was renewed.`, 'success');
   };
 
   return (
@@ -57,12 +57,12 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ apps, onShowToast }) =
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Manajemen nama domain FQDN, status sertifikat Let's Encrypt SSL, dan rute DNS
+            Manage FQDN domain names, Let's Encrypt SSL certificate status, and DNS routes
           </p>
         </div>
 
         <button
-          onClick={() => onShowToast?.('SSL Checked', 'Semua sertifikat SSL domain dalam keadaan valid dan aktif.', 'info')}
+          onClick={() => onShowToast?.('SSL Checked', 'All domain SSL certificates are valid and active.', 'info')}
           className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors shadow-2xs cursor-pointer"
         >
           <RefreshCw className="w-3.5 h-3.5 text-slate-500" />

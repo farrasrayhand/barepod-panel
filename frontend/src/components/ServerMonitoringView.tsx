@@ -170,7 +170,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
     setIsTestingSmart(true);
     setSmartTestProgress(15);
     setSmartTestResult(null);
-    onShowToast?.('S.M.A.R.T. Self-Test Diinisiasi', 'Menjalankan smartctl -t short pada drive physical...', 'info');
+    onShowToast?.('S.M.A.R.T. Self-Test Started', 'Running smartctl -t short on the physical drive...', 'info');
 
     let currentProg = 15;
     const interval = setInterval(() => {
@@ -180,7 +180,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
         setSmartTestProgress(100);
         setIsTestingSmart(false);
         setSmartTestResult('S.M.A.R.T. Self-Test Completed: 0 read/write errors found. Overall health assessment: PASSED.');
-        onShowToast?.('S.M.A.R.T. Test Selesai', 'Drive fisik dinyatakan sehat (Status PASSED).', 'success');
+        onShowToast?.('S.M.A.R.T. Test Complete', 'Physical drive is healthy (status PASSED).', 'success');
       } else {
         setSmartTestProgress(currentProg);
       }
@@ -196,7 +196,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
         google: `${(Math.random() * 0.5 + 1.2).toFixed(1)} ms`,
         gateway: `${(Math.random() * 0.2 + 0.2).toFixed(1)} ms`,
       });
-      onShowToast?.('Network Latency Probed', 'ICMP round-trip latency berhasil diuji.', 'success');
+      onShowToast?.('Network Latency Probed', 'ICMP round-trip latency probed successfully.', 'success');
     }, 600);
   };
 
@@ -307,7 +307,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 text-blue-600" />
-            <span>Rentang Waktu Host:</span>
+            <span>Host Time Range:</span>
           </span>
           <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200 text-xs">
             {(['live', '1h', '24h', '7d', '30d', '90d'] as const).map(range => (
@@ -315,7 +315,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                 key={range}
                 type="button"
                 onClick={() => {
-                  onShowToast?.('Filter Waktu Server', `Menampilkan agregasi telemetri host ${range === 'live' ? 'Live (5 Menit)' : range === '1h' ? '1 Jam' : range === '24h' ? '24 Jam' : range === '7d' ? '7 Hari' : range === '30d' ? '30 Hari' : '90 Hari (Maksimal Kebijakan TSDB)'}.`, 'info');
+                  onShowToast?.('Server Time Filter', `Showing host telemetry aggregation: ${range === 'live' ? 'Live (5 min)' : range === '1h' ? '1 Hour' : range === '24h' ? '24 Hours' : range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : '90 Days (TSDB policy max)'}.`, 'info');
                 }}
                 className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
                   range === '24h'
@@ -323,7 +323,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {range === 'live' ? '⚡ 5m Live' : range === '1h' ? '1 Jam' : range === '24h' ? '24 Jam' : range === '7d' ? '7 Hari' : range === '30d' ? '30 Hari' : '90 Hari'}
+                {range === 'live' ? '5m Live' : range === '1h' ? '1 Hour' : range === '24h' ? '24 Hours' : range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : '90 Days'}
               </button>
             ))}
           </div>
@@ -331,11 +331,11 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-500 font-medium">
-            Retensi Metrik Server:
+            Server Metrics Retention:
           </span>
-          <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 flex items-center gap-1" title="Retensi metrik server global dapat dikonfigurasi hingga 365 hari di menu Panel Settings.">
+          <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 flex items-center gap-1" title="Global server metrics retention can be configured up to 365 days in Panel Settings.">
             <Server className="w-3.5 h-3.5 text-blue-600" />
-            <span>90 Hari (Dikonfigurasi di Panel Settings)</span>
+            <span>90 Days (Set in Panel Settings)</span>
           </span>
         </div>
       </div>
@@ -771,7 +771,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">Systemd Service Units</h3>
-                <p className="text-xs text-slate-500">Kendalikan daemon inti server, reverse proxy, runtime, dan database.</p>
+                <p className="text-xs text-slate-500">Control core server daemons, reverse proxies, runtimes, and databases.</p>
               </div>
               <button
                 onClick={() => onShowToast?.('Daemon Reloaded', 'systemctl daemon-reload executed.', 'info')}
@@ -1561,7 +1561,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Anda akan menghentikan proses <strong>{processToKill.command}</strong> (User: <code>{processToKill.user}</code>).
+              You are about to terminate <strong>{processToKill.command}</strong> (user: <code>{processToKill.user}</code>).
             </p>
 
             <div className="flex items-center justify-end gap-2 pt-2">
@@ -1569,7 +1569,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                 onClick={() => setProcessToKill(null)}
                 className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
               >
-                Batal
+                Cancel
               </button>
               <button
                 onClick={() => handleKillProcess(processToKill.pid, 'SIGTERM')}
@@ -1622,7 +1622,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                 onClick={() => setActiveServiceLogs(null)}
                 className="px-4 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white rounded-lg"
               >
-                Tutup Log
+                Close Log
               </button>
             </div>
           </div>

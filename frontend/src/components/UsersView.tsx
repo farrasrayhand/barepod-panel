@@ -129,7 +129,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
 
   const handleUpdateUser = (updated: TenantUser) => {
     setTenants(tenants.map(t => t.id === updated.id ? updated : t));
-    onShowToast?.('User Updated', `Account ${updated.username} diperbarui (role: ${updated.role}, status: ${updated.status}).`, 'success');
+    onShowToast?.('User Updated', `Account ${updated.username} updated (role: ${updated.role}, status: ${updated.status}).`, 'success');
   };
 
   const handleDeleteUser = (userId: string, username: string) => {

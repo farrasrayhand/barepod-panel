@@ -354,7 +354,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                           <button
                             onClick={() => onSelectApp?.(app.name)}
                             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer mr-1"
-                            title="Buka Halaman Detail & Monitoring App"
+                            title="Open App Detail & Monitoring Page"
                           >
                             <Sliders className="w-3.5 h-3.5" />
                             <span>Manage</span>

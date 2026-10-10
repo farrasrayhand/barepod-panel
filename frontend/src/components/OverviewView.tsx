@@ -27,11 +27,11 @@ interface OverviewViewProps {
 }
 
 const recentEvents = [
-  { time: '18:42:10', level: 'info', msg: 'flask-sentiment-api berhasil di-redeploy dari GitHub (commit 7fa901a).' },
-  { time: '18:34:02', level: 'info', msg: 'larastore-commerce: php artisan migrate dijalankan tanpa error.' },
-  { time: '17:58:44', level: 'warn', msg: 'NVMe wear index 6% — masih dalam batas aman (S.M.A.R.T. OK).' },
-  { time: '16:40:12', level: 'info', msg: 'Backup .bpod otomatis tersinkron ke Cloudflare R2 (142 MB).' },
-  { time: '15:11:07', level: 'error', msg: 'WAF memblokir 3 percobaan brute-force (/wp-login.php) dari 198.51.100.41.' },
+  { time: '18:42:10', level: 'info', msg: 'flask-sentiment-api redeployed from GitHub (commit 7fa901a).' },
+  { time: '18:34:02', level: 'info', msg: 'larastore-commerce: php artisan migrate ran without errors.' },
+  { time: '17:58:44', level: 'warn', msg: 'NVMe wear index 6% — still within safe limits (S.M.A.R.T. OK).' },
+  { time: '16:40:12', level: 'info', msg: 'Automatic .bpod backup synced to Cloudflare R2 (142 MB).' },
+  { time: '15:11:07', level: 'error', msg: 'WAF blocked 3 brute-force attempts (/wp-login.php) from 198.51.100.41.' },
 ];
 
 export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, onOpenAddModal }) => {
@@ -53,14 +53,14 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
             className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg shadow-2xs transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 text-blue-600" />
-            <span>Deploy App Baru</span>
+            <span>Deploy New App</span>
           </button>
           <button
             onClick={() => onNavigate('monitoring')}
             className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/25 transition-all cursor-pointer"
           >
             <Activity className="w-4 h-4 animate-pulse" />
-            <span>Buka Server Monitor Lengkap</span>
+            <span>Open Full Server Monitor</span>
             <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -143,7 +143,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
             <span>UPTIME</span>
             <Clock className="w-3.5 h-3.5 text-slate-400" />
           </div>
-          <div className="mt-1.5 text-sm font-bold text-slate-900">18 hari 4 jam</div>
+          <div className="mt-1.5 text-sm font-bold text-slate-900">18 days 4 hours</div>
           <span className="text-[10px] text-slate-400 mt-1 block">Boot: 22 Sep 2026 • Kernel 6.1</span>
         </div>
 
@@ -152,7 +152,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
           className="text-left bg-white p-4 rounded-xl border border-slate-200 shadow-2xs hover:border-blue-300 transition-colors cursor-pointer"
         >
           <div className="flex items-center justify-between text-[11px] text-slate-400">
-            <span>APLIKASI AKTIF</span>
+            <span>ACTIVE APPS</span>
             <Box className="w-3.5 h-3.5 text-blue-500" />
           </div>
           <div className="mt-1.5 text-sm font-bold text-slate-900">{runningApps} / {apps.length} Running</div>
@@ -166,11 +166,11 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
           className="text-left bg-white p-4 rounded-xl border border-slate-200 shadow-2xs hover:border-blue-300 transition-colors cursor-pointer"
         >
           <div className="flex items-center justify-between text-[11px] text-slate-400">
-            <span>TENANT & ISOLASI</span>
+            <span>TENANTS & ISOLATION</span>
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
           </div>
-          <div className="mt-1.5 text-sm font-bold text-slate-900">3 akun • cgroups v2</div>
-          <span className="text-[10px] text-slate-400 mt-1 block">Semua jail & kuota dalam batas</span>
+          <div className="mt-1.5 text-sm font-bold text-slate-900">3 accounts • cgroups v2</div>
+          <span className="text-[10px] text-slate-400 mt-1 block">All jails & quotas within limits</span>
         </button>
       </div>
 
@@ -180,20 +180,20 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
           <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-blue-600" />
-              <h2 className="text-sm font-bold text-slate-900">Status Aplikasi</h2>
+              <h2 className="text-sm font-bold text-slate-900">App Status</h2>
             </div>
             <button
               onClick={() => onNavigate('apps')}
               className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
             >
-              <span>Kelola Semua</span>
+              <span>Manage All</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
               <tr>
-                <th className="py-2.5 px-5">Aplikasi / Domain</th>
+                <th className="py-2.5 px-5">App / Domain</th>
                 <th className="py-2.5 px-5">Runtime</th>
                 <th className="py-2.5 px-5">Tenant</th>
                 <th className="py-2.5 px-5">Status</th>
@@ -234,7 +234,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
         <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
           <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
             <Activity className="w-4 h-4 text-purple-600" />
-            <h2 className="text-sm font-bold text-slate-900">Aktivitas Terbaru</h2>
+            <h2 className="text-sm font-bold text-slate-900">Recent Activity</h2>
           </div>
           <div className="p-4 space-y-3">
             {recentEvents.map((ev, i) => {
@@ -270,9 +270,6 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
             <div className="font-bold text-slate-800 flex items-center gap-2 mb-1">
               <ShieldCheck className="w-4 h-4 text-blue-600" /> Multi-Tenant Isolation
             </div>
-            <p className="text-slate-500 leading-relaxed">
-              Multi-tenant Linux jails dengan cgroups quotas, restricted home paths, dan automatic version switcher untuk CLI.
-            </p>
           </button>
 
           <button
@@ -282,9 +279,6 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
             <div className="font-bold text-slate-800 flex items-center gap-2 mb-1">
               <Database className="w-4 h-4 text-emerald-600" /> Complete Database Suite
             </div>
-            <p className="text-slate-500 leading-relaxed">
-              Dukungan native lengkap untuk PostgreSQL 16+, MariaDB, MySQL 8, MongoDB, Redis, dan Web GUI SSO.
-            </p>
           </button>
 
           <button
@@ -294,9 +288,6 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
             <div className="font-bold text-slate-800 flex items-center gap-2 mb-1">
               <CloudRain className="w-4 h-4 text-purple-600" /> Zero-NAT Cloud Ingress
             </div>
-            <p className="text-slate-500 leading-relaxed">
-              Container pods dan 1-click Cloudflare Tunnel tanpa perlu konfigurasi port router atau IP publik statis.
-            </p>
           </button>
         </div>
         <div className="flex items-center gap-4 pt-2 border-t border-slate-100 text-[11px] text-slate-500">

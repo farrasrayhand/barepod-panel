@@ -703,13 +703,13 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                     {isDragging && (
                       <div className="absolute inset-0 bg-purple-900/80 backdrop-blur-xs rounded-xl flex items-center justify-center text-white text-xs font-bold gap-2 pointer-events-none">
                         <FileUp className="w-5 h-5 animate-bounce" />
-                        <span>Lepaskan file Dockerfile untuk mengunggah</span>
+                        <span>Drop Dockerfile to upload</span>
                       </div>
                     )}
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span>💡 Tip: Anda bisa klik tombol <strong>Upload Dockerfile</strong> di atas atau seret (drag-and-drop) file langsung ke editor.</span>
+                    <span>Tip: Click <strong>Upload Dockerfile</strong> above or drag &amp; drop a file onto the editor.</span>
                   </div>
                 </div>
               )}
@@ -805,13 +805,13 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                     {isDragging && (
                       <div className="absolute inset-0 bg-purple-900/80 backdrop-blur-xs rounded-xl flex items-center justify-center text-white text-xs font-bold gap-2 pointer-events-none">
                         <FileUp className="w-5 h-5 animate-bounce" />
-                        <span>Lepaskan file docker-compose.yml untuk mengunggah</span>
+                        <span>Drop docker-compose.yml to upload</span>
                       </div>
                     )}
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span>💡 Tip: Anda bisa klik tombol <strong>Upload docker-compose.yml</strong> di atas atau seret (drag-and-drop) file langsung ke editor.</span>
+                    <span>Tip: Click <strong>Upload docker-compose.yml</strong> above or drag &amp; drop a file onto the editor.</span>
                   </div>
                 </div>
               )}
@@ -840,7 +840,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                     Expose as Web Application (HTTP / HTTPS Ingress)
                   </label>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Aktifkan jika container ini memiliki web interface atau REST API (seperti n8n, Next.js, Grafana, WordPress) yang ingin diakses langsung lewat browser dan domain publik.
+                    Enable if this container has a web UI or REST API (n8n, Next.js, Grafana, WordPress) that should be reachable from the browser on a public domain.
                   </p>
                 </div>
               </div>
@@ -866,7 +866,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                       />
                     </div>
                     <p className="text-[10px] text-slate-400 mt-1">
-                      Panel akan mengatur Reverse Proxy internal (Nginx/Traefik) ke port container ini.
+                      The panel sets up an internal reverse proxy (Nginx/Traefik) to this container port.
                     </p>
                   </div>
 
@@ -885,7 +885,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                         className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:border-purple-500 font-mono"
                       />
                       <p className="text-[10px] text-slate-400 mt-1">
-                        Port web yang di-listen oleh container (e.g. 5678 untuk n8n, 3000 untuk Node, 80 untuk Nginx).
+                        Web port the container listens on (e.g. 5678 for n8n, 3000 for Node, 80 for Nginx).
                       </p>
                     </div>
 
@@ -920,10 +920,10 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                     <div>
                       <label htmlFor="cfTunnelToggle" className="text-xs font-bold text-slate-900 cursor-pointer flex items-center gap-1.5">
                         <Cloud className="w-3.5 h-3.5 text-blue-600" />
-                        Rute melalui Isolated Cloudflare Tunnel Tenant
+                        Route through Isolated Cloudflare Tunnel Tenant
                       </label>
                       <p className="text-[10px] text-slate-500 mt-0.5">
-                        Bypass IP publik & port forwarding. Container langsung dihubungkan ke Cloudflare Zero Trust Tunnel milik user Anda secara terisolasi.
+                        Bypasses public IP and port forwarding. The container connects directly to the tenant's isolated Cloudflare Zero Trust Tunnel.
                       </p>
                     </div>
                   </div>
@@ -931,7 +931,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
               ) : (
                 <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-center">
                   <p className="text-xs text-slate-500">
-                    Container ini berjalan sebagai background daemon, worker, atau database cache murni tanpa domain web publik.
+                    This container runs as a background daemon, worker, or pure database cache with no public web domain.
                   </p>
                 </div>
               )}
@@ -944,7 +944,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-xs font-bold text-slate-900">Environment Variables</h3>
-                  <p className="text-[11px] text-slate-500">Injeksi variabel rahasia, database URLs, atau config flags.</p>
+                  <p className="text-[11px] text-slate-500">Inject secrets, database URLs, or config flags.</p>
                 </div>
                 <div className="flex items-center gap-2">
                   {/* Upload .env button */}
@@ -1033,7 +1033,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                   ))}
                   {envVars.length === 0 && (
                     <div className="p-3 text-center text-xs text-slate-400 bg-slate-50 rounded-lg">
-                      Tidak ada variabel environment. Klik "Add Variable" atau "Upload .env File".
+                      No environment variables. Click "Add Variable" or "Upload .env File".
                     </div>
                   )}
                 </div>
@@ -1065,7 +1065,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-purple-500 font-mono"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Format: [HostPort]:[ContainerPort]. Kosongkan jika menggunakan default web port.
+                  Format: [HostPort]:[ContainerPort]. Leave blank to use the default web port.
                 </p>
               </div>
 
@@ -1074,7 +1074,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-xs font-bold text-slate-900">Persistent Storage Volumes</h3>
-                    <p className="text-[11px] text-slate-500">Mount path host atau docker volume agar data tidak hilang saat restart.</p>
+                    <p className="text-[11px] text-slate-500">Mount a host path or docker volume so data survives restarts.</p>
                   </div>
                   <button
                     type="button"
@@ -1164,10 +1164,10 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                   onChange={(e) => setRestartPolicy(e.target.value)}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-purple-500 font-medium"
                 >
-                  <option value="unless-stopped">unless-stopped (Rekomendasi server)</option>
-                  <option value="always">always (Selalu restart jika crash atau reboot)</option>
-                  <option value="on-failure">on-failure (Restart hanya saat error exit code)</option>
-                  <option value="no">no (Jangan pernah auto restart)</option>
+                  <option value="unless-stopped">unless-stopped (Recommended)</option>
+                  <option value="always">always (Always restart on crash or reboot)</option>
+                  <option value="on-failure">on-failure (Restart only on error exit code)</option>
+                  <option value="no">no (Never auto-restart)</option>
                 </select>
               </div>
             </div>

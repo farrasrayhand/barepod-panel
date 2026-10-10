@@ -7,7 +7,6 @@ import {
   Maximize2, 
   Copy, 
   Trash2,
-  Sparkles,
   Info,
   ChevronRight
 } from 'lucide-react';
@@ -69,7 +68,7 @@ Hybrid Monorepo Sandbox: ACTIVE (Full multi-runtime support for PHP backend, Vit
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Pilih situs / aplikasi untuk membuka sesi CLI-nya. Setiap sesi otomatis memakai tenant user, direktori kerja, dan runtime versi aplikasi terkait.
+            Select a site or app to open its CLI session. Each session uses that app's tenant user, working directory, and runtime version.
           </p>
         </div>
 
@@ -353,17 +352,6 @@ SHELL=/bin/bash`;
               </option>
             ))}
           </select>
-        </div>
-      </div>
-
-      {/* Feature Explainer Banner */}
-      <div className="p-4 bg-indigo-50/70 border border-indigo-200/60 rounded-xl flex items-start gap-3 text-xs text-indigo-900">
-        <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-        <div>
-          <span className="font-semibold">Polyglot Hybrid Monorepo Sandbox (Multi-Runtime Aktif Bersamaan):</span>
-          <p className="text-indigo-700 mt-0.5 leading-relaxed">
-            Di BarePod, sandbox tenant mendukung ekosistem hybrid! Anda bebas menjalankan backend <strong>PHP {currentApp.version}</strong>, build frontend dengan <strong>Node.js 22 LTS (Vite & npm)</strong>, serta background script <strong>Python 3.12</strong> di satu workspace yang sama tanpa konflik. Gunakan <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-indigo-900">php -m</code> untuk memeriksa extension PHP yang aktif.
-          </p>
         </div>
       </div>
 

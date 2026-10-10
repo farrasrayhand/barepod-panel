@@ -162,7 +162,7 @@ REDIS_PASSWORD=${pwd}`;
   const handleUnlockPassword = (e: React.FormEvent) => {
     e.preventDefault();
     if (!panelPassword.trim()) {
-      setErrorMsg('Masukkan password akun panel Anda.');
+      setErrorMsg('Enter your panel account password.');
       return;
     }
     // Simulation unlocks password
@@ -230,7 +230,7 @@ REDIS_PASSWORD=${pwd}`;
                   <span>Direct Web GUI Access (Zero Re-Login SSO)</span>
                 </div>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  Buka visual database manager langsung tanpa perlu input user & password lagi:
+                  Open the visual database manager without entering the user & password again:
                 </p>
               </div>
 
@@ -337,7 +337,7 @@ USE \`${database.name}\`;
                 <span className="text-xs font-bold text-slate-800">Connection URL (Direct String)</span>
               </div>
               <span className="text-[10px] text-slate-400 font-medium">
-                Gunakan URL ini di .env / Prisma / App tanpa input manual
+                Use this URL in .env / Prisma / your app without manual input
               </span>
             </div>
 
@@ -458,7 +458,7 @@ USE \`${database.name}\`;
                     <>
                       <span
                         className="px-2 py-1 text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 rounded-lg flex items-center gap-1 whitespace-nowrap"
-                        title="Kredensial otomatis terkunci kembali"
+                        title="Credentials re-lock automatically"
                       >
                         <Lock className="w-3 h-3" />
                         Auto-lock {autoLockSeconds}s
@@ -530,13 +530,13 @@ USE \`${database.name}\`;
                 {isEditingMaxConn ? (
                   <div className="p-2 bg-white rounded border border-blue-300 ring-1 ring-blue-100">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-blue-600 font-sans font-bold">Ubah Quota Koneksi</span>
+                      <span className="text-[10px] text-blue-600 font-sans font-bold">Edit Connection Quota</span>
                       <button
                         type="button"
                         onClick={() => setIsEditingMaxConn(false)}
                         className="text-[10px] text-slate-400 hover:text-slate-600 font-sans cursor-pointer"
                       >
-                        Batal
+                        Cancel
                       </button>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -559,7 +559,7 @@ USE \`${database.name}\`;
                         }}
                         className="px-2 py-0.5 bg-blue-600 text-white rounded text-[10px] font-sans font-semibold hover:bg-blue-700 cursor-pointer"
                       >
-                        Simpan
+                        Save
                       </button>
                     </div>
                   </div>
@@ -572,7 +572,7 @@ USE \`${database.name}\`;
                         onClick={() => setIsEditingMaxConn(true)}
                         className="text-[10px] font-sans text-blue-600 hover:text-blue-800 font-semibold hover:underline cursor-pointer"
                       >
-                        Ubah
+                        Edit
                       </button>
                     </div>
                     <span className="text-slate-800 font-semibold block mt-0.5">
@@ -581,10 +581,6 @@ USE \`${database.name}\`;
                   </div>
                 )}
               </div>
-
-              <p className="text-[10px] text-slate-500 italic">
-                * User <code className="text-slate-700 font-semibold">{database.username}</code> hanya memiliki hak akses ke database ini saja. Akses ke database tenant lain diblokir otomatis oleh cgroups jail & internal SQL ACL.
-              </p>
             </div>
           </div>
 

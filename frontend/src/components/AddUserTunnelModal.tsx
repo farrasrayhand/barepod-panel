@@ -118,14 +118,7 @@ export const AddUserTunnelModal: React.FC<AddUserTunnelModalProps> = ({
               />
             </div>
             <p className="text-[10px] text-slate-400 mt-1">
-              Token dari dashboard Cloudflare Zero Trust milik akun pribadi tenant ini.
-            </p>
-          </div>
-
-          <div className="p-3 bg-blue-50/70 border border-blue-200/60 rounded-xl text-xs text-blue-900 flex items-start gap-2">
-            <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-blue-800 leading-relaxed">
-              <strong>Isolasi Proses Daemon:</strong> BarePod akan menjalankan instance proses <code>cloudflared</code> terpisah khusus untuk tenant <strong>{tenantUser}</strong>. Domain tenant ini tidak akan tercampur dengan akun Cloudflare milik tenant lain!
+              Token from this tenant's own Cloudflare Zero Trust dashboard.
             </p>
           </div>
 

@@ -274,7 +274,7 @@ export const DatabaseGuiModal: React.FC<DatabaseGuiModalProps> = ({
               window.open(simulatedUrl, '_blank');
             }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-all shadow-xs shrink-0 cursor-pointer"
-            title="Buka langsung di tab baru browser asli Anda"
+            title="Open directly in a new browser tab"
           >
             <ExternalLink className="w-3.5 h-3.5" />
             <span>Open in New Tab</span>
@@ -463,7 +463,7 @@ export const DatabaseGuiModal: React.FC<DatabaseGuiModalProps> = ({
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                   <p className="leading-snug">
-                    <strong>Auto-Login SSO Berhasil:</strong> Sesi terautentikasi ke database <strong>{database.name}</strong> sebagai user <strong>{database.username}</strong> melalui internal reverse proxy BarePod.
+                    <strong>SSO auto-login successful:</strong> session authenticated to database <strong>{database.name}</strong> as user <strong>{database.username}</strong> through the BarePod internal reverse proxy.
                   </p>
                 </div>
                 <span className="text-[11px] font-mono text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-200 shrink-0">
@@ -589,13 +589,13 @@ export const DatabaseGuiModal: React.FC<DatabaseGuiModalProps> = ({
         <div className="px-6 py-2.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 shrink-0">
           <div className="flex items-center gap-2">
             <Lock className="w-3.5 h-3.5 text-emerald-400" />
-            <span>BarePod SSO Security Protocol: Port 127.0.0.1 diblokir dari akses luar. Hanya bisa dibuka via internal panel.</span>
+            <span>BarePod SSO Security Protocol: port 127.0.0.1 is blocked from outside access. Only reachable through the internal panel.</span>
           </div>
           <button
             onClick={onClose}
             className="px-4 py-1.5 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
           >
-            Tutup Simulator
+            Close Simulator
           </button>
         </div>
       </div>

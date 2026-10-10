@@ -76,13 +76,13 @@ export const BasicAuthPromptModal: React.FC<BasicAuthPromptModalProps> = ({
           <div className="p-3 bg-purple-50/70 rounded-xl border border-purple-200/80 text-xs text-purple-900 space-y-1">
             <div className="font-semibold flex items-center gap-1.5 text-purple-800">
               <ShieldCheck className="w-4 h-4 text-purple-600" />
-              <span>Pesan Realm dari Server:</span>
+              <span>Server Realm Message:</span>
             </div>
             <p className="font-mono text-[11px] text-purple-950 pl-5">
               "{realm}"
             </p>
             <p className="text-[10px] text-purple-700 pl-5 pt-0.5">
-              Koneksi Anda ke server ini diamankan dengan kredensial terenkripsi base64 Authorization header.
+              Your connection to this server is secured with base64-encoded Authorization header credentials.
             </p>
           </div>
 
@@ -96,14 +96,14 @@ export const BasicAuthPromptModal: React.FC<BasicAuthPromptModalProps> = ({
                   200 OK — Authentication Succeeded!
                 </h4>
                 <p className="text-xs text-emerald-700 mt-1">
-                  Kredensial valid. Header <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono">Authorization: Basic ...</code> diterima oleh web server.
+                  Credentials valid. The web server accepted the <code className="bg-emerald-100 px-1 py-0.5 rounded font-mono">Authorization: Basic ...</code> header.
                 </p>
               </div>
               <button
                 onClick={handleReset}
                 className="px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 rounded-lg transition-colors"
               >
-                Coba Uji Lagi
+                Test Again
               </button>
             </div>
           ) : (
@@ -113,7 +113,7 @@ export const BasicAuthPromptModal: React.FC<BasicAuthPromptModalProps> = ({
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                   <div>
                     <strong className="block">401 Unauthorized</strong>
-                    <span>Username atau password tidak cocok dengan konfigurasi .htpasswd aktif.</span>
+                    <span>Username or password does not match the active .htpasswd configuration.</span>
                   </div>
                 </div>
               )}
@@ -173,7 +173,7 @@ export const BasicAuthPromptModal: React.FC<BasicAuthPromptModalProps> = ({
                   }}
                   className="text-[11px] text-purple-600 hover:text-purple-800 font-semibold hover:underline"
                 >
-                  ⚡ Autofill Kredensial Tersimpan
+                  Autofill Saved Credentials
                 </button>
                 <span className="text-[10px] text-slate-400 font-mono">
                   User: {expectedUser || 'admin'}
@@ -189,13 +189,13 @@ export const BasicAuthPromptModal: React.FC<BasicAuthPromptModalProps> = ({
                   }}
                   className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 rounded-xl hover:bg-slate-100 transition-colors"
                 >
-                  Batal
+                  Cancel
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-sm shadow-purple-500/25"
                 >
-                  Sign In (Uji Autentikasi)
+                  Sign In (Test Auth)
                 </button>
               </div>
             </form>

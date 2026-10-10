@@ -69,7 +69,7 @@ export const PodConfigModal: React.FC<PodConfigModalProps> = ({
   // Maintenance & Basic Auth State for Web Container
   const [maintenanceMode, setMaintenanceMode] = useState(pod.maintenanceMode ?? false);
   const [maintenanceMessage, setMaintenanceMessage] = useState(
-    pod.maintenanceMessage || 'Container ini sedang dalam pemeliharaan berkala. Silakan coba beberapa saat lagi.'
+    pod.maintenanceMessage || 'This container is under scheduled maintenance. Please try again shortly.'
   );
   const [maintenanceBypassIps, setMaintenanceBypassIps] = useState(pod.maintenanceBypassIps || '127.0.0.1, 103.147.154.82');
   const [basicAuthEnabled, setBasicAuthEnabled] = useState(pod.basicAuthEnabled ?? false);
@@ -89,14 +89,14 @@ export const PodConfigModal: React.FC<PodConfigModalProps> = ({
       pass += charset.charAt(Math.floor(Math.random() * charset.length));
     }
     setBasicAuthPassword(pass);
-    onShowToast?.('Password Baru Dibuat', 'Kombinasi 16-karakter acak berhasil dibuat.', 'info');
+    onShowToast?.('New Password Generated', 'A random 16-character password was generated.', 'info');
   };
 
   const handleCopyCurl = (cmd: string) => {
     navigator.clipboard.writeText(cmd);
     setCopiedCurl(true);
     setTimeout(() => setCopiedCurl(false), 2000);
-    onShowToast?.('Perintah Copied', 'cURL command disalin ke clipboard.', 'info');
+    onShowToast?.('Command Copied', 'cURL command copied to clipboard.', 'info');
   };
 
   // Envs
@@ -459,7 +459,7 @@ ${isWebApp ? `    labels:
                     Expose as Web Application (HTTP / HTTPS Ingress)
                   </label>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Hubungkan container ke internal reverse proxy BarePod Panel untuk routing domain publik dan auto SSL.
+                    Connect the container to the panel's internal reverse proxy for public domain routing and auto SSL.
                   </p>
                 </div>
               </div>
@@ -508,7 +508,7 @@ ${isWebApp ? `    labels:
                         className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg font-mono"
                       />
                       <p className="text-[10px] text-slate-400 mt-1">
-                        Port tempat aplikasi container Anda me-listen traffic HTTP (misal 5678, 3000, 8080).
+                        Port your container app listens on for HTTP traffic (e.g. 5678, 3000, 8080).
                       </p>
                     </div>
 
@@ -542,10 +542,10 @@ ${isWebApp ? `    labels:
                     <div>
                       <label htmlFor="modalCfTunnelToggle" className="text-xs font-bold text-slate-900 cursor-pointer flex items-center gap-1.5">
                         <Cloud className="w-3.5 h-3.5 text-blue-600" />
-                        Rute melalui Isolated Cloudflare Tunnel Tenant
+                        Route through Isolated Cloudflare Tunnel Tenant
                       </label>
                       <p className="text-[10px] text-slate-500 mt-0.5">
-                        Container ini akan otomatis ditambahkan ke Ingress Rule Cloudflare Tunnel pribadi milik Anda tanpa perlu membuka port router/VPS publik.
+                        This container is added automatically to your private Cloudflare Tunnel ingress rules without opening public router/VPS ports.
                       </p>
                     </div>
                   </div>
@@ -567,7 +567,7 @@ ${isWebApp ? `    labels:
                         )}
                         {basicAuthEnabled && (
                           <span className="px-2 py-0.5 rounded-full font-bold bg-purple-100 text-purple-800 border border-purple-300">
-                            🔒 Basic Auth
+                            Basic Auth
                           </span>
                         )}
                       </div>
@@ -583,7 +583,7 @@ ${isWebApp ? `    labels:
                               Maintenance Mode (HTTP 503)
                             </span>
                             <span className="text-[10px] text-slate-500">
-                              Kirim respons HTTP 503 Service Unavailable ke pengunjung
+                              Return an HTTP 503 Service Unavailable response to visitors
                             </span>
                           </div>
                         </div>
@@ -603,14 +603,14 @@ ${isWebApp ? `    labels:
                         <div className="space-y-2.5 pt-2 border-t border-slate-100 animate-in fade-in duration-150">
                           <div>
                             <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                              Pesan Downtime Pemeliharaan
+                              Maintenance Downtime Message
                             </label>
                             <input
                               type="text"
                               value={maintenanceMessage}
                               onChange={(e) => setMaintenanceMessage(e.target.value)}
                               className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
-                              placeholder="Container ini sedang dalam pemeliharaan berkala."
+                              placeholder="This container is under scheduled maintenance."
                             />
                           </div>
 
@@ -633,7 +633,7 @@ ${isWebApp ? `    labels:
                             className="text-xs font-bold text-amber-700 hover:text-amber-900 flex items-center gap-1 pt-0.5"
                           >
                             <Eye className="w-3.5 h-3.5" />
-                            <span>Preview Halaman 503 Container</span>
+                            <span>Preview Container 503 Page</span>
                           </button>
                         </div>
                       )}
@@ -649,7 +649,7 @@ ${isWebApp ? `    labels:
                               HTTP Basic Authentication (.htpasswd)
                             </span>
                             <span className="text-[10px] text-slate-500">
-                              Kunci akses web container dengan user & password
+                              Lock web container access with a username & password
                             </span>
                           </div>
                         </div>
@@ -690,7 +690,7 @@ ${isWebApp ? `    labels:
                                   onClick={handleGeneratePassword}
                                   className="text-[10px] font-bold text-purple-600 hover:text-purple-800"
                                 >
-                                  ⚡ Generate
+                                  Generate
                                 </button>
                               </div>
                               <div className="relative">
@@ -713,7 +713,7 @@ ${isWebApp ? `    labels:
 
                           <div>
                             <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                              Realm Title (Pesan Dialog Browser)
+                              Realm Title (Browser Dialog Message)
                             </label>
                             <input
                               type="text"
@@ -730,7 +730,7 @@ ${isWebApp ? `    labels:
                               className="text-xs font-bold text-purple-700 hover:text-purple-900 flex items-center gap-1"
                             >
                               <Key className="w-3.5 h-3.5" />
-                              <span>Uji Dialog Otentikasi (Simulator)</span>
+                              <span>Test Auth Dialog (Simulator)</span>
                             </button>
 
                             <button
@@ -749,7 +749,7 @@ ${isWebApp ? `    labels:
                 </div>
               ) : (
                 <div className="p-6 text-center bg-slate-50 border border-dashed border-slate-200 rounded-xl text-xs text-slate-500">
-                  Container ini beroperasi dalam mode non-web (backend worker atau caching pod). Centang kotak di atas jika ingin menambahkan domain web.
+                  This container runs in non-web mode (backend worker or caching pod). Check the box above to add a web domain.
                 </div>
               )}
             </div>
@@ -761,7 +761,7 @@ ${isWebApp ? `    labels:
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-xs font-bold text-slate-900">Active Environment Variables</h3>
-                  <p className="text-[11px] text-slate-500">Nilai akan disuntikkan ke runtime process container.</p>
+                  <p className="text-[11px] text-slate-500">Values are injected into the container runtime process.</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -846,7 +846,7 @@ ${isWebApp ? `    labels:
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-xs font-bold text-slate-900">Mounted Storage Volumes</h3>
-                    <p className="text-[11px] text-slate-500">Persistent mapping antara filesystem server host dan container.</p>
+                    <p className="text-[11px] text-slate-500">Persistent mapping between the host server filesystem and the container.</p>
                   </div>
                   <button
                     type="button"

@@ -136,21 +136,21 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
               <div>
                 <span className="font-semibold">Security Protection:</span>
                 <p className="mt-0.5 text-amber-800">
-                  Password database disembunyikan untuk mencegah pencurian data. Masukkan <strong>Password Akun Panel BarePod</strong> Anda untuk menampilkan password database ini.
+                  Database passwords are hidden to prevent data theft. Enter your <strong>BarePod Panel Account Password</strong> to reveal this database password.
                 </p>
               </div>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Password Panel Anda
+                Your Panel Password
               </label>
               <div className="relative">
                 <input
                   type="password"
                   autoFocus
                   required
-                  placeholder="Masukkan password login panel Anda..."
+                  placeholder="Enter your panel login password..."
                   value={panelPassword}
                   onChange={(e) => setPanelPassword(e.target.value)}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"

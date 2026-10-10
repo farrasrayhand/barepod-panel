@@ -551,7 +551,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">Path-Based Reverse Proxy Rules (Multi-Stack Splitting)</h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Satu domain <strong>{app.domain}</strong> dapat membagi path URL ke beberapa bahasa/service sekaligus:
+                      A single domain <strong>{app.domain}</strong> can split URL paths across multiple languages/services at once:
                     </p>
                   </div>
                 </div>
@@ -604,7 +604,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">Environment Variables (.env)</h3>
-                  <p className="text-xs text-slate-500">Tersinkronisasi otomatis dengan file <code>/home/{app.tenantUser}/apps/{app.name}/.env</code></p>
+                  <p className="text-xs text-slate-500">Auto-synced with file <code>/home/{app.tenantUser}/apps/{app.name}/.env</code></p>
                 </div>
                 <button
                   onClick={() => {
