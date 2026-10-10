@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSubRoute } from '../hooks/useSubRoute';
 import { MetricHistoryChart } from './MetricHistoryChart';
 import { HostConsole } from './HostConsole';
@@ -79,12 +79,23 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, activeTab]);
 
-  // Switching tabs replaces the content below the tab bar, so start at the top
-  // of the page: otherwise the old scroll position is kept and the new tab
-  // looks like it opened in the middle (and the browser clamps the scroll,
-  // which reads as a slide).
+  // Switching tabs replaces the content below the tab bar, so bring that
+  // content into view with a smooth scroll (this is what "click Terminal, land
+  // on the terminal" means). The default tab is skipped on a fresh visit so
+  // /monitoring still opens at the top, KPIs first.
+  const scrollRootRef = useRef<HTMLDivElement>(null);
+  const didMount = useRef(false);
   useEffect(() => {
-    document.querySelector('[data-scroll-root]')?.scrollTo({ top: 0 });
+    const isFirstRender = !didMount.current;
+    didMount.current = true;
+    if (isFirstRender && activeTab === 'metrics') return;
+
+    const root = document.querySelector('[data-scroll-root]') as HTMLElement | null;
+    const bar = scrollRootRef.current;
+    if (!root || !bar) return;
+
+    const offset = bar.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop;
+    root.scrollTo({ top: Math.max(0, offset - 12), behavior: 'smooth' });
   }, [activeTab]);
 
   // Live Metrics State
@@ -532,7 +543,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
       </div>
 
       {/* Main Tabs Navigation */}
-      <div className="flex items-center gap-1 border-b border-slate-200 bg-white px-2 rounded-t-xl overflow-x-auto text-xs font-semibold">
+      <div ref={scrollRootRef} className="flex items-center gap-1 border-b border-slate-200 bg-white px-2 rounded-t-xl overflow-x-auto text-xs font-semibold">
         <button
           onClick={() => setActiveTab('metrics')}
           className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
