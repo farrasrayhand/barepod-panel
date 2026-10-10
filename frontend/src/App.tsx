@@ -369,6 +369,7 @@ systemctl reload uvicorn-ai`,
               onSubTabChange={(sub) => {
                 if (route.appSlug) navigatePath(`/apps/${encodeURIComponent(route.appSlug)}/${sub}`);
               }}
+              onOpenAppFiles={(app) => navigatePath(`/apps/${encodeURIComponent(app.name)}/files`)}
               onBack={() => navigatePath(TAB_PATHS.apps)}
               onOpenAddModal={() => setIsAddModalOpen(true)}
               onOpenAppTerminal={handleOpenAppTerminal}

@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSubRoute } from '../hooks/useSubRoute';
+import { MetricHistoryChart } from './MetricHistoryChart';
+import { HostConsole } from './HostConsole';
 import { 
   Activity, 
   Cpu, 
@@ -65,7 +67,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   onShowToast,
   onOpenTerminal
 }) => {
-  const [activeTab, setActiveTab] = useSubRoute<'metrics' | 'processes' | 'services' | 'storage' | 'network'>('metrics');
+  const [activeTab, setActiveTab] = useSubRoute<'metrics' | 'processes' | 'services' | 'storage' | 'network' | 'console'>('metrics');
   const [refreshInterval, setRefreshInterval] = useState<number>(3000);
   const [isAutoRefresh, setIsAutoRefresh] = useState(true);
 
@@ -73,6 +75,24 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   const [cpuUsage, setCpuUsage] = useState(14.2);
   const [cpuHistory, setCpuHistory] = useState<number[]>([12, 14, 18, 15, 13, 16, 22, 19, 14, 15, 17, 14]);
   const [perCore, setPerCore] = useState([16.4, 12.1, 18.0, 10.5]);
+
+  // Host telemetry time range + synthetic history series
+  const [hostRange, setHostRange] = useState<'live' | '1h' | '24h' | '7d' | '30d' | '90d'>('24h');
+
+  const hostRangeLabel = (r: string) =>
+    r === 'live' ? 'Live (5 min)' : r === '1h' ? '1 Hour' : r === '24h' ? '24 Hours' : r === '7d' ? '7 Days' : r === '30d' ? '30 Days' : '90 Days';
+
+  const history = useMemo(() => {
+    const points = hostRange === 'live' ? 24 : hostRange === '1h' ? 30 : hostRange === '24h' ? 48 : hostRange === '7d' ? 56 : 60;
+    const gen = (base: number, amp: number) =>
+      Array.from({ length: points }, (_, i) => {
+        const wave = Math.sin((i / points) * Math.PI * 6) * amp;
+        const drift = Math.sin((i / points) * Math.PI * 2) * amp * 0.4;
+        const noise = (Math.random() - 0.5) * amp * 0.5;
+        return Math.max(0.1, Number((base + wave + drift + noise).toFixed(2)));
+      });
+    return { cpu: gen(12, 8), mem: gen(26, 5), net: gen(18, 12), disk: gen(6, 4) };
+  }, [hostRange]);
   const [ramUsed, setRamUsed] = useState(2.3);
   const [ramTotal] = useState(8.0);
   const [swapUsed, setSwapUsed] = useState(0.08);
@@ -294,7 +314,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           </div>
 
           <button
-            onClick={onOpenTerminal}
+            onClick={() => setActiveTab('console')}
             className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors"
           >
             <Terminal className="w-3.5 h-3.5" />
@@ -311,20 +331,21 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             <span>Host Time Range:</span>
           </span>
           <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200 text-xs">
-            {(['live', '1h', '24h', '7d', '30d', '90d'] as const).map(range => (
+            {(['live', '1h', '24h', '7d', '30d', '90d'] as const).map(r => (
               <button
-                key={range}
+                key={r}
                 type="button"
                 onClick={() => {
-                  onShowToast?.('Server Time Filter', `Showing host telemetry aggregation: ${range === 'live' ? 'Live (5 min)' : range === '1h' ? '1 Hour' : range === '24h' ? '24 Hours' : range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : '90 Days (TSDB policy max)'}.`, 'info');
+                  setHostRange(r);
+                  onShowToast?.('Server Time Filter', `Showing host telemetry aggregation: ${hostRangeLabel(r)}.`, 'info');
                 }}
                 className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                  range === '24h'
+                  r === hostRange
                     ? 'bg-blue-600 text-white shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {range === 'live' ? '5m Live' : range === '1h' ? '1 Hour' : range === '24h' ? '24 Hours' : range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : '90 Days'}
+                {r === 'live' ? '5m Live' : r === '1h' ? '1 Hour' : r === '24h' ? '24 Hours' : r === '7d' ? '7 Days' : r === '30d' ? '30 Days' : '90 Days'}
               </button>
             ))}
           </div>
@@ -498,6 +519,18 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('console')}
+          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+            activeTab === 'console'
+              ? 'border-slate-900 text-slate-900 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Terminal className="w-4 h-4" />
+          <span>Host Console (htop / bash)</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('services')}
           className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
             activeTab === 'services'
@@ -663,6 +696,25 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
                 <div className="text-[11px] text-slate-400 text-center">
                   Swappiness: <strong className="text-slate-600 font-mono">vm.swappiness=10</strong> • ZRAM compression active
+                </div>
+              </div>
+
+              {/* Historical Trends */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Historical Trends</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Aggregated host metrics over the selected time range.</p>
+                  </div>
+                  <span className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg">
+                    {hostRangeLabel(hostRange)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <MetricHistoryChart title="CPU Usage" unit="%" data={history.cpu} color="#2563eb" />
+                  <MetricHistoryChart title="Memory Usage" unit="%" data={history.mem} color="#10b981" />
+                  <MetricHistoryChart title="Network I/O" unit=" Mbps" data={history.net} color="#0ea5e9" />
+                  <MetricHistoryChart title="Disk I/O" unit=" MB/s" data={history.disk} color="#a855f7" />
                 </div>
               </div>
 
@@ -1629,6 +1681,11 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           </div>
         </div>
       )}
+
+        {/* TAB 6: HOST CONSOLE (htop / bash) */}
+        {activeTab === 'console' && (
+          <HostConsole hostname="vps-barepod-edge-01" />
+        )}
 
     </div>
   );

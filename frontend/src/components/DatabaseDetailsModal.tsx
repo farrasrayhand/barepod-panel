@@ -174,14 +174,14 @@ REDIS_PASSWORD=${pwd}`;
   const getBadge = () => {
     switch (database.type) {
       case 'postgres':
-        return { bg: 'bg-blue-100 text-blue-700', label: '🐘 PostgreSQL', port: 5432 };
+        return { bg: 'bg-blue-100 text-blue-700', label: 'PostgreSQL', port: 5432 };
       case 'mysql':
       case 'mariadb':
-        return { bg: 'bg-amber-100 text-amber-700', label: '🐬 MySQL/MariaDB', port: 3306 };
+        return { bg: 'bg-amber-100 text-amber-700', label: 'MySQL/MariaDB', port: 3306 };
       case 'mongodb':
-        return { bg: 'bg-emerald-100 text-emerald-800', label: '🍃 MongoDB', port: 27017 };
+        return { bg: 'bg-emerald-100 text-emerald-800', label: 'MongoDB', port: 27017 };
       case 'redis':
-        return { bg: 'bg-rose-100 text-rose-700', label: '🔴 Redis Cache', port: 6379 };
+        return { bg: 'bg-rose-100 text-rose-700', label: 'Redis Cache', port: 6379 };
     }
   };
 
@@ -244,7 +244,7 @@ REDIS_PASSWORD=${pwd}`;
                     }}
                     className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
                   >
-                    <span>🐘 Open pgAdmin</span>
+                    <span>Open pgAdmin</span>
                   </button>
                 )}
 
@@ -256,7 +256,7 @@ REDIS_PASSWORD=${pwd}`;
                     }}
                     className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
                   >
-                    <span>🐬 Open phpMyAdmin</span>
+                    <span>Open phpMyAdmin</span>
                   </button>
                 )}
 
@@ -268,7 +268,7 @@ REDIS_PASSWORD=${pwd}`;
                     }}
                     className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
                   >
-                    <span>🍃 Open Mongo Express</span>
+                    <span>Open Mongo Express</span>
                   </button>
                 )}
 
@@ -280,7 +280,7 @@ REDIS_PASSWORD=${pwd}`;
                     }}
                     className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
                   >
-                    <span>🔴 Open Redis Commander</span>
+                    <span>Open Redis Commander</span>
                   </button>
                 )}
 

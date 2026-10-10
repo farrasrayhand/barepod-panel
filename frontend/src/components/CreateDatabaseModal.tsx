@@ -121,10 +121,10 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
             </label>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { id: 'postgres' as DatabaseEngine, label: '🐘 PostgreSQL' },
-                { id: 'mysql' as DatabaseEngine, label: '🐬 MySQL / MariaDB' },
-                { id: 'mongodb' as DatabaseEngine, label: '🍃 MongoDB' },
-                { id: 'redis' as DatabaseEngine, label: '🔴 Redis Cache' },
+                { id: 'postgres' as DatabaseEngine, label: 'PostgreSQL' },
+                { id: 'mysql' as DatabaseEngine, label: 'MySQL / MariaDB' },
+                { id: 'mongodb' as DatabaseEngine, label: 'MongoDB' },
+                { id: 'redis' as DatabaseEngine, label: 'Redis Cache' },
               ].map((engine) => (
                 <button
                   type="button"

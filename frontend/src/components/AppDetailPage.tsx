@@ -61,17 +61,17 @@ import {
 import type { WebApp, WebServerType } from '../types';
 import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
 import { WORLD_MAP_PATH } from '../data/worldMapPath';
+import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
 
-export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'routing' | 'env' | 'php' | 'security' | 'deploy';
+export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'routing' | 'files' | 'env' | 'php' | 'security' | 'deploy';
 
 interface AppDetailPageProps {
   app: WebApp;
   onBack: () => void;
   onToggleStatus: (appId: string) => void;
   onOpenTerminal: (app: WebApp) => void;
-  onOpenFiles: (app: WebApp) => void;
   onOpenGit: (app: WebApp) => void;
   onUpdateApp?: (updated: WebApp) => void;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
@@ -84,7 +84,6 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   onBack,
   onToggleStatus,
   onOpenTerminal,
-  onOpenFiles,
   onOpenGit,
   onUpdateApp,
   onShowToast,
@@ -112,7 +111,6 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [logTheme, setLogTheme] = useState<'light' | 'dark'>('light'); // Default to light mode as requested!
   const [wrapLogText, setWrapLogText] = useState(false);
   const [expandedLogIdx, setExpandedLogIdx] = useState<number | null>(null);
-  const [showWorldMap, setShowWorldMap] = useState(true);
   const [selectedCountryFilter, setSelectedCountryFilter] = useState<string | null>(null);
   const [hoveredMapPin, setHoveredMapPin] = useState<{ country: string; name: string; flag: string; city: string; ip: string; reqs: number; latency: string; isp: string; x: number; y: number } | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -1123,8 +1121,10 @@ QUEUE_CONNECTION=redis`;
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-2xl font-bold shadow-2xs border border-blue-100">
-              {app.runtime === 'php' ? '🐘' : app.runtime === 'nodejs' ? '⬢' : app.runtime === 'python' ? '🐍' : app.runtime === 'proxy' ? '🔀' : '⚡'}
+            <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shadow-2xs border border-blue-100">
+              <span className="text-[11px] font-extrabold tracking-wide">
+                {app.runtime === 'php' ? 'PHP' : app.runtime === 'nodejs' ? 'NODE' : app.runtime === 'python' ? 'PY' : app.runtime === 'proxy' ? 'PROXY' : app.runtime.toUpperCase().slice(0, 4)}
+              </span>
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -1217,7 +1217,7 @@ QUEUE_CONNECTION=redis`;
             </button>
 
             <button
-              onClick={() => onOpenFiles(app)}
+              onClick={() => setActiveTab('files')}
               className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs"
             >
               <Folder className="w-3.5 h-3.5 text-amber-600" />
@@ -1288,6 +1288,18 @@ QUEUE_CONNECTION=redis`;
         </button>
 
         <button
+          onClick={() => setActiveTab('map')}
+          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+            activeTab === 'map'
+              ? 'border-blue-600 text-blue-700 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Globe className="w-4 h-4" />
+          <span>Traffic Map</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('deploy')}
           className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
             activeTab === 'deploy'
@@ -1324,6 +1336,18 @@ QUEUE_CONNECTION=redis`;
         >
           <Lock className="w-4 h-4" />
           <span>Environment (.env)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('files')}
+          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+            activeTab === 'files'
+              ? 'border-amber-600 text-amber-700 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Folder className="w-4 h-4" />
+          <span>File Manager</span>
         </button>
 
         {app.runtime === 'php' && (
@@ -1572,198 +1596,9 @@ QUEUE_CONNECTION=redis`;
                 <span className="text-[11px] bg-emerald-100/80 text-emerald-800 px-2 py-0.5 rounded font-mono font-bold">
                   {uniqueVisitorIps.length} Unique Visitor IPs
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setShowWorldMap(!showWorldMap)}
-                  className="flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] bg-white border border-emerald-300 text-emerald-800 font-bold hover:bg-emerald-50 transition-colors cursor-pointer"
-                >
-                  <Globe className="w-3 h-3 text-emerald-600" />
-                  <span>{showWorldMap ? 'Close Map' : 'Open World Map'}</span>
-                </button>
               </div>
             </div>
 
-            {/* LIVE GLOBAL VISITOR WORLD MAP */}
-            {showWorldMap && (
-              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-3.5 animate-in fade-in duration-200">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                      <Globe className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                        <span>Global Visitor Distribution Map (Live Geo Ingress)</span>
-                        <span className="px-1.5 py-0.2 text-[9px] bg-emerald-100 text-emerald-800 font-mono font-bold rounded">
-                          Live Pulse
-                        </span>
-                      </h4>
-                      <p className="text-[11px] text-slate-500">
-                        Real-time visualization of visitor-origin countries & Cloudflare edge nodes accessing {app.domain}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {selectedCountryFilter && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCountryFilter(null)}
-                        className="flex items-center gap-1 px-2.5 py-1 text-xs bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg font-bold transition-colors cursor-pointer"
-                      >
-                        <span>✕ Reset Filter ({selectedCountryFilter})</span>
-                      </button>
-                    )}
-                    <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200 font-semibold">
-                      {visitorCountryNodes.length} Active Locations across 5 Continents
-                    </span>
-                  </div>
-                </div>
-
-                {/* SVG Vector World Map */}
-                <div className={`relative rounded-xl border overflow-hidden p-2 transition-colors ${
-                  logTheme === 'light' ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950 border-slate-800'
-                }`}>
-                  <svg viewBox="0 0 1000 500" className="w-full h-auto max-h-[300px] select-none">
-                    {/* Latitude and Longitude Grid Lines */}
-                    <line x1="0" y1="250" x2="1000" y2="250" stroke={logTheme === 'light' ? '#e2e8f0' : '#1e293b'} strokeDasharray="4 4" strokeWidth="1" />
-                    <line x1="500" y1="0" x2="500" y2="500" stroke={logTheme === 'light' ? '#e2e8f0' : '#1e293b'} strokeDasharray="4 4" strokeWidth="1" />
-                    <line x1="250" y1="0" x2="250" y2="500" stroke={logTheme === 'light' ? '#f1f5f9' : '#0f172a'} strokeDasharray="4 4" strokeWidth="0.8" />
-                    <line x1="750" y1="0" x2="750" y2="500" stroke={logTheme === 'light' ? '#f1f5f9' : '#0f172a'} strokeDasharray="4 4" strokeWidth="0.8" />
-
-                    {/* World Map — Natural Earth 110m land (equirectangular, matches pin projection) */}
-                    <path
-                      d={WORLD_MAP_PATH}
-                      fillRule="evenodd"
-                      fill={logTheme === 'light' ? '#cbd5e1' : '#1e293b'}
-                      stroke={logTheme === 'light' ? '#94a3b8' : '#334155'}
-                      strokeWidth="0.4"
-                      className="transition-colors"
-                    />
-
-                    {/* Active Visitor Pings and Beacon Markers */}
-                    {visitorCountryNodes.map((node) => {
-                      const isSelected = selectedCountryFilter === node.country;
-                      return (
-                        <g 
-                          key={node.country} 
-                          className="cursor-pointer group"
-                          onClick={() => setSelectedCountryFilter(isSelected ? null : node.country)}
-                          onMouseEnter={() => setHoveredMapPin({ ...node, name: node.countryName })}
-                          onMouseLeave={() => setHoveredMapPin(null)}
-                        >
-                          {/* Animated Radar Pulse Circle */}
-                          <circle
-                            cx={node.x}
-                            cy={node.y}
-                            r={isSelected ? '22' : '15'}
-                            style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
-                            className={`animate-ping opacity-75 ${node.isThreat ? 'fill-rose-500' : 'fill-blue-500'}`}
-                          />
-                          {/* Mid Glow Halo */}
-                          <circle
-                            cx={node.x}
-                            cy={node.y}
-                            r={isSelected ? '10' : '7'}
-                            className={`${node.isThreat ? 'fill-rose-500/40 stroke-rose-500' : 'fill-blue-500/40 stroke-blue-500'} stroke-1.5`}
-                          />
-                          {/* Center Core Pin */}
-                          <circle
-                            cx={node.x}
-                            cy={node.y}
-                            r="4"
-                            className={`${node.isThreat ? 'fill-rose-600' : 'fill-blue-600'} shadow-md`}
-                          />
-                          {/* Flag & Latency Tag */}
-                          <g transform={`translate(${node.x + 9}, ${node.y - 9})`}>
-                            <rect
-                              x="0"
-                              y="-15"
-                              width="78"
-                              height="21"
-                              rx="5"
-                              fill={logTheme === 'light' ? '#ffffff' : '#0f172a'}
-                              stroke={isSelected ? '#2563eb' : (logTheme === 'light' ? '#cbd5e1' : '#334155')}
-                              strokeWidth={isSelected ? '1.5' : '1'}
-                              className="filter drop-shadow-xs"
-                            />
-                            <text
-                              x="5"
-                              y="1"
-                              fontSize="13"
-                              fontFamily="system-ui, sans-serif"
-                              fontWeight="bold"
-                              fill={logTheme === 'light' ? '#0f172a' : '#f8fafc'}
-                            >
-                              {node.flag} {node.latency}
-                            </text>
-                          </g>
-                        </g>
-                      );
-                    })}
-                  </svg>
-
-                  {/* Interactive Map Hover Tooltip */}
-                  {hoveredMapPin && (
-                    <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-xs border border-slate-200 text-slate-800 p-2.5 rounded-xl shadow-lg text-xs font-mono max-w-xs pointer-events-none z-20 animate-in fade-in duration-100">
-                      <div className="flex items-center gap-1.5 font-bold text-slate-900 border-b border-slate-100 pb-1 mb-1">
-                        <MapPin className="w-3.5 h-3.5 text-blue-600" />
-                        <span>{hoveredMapPin.flag} {hoveredMapPin.name}</span>
-                        <span className="text-[10px] text-slate-400">({hoveredMapPin.city})</span>
-                      </div>
-                      <div className="space-y-0.5 text-[11px] text-slate-600">
-                        <div><strong>Sample IP:</strong> <code className="text-amber-700">{hoveredMapPin.ip}</code></div>
-                        <div><strong>ISP / Cloud:</strong> {hoveredMapPin.isp}</div>
-                        <div><strong>Latency:</strong> <span className="text-emerald-600 font-bold">{hoveredMapPin.latency}</span></div>
-                        <div className="text-[10px] text-blue-600 pt-0.5">Click a pin to filter logs by this country</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Country Quick-Filter Badges */}
-                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
-                  <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center gap-1">
-                    <Filter className="w-3 h-3 text-slate-400" />
-                    Filter Country:
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCountryFilter(null)}
-                    className={`px-2.5 py-1 text-xs rounded-lg font-mono font-semibold transition-all cursor-pointer ${
-                      !selectedCountryFilter
-                        ? 'bg-blue-600 text-white shadow-2xs font-bold'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
-                    }`}
-                  >
-                    All ({logs.length})
-                  </button>
-                  {visitorCountryNodes.map((n) => (
-                    <button
-                      key={n.country}
-                      type="button"
-                      onClick={() => setSelectedCountryFilter(selectedCountryFilter === n.country ? null : n.country)}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-mono transition-all cursor-pointer ${
-                        selectedCountryFilter === n.country
-                          ? 'bg-blue-600 text-white shadow-2xs font-bold'
-                          : n.isThreat
-                          ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold'
-                          : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
-                      }`}
-                      title={n.isThreat ? 'Traffic flagged as threat (WAF blocked)' : undefined}
-                    >
-                      <span>{n.flag}</span>
-                      <span className="font-semibold">{n.country}</span>
-                      <span className={`text-[10px] px-1 rounded ${
-                        selectedCountryFilter === n.country ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-500'
-                      }`}>
-                        {n.percentage}%
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Filter Toolbar (Clean & Search-Driven) */}
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5">
@@ -2146,6 +1981,197 @@ QUEUE_CONNECTION=redis`;
               </div>
             </div>
           </div>
+        )}
+
+
+        {/* TAB 2b: WORLD TRAFFIC MAP */}
+        {activeTab === 'map' && (
+          <div className="space-y-4">
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-3.5 animate-in fade-in duration-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                      <Globe className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                        <span>Global Visitor Distribution Map (Live Geo Ingress)</span>
+                        <span className="px-1.5 py-0.2 text-[9px] bg-emerald-100 text-emerald-800 font-mono font-bold rounded">
+                          Live Pulse
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Real-time visualization of visitor-origin countries & Cloudflare edge nodes accessing {app.domain}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {selectedCountryFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCountryFilter(null)}
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg font-bold transition-colors cursor-pointer"
+                      >
+                        <span>✕ Reset Filter ({selectedCountryFilter})</span>
+                      </button>
+                    )}
+                    <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200 font-semibold">
+                      {visitorCountryNodes.length} Active Locations across 5 Continents
+                    </span>
+                  </div>
+                </div>
+
+                {/* SVG Vector World Map */}
+                <div className={`relative rounded-xl border overflow-hidden p-2 transition-colors ${
+                  logTheme === 'light' ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950 border-slate-800'
+                }`}>
+                  <svg viewBox="0 0 1000 500" className="w-full h-auto max-h-[300px] select-none">
+                    {/* Latitude and Longitude Grid Lines */}
+                    <line x1="0" y1="250" x2="1000" y2="250" stroke={logTheme === 'light' ? '#e2e8f0' : '#1e293b'} strokeDasharray="4 4" strokeWidth="1" />
+                    <line x1="500" y1="0" x2="500" y2="500" stroke={logTheme === 'light' ? '#e2e8f0' : '#1e293b'} strokeDasharray="4 4" strokeWidth="1" />
+                    <line x1="250" y1="0" x2="250" y2="500" stroke={logTheme === 'light' ? '#f1f5f9' : '#0f172a'} strokeDasharray="4 4" strokeWidth="0.8" />
+                    <line x1="750" y1="0" x2="750" y2="500" stroke={logTheme === 'light' ? '#f1f5f9' : '#0f172a'} strokeDasharray="4 4" strokeWidth="0.8" />
+
+                    {/* World Map — Natural Earth 110m land (equirectangular, matches pin projection) */}
+                    <path
+                      d={WORLD_MAP_PATH}
+                      fillRule="evenodd"
+                      fill={logTheme === 'light' ? '#cbd5e1' : '#1e293b'}
+                      stroke={logTheme === 'light' ? '#94a3b8' : '#334155'}
+                      strokeWidth="0.4"
+                      className="transition-colors"
+                    />
+
+                    {/* Active Visitor Pings and Beacon Markers */}
+                    {visitorCountryNodes.map((node) => {
+                      const isSelected = selectedCountryFilter === node.country;
+                      return (
+                        <g 
+                          key={node.country} 
+                          className="cursor-pointer group"
+                          onClick={() => setSelectedCountryFilter(isSelected ? null : node.country)}
+                          onMouseEnter={() => setHoveredMapPin({ ...node, name: node.countryName })}
+                          onMouseLeave={() => setHoveredMapPin(null)}
+                        >
+                          {/* Animated Radar Pulse Circle */}
+                          <circle
+                            cx={node.x}
+                            cy={node.y}
+                            r={isSelected ? '22' : '15'}
+                            style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+                            className={`animate-ping opacity-75 ${node.isThreat ? 'fill-rose-500' : 'fill-blue-500'}`}
+                          />
+                          {/* Mid Glow Halo */}
+                          <circle
+                            cx={node.x}
+                            cy={node.y}
+                            r={isSelected ? '10' : '7'}
+                            className={`${node.isThreat ? 'fill-rose-500/40 stroke-rose-500' : 'fill-blue-500/40 stroke-blue-500'} stroke-1.5`}
+                          />
+                          {/* Center Core Pin */}
+                          <circle
+                            cx={node.x}
+                            cy={node.y}
+                            r="4"
+                            className={`${node.isThreat ? 'fill-rose-600' : 'fill-blue-600'} shadow-md`}
+                          />
+                          {/* Flag & Latency Tag */}
+                          <g transform={`translate(${node.x + 9}, ${node.y - 9})`}>
+                            <rect
+                              x="0"
+                              y="-15"
+                              width="78"
+                              height="21"
+                              rx="5"
+                              fill={logTheme === 'light' ? '#ffffff' : '#0f172a'}
+                              stroke={isSelected ? '#2563eb' : (logTheme === 'light' ? '#cbd5e1' : '#334155')}
+                              strokeWidth={isSelected ? '1.5' : '1'}
+                              className="filter drop-shadow-xs"
+                            />
+                            <text
+                              x="5"
+                              y="1"
+                              fontSize="13"
+                              fontFamily="system-ui, sans-serif"
+                              fontWeight="bold"
+                              fill={logTheme === 'light' ? '#0f172a' : '#f8fafc'}
+                            >
+                              {node.flag} {node.latency}
+                            </text>
+                          </g>
+                        </g>
+                      );
+                    })}
+                  </svg>
+
+                  {/* Interactive Map Hover Tooltip */}
+                  {hoveredMapPin && (
+                    <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-xs border border-slate-200 text-slate-800 p-2.5 rounded-xl shadow-lg text-xs font-mono max-w-xs pointer-events-none z-20 animate-in fade-in duration-100">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-900 border-b border-slate-100 pb-1 mb-1">
+                        <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                        <span>{hoveredMapPin.flag} {hoveredMapPin.name}</span>
+                        <span className="text-[10px] text-slate-400">({hoveredMapPin.city})</span>
+                      </div>
+                      <div className="space-y-0.5 text-[11px] text-slate-600">
+                        <div><strong>Sample IP:</strong> <code className="text-amber-700">{hoveredMapPin.ip}</code></div>
+                        <div><strong>ISP / Cloud:</strong> {hoveredMapPin.isp}</div>
+                        <div><strong>Latency:</strong> <span className="text-emerald-600 font-bold">{hoveredMapPin.latency}</span></div>
+                        <div className="text-[10px] text-blue-600 pt-0.5">Click a pin to filter logs by this country</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Country Quick-Filter Badges */}
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+                  <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center gap-1">
+                    <Filter className="w-3 h-3 text-slate-400" />
+                    Filter Country:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCountryFilter(null)}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-mono font-semibold transition-all cursor-pointer ${
+                      !selectedCountryFilter
+                        ? 'bg-blue-600 text-white shadow-2xs font-bold'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
+                    }`}
+                  >
+                    All ({logs.length})
+                  </button>
+                  {visitorCountryNodes.map((n) => (
+                    <button
+                      key={n.country}
+                      type="button"
+                      onClick={() => setSelectedCountryFilter(selectedCountryFilter === n.country ? null : n.country)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-mono transition-all cursor-pointer ${
+                        selectedCountryFilter === n.country
+                          ? 'bg-blue-600 text-white shadow-2xs font-bold'
+                          : n.isThreat
+                          ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold'
+                          : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                      }`}
+                      title={n.isThreat ? 'Traffic flagged as threat (WAF blocked)' : undefined}
+                    >
+                      <span>{n.flag}</span>
+                      <span className="font-semibold">{n.country}</span>
+                      <span className={`text-[10px] px-1 rounded ${
+                        selectedCountryFilter === n.country ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {n.percentage}%
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+          </div>
+        )}
+
+        {/* TAB 2c: FILE MANAGER */}
+        {activeTab === 'files' && (
+          <FileManagerModal isOpen inline app={app} onClose={() => {}} />
         )}
 
         {/* TAB 3: REVERSE PROXY & MULTI-ENGINE PATH ROUTING */}

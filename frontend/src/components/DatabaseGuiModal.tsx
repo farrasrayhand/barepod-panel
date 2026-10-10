@@ -24,7 +24,8 @@ import {
   FileCode,
   Search,
   HardDrive,
-  Key
+  Key,
+  Leaf
 } from 'lucide-react';
 import type { DatabaseItem } from '../types';
 
@@ -168,7 +169,7 @@ export const DatabaseGuiModal: React.FC<DatabaseGuiModalProps> = ({
             
             {/* Active Browser Tab Pill */}
             <div className="ml-3 flex items-center gap-2 px-3 py-1 bg-slate-900 border border-slate-700/80 rounded-t-lg text-xs text-slate-200 font-medium">
-              <span>{currentTool === 'phpmyadmin' ? '🐬' : currentTool === 'pgadmin' ? '🐘' : currentTool === 'rediscommander' ? '🔴' : currentTool === 'mongoexpress' ? '🍃' : '⚡'}</span>
+              <span>{currentTool === 'phpmyadmin' ? <Database className="w-4 h-4" /> : currentTool === 'pgadmin' ? <Database className="w-4 h-4" /> : currentTool === 'rediscommander' ? <Zap className="w-4 h-4" /> : currentTool === 'mongoexpress' ? <Leaf className="w-4 h-4" /> : <Table className="w-4 h-4" />}</span>
               <span className="capitalize">{currentTool}</span>
               <span className="text-slate-500">—</span>
               <span className="text-blue-400 font-mono font-semibold truncate max-w-[120px]">{database.name}</span>
@@ -291,7 +292,7 @@ export const DatabaseGuiModal: React.FC<DatabaseGuiModalProps> = ({
               <div className="px-4 py-2 border-b border-[#e2e2e2] flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-1.5 font-bold text-slate-900">
-                    <span className="text-xl">🐬</span>
+                    <span className="text-xl"><Database className="w-6 h-6 text-amber-600" /></span>
                     <span className="text-sm font-sans tracking-tight">phpMyAdmin <span className="text-xs text-slate-500 font-normal">5.2.1</span></span>
                   </div>
                   <div className="h-4 w-px bg-slate-300" />
@@ -344,7 +345,7 @@ export const DatabaseGuiModal: React.FC<DatabaseGuiModalProps> = ({
           {currentTool === 'pgadmin' && (
             <div className="bg-[#24436c] text-white border-b border-[#1b3454] px-4 py-2 flex items-center justify-between text-xs">
               <div className="flex items-center gap-3">
-                <span className="text-xl">🐘</span>
+                <span className="text-xl"><Database className="w-6 h-6 text-blue-600" /></span>
                 <div>
                   <span className="font-bold text-sm tracking-tight">pgAdmin 4 Web</span>
                   <span className="text-[10px] text-blue-200 block font-mono">PostgreSQL 16 Engine • Database: {database.name}</span>
@@ -363,7 +364,7 @@ export const DatabaseGuiModal: React.FC<DatabaseGuiModalProps> = ({
           {currentTool === 'rediscommander' && (
             <div className="bg-[#a81c1c] text-white border-b border-[#871616] px-4 py-2 flex items-center justify-between text-xs">
               <div className="flex items-center gap-3">
-                <span className="text-xl">🔴</span>
+                <span className="text-xl"><Zap className="w-6 h-6 text-rose-600" /></span>
                 <div>
                   <span className="font-bold text-sm tracking-tight">Redis Commander Web</span>
                   <span className="text-[10px] text-rose-200 block font-mono">127.0.0.1:6379 • Database: db 0 (Key-Value)</span>
@@ -381,7 +382,7 @@ export const DatabaseGuiModal: React.FC<DatabaseGuiModalProps> = ({
           {currentTool === 'dbgate' && (
             <div className="bg-[#382bf0] text-white border-b border-[#2d22c7] px-4 py-2 flex items-center justify-between text-xs">
               <div className="flex items-center gap-3">
-                <span className="text-xl">⚡</span>
+                <span className="text-xl"><Table className="w-6 h-6 text-indigo-600" /></span>
                 <div>
                   <span className="font-bold text-sm tracking-tight">DbGate Universal Studio</span>
                   <span className="text-[10px] text-indigo-200 block font-mono">Connected to {database.name} via SSO Proxy</span>
@@ -399,7 +400,7 @@ export const DatabaseGuiModal: React.FC<DatabaseGuiModalProps> = ({
           {currentTool === 'mongoexpress' && (
             <div className="bg-[#116149] text-white border-b border-[#0d4a38] px-4 py-2 flex items-center justify-between text-xs">
               <div className="flex items-center gap-3">
-                <span className="text-xl">🍃</span>
+                <span className="text-xl"><Leaf className="w-6 h-6 text-emerald-600" /></span>
                 <div>
                   <span className="font-bold text-sm tracking-tight">Mongo Express Web</span>
                   <span className="text-[10px] text-emerald-200 block font-mono">MongoDB 7 • Database: {database.name}</span>

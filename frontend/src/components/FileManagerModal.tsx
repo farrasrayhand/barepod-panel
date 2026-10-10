@@ -32,11 +32,14 @@ import {
 } from 'lucide-react';
 import type { WebApp } from '../types';
 import { createZip } from '../utils/zip';
+import { highlightCode } from '../utils/highlight';
+import 'highlight.js/styles/github-dark.css';
 
 interface FileManagerModalProps {
   isOpen: boolean;
   onClose: () => void;
   app: WebApp | null;
+  inline?: boolean;
 }
 
 interface FileEntry {
@@ -60,6 +63,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   isOpen,
   onClose,
   app,
+  inline = false,
 }) => {
   const [currentPath, setCurrentPath] = useState('/');
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
@@ -67,6 +71,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   const [editingFile, setEditingFile] = useState<FileEntry | null>(null);
   const [editorContent, setEditorContent] = useState('');
   const [isSaved, setIsSaved] = useState(false);
+  const editorPreRef = useRef<HTMLPreElement>(null);
 
   // Clipboard State (Copy, Cut, Paste)
   const [clipboard, setClipboard] = useState<ClipboardState | null>(null);
@@ -153,7 +158,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     return () => window.removeEventListener('click', handleGlobalClick);
   }, []);
 
-  if (!isOpen || !app) return null;
+  if (!app || (!isOpen && !inline)) return null;
 
   const currentFiles = fileSystem[currentPath] || [];
 
@@ -431,8 +436,10 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-6xl w-full h-[90vh] flex flex-col overflow-hidden relative">
+    <div className={inline ? 'block' : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200'}>
+      <div className={inline
+        ? 'bg-white rounded-2xl border border-slate-200 shadow-2xs w-full h-[70vh] min-h-[480px] flex flex-col overflow-hidden relative'
+        : 'bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-6xl w-full h-[90vh] flex flex-col overflow-hidden relative'}>
         
         {/* Toast Notification */}
         {toastMessage && (
@@ -720,12 +727,26 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 </div>
               </div>
 
-              {/* Text Area Code Editor */}
-              <div className="flex-1 p-4 font-mono text-xs overflow-auto">
+              {/* Code Editor with syntax highlighting (overlay technique) */}
+              <div className="relative flex-1 overflow-hidden bg-slate-900">
+                <pre
+                  ref={editorPreRef}
+                  aria-hidden
+                  className="absolute inset-0 m-0 p-4 overflow-hidden pointer-events-none font-mono text-xs leading-relaxed whitespace-pre text-slate-100"
+                  dangerouslySetInnerHTML={{ __html: `${highlightCode(editorContent, editingFile.name)}\n` }}
+                />
                 <textarea
                   value={editorContent}
                   onChange={(e) => setEditorContent(e.target.value)}
-                  className="w-full h-full bg-transparent border-none outline-hidden text-emerald-300 resize-none font-mono text-xs leading-relaxed focus:ring-0 selection:bg-blue-600"
+                  onScroll={(e) => {
+                    if (editorPreRef.current) {
+                      editorPreRef.current.scrollTop = e.currentTarget.scrollTop;
+                      editorPreRef.current.scrollLeft = e.currentTarget.scrollLeft;
+                    }
+                  }}
+                  spellCheck={false}
+                  wrap="off"
+                  className="absolute inset-0 w-full h-full p-4 bg-transparent border-none outline-hidden resize-none overflow-auto font-mono text-xs leading-relaxed whitespace-pre text-transparent caret-emerald-300 focus:ring-0 selection:bg-blue-600/50"
                 />
               </div>
             </div>

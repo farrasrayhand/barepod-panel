@@ -1160,7 +1160,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-lg">✈️</span>
+                    <Send className="w-5 h-5 text-blue-600" />
                     <h3 className="text-xs font-bold text-slate-900">Telegram Bot Notifications</h3>
                   </div>
                   <input

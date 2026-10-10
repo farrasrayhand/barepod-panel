@@ -23,7 +23,6 @@ import {
   Lock
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
-import { FileManagerModal } from './FileManagerModal';
 import { GitDeploymentModal } from './GitDeploymentModal';
 import { AppDetailPage, type AppDetailTab } from './AppDetailPage';
 
@@ -33,6 +32,7 @@ interface AppsViewProps {
   appSubTab?: string;
   onSelectApp?: (slug: string) => void;
   onSubTabChange?: (tab: AppDetailTab) => void;
+  onOpenAppFiles?: (app: WebApp) => void;
   onBack?: () => void;
   onOpenAddModal: () => void;
   onOpenAppTerminal: (app: WebApp) => void;
@@ -47,6 +47,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
   appSubTab,
   onSelectApp,
   onSubTabChange,
+  onOpenAppFiles,
   onBack,
   onOpenAddModal,
   onOpenAppTerminal,
@@ -59,7 +60,6 @@ export const AppsView: React.FC<AppsViewProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Modals
-  const [selectedAppForFiles, setSelectedAppForFiles] = useState<WebApp | null>(null);
   const [selectedAppForGit, setSelectedAppForGit] = useState<WebApp | null>(null);
 
   // Detail page is driven by the URL (/apps/<name>/<tab>) so it survives refresh
@@ -108,17 +108,9 @@ export const AppsView: React.FC<AppsViewProps> = ({
           onBack={() => onBack?.()}
           onToggleStatus={onToggleAppStatus}
           onOpenTerminal={onOpenAppTerminal}
-          onOpenFiles={(a) => setSelectedAppForFiles(a)}
           onOpenGit={(a) => setSelectedAppForGit(a)}
           onUpdateApp={handleUpdateAppDetail}
           onShowToast={onShowToast}
-        />
-
-        {/* File Manager Modal over App Detail Page */}
-        <FileManagerModal
-          isOpen={!!selectedAppForFiles}
-          onClose={() => setSelectedAppForFiles(null)}
-          app={selectedAppForFiles}
         />
 
         {/* GitHub Redeployment Modal over App Detail Page */}
@@ -362,7 +354,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
 
                           {/* File Manager Button */}
                           <button
-                            onClick={() => setSelectedAppForFiles(app)}
+                            onClick={() => onOpenAppFiles?.(app)}
                             className="p-1.5 rounded-lg text-slate-600 hover:text-amber-600 hover:bg-amber-50 transition-colors"
                             title="Open File Manager & Code Editor"
                           >
@@ -409,13 +401,6 @@ export const AppsView: React.FC<AppsViewProps> = ({
           </table>
         </div>
       </div>
-
-      {/* File Manager Modal */}
-      <FileManagerModal
-        isOpen={!!selectedAppForFiles}
-        onClose={() => setSelectedAppForFiles(null)}
-        app={selectedAppForFiles}
-      />
 
       {/* GitHub Redeployment Modal */}
       <GitDeploymentModal

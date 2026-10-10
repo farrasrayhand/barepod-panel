@@ -324,45 +324,35 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
         {/* Form Body (Scrollable) */}
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5">
           {/* App Mode Switcher */}
-          <div className="bg-slate-100 p-1 rounded-xl flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => handleModeSwitch('standard')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${
-                appMode === 'standard'
-                  ? 'bg-white text-blue-600 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>Full Web App (PHP / Python / Node)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleModeSwitch('proxy')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${
-                appMode === 'proxy'
-                  ? 'bg-white text-purple-600 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <ArrowRightLeft className="w-3.5 h-3.5" />
-              <span>Reverse Proxy Only (Forward Port/IP)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleModeSwitch('static')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${
-                appMode === 'static'
-                  ? 'bg-white text-emerald-600 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Globe className="w-3.5 h-3.5" />
-              <span>Static HTML / SPA</span>
-            </button>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: 'standard' as const, label: 'Full Web App', sub: 'PHP · Python · Node', icon: Zap, accent: 'text-blue-600 bg-blue-50' },
+              { id: 'proxy' as const, label: 'Reverse Proxy', sub: 'Forward port / IP', icon: ArrowRightLeft, accent: 'text-purple-600 bg-purple-50' },
+              { id: 'static' as const, label: 'Static / SPA', sub: 'HTML · Vite · Astro', icon: Globe, accent: 'text-emerald-600 bg-emerald-50' },
+            ].map((mode) => {
+              const Icon = mode.icon;
+              const isActive = appMode === mode.id;
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => handleModeSwitch(mode.id)}
+                  className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border text-center transition-all ${
+                    isActive
+                      ? 'border-blue-500 bg-blue-50/60 ring-1 ring-blue-500/20'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${mode.accent}`}>
+                    <Icon className="w-3.5 h-3.5" />
+                  </span>
+                  <span className={`text-[11px] font-bold leading-tight ${isActive ? 'text-blue-700' : 'text-slate-700'}`}>
+                    {mode.label}
+                  </span>
+                  <span className="text-[10px] text-slate-400 leading-tight">{mode.sub}</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* App Name & Domain */}
