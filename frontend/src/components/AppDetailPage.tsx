@@ -61,6 +61,7 @@ import {
 import type { WebApp, WebServerType } from '../types';
 import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
 import { WORLD_MAP_PATH } from '../data/worldMapPath';
+import { runtimeIcon, frameworkIcon } from '../utils/brandIcons';
 import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
@@ -747,6 +748,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   };
 
   const phpVersion = app.runtime === 'php' ? app.version : '8.4';
+  const AppIcon = frameworkIcon(app.framework) ?? runtimeIcon[app.runtime] ?? Server;
 
   const handleRestartFpmPool = () => {
     setIsReloadingFpm(true);
@@ -1121,10 +1123,8 @@ QUEUE_CONNECTION=redis`;
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold shadow-2xs border border-blue-100">
-              <span className="text-[11px] font-extrabold tracking-wide">
-                {app.runtime === 'php' ? 'PHP' : app.runtime === 'nodejs' ? 'NODE' : app.runtime === 'python' ? 'PY' : app.runtime === 'proxy' ? 'PROXY' : app.runtime.toUpperCase().slice(0, 4)}
-              </span>
+            <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center shadow-2xs border border-blue-100">
+              <AppIcon className="w-7 h-7" />
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">

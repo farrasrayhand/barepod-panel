@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Terminal as TerminalIcon, Cpu, HardDrive, Activity } from 'lucide-react';
-import { useResizableHeight } from '../hooks/useResizableHeight';
+import { usePanelSize } from '../hooks/usePanelSize';
+import { PanelSizeControl } from './PanelSizeControl';
 
 interface HostConsoleProps {
   hostname?: string;
@@ -15,7 +16,7 @@ export const HostConsole: React.FC<HostConsoleProps> = ({ hostname = 'vps-barepo
   ]);
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
-  const { height: termHeight, onDragStart: onTermDragStart } = useResizableHeight(380, 220, 900);
+  const { size: termSize, height: termHeight, setSize: setTermSize } = usePanelSize({ sm: 260, md: 380, lg: 560 });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -163,13 +164,7 @@ a1b2c3d4e5f6   n8n:latest         Up 6 days      0.0.0.0:5678->5678/tcp   n8n-wo
           </div>
           <div ref={bottomRef} />
         </div>
-        <div
-          onMouseDown={onTermDragStart}
-          title="Drag to resize"
-          className="group flex items-center justify-center h-3 shrink-0 cursor-row-resize bg-slate-900 border-t border-slate-800"
-        >
-          <span className="w-10 h-1 rounded-full bg-slate-600 group-hover:bg-blue-400 transition-colors" />
-        </div>
+        <PanelSizeControl value={termSize} onChange={setTermSize} dark />
       </div>
     </div>
   );

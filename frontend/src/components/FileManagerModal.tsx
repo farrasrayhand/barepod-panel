@@ -33,7 +33,8 @@ import {
 import type { WebApp } from '../types';
 import { createZip } from '../utils/zip';
 import { highlightCode } from '../utils/highlight';
-import { useResizableHeight } from '../hooks/useResizableHeight';
+import { usePanelSize } from '../hooks/usePanelSize';
+import { PanelSizeControl } from './PanelSizeControl';
 import 'highlight.js/styles/github-dark.css';
 
 interface FileManagerModalProps {
@@ -73,7 +74,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   const [editorContent, setEditorContent] = useState('');
   const [isSaved, setIsSaved] = useState(false);
   const editorPreRef = useRef<HTMLPreElement>(null);
-  const { height: panelHeight, onDragStart: onPanelDragStart } = useResizableHeight(600, 380, 1200);
+  const { size: panelSize, height: panelHeight, setSize: setPanelSize } = usePanelSize({ sm: 420, md: 600, lg: 820 });
 
   // Clipboard State (Copy, Cut, Paste)
   const [clipboard, setClipboard] = useState<ClipboardState | null>(null);
@@ -1103,15 +1104,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
           </div>
         )}
 
-        {inline && (
-          <div
-            onMouseDown={onPanelDragStart}
-            title="Drag to resize"
-            className="group flex items-center justify-center h-3 shrink-0 cursor-row-resize bg-slate-100 border-t border-slate-200"
-          >
-            <span className="w-10 h-1 rounded-full bg-slate-300 group-hover:bg-blue-500 transition-colors" />
-          </div>
-        )}
+        {inline && <PanelSizeControl value={panelSize} onChange={setPanelSize} />}
 
       </div>
     </div>

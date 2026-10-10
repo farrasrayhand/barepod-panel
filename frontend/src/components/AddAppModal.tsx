@@ -17,6 +17,7 @@ import {
   Code2
 } from 'lucide-react';
 import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../types';
+import { runtimeIcon, dbIcon } from '../utils/brandIcons';
 
 interface AddAppModalProps {
   isOpen: boolean;
@@ -645,23 +646,26 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                     { id: 'go' as RuntimeType, label: 'Golang', code: 'GO', accent: 'bg-cyan-100 text-cyan-700' },
                     { id: 'rust' as RuntimeType, label: 'Rust', code: 'RS', accent: 'bg-orange-100 text-orange-700' },
                     { id: 'ruby' as RuntimeType, label: 'Ruby', code: 'RB', accent: 'bg-rose-100 text-rose-700' },
-                  ].map((item) => (
-                    <button
-                      type="button"
-                      key={item.id}
-                      onClick={() => handleRuntimeChange(item.id)}
-                      className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all ${
-                        runtime === item.id
-                          ? 'border-blue-500 bg-blue-50/70 text-blue-800 ring-2 ring-blue-500/10'
-                          : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                      }`}
-                    >
-                      <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold ${item.accent}`}>
-                        {item.code}
-                      </span>
-                      <span className={`text-[11px] ${runtime === item.id ? 'font-bold' : ''}`}>{item.label}</span>
-                    </button>
-                  ))}
+                  ].map((item) => {
+                    const RuntimeIcon = runtimeIcon[item.id] ?? Code2;
+                    return (
+                      <button
+                        type="button"
+                        key={item.id}
+                        onClick={() => handleRuntimeChange(item.id)}
+                        className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all ${
+                          runtime === item.id
+                            ? 'border-blue-500 bg-blue-50/70 text-blue-800 ring-2 ring-blue-500/10'
+                            : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
+                        }`}
+                      >
+                        <span className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-700">
+                          <RuntimeIcon className="w-4 h-4" />
+                        </span>
+                        <span className={`text-[11px] ${runtime === item.id ? 'font-bold' : ''}`}>{item.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -745,21 +749,24 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                         { id: 'redis' as DatabaseEngine, label: 'Redis 7.2', dot: 'bg-rose-500' },
                         { id: 'postgres' as DatabaseEngine, label: 'PostgreSQL 16', dot: 'bg-blue-500' },
                         { id: 'mysql' as DatabaseEngine, label: 'MariaDB 11', dot: 'bg-amber-500' },
-                      ].map((engine) => (
-                        <button
-                          type="button"
-                          key={engine.id}
-                          onClick={() => setDbType(engine.id)}
-                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] text-left transition-all ${
-                            dbType === engine.id
-                              ? 'border-blue-600 bg-blue-50 font-bold text-blue-900'
-                              : 'border-slate-200 bg-white text-slate-700'
-                          }`}
-                        >
-                          <span className={`w-2 h-2 rounded-full ${engine.dot} shrink-0`} />
-                          <span>{engine.label}</span>
-                        </button>
-                      ))}
+                      ].map((engine) => {
+                        const DbIcon = dbIcon[engine.id] ?? Database;
+                        return (
+                          <button
+                            type="button"
+                            key={engine.id}
+                            onClick={() => setDbType(engine.id)}
+                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] text-left transition-all ${
+                              dbType === engine.id
+                                ? 'border-blue-600 bg-blue-50 font-bold text-blue-900'
+                                : 'border-slate-200 bg-white text-slate-700'
+                            }`}
+                          >
+                            <DbIcon className="w-3.5 h-3.5 shrink-0" />
+                            <span>{engine.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

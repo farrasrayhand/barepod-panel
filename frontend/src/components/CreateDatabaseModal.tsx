@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Database, Key, ShieldCheck, Sparkles, Check, Server, Lock, Cpu } from 'lucide-react';
 import type { DatabaseEngine, DatabaseItem } from '../types';
+import { dbIcon } from '../utils/brandIcons';
 
 interface CreateDatabaseModalProps {
   isOpen: boolean;
@@ -125,20 +126,24 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
                 { id: 'mysql' as DatabaseEngine, label: 'MySQL / MariaDB' },
                 { id: 'mongodb' as DatabaseEngine, label: 'MongoDB' },
                 { id: 'redis' as DatabaseEngine, label: 'Redis Cache' },
-              ].map((engine) => (
-                <button
-                  type="button"
-                  key={engine.id}
-                  onClick={() => handleEngineChange(engine.id)}
-                  className={`p-2.5 rounded-xl border text-xs text-left transition-all ${
-                    type === engine.id
-                      ? 'border-blue-600 bg-blue-50 text-blue-900 font-bold ring-2 ring-blue-500/10'
-                      : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                  }`}
-                >
-                  {engine.label}
-                </button>
-              ))}
+              ].map((engine) => {
+                const DbIcon = dbIcon[engine.id] ?? Database;
+                return (
+                  <button
+                    type="button"
+                    key={engine.id}
+                    onClick={() => handleEngineChange(engine.id)}
+                    className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs text-left transition-all ${
+                      type === engine.id
+                        ? 'border-blue-600 bg-blue-50 text-blue-900 font-bold ring-2 ring-blue-500/10'
+                        : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <DbIcon className="w-4 h-4 shrink-0" />
+                    <span>{engine.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
