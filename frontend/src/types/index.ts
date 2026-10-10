@@ -10,6 +10,7 @@ export type NavItem =
   | 'users'
   | 'settings'
   | 'api'
+  | 'profile'
   | 'backup';
 
 export type RuntimeType = 

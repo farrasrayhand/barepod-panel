@@ -14,6 +14,8 @@ import { OverviewView } from './components/OverviewView';
 import { ServerMonitoringView } from './components/ServerMonitoringView';
 import { PanelSettingsView } from './components/PanelSettingsView';
 import { ApiMcpView } from './components/ApiMcpView';
+import { Footer } from './components/Footer';
+import { ProfileView } from './components/ProfileView';
 import { DomainsView } from './components/DomainsView';
 import { BackupMigrationView } from './components/BackupMigrationView';
 import { ToastContainer } from './components/Toast';
@@ -35,6 +37,7 @@ const TAB_PATHS: Record<NavItem, string> = {
   users: '/users',
   settings: '/settings',
   api: '/api',
+  profile: '/profile',
   backup: '/backup',
 };
 
@@ -460,6 +463,10 @@ systemctl reload uvicorn-ai`,
             <ApiMcpView onShowToast={showToast} />
           )}
 
+          {currentTab === 'profile' && (
+            <ProfileView onShowToast={showToast} onNavigatePath={navigatePath} />
+          )}
+
           {currentTab === 'backup' && (
             <BackupMigrationView
               apps={apps}
@@ -474,9 +481,10 @@ systemctl reload uvicorn-ai`,
               onOpenTerminal={() => navigate('terminal')}
             />
           )}
+
+          <Footer />
         </main>
       </div>
-
       {/* Add App Modal */}
       <AddAppModal
         isOpen={isAddModalOpen}

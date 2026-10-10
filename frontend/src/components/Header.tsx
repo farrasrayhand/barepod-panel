@@ -48,7 +48,13 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="text-slate-400 font-medium">BarePod</span>
           <span className="text-slate-300">/</span>
           <span className="text-slate-800 font-semibold capitalize">
-            {activeTab === 'apps' ? 'Websites' : activeTab}
+            {activeTab === 'apps'
+              ? 'Websites'
+              : activeTab === 'api'
+                ? 'API & MCP'
+                : activeTab === 'profile'
+                  ? 'Profile'
+                  : activeTab}
           </span>
         </div>
       </div>
@@ -83,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             <button
-              onClick={() => go('/settings/general')}
+              onClick={() => go('/profile')}
               className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
             >
               <User className="w-3.5 h-3.5 text-slate-400" />
