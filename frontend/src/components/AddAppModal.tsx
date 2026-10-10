@@ -36,8 +36,36 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
 
   const runtimeConfigs: Record<RuntimeType, { versions: string[]; frameworks: string[] }> = {
     php: {
-      versions: ['8.4', '8.3', '8.2', '8.1'],
-      frameworks: ['Laravel', 'WordPress', 'Symfony', 'Custom PHP']
+      versions: ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4'],
+      frameworks: [
+        'Generic',
+        'CakePHP 5',
+        'CodeIgniter 4',
+        'Contao 4',
+        'Drupal 10',
+        'Drupal 11',
+        'Joomla 6',
+        'Laminas',
+        'Laravel 12',
+        'Laravel 13',
+        'Magento 2',
+        'Matomo 5',
+        'Mautic 7',
+        'Moodle 5',
+        'Neos 9',
+        'Nextcloud 34',
+        'OwnCloud 12',
+        'PrestaShop 1.7',
+        'Shopware 6',
+        'Slim 4',
+        'Symfony 7',
+        'Symfony 8',
+        'TYPO3 14',
+        'WHMCS',
+        'WooCommerce',
+        'WordPress',
+        'Yii 2'
+      ]
     },
     python: {
       versions: ['3.12', '3.11', '3.10'],
@@ -78,6 +106,16 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
     const cfg = runtimeConfigs[selectedRuntime];
     setVersion(cfg.versions[0] || 'latest');
     setFramework(cfg.frameworks[0] || 'Standard');
+    if (selectedRuntime === 'php') {
+      setDbType('mysql');
+      setWebServer('openlitespeed');
+    } else if (selectedRuntime === 'python') {
+      setDbType('postgres');
+      setWebServer('nginx');
+    } else if (selectedRuntime === 'nodejs') {
+      setDbType('mongodb');
+      setWebServer('caddy');
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
