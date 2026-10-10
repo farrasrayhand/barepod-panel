@@ -103,6 +103,7 @@ export interface DatabaseItem {
   tenantUser?: string;
   maxConnections?: number;
   isolationMode?: 'shared_daemon' | 'dedicated_pod';
+  passwordRotatedAt?: string;
 }
 
 export interface SharedEngineInstance {

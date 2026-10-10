@@ -18,6 +18,8 @@ import {
 import type { DatabaseItem, DatabaseEngine } from '../types';
 import { useSubRoute } from '../hooks/useSubRoute';
 import { CredentialRevealModal } from './CredentialRevealModal';
+import { RotatePasswordModal } from './RotatePasswordModal';
+import { KeyRound } from 'lucide-react';
 import { DatabaseGuiModal } from './DatabaseGuiModal';
 import type { DatabaseManagerTool } from './DatabaseGuiModal';
 import { CreateDatabaseModal } from './CreateDatabaseModal';
@@ -29,13 +31,14 @@ interface DatabasesViewProps {
 }
 
 export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => {
-  const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine>('all');
+  const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine | 'caches'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedDbForDetails, setSelectedDbForDetails] = useState<DatabaseItem | null>(null);
   const [selectedDbForCredentials, setSelectedDbForCredentials] = useState<DatabaseItem | null>(null);
+  const [selectedDbForRotate, setSelectedDbForRotate] = useState<DatabaseItem | null>(null);
   const [selectedDbForGui, setSelectedDbForGui] = useState<DatabaseItem | null>(null);
   const [selectedToolForGui, setSelectedToolForGui] = useState<DatabaseManagerTool>('dbgate');
   const [dbToDelete, setDbToDelete] = useState<DatabaseItem | null>(null);
@@ -165,7 +168,8 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
   };
 
   const filtered = databases.filter(
-    (db) => activeTab === 'all' || db.type === activeTab
+    (db) =>
+      (activeTab === 'all' ? db.type !== 'redis' : activeTab === 'caches' ? db.type === 'redis' : db.type === activeTab)
   );
 
   const getDbBadge = (type: DatabaseEngine) => {
@@ -219,7 +223,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Databases & Caches</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Manage isolated PostgreSQL, MySQL, MariaDB, MongoDB, and Redis databases for your apps.
+            Manage isolated PostgreSQL, MySQL, MariaDB, MongoDB and SQLite databases, plus Redis caches.
           </p>
         </div>
 
@@ -251,7 +255,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
-          All Databases ({databases.length})
+          All Databases ({databases.filter((d) => d.type !== 'redis').length})
         </button>
         <button
           onClick={() => setActiveTab('postgres')}
@@ -284,14 +288,24 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
           <span>MongoDB</span>
         </button>
         <button
-          onClick={() => setActiveTab('redis')}
+          onClick={() => setActiveTab('sqlite')}
           className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-            activeTab === 'redis'
+            activeTab === 'sqlite'
               ? 'bg-blue-600 text-white shadow-2xs'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
-          <span>Redis Cache</span>
+          <span>SQLite</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('caches')}
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            activeTab === 'caches'
+              ? 'bg-rose-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+        >
+          <span>Caches (Redis) ({databases.filter((d) => d.type === 'redis').length})</span>
         </button>
       </div>
 
@@ -380,6 +394,14 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                   <td className="py-3.5 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
+                        onClick={() => setSelectedDbForRotate(db)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
+                        title="Rotate password"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
                         onClick={() => setSelectedDbForCredentials(db)}
                         className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
                         title="Open Password Vault (requires panel account password)"
@@ -453,6 +475,19 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         isOpen={!!selectedDbForCredentials}
         onClose={() => setSelectedDbForCredentials(null)}
         database={selectedDbForCredentials}
+      />
+
+      {/* Rotate Password Modal */}
+      <RotatePasswordModal
+        isOpen={!!selectedDbForRotate}
+        onClose={() => setSelectedDbForRotate(null)}
+        database={selectedDbForRotate}
+        onRotated={(dbId, _newPassword) => {
+          setDatabases((prev) =>
+            prev.map((d) => (d.id === dbId ? { ...d, passwordRotatedAt: new Date().toLocaleString() } : d))
+          );
+          onShowToast?.('Password Rotated', 'The database user password was changed. Update your .env / connection string.', 'success');
+        }}
       />
 
       {/* Database Web GUI SSO Modal */}
