@@ -6,7 +6,7 @@
 import type { WebApp, RuntimeType, WebServerType } from '../types';
 import type { ApiWebsite, HostMetrics, SiteMetrics } from './client';
 
-const RUNTIMES: RuntimeType[] = ['php', 'nodejs', 'python', 'go', 'ruby', 'rust', 'static'];
+const RUNTIMES: RuntimeType[] = ['php', 'nodejs', 'python', 'go', 'ruby', 'rust', 'static', 'proxy'];
 const WEB_SERVERS: WebServerType[] = ['openlitespeed', 'nginx', 'caddy', 'apache'];
 
 /** Bytes to a short human string for the compact list columns. */

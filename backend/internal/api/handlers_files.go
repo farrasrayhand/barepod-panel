@@ -14,6 +14,7 @@ import (
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/files"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/validate"
 )
 
 // maxFilesPerRequest limits batch operations so one request cannot ask the
@@ -44,6 +45,13 @@ func (s *Server) fileManagerFor(w http.ResponseWriter, r *http.Request, user *st
 	site, err := s.store.WebsiteBySlug(slug)
 	if err != nil || !canManageSite(user, site) {
 		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return nil, nil, false
+	}
+	// A reverse proxy has no docroot of its own; the UI hides its File Manager,
+	// and the API refuses it too (hiding a control is not enforcement).
+	if !validate.HasRuntime(site.Runtime) {
+		writeError(w, http.StatusConflict, "not_applicable",
+			"A reverse proxy has no files of its own — its content lives in the upstream container")
 		return nil, nil, false
 	}
 

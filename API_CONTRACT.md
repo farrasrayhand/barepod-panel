@@ -2,7 +2,15 @@
 
 > Blueprint for the contract between the **frontend (React, Phase 1)** and the **Go backend daemon (Phase 2)**.
 > Goal: the backend can follow the response shapes defined here without requiring UI changes.
-> Status: **draft** — no backend implementation yet.
+> Status: **draft, partially implemented** — see the table below.
+
+### Implementation status
+
+| Already served by the daemon | Contract only (planned) |
+|---|---|
+| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `system/capabilities` (+`limitations[]`) · `system/capacity` · `groups` list + `PATCH` · `websites` list/get/`POST`/`prepare-directory` · deploy job, poll and **SSE stream** · per-website `metrics` · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`) · `ws/ticket` + `WS /pty` (site and host) | Databases & caches module (incl. recycle bin) · pods (Docker) · backups & migration · domains & SSL · Cloudflare tunnels · users/groups CRUD · webhooks · MCP server · per-app access control (503, basic auth, anti-brute-force) · vhost writing |
+
+`mode: "real" | "dry-run"` appears on every response that depends on privileged work — off Linux+systemd the daemon is in dry-run and says so instead of faking success.
 
 ---
 
@@ -21,7 +29,7 @@
 - **Metrics:** send **raw numbers** (`memoryBytes`, `cpuPercent`), never formatted strings. Formatting (`"42 MB"`, `"0.3%"`) happens in the frontend.
 - **IDs:** internal primary keys are **ULID** (time-sortable and immutable) — never the user-visible name. Websites are addressable by **slug** (URL-friendly) *or* `id`; if a website is renamed, the slug changes and the old slug is kept as a redirect alias so bookmarks and webhooks keep working. Other resources (`/databases/:id`, `/pods/:id`, …) use `id`.
 - **Webhook (public):** `POST /api/v1/webhook/:slug/deploy?token=<deployHookToken>` (no JWT).
-- **Errors:** `{ "error": { "code": "...", "message": "..." } }`, plus a `fields` map on validation failures. Codes: `bad_request`, `validation_error` (+`fields`), `unauthenticated`, `invalid_credentials`, `suspended`, `csrf`, `elevation_required` (reveal/rotate needs the 5-minute sudo mode), `capability_required` (group lacks the permission), `insufficient_capacity` (the packages exceed the server), `forbidden`, `not_found`, `slug_taken`, `directory_missing`, `service_error`, `internal`.
+- **Errors:** `{ "error": { "code": "...", "message": "..." } }`, plus a `fields` map on validation failures. Codes: `bad_request`, `validation_error` (+`fields`), `unauthenticated`, `invalid_credentials`, `suspended`, `csrf`, `elevation_required` (reveal/rotate needs the 5-minute sudo mode), `capability_required` (group lacks the permission), `not_applicable` (the site type has no such capability, e.g. a proxy has no shell/files), `insufficient_capacity` (the packages exceed the server), `forbidden`, `not_found`, `slug_taken`, `directory_missing`, `service_error`, `internal`.
 - **Tenant scoping:** collection endpoints return only the caller's own resources; `GET /:id` on someone else's resource is `404`, not `403` (it must not confirm existence). Only role `admin` sees every tenant.
 
 ---
@@ -121,7 +129,21 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `GET|PUT /websites/:slug/env`
 - `POST /websites/:slug/backup` (export per-website `.bpod`)
 
-### 4.2.1 Accounts, Groups & Permissions (per account)
+### 4.2.1 Site Types and What They Expose
+Normative: a client must not offer a control the site type cannot use, and the server must refuse such a request rather than half-serve it.
+
+| Site `runtime` | Shell (`/pty`) | Files (`/files/*`) | Env / Deploy / CI-CD | Meaning |
+|---|---|---|---|---|
+| `php`, `nodejs`, `python`, `go`, `ruby`, `rust` | ✅ | ✅ | ✅ | The site runs its own process |
+| `static` | ✅ | ✅ | ✅ (no env) | Serves a docroot; nothing to run |
+| `proxy` | ❌ | ❌ | ❌ | **Reverse proxy only** — forwards to an upstream; its process and files live in that container |
+
+- `runtime: "proxy"` is a **valid** site type (it is what "Reverse Proxy Only" creates) but it has no runtime of its own.
+- Calling `/websites/:slug/files/*` or `WS /websites/:slug/pty` for a proxy returns **`409 { code: "not_applicable" }`** with the reason. Hiding the button in the UI is not enforcement — the server is the authority.
+- The routing tab/module (`/websites/:slug/routes`, upstream target) is the meaningful one for a proxy, together with monitoring, logs, traffic map and security.
+- A pod has no `/pty` endpoint yet: container shells arrive with the pods module (Phase 3). Until then a pod target is a UI-only concept.
+
+### 4.2.2 Accounts, Groups & Permissions (per account)
 - **No built-in account.** The operator creates the root admin during installation with the CLI: `barepod admin create` (generated password shown once). The daemon refuses to start while no account exists.
 - **The only built-in data is three permission groups**, created on first run: `Superadmin (Root)`, `Developer`, `Read Only`. `users.group_name` is the membership.
 - `GET /groups` → `{ items: [{ id, name, description, permissions{10 capabilities}, members, isDefault, isSystem }], capabilities: [...] }` (requires the `users` capability). `POST|PATCH|DELETE /groups` and member management land with the users module; system groups cannot be deleted.

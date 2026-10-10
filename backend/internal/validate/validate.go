@@ -51,10 +51,23 @@ func TenantUser(s string) bool { return tenantRe.MatchString(s) }
 var runtimes = map[string]bool{
 	"php": true, "nodejs": true, "python": true, "go": true,
 	"ruby": true, "rust": true, "static": true,
+	// A reverse-proxy-only site has no runtime of its own: it forwards to an
+	// upstream. It is a valid site type, but it has no shell, docroot or build.
+	"proxy": true,
 }
 
 // Runtime reports whether a runtime name is supported.
 func Runtime(s string) bool { return runtimes[strings.ToLower(s)] }
+
+// HasRuntime reports whether a site type runs a process of its own. A reverse
+// proxy does not, so shell/file/CI endpoints must refuse it.
+func HasRuntime(runtime string) bool {
+	switch strings.ToLower(runtime) {
+	case "proxy", "":
+		return false
+	}
+	return true
+}
 
 var webServers = map[string]bool{
 	"openlitespeed": true, "nginx": true, "caddy": true, "apache": true,

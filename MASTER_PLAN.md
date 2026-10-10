@@ -28,8 +28,16 @@ This document is the complete technical architecture blueprint, module specifica
 
 Changes in Phase 1 (React UI prototype):
 
-> **Versioning note:** this is still a prototype/simulation (no backend yet), so the
-> document stays on **0.1** until the Go backend + OS engine are actually running.
+- **Live API wiring & session**: on load the panel asks `/api/v1/health`; if the daemon answers it shows a real sign-in screen and takes the website list + per-site metrics from the API, otherwise it falls back to the prototype's mock data (and restores it when leaving live mode).
+- **Real terminal pane**: `@xterm/xterm` over the ticket-authenticated WebSocket — tenant shell per website, container session (`docker exec` style) per pod, one picker listing **Websites and Containers** together.
+- **Site-type relevance**: controls a site type cannot use are hidden rather than disabled (see §3.8).
+- **Historical Trends**: the charts fill the card they are given (measured width, no letterboxing) and hovering shows the timestamp as well as the value.
+- **Version discipline**: one source — the daemon's version from `/health`, else `frontend/src/version.ts`; the footer no longer invents its own number.
+- **Navigation rules**: menu changes start at the top of the page, the Terminal menu always starts at the session picker, the black "Terminal root" button scrolls the shell into view, and switching tabs does not move the page.
+
+> **Versioning note:** the panel is still a prototype, so the document stays on
+> **0.1** until the milestone is reached (see the versioning policy at the top):
+> the frontend is a prototype and the daemon runs in dry-run off Linux.
 
 - **Guided Deploy wizard**: "Deploy New Website" is now a 5-step flow (Basics → Engine & Runtime → Source → Database & Cache → Review), with per-mode step sets for reverse proxy and static sites.
 - **Source selection**: Scaffold/Download (framework preset), GitHub repository (branch + auto-deploy webhook), Upload archive, or Existing files (with directory verification that blocks deploy when the folder is missing).
@@ -265,6 +273,7 @@ graph TD
 - **Database, Cache & SQLite semantics**: databases and caches are separate resources; SQLite is a file database (path, no credentials) rather than a shared daemon.
 - **API & MCP**: menu with API tokens, webhooks and the MCP tool catalog; API tokens are a new RBAC capability (10 total).
 - **Profile & Account**: dedicated page (identity, password, 2FA, sessions, permissions) plus an app footer.
+- **Site-type relevance**: the panel must not offer a control a site type cannot use. A **Reverse Proxy Only** site has no runtime of its own (its process lives in the upstream container), so its Terminal, File Manager, Environment, Deploy/Build and CI-CD entries are **hidden — not greyed out** — and the API refuses them with `409 not_applicable`. A **Static HTML** site keeps its files and shell but has no environment tab. The rules live in one place (`frontend/src/utils/siteRuntime.ts` and `validate.HasRuntime`) instead of being re-guessed per screen.
 - **Recycle Bin**: soft delete for databases — suspend (apps cannot connect), restore, permanent delete, empty bin, 30-day retention.
 - **Accounts, Groups & Permissions (per account, not global)**: the panel has **no built-in account** — the operator creates the root admin with `barepod admin create` at install time. The only built-in data is **three permission groups** (Superadmin (Root) / Developer / Read Only), and a group doubles as the **resource package** (CPU, RAM, tasks, disk quota, inodes, max sites, max databases — 0 = unlimited). Every endpoint is gated on a capability from the caller's group (`deployApps`, `fileManager`, `terminal`, `databases`, `backups`, `domains`, `cloudflareTunnels`, `monitoring`, `users`, `apiTokens`) and every resource endpoint is scoped to the caller's own resources — **admins are the single exception** and see all tenants. Backup, migration and every future module follow the same rule. A **capacity guard** rejects any package plan whose total exceeds the server's live capacity (so a scale-down is caught automatically).
 
@@ -272,34 +281,35 @@ graph TD
 
 > [!IMPORTANT]
 > **Current Real Condition:**
-> **Phase 1 (frontend)** is feature-complete: every screen, wizard and simulation runs on **client-side mock data** (React 19 + Vite + TypeScript) and is not yet wired to the API.
-> **Phase 2 (Go daemon)** has started: `backend/` implements SQLite/WAL + migrations, Argon2id + opaque session cookies with CSRF, RBAC enforced per account, the `barepod` CLI, host capability detection, systemd unit rendering and an **8-step asynchronous website provisioning pipeline** with a persisted job log streamed over SSE.
-> **Execution mode is honest:** on Linux with systemd the daemon performs real work; everywhere else (including this dev machine, and LXC without systemd) it runs in **dry-run** — it writes units and `.env`, records the commands it would run, reports `mode: "dry-run"` and leaves the site `stopped`.
-> **Still to build:** metrics collection, files & terminal APIs, real tenant `useradd`/quota (`internal/tenant`), the databases module, pods/Docker, TLS & Cloudflare Tunnel, and connecting the React UI to this API.
+> **Phase 1 (frontend)**: complete as a **prototype**, and now **wired to the API where the daemon already covers it** — sign-in, the website list, per-website metrics and a real terminal are live. Monitoring charts, the file manager, databases, pods, backups, domains and tunnels still run on mock data.
+> **Phase 2 (Go daemon)**: SQLite/WAL + migrations · Argon2id + opaque session cookies with CSRF, instant revoke, elevated mode, audit log · per-account RBAC where a group is also the resource package, with a **live capacity guard** · the `barepod` CLI (+ the `fs-exec` privilege-drop helper) · an **8-step asynchronous deploy pipeline** with a persisted job log over SSE · a **file manager** with a separator-safe path jail and tenant-credential helper · **PTY terminals** with one-time tickets · **host and per-website metrics** (raw numbers) · **LXC-aware capability reporting** with reasons and advice.
+> **Execution modes are honest:** real work only on Linux with systemd; everywhere else **dry-run** — units and `.env` are written, nothing is started, and the API reports `mode: "dry-run"` instead of a fake success.
+> **Next:** the databases module, then pods/Docker, backups, TLS & Cloudflare Tunnel, the installer + systemd service, and wiring the remaining UI views (monitoring charts, file manager, databases) to this API.
 
 ### 4.1. Component Status Table: Simulated Frontend vs Real Backend
 
-| Feature / Module | Frontend UI & Simulation (React) | Real Backend & OS Engine (Go / Linux) | Overall Real Status |
+| Feature / Module | Frontend UI & Simulation | Real Backend & OS Engine (Go / Linux) | Overall Real Status |
 |---|---|---|---|
-| **Design System & Panel Layout** | ✅ Complete (Responsive, Modern UI) | N/A (Frontend Only) | **Complete (Frontend)** |
-| **Websites & Runtime Selector** | ✅ Complete (27 PHP, Node, Python templates) | ⏳ Not yet (Chroot / Docker Runtime Engine) | **UI Simulation Complete** |
-| **Hybrid Upstream Routing** | ✅ Complete (Form, mock ping, vhost preview) | ⏳ Not yet (Write config to `/usr/local/lsws/conf/`) | **UI Simulation Complete** |
-| **Database Suite & SSO** | ✅ Complete (Detail modal, vault mask, export dump) | ⏳ Not yet (Real DB provisioner & SSO proxy token) | **UI Simulation Complete** |
-| **File Manager Pro** | ✅ Complete (Checklist, batch action, previewer, edit) | ⏳ Not yet (Host FS `/home/<user>/apps/` API) | **UI Simulation Complete** |
-| **World Traffic Map & Logs** | ✅ Complete (Vector map, pulsing pin, log viewer) | ⏳ Not yet (Real-time daemon log streamer / WSS) | **UI Simulation Complete** |
-| **Backup & Migration Hub** | ✅ Complete (Wizard UI, Token gen, .bpod download) | ⏳ Not yet (Rsync daemon stream & S3 backend upload) | **UI Simulation Complete** |
-| **Hardware S.M.A.R.T. & Network** | ✅ Complete (Visual diagnostics, mock self-test, ping) | ⏳ Not yet (`smartctl` CLI & `/proc/net/dev` parser) | **UI Simulation Complete** |
-| **Web Terminal PTY** | ✅ Complete (Mock terminal & CLI shim commands) | ⏳ Not yet (Go `creack/pty` bridge via WebSocket) | **UI Simulation Complete** |
-| **Docker Pods & Container Hosting** | ✅ Complete (`PodsView`, `DeployPodModal`, `PodConfigModal`) | ⏳ Not yet (Docker Engine SDK) | **UI Simulation Complete** |
-| **Per-App Access Control** (503 Maintenance, Basic Auth, Anti-Brute Force) | ✅ Complete (toggle + simulator) | ⏳ Not yet (vhost snippet, `.htpasswd`, fail2ban) | **UI Simulation Complete** |
-| **System & Docker Cleanup + Cron** | ✅ Complete (Panel Settings → System & Cleanup) | ⏳ Not yet (systemd timer / cron writer, `docker system prune`) | **UI Simulation Complete** |
-| **RBAC & Multi-Tenant Groups** | ✅ Complete (10-capability matrix per group) | ⏳ Not yet (JWT + policy enforcement) | **UI Simulation Complete** |
-| **URL Routing & Deep-link** | ✅ Complete (`/apps/<name>/<tab>`, `/settings/<tab>`, `/monitoring/<tab>`, etc.) | N/A (Frontend Only) | **Complete (Frontend)** |
-| **Guided Deploy Wizard** | ✅ Complete (5 steps, source choice, provision presets, .env/vhost preview) | ⏳ Not yet (scaffold runner, archive extractor, .env writer) | **UI Simulation Complete** |
-| **Caches (Redis) & SQLite** | ✅ Complete (Caches tab, file-based SQLite modeling, rotate password) | ⏳ Not yet (Redis ACL provisioning, SQLite file provisioning) | **UI Simulation Complete** |
-| **Recycle Bin (Databases)** | ✅ Complete (soft delete, suspended state, restore / purge / empty bin, 30-day notice) | ⏳ Not yet (suspend DB, retention job, purge) | **UI Simulation Complete** |
-| **API & MCP** | ✅ Complete (token / webhook / MCP blueprint screens) | ⏳ Not yet (token store, webhook sender, MCP server) | **UI Simulation Complete** |
-| **Profile & Account** | ✅ Complete (identity, 2FA, sessions, permissions, footer) | ⏳ Not yet (session store, password change, TOTP) | **UI Simulation Complete** |
+| **Design System & Panel Layout** | ✅ Complete (responsive) | N/A (frontend only) | **Complete (frontend)** |
+| **Auth, Session & Profile** | ✅ Complete (profile, 2FA mock, sessions, permissions) | ✅ Login/logout/me, verify (elevated), session list + revoke, audit; API tokens not yet | **Live (tokens/2FA pending)** |
+| **RBAC, Groups & Packages** | ✅ Complete (10-capability matrix, package limits) | ✅ Capability middleware per account, built-in groups, package limits applied to systemd + quota, capacity guard | **Live** |
+| **Websites & Runtime Selector** | ✅ Complete (27 PHP/Node/Python templates) | 🟡 List/detail + deploy pipeline live; vhost writer & runtime installers pending | **Partially live** |
+| **Guided Deploy Wizard** | ✅ Complete (5 steps, source choice, presets) | ✅ `202` + job log + SSE, 8 steps incl. `.env`, DB/cache step, systemd unit render, health check (dry-run off Linux) | **Live (dry-run off Linux)** |
+| **Hybrid Upstream Routing** | ✅ Complete (form, mock ping, vhost preview) | ⏳ Not yet (write vhost config to the web server) | **UI Simulation** |
+| **Site-type relevance** | ✅ Complete (proxy hides shell/files/env/CI) | ✅ `409 not_applicable` for `runtime: "proxy"` on files/PTY | **Live** |
+| **File Manager Pro** | ✅ Complete (checklist, batch, editor, zip) | ✅ Full API: list/read/write/create/mkdir/rename/copy/move/delete/upload/download/zip, separator-safe jail, tenant-credential helper; UI not yet wired | **Backend live** |
+| **Web Terminal PTY** | ✅ Complete (mock CLI + real xterm pane) | ✅ `creack/pty` over ticket-authenticated WebSocket, tenant UID/GID, resize, idle timeout, process-group cleanup | **Live** |
+| **Metrics & Monitoring** | 🟡 Charts still mock | ✅ Host (`/proc`, statfs, `/proc/net/dev`) + per-website cgroup v2 sampler, ranges, honest "unavailable + reason" | **Backend live** |
+| **Hardware S.M.A.R.T. & Network** | ✅ Complete (visual diagnostics, mock self-test) | 🟡 Capability detection + disk/network counters live; `smartctl` runs and fstrim are gated by capability | **Partially live** |
+| **LXC / container support** | ✅ Complete (limits card) | ✅ Live detection (systemd/LXC/Docker/SMART/fstrim/quota) + `limitations[]` with reasons and advice | **Live** |
+| **Database Suite & SSO** | ✅ Complete (detail modal, vault, export) | ⏳ Not yet (provisioner, rotate, SSO proxy) | **UI Simulation** |
+| **Caches (Redis) & SQLite** | ✅ Complete (Caches tab, file-based SQLite) | ⏳ Not yet | **UI Simulation** |
+| **Recycle Bin (Databases)** | ✅ Complete (soft delete, restore, purge) | ⏳ Not yet | **UI Simulation** |
+| **Docker Pods & Containers** | ✅ Complete (PodsView, deploy/config modals) | ⏳ Not yet (Docker Engine SDK) | **UI Simulation** |
+| **Backup & Migration Hub** | ✅ Complete (wizard, token, `.bpod`) | ⏳ Not yet (rsync stream, S3/R2) | **UI Simulation** |
+| **World Traffic Map & Logs** | ✅ Complete (vector map, pins, log viewer) | ⏳ Not yet (daemon log streamer / WS) | **UI Simulation** |
+| **Per-App Access Control** | ✅ Complete (503, Basic Auth, anti-brute-force) | ⏳ Not yet (vhost snippet, `.htpasswd`, fail2ban) | **UI Simulation** |
+| **URL Routing & Deep-link** | ✅ Complete (`/apps/<slug>/<tab>`, `/settings/<tab>`, …) | ✅ SPA fallback in the daemon | **Live** |
 
 ---
 

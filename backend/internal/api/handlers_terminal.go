@@ -13,6 +13,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/rbac"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/terminal"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/validate"
 )
 
 const (
@@ -109,6 +110,13 @@ func (s *Server) handleWebsitePTY(w http.ResponseWriter, r *http.Request) {
 	site, err := s.store.WebsiteBySlug(r.PathValue("slug"))
 	if err != nil || !canManageSite(user, site) {
 		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+	// A reverse proxy has no runtime to shell into (the UI hides the button, the
+	// API refuses the request).
+	if !validate.HasRuntime(site.Runtime) {
+		writeError(w, http.StatusConflict, "not_applicable",
+			"A reverse proxy has no runtime of its own — open a shell on the upstream pod instead")
 		return
 	}
 
