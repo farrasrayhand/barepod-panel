@@ -62,6 +62,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 }) => {
   const [currentPath, setCurrentPath] = useState('/');
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [editingFile, setEditingFile] = useState<FileEntry | null>(null);
   const [editorContent, setEditorContent] = useState('');
   const [isSaved, setIsSaved] = useState(false);
@@ -168,6 +169,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (file.type === 'folder') {
       setCurrentPath(currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`);
       setSelectedFile(null);
+      setSelectedFiles([]);
     } else {
       const media = file.mediaType || detectMediaType(file.name);
       if (media === 'image' || media === 'pdf') {
@@ -177,6 +179,48 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         setEditorContent(file.content || `// Content of ${file.name}\n// Path: ${currentPath}/${file.name}\n`);
       }
     }
+  };
+
+  const handleToggleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedFiles(currentFiles.map(f => f.name));
+    } else {
+      setSelectedFiles([]);
+    }
+  };
+
+  const handleToggleSelectFile = (fileName: string, checked: boolean) => {
+    setSelectedFiles(prev => 
+      checked ? [...prev, fileName] : prev.filter(name => name !== fileName)
+    );
+  };
+
+  const handleDownload = (file: FileEntry) => {
+    const content = file.content || `// Content of ${file.name}\n// Exported from BarePod Panel\n`;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`Mengunduh ${file.name}`);
+  };
+
+  const handleDownloadSelected = () => {
+    if (selectedFiles.length === 0) return;
+    if (selectedFiles.length === 1) {
+      const f = currentFiles.find(item => item.name === selectedFiles[0]);
+      if (f) handleDownload(f);
+      return;
+    }
+    showToast(`Mengunduh ${selectedFiles.length} file...`);
+    selectedFiles.forEach((fileName, i) => {
+      const f = currentFiles.find(item => item.name === fileName);
+      if (f) {
+        setTimeout(() => handleDownload(f), i * 200);
+      }
+    });
   };
 
   const handleSaveFile = () => {
@@ -264,7 +308,21 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     }));
     if (selectedFile?.name === file.name) setSelectedFile(null);
     if (editingFile?.name === file.name) setEditingFile(null);
+    setSelectedFiles(prev => prev.filter(n => n !== file.name));
     showToast(`File ${file.name} telah dihapus.`);
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedFiles.length === 0) return;
+    const count = selectedFiles.length;
+    setFileSystem(prev => ({
+      ...prev,
+      [currentPath]: (prev[currentPath] || []).filter(f => !selectedFiles.includes(f.name))
+    }));
+    if (selectedFile && selectedFiles.includes(selectedFile.name)) setSelectedFile(null);
+    if (editingFile && selectedFiles.includes(editingFile.name)) setEditingFile(null);
+    setSelectedFiles([]);
+    showToast(`${count} item berhasil dihapus.`);
   };
 
   const handleDuplicate = (file: FileEntry) => {
@@ -404,7 +462,11 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
           {/* Breadcrumb Path */}
           <div className="flex items-center gap-1.5 text-xs text-slate-600 font-mono">
             <button 
-              onClick={() => setCurrentPath('/')}
+              onClick={() => {
+                setCurrentPath('/');
+                setSelectedFile(null);
+                setSelectedFiles([]);
+              }}
               className="hover:text-blue-600 font-bold cursor-pointer"
             >
               root
@@ -419,6 +481,42 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
           {/* Action Buttons Toolbar */}
           <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Batch Selection Banner & Actions */}
+            {selectedFiles.length > 0 && (
+              <>
+                <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg text-xs font-semibold">
+                  <Check className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{selectedFiles.length} dipilih</span>
+                  <button
+                    onClick={() => setSelectedFiles([])}
+                    className="ml-1 text-slate-500 hover:text-slate-900 text-[10px] underline cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                </div>
+
+                <button 
+                  onClick={handleDownloadSelected}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
+                  title="Unduh File Terpilih"
+                >
+                  <Download className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Download ({selectedFiles.length})</span>
+                </button>
+
+                <button 
+                  onClick={handleDeleteSelected}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg text-xs font-semibold cursor-pointer"
+                  title="Hapus Semua Terpilih"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Delete ({selectedFiles.length})</span>
+                </button>
+
+                <div className="h-4 w-px bg-slate-200 mx-1" />
+              </>
+            )}
+
             <button 
               onClick={() => setNewFileModal({ isOpen: true, name: '' })}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
@@ -472,7 +570,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               <span>Paste {clipboard ? `(${clipboard.file.name})` : ''}</span>
             </button>
 
-            {selectedFile && (
+            {selectedFile && selectedFiles.length === 0 && (
               <button 
                 onClick={() => handleDelete(selectedFile)}
                 className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg text-xs font-medium cursor-pointer"
@@ -498,19 +596,32 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 font-semibold text-slate-500 text-[11px] sticky top-0 z-10">
                 <tr>
-                  <th className="py-2.5 px-4">Name</th>
-                  <th className="py-2.5 px-4">Size</th>
-                  <th className="py-2.5 px-4">Permissions</th>
-                  <th className="py-2.5 px-4">Last Modified</th>
+                  <th className="py-2.5 px-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={currentFiles.length > 0 && selectedFiles.length === currentFiles.length}
+                      onChange={(e) => handleToggleSelectAll(e.target.checked)}
+                      className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer accent-blue-600"
+                      title="Pilih Semua (Select All)"
+                    />
+                  </th>
+                  <th className="py-2.5 px-3">Name</th>
+                  <th className="py-2.5 px-3">Size</th>
+                  <th className="py-2.5 px-3">Permissions</th>
+                  <th className="py-2.5 px-3">Last Modified</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {currentPath !== '/' && (
                   <tr 
-                    onClick={() => setCurrentPath('/')}
+                    onClick={() => {
+                      setCurrentPath('/');
+                      setSelectedFile(null);
+                      setSelectedFiles([]);
+                    }}
                     className="hover:bg-slate-50 cursor-pointer font-medium text-slate-600"
                   >
-                    <td colSpan={4} className="py-2 px-4 flex items-center gap-2">
+                    <td colSpan={5} className="py-2 px-4 flex items-center gap-2">
                       <Folder className="w-4 h-4 text-slate-400" />
                       <span>.. (Back to root)</span>
                     </td>
@@ -518,6 +629,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 )}
                 {currentFiles.map((file, idx) => {
                   const isSelected = selectedFile?.name === file.name;
+                  const isChecked = selectedFiles.includes(file.name);
                   const isBeingCut = clipboard?.operation === 'cut' && clipboard.file.name === file.name && clipboard.sourcePath === currentPath;
 
                   return (
@@ -532,12 +644,22 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                         setContextMenu({ x: e.clientX, y: e.clientY, file });
                       }}
                       className={`cursor-pointer transition-colors group ${
-                        isSelected 
+                        isChecked 
+                          ? 'bg-blue-50/80 border-l-4 border-blue-500' 
+                          : isSelected 
                           ? 'bg-blue-100/70 border-l-4 border-blue-600' 
                           : 'hover:bg-slate-50/80'
                       } ${isBeingCut ? 'opacity-40 italic' : ''}`}
                     >
-                      <td className="py-2.5 px-4 font-mono">
+                      <td className="py-2.5 px-3 w-10 text-center" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => handleToggleSelectFile(file.name, e.target.checked)}
+                          className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer accent-blue-600"
+                        />
+                      </td>
+                      <td className="py-2.5 px-3 font-mono">
                         <div className="flex items-center gap-2.5">
                           {getFileIcon(file)}
                           <span className={`font-medium ${file.type === 'folder' ? 'text-slate-900 font-semibold' : 'text-slate-800'}`}>
@@ -545,9 +667,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                           </span>
                         </div>
                       </td>
-                      <td className="py-2.5 px-4 text-slate-500 font-mono text-[11px]">{file.size}</td>
-                      <td className="py-2.5 px-4 text-slate-500 font-mono text-[11px]">{file.permissions}</td>
-                      <td className="py-2.5 px-4 text-slate-400 text-[11px]">{file.modified}</td>
+                      <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px]">{file.size}</td>
+                      <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px]">{file.permissions}</td>
+                      <td className="py-2.5 px-3 text-slate-400 text-[11px]">{file.modified}</td>
                     </tr>
                   );
                 })}
@@ -670,6 +792,17 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 >
                   <Edit3 className="w-3.5 h-3.5 text-amber-500" />
                   <span>Rename / Move</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (contextMenu.file) handleDownload(contextMenu.file);
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Download</span>
                 </button>
 
                 <div className="my-1 border-t border-slate-100" />
