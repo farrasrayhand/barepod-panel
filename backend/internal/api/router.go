@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
@@ -171,6 +172,13 @@ func decodeJSON(r *http.Request, dst any) error {
 // handleSPA serves the built frontend, falling back to index.html so that
 // deep links such as /websites/<name>/logs keep working on refresh.
 func (s *Server) handleSPA(w http.ResponseWriter, r *http.Request) {
+	// An unknown API route must not fall through to the SPA: a client asking for
+	// JSON has to get a JSON 404, not a page.
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		writeError(w, http.StatusNotFound, "not_found", "API route not found")
+		return
+	}
+
 	index := filepath.Join(s.cfg.StaticDir, "index.html")
 	if _, err := os.Stat(index); err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "API route not found (frontend build not present)")
