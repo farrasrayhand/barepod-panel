@@ -202,7 +202,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                 <th className="py-3.5 px-4">Web Server</th>
                 <th className="py-3.5 px-4">Tenant User</th>
                 <th className="py-3.5 px-4">Status</th>
-                <th className="py-3.5 px-4">Tunnel / Routing</th>
+                <th className="py-3.5 px-4 whitespace-nowrap">Route & SSL</th>
                 <th className="py-3.5 px-4 text-right">App Tools & Actions</th>
               </tr>
             </thead>
@@ -310,21 +310,25 @@ export const AppsView: React.FC<AppsViewProps> = ({
                       </td>
 
                       {/* Routing / Tunnel */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex flex-col gap-1">
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
                           {app.tunnelEnabled ? (
-                            <div className="inline-flex items-center gap-1 text-[11px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                              <CloudRain className="w-3 h-3 text-blue-600" />
-                              <span>CF Zero-NAT</span>
-                            </div>
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
+                              <CloudRain className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <span>CF Tunnel</span>
+                            </span>
                           ) : (
-                            <div className="inline-flex items-center gap-1 text-[11px] text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
-                              <Globe className="w-3 h-3 text-slate-400" />
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-mono font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                              <Globe className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                               <span>Port {app.port}</span>
-                            </div>
+                            </span>
                           )}
-                          <span className="text-[10px] text-emerald-600 flex items-center gap-0.5">
-                            <CheckCircle2 className="w-2.5 h-2.5" /> Auto SSL
+                          <span 
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200"
+                            title="Auto SSL Certificate Active"
+                          >
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                            <span>SSL</span>
                           </span>
                         </div>
                       </td>
