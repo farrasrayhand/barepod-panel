@@ -20,6 +20,24 @@ invent its own version.
   version string (the footer previously drifted to "v0.6" — that is exactly
   what this rule prevents).
 
+### Keeping these documents in sync
+
+**The note is part of the change, not a follow-up.** A commit that alters
+behaviour must update the documentation in the *same* commit:
+
+| What changed | What must be updated with it |
+|---|---|
+| Any user-visible behaviour | §0 Frontend Changelog (a bullet, one line) |
+| A module's real status | §4.1 Component Status Table (simulation / partially live / live) |
+| An endpoint, payload or rule | `API_CONTRACT.md`: §4.x for the endpoint **and** §1 conventions when the shape moved |
+| A module's design | the matching §3.x section |
+| A milestone finishing | the version above **and** the phase checklist in §4.2 |
+
+A claim in these documents that cannot be verified in the code is a **bug** —
+fix the text or the code in the same commit. (Known drift so far: the status
+table claimed metrics, files and the terminal were unbuilt after they shipped,
+and the footer invented its own version. Both are why this rule exists.)
+
 This document is the complete technical architecture blueprint, module specification, and development roadmap for **BarePod Panel**, a new-generation web hosting management, reverse proxy gateway, and hybrid container hosting platform that is secure, isolated, and easy to use.
 
 ---
