@@ -30,6 +30,8 @@ import { AppDetailPage, type AppDetailTab } from './AppDetailPage';
 interface AppsViewProps {
   apps: WebApp[];
   selectedAppSlug?: string | null;
+  /** False while the website list is still being fetched. */
+  appsLoaded?: boolean;
   appSubTab?: string;
   onSelectApp?: (slug: string) => void;
   onSubTabChange?: (tab: AppDetailTab) => void;
@@ -45,6 +47,7 @@ interface AppsViewProps {
 export const AppsView: React.FC<AppsViewProps> = ({
   apps,
   selectedAppSlug,
+  appsLoaded = true,
   appSubTab,
   onSelectApp,
   onSubTabChange,
@@ -65,6 +68,15 @@ export const AppsView: React.FC<AppsViewProps> = ({
 
   // Detail page is driven by the URL (/apps/<name>/<tab>) so it survives refresh
   const selectedAppForDetails = apps.find((a) => a.name === selectedAppSlug || a.id === selectedAppSlug) || null;
+
+  // A deep link to a website that does not exist goes back to the list with a
+  // notice, so the URL and the screen never disagree.
+  React.useEffect(() => {
+    if (!appsLoaded || !selectedAppSlug || selectedAppForDetails) return;
+    onShowToast?.('Website not found', `"${selectedAppSlug}" is not one of your websites.`, 'info');
+    onBack?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appsLoaded, selectedAppSlug, selectedAppForDetails]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);

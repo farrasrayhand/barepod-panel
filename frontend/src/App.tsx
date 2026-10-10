@@ -49,6 +49,8 @@ interface AppRoute {
   tab: NavItem;
   appSlug?: string;
   appSubTab?: string;
+  /** Set when the requested path is not a panel route. */
+  unmatchedPath?: string;
 }
 
 const parseRoute = (pathname: string): AppRoute => {
@@ -63,7 +65,12 @@ const parseRoute = (pathname: string): AppRoute => {
     };
   }
   const match = (Object.keys(TAB_PATHS) as NavItem[]).find((tab) => TAB_PATHS[tab] === `/${parts[0]}`);
-  return match ? { tab: match, appSubTab: parts[1] ? decodeURIComponent(parts[1]) : undefined } : { tab: 'apps' };
+  if (match) {
+    return { tab: match, appSubTab: parts[1] ? decodeURIComponent(parts[1]) : undefined };
+  }
+  // Unknown path: fall back to Websites, but say so — the caller corrects the
+  // URL instead of leaving an address that does not match what is on screen.
+  return { tab: 'apps', unmatchedPath: clean };
 };
 
 // Realistic sample web apps used while the daemon is not running.
@@ -301,9 +308,27 @@ export function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  // A path that is not a panel route is corrected to a real one, so the address
+  // bar always matches what is on screen instead of silently rendering Websites
+  // under an unknown URL.
+  useEffect(() => {
+    if (!route.unmatchedPath) return;
+    const fallback = TAB_PATHS[route.tab];
+    window.history.replaceState(null, '', fallback);
+    setRoute(parseRoute(fallback));
+    showToast('Page not found', `"${route.unmatchedPath}" is not a panel page.`, 'info');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.unmatchedPath]);
+
   // Realistic sample web apps with OpenLiteSpeed, Nginx, Caddy, Apache & Flask, Laravel, Next.js
   // The prototype data; restored whenever the daemon is not driving the UI.
   const [apps, setApps] = useState<WebApp[]>(MOCK_APPS);
+  /**
+   * True once the website list is final (mock data, or the daemon's answer).
+   * Deep links are only validated after that, otherwise a live slug would be
+   * checked against the prototype list and wrongly rejected.
+   */
+  const [appsLoaded, setAppsLoaded] = useState(false);
 
   // Live mode: replace the mock list with the daemon's websites (with their
   // service metrics). Simulation mode keeps the mock array untouched.
@@ -311,6 +336,7 @@ export function App() {
     if (session.mode === 'mock') {
       // Back to the prototype data, so the two modes never mix.
       setApps(MOCK_APPS);
+      setAppsLoaded(true);
       return;
     }
     if (session.mode !== 'live' || !session.user) return;
@@ -329,9 +355,14 @@ export function App() {
             }
           }),
         );
-        if (!cancelled) setApps(mapped);
+        if (!cancelled) {
+          setApps(mapped);
+          setAppsLoaded(true);
+        }
       } catch {
-        // Keep whatever is on screen; the toast below explains the failure.
+        // Keep whatever is on screen; deep links are not validated against a
+        // list we could not load.
+        if (!cancelled) setAppsLoaded(false);
       }
     })();
 
@@ -500,6 +531,7 @@ export function App() {
           {currentTab === 'apps' && (
             <AppsView
               apps={apps}
+              appsLoaded={appsLoaded}
               selectedAppSlug={route.appSlug ?? null}
               appSubTab={route.appSubTab}
               onSelectApp={(slug) => navigatePath(`/apps/${encodeURIComponent(slug)}`)}

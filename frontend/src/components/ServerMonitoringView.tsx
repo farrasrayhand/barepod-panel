@@ -2,6 +2,17 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSubRoute } from '../hooks/useSubRoute';
 import { MetricHistoryChart } from './MetricHistoryChart';
 import { HostConsole } from './HostConsole';
+import { api, apiReachable, type HostMetrics } from '../api/client';
+import { formatUptime } from '../api/adapters';
+
+/** The chart series, from the daemon or from the prototype's generator. */
+interface LiveSeries {
+  cpu: number[];
+  mem: number[];
+  net: number[];
+  disk: number[];
+  stamps: string[];
+}
 import { 
   Activity, 
   Cpu, 
@@ -138,6 +149,101 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
     return { cpu: gen(12, 8), mem: gen(26, 5), net: gen(18, 12), disk: gen(6, 4), stamps };
   }, [hostRange]);
+
+  // --- live metrics from the daemon ---------------------------------------
+  // The page shows real numbers when a daemon answers and falls back to the
+  // simulated series when none does — and it says which one you are looking at,
+  // instead of quietly mixing the two.
+  const [liveMode, setLiveMode] = useState(false);
+  const [live, setLive] = useState<HostMetrics | null>(null);
+  const [liveSeries, setLiveSeries] = useState<LiveSeries | null>(null);
+  const [liveNote, setLiveNote] = useState('');
+  const [hostInfo, setHostInfo] = useState<{ kernel: string; distro: string; arch: string } | null>(null);
+
+  /** The daemon keeps a bounded ring buffer, so only ask for what it has. */
+  const apiRangeFor = (range: string): string => {
+    if (range === 'live') return '5m';
+    if (range === '1h') return '1h';
+    return '24h'; // 24h fits the default buffer; 7d/30d/90d do not
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!(await apiReachable())) return;
+      if (cancelled) return;
+      setLiveMode(true);
+      try {
+        const payload = await api.capabilities();
+        if (!cancelled) {
+          setHostInfo({
+            kernel: payload.capabilities.kernel,
+            distro: payload.capabilities.distro,
+            arch: payload.capabilities.arch,
+          });
+        }
+      } catch {
+        // The header keeps its fallback text.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!liveMode) return;
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const series = await api.systemMetrics(apiRangeFor(hostRange));
+        if (cancelled) return;
+
+        setLive(series.latest);
+        setLiveSeries({
+          cpu: series.items.map((s) => s.cpuPercent),
+          mem: series.items.map((s) =>
+            s.memoryTotalBytes ? (s.memoryUsedBytes / s.memoryTotalBytes) * 100 : 0,
+          ),
+          net: series.items.map((s) => ((s.netRxBps + s.netTxBps) * 8) / 1e6), // Mbps
+          disk: series.items.map((s) => (s.diskReadBps + s.diskWriteBps) / 1e6), // MB/s
+          stamps: series.items.map((s) => s.ts),
+        });
+
+        const requestedSeconds =
+          hostRange === '7d' ? 7 * 86400
+            : hostRange === '30d' ? 30 * 86400
+              : hostRange === '90d' ? 90 * 86400
+                : 0;
+        const bufferSeconds = series.maxRangeSeconds ?? 0;
+        setLiveNote(
+          bufferSeconds > 0 && requestedSeconds > bufferSeconds
+            ? `The daemon buffers ${Math.round(bufferSeconds / 3600)}h, so this window shows the buffered range.`
+            : '',
+        );
+      } catch {
+        // The daemon went away: fall back to the simulation rather than showing
+        // stale numbers as if they were live.
+        if (!cancelled) {
+          setLiveMode(false);
+          setLive(null);
+          setLiveSeries(null);
+          setLiveNote('');
+        }
+      }
+    };
+
+    void load();
+    if (!isAutoRefresh) return () => { cancelled = true; };
+
+    const timer = window.setInterval(load, Math.max(1000, refreshInterval));
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [liveMode, hostRange, isAutoRefresh, refreshInterval]);
+
   const [ramUsed, setRamUsed] = useState(2.3);
   const [ramTotal] = useState(8.0);
   const [swapUsed, setSwapUsed] = useState(0.08);
@@ -198,9 +304,10 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
     { unit: 'ssh.service', name: 'OpenSSH Daemon', status: 'active', subState: 'running', description: 'OpenBSD Secure Shell Server', memory: '18 MB', uptime: '18 days', category: 'system' },
   ]);
 
-  // Simulation tick for real-time telemetry
+  // Simulation tick for real-time telemetry — only while the daemon is not the
+  // source of the numbers.
   useEffect(() => {
-    if (!isAutoRefresh) return;
+    if (!isAutoRefresh || liveMode) return;
     const interval = setInterval(() => {
       // Small jitter for realistic CPU & RAM monitoring
       const cpuDelta = (Math.random() - 0.48) * 3;
@@ -230,7 +337,35 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
     }, refreshInterval);
 
     return () => clearInterval(interval);
-  }, [cpuUsage, ramUsed, perCore, netRxMbps, netTxMbps, diskReadMb, diskWriteMb, isAutoRefresh, refreshInterval]);
+  }, [cpuUsage, ramUsed, perCore, netRxMbps, netTxMbps, diskReadMb, diskWriteMb, isAutoRefresh, refreshInterval, liveMode]);
+
+  // Either the daemon's series or the prototype's, in the same shape.
+  const chart = liveSeries ?? {
+    cpu: history.cpu,
+    mem: history.mem,
+    net: history.net,
+    disk: history.disk,
+    stamps: history.stamps,
+  };
+
+  const kpi = {
+    cpu: live ? live.cpuPercent : cpuUsage,
+    cores: live ? live.cpuCores : 4,
+    load: live
+      ? `${live.load1.toFixed(2)}, ${live.load5.toFixed(2)}, ${live.load15.toFixed(2)}`
+      : '0.34, 0.48, 0.52',
+    ramUsedGb: live ? live.memoryUsedBytes / 2 ** 30 : ramUsed,
+    ramTotalGb: live ? live.memoryTotalBytes / 2 ** 30 : ramTotal,
+    swapUsedGb: live ? live.swapUsedBytes / 2 ** 30 : swapUsed,
+    swapTotalGb: live ? live.swapTotalBytes / 2 ** 30 : swapTotal,
+    netInMbps: live ? (live.netRxBps * 8) / 1e6 : netRxMbps,
+    netOutMbps: live ? (live.netTxBps * 8) / 1e6 : netTxMbps,
+    diskReadMbs: live ? live.diskReadBps / 1e6 : diskReadMb,
+    diskWriteMbs: live ? live.diskWriteBps / 1e6 : diskWriteMb,
+    diskUsedGb: live ? live.diskUsedBytes / 2 ** 30 : 28.4,
+    diskTotalGb: live ? live.diskTotalBytes / 2 ** 30 : 160,
+    uptime: live ? formatUptime(live.uptimeSeconds) : '18 days, 4h 12m',
+  };
 
   const handleRunSmartSelfTest = () => {
     setIsTestingSmart(true);
@@ -319,20 +454,35 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Real-Time Server Monitoring</h1>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              Bare Metal Telemetry
+            <span
+              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                liveMode
+                  ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                  : 'bg-amber-100 text-amber-800 border-amber-200'
+              }`}
+              title={liveMode ? 'Numbers come from the daemon' : 'No daemon reachable: these numbers are generated by the prototype'}
+            >
+              <span className={`w-2 h-2 rounded-full ${liveMode ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+              {liveMode ? 'Live from daemon' : 'Simulation (mock data)'}
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2">
             <span>Hostname: <strong className="text-slate-700 font-mono">vps-barepod-edge-01</strong></span>
             <span>•</span>
-            <span>OS: <strong className="text-slate-700">Debian 12 Bookworm (x86_64)</strong></span>
+            <span>OS: <strong className="text-slate-700">{hostInfo?.distro || 'Debian 12 Bookworm'} ({hostInfo?.arch || 'x86_64'})</strong></span>
             <span>•</span>
-            <span>Kernel: <strong className="text-slate-700 font-mono">Linux 6.1.0-21-amd64</strong></span>
+            <span>Kernel: <strong className="text-slate-700 font-mono">{hostInfo?.kernel || 'Linux 6.1.0-21-amd64'}</strong></span>
             <span>•</span>
-            <span>Uptime: <strong className="text-slate-700">18 days, 4h 12m</strong></span>
+            <span>Uptime: <strong className="text-slate-700">{kpi.uptime}</strong></span>
           </p>
+          {!liveMode && (
+            <p className="text-[11px] text-amber-700 mt-1">
+              No daemon answering — every number on this page is simulated. Start it with <code className="font-mono">barepod serve</code> for real telemetry.
+            </p>
+          )}
+          {liveMode && liveNote && (
+            <p className="text-[11px] text-slate-500 mt-1">{liveNote}</p>
+          )}
         </div>
 
         {/* Controls: Refresh selector & Open Terminal */}

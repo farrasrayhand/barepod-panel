@@ -174,6 +174,10 @@ export interface MetricSeries<T> {
   range: string;
   windowSeconds: number;
   intervalSeconds: number;
+  /** Longest window the daemon can answer (ring buffer bound). */
+  maxRangeSeconds?: number;
+  buffered?: number;
+  source?: string;
 }
 
 export interface FileEntry {
