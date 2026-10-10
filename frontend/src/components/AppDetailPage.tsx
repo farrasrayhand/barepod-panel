@@ -1345,102 +1345,105 @@ QUEUE_CONNECTION=redis`;
             </div>
 
             {/* Terminal Window */}
-            <div className="bg-slate-950 text-slate-100 font-mono text-xs rounded-xl p-4 min-h-[380px] max-h-[520px] overflow-y-auto space-y-1.5 border border-slate-800 shadow-inner">
-              {/* Terminal Table Header for Structured View */}
-              {logFormat === 'structured' && (
-                <div className="grid grid-cols-12 gap-2 pb-2 mb-2 border-b border-slate-800 text-[10px] text-slate-400 font-bold uppercase tracking-wider select-none">
-                  <div className="col-span-1">WAKTU</div>
-                  <div className="col-span-3">IP PENGUNJUNG (VISITOR IP)</div>
-                  <div className="col-span-2">METODE & STATUS</div>
-                  <div className="col-span-3">PATH REQUEST</div>
-                  <div className="col-span-3">LATENSI & CLIENT INFO</div>
-                </div>
-              )}
-
-              {filteredLogs.map((log, idx) => (
-                logFormat === 'structured' ? (
-                  <div 
-                    key={idx} 
-                    className="grid grid-cols-12 gap-2 items-center py-1 px-1.5 rounded hover:bg-slate-900/80 border border-transparent hover:border-slate-800/80 transition-colors leading-relaxed"
-                  >
-                    {/* Waktu */}
-                    <div className="col-span-1 text-slate-500 text-[11px] font-mono shrink-0">
-                      [{log.time}]
-                    </div>
-
-                    {/* Visitor Client IP Badge */}
-                    <div className="col-span-3 flex items-center gap-1.5 overflow-hidden">
-                      {log.ip ? (
-                        <span 
-                          className="inline-flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/40 text-amber-300 font-mono font-bold text-[11px] px-2 py-0.5 rounded shadow-2xs"
-                          title={`Visitor IP: ${log.ip} | ISP: ${log.isp || 'Unknown'} | Country: ${log.country || 'Global'}`}
-                        >
-                          <Globe className="w-3 h-3 text-amber-400 shrink-0" />
-                          <span className="tracking-tight">{log.ip}</span>
-                          <span className="bg-amber-950/80 text-amber-200 text-[9px] px-1 rounded uppercase font-semibold border border-amber-800/40">
-                            {log.country || 'ID'}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="text-slate-600 font-mono text-[10px] px-1">
-                          [system daemon]
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Method & Status */}
-                    <div className="col-span-2 flex items-center gap-1.5">
-                      {log.method ? (
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                          log.method === 'GET' ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/50' :
-                          log.method === 'POST' ? 'bg-indigo-950 text-indigo-300 border border-indigo-800/50' :
-                          'bg-slate-800 text-slate-300'
-                        }`}>
-                          {log.method}
-                        </span>
-                      ) : (
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
-                          log.type === 'error' ? 'bg-rose-950 text-rose-300' :
-                          log.type === 'deploy' ? 'bg-purple-950 text-purple-300' :
-                          'bg-slate-800 text-slate-400'
-                        }`}>
-                          {log.type}
-                        </span>
-                      )}
-
-                      {log.status && (
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded font-mono ${
-                          log.status < 300 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50' :
-                          log.status < 400 ? 'bg-blue-950 text-blue-300 border border-blue-800/50' :
-                          log.status < 500 ? 'bg-amber-950 text-amber-300 border border-amber-800/50' :
-                          'bg-rose-950 text-rose-300 border border-rose-800/50'
-                        }`}>
-                          {log.status}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Path */}
-                    <div className="col-span-3 truncate">
-                      <span className="text-slate-100 font-semibold text-[11px] font-mono">
-                        {log.path || log.msg}
-                      </span>
-                    </div>
-
-                    {/* Latency & Client Info */}
-                    <div className="col-span-3 flex items-center justify-between text-[11px] text-slate-400 overflow-hidden">
-                      <span className="font-mono text-cyan-300 shrink-0 font-medium">
-                        {log.latency ? `${log.latency} • ${log.size}` : ''}
-                      </span>
-                      <span 
-                        className="text-slate-500 truncate max-w-[140px] text-[10px]" 
-                        title={log.userAgent || log.msg}
-                      >
-                        {log.userAgent || log.msg}
-                      </span>
-                    </div>
+            <div className="bg-slate-950 text-slate-100 font-mono text-xs rounded-xl p-4 min-h-[380px] max-h-[520px] overflow-y-auto overflow-x-auto space-y-1.5 border border-slate-800 shadow-inner">
+              <div className="min-w-[920px]">
+                {/* Terminal Table Header for Structured View */}
+                {logFormat === 'structured' && (
+                  <div className="grid grid-cols-12 gap-2.5 pb-2 mb-2 border-b border-slate-800 text-[10px] text-slate-400 font-bold uppercase tracking-wider select-none">
+                    <div className="col-span-1">WAKTU</div>
+                    <div className="col-span-2">IP PENGUNJUNG</div>
+                    <div className="col-span-2">METODE & STATUS</div>
+                    <div className="col-span-3">PATH REQUEST</div>
+                    <div className="col-span-4">LATENSI & CLIENT INFO (USER-AGENT)</div>
                   </div>
-                ) : (
+                )}
+
+                {filteredLogs.map((log, idx) => (
+                  logFormat === 'structured' ? (
+                    <div 
+                      key={idx} 
+                      className="grid grid-cols-12 gap-2.5 items-center py-1.5 px-2 rounded hover:bg-slate-900/80 border border-transparent hover:border-slate-800/80 transition-colors leading-relaxed"
+                    >
+                      {/* Waktu */}
+                      <div className="col-span-1 text-slate-500 text-[11px] font-mono shrink-0">
+                        [{log.time}]
+                      </div>
+
+                      {/* Visitor Client IP Badge */}
+                      <div className="col-span-2 flex items-center gap-1.5 overflow-hidden">
+                        {log.ip ? (
+                          <span 
+                            className="inline-flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/40 text-amber-300 font-mono font-bold text-[11px] px-2 py-0.5 rounded shadow-2xs whitespace-nowrap"
+                            title={`Visitor IP: ${log.ip} | ISP: ${log.isp || 'Unknown'} | Country: ${log.country || 'Global'}`}
+                          >
+                            <Globe className="w-3 h-3 text-amber-400 shrink-0" />
+                            <span className="tracking-tight">{log.ip}</span>
+                            <span className="bg-amber-950/80 text-amber-200 text-[9px] px-1 rounded uppercase font-semibold border border-amber-800/40">
+                              {log.country || 'ID'}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-600 font-mono text-[10px] px-1">
+                            [system daemon]
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Method & Status */}
+                      <div className="col-span-2 flex items-center gap-1.5">
+                        {log.method ? (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                            log.method === 'GET' ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/50' :
+                            log.method === 'POST' ? 'bg-indigo-950 text-indigo-300 border border-indigo-800/50' :
+                            'bg-slate-800 text-slate-300'
+                          }`}>
+                            {log.method}
+                          </span>
+                        ) : (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                            log.type === 'error' ? 'bg-rose-950 text-rose-300' :
+                            log.type === 'deploy' ? 'bg-purple-950 text-purple-300' :
+                            'bg-slate-800 text-slate-400'
+                          }`}>
+                            {log.type}
+                          </span>
+                        )}
+
+                        {log.status && (
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded font-mono ${
+                            log.status < 300 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50' :
+                            log.status < 400 ? 'bg-blue-950 text-blue-300 border border-blue-800/50' :
+                            log.status < 500 ? 'bg-amber-950 text-amber-300 border border-amber-800/50' :
+                            'bg-rose-950 text-rose-300 border border-rose-800/50'
+                          }`}>
+                            {log.status}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Path */}
+                      <div className="col-span-3 truncate">
+                        <span className="text-slate-100 font-semibold text-[11px] font-mono">
+                          {log.path || log.msg}
+                        </span>
+                      </div>
+
+                      {/* Latency & Client Info */}
+                      <div className="col-span-4 flex items-center gap-2 text-[11px] overflow-hidden">
+                        {log.latency && (
+                          <span className="font-mono text-cyan-300 font-semibold shrink-0 bg-cyan-950/70 border border-cyan-800/50 px-1.5 py-0.5 rounded text-[10px]">
+                            {log.latency} • {log.size}
+                          </span>
+                        )}
+                        <span 
+                          className="text-slate-300 truncate flex-1 text-[11px] font-sans" 
+                          title={log.userAgent || log.msg}
+                        >
+                          {log.userAgent || log.msg}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
                   /* Raw Combined Log View (Nginx / OLS Format) */
                   <div 
                     key={idx} 
@@ -1479,6 +1482,7 @@ QUEUE_CONNECTION=redis`;
                   Tidak ada baris log yang sesuai dengan filter pencarian atau IP yang dipilih.
                 </div>
               )}
+              </div>
             </div>
           </div>
         )}
