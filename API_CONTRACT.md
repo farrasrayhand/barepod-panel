@@ -19,24 +19,28 @@
 - **Pagination:** `?page=1&per_page=50` → `{ "items": [...], "page": 1, "per_page": 50, "total": 123 }`.
 - **Time:** all timestamps are **RFC3339 UTC** (e.g. `2026-10-10T16:40:12Z`).
 - **Metrics:** send **raw numbers** (`memoryBytes`, `cpuPercent`), never formatted strings. Formatting (`"42 MB"`, `"0.3%"`) happens in the frontend.
-- **Webhook (public):** `POST /api/v1/webhook/:siteId/deploy?token=<deployHookToken>` (no JWT).
+- **IDs:** internal primary keys are **ULID** (time-sortable and immutable) — never the user-visible name. Websites are addressable by **slug** (URL-friendly) *or* `id`; if a website is renamed, the slug changes and the old slug is kept as a redirect alias so bookmarks and webhooks keep working. Other resources (`/databases/:id`, `/pods/:id`, …) use `id`.
+- **Webhook (public):** `POST /api/v1/webhook/:slug/deploy?token=<deployHookToken>` (no JWT).
 
 ---
 
 ## 2. WebSocket Channels
 
-Single endpoint, multiple channels: `wss://<host>/api/v1/ws` (auth via `?token=<JWT>` or the `Sec-WebSocket-Protocol` header).
+Single endpoint, multiple channels: `wss://<host>/api/v1/ws` (authenticate with the short-lived one-time ticket from `POST /ws/ticket`, sent via `Sec-WebSocket-Protocol` — never in the URL).
 
 | Channel | Direction | Payload |
 |---|---|---|
-| `deploy-log` | server→client | `{ siteId, line, stream: "stdout"\|"stderr", ts }` |
+| `deploy-log` | server→client | `{ slug, line, stream: "stdout"\|"stderr", ts }` |
 | `migration-progress` | server→client | `{ jobId, step, totalSteps, line, ts }` |
 | `restore-progress` | server→client | `{ jobId, percent, line }` |
-| `pty` | duplex | terminal stdin/stdout (binary frames) |
 | `system-metrics` | server→client | `{ ts, cpuPercent, memUsedBytes, memTotalBytes, netRxBps, netTxBps, diskReadBps, diskWriteBps }` |
 | `smart-test` | server→client | `{ device, percent, done }` |
 | `pod-logs` | server→client | `{ podId, line }` |
 | `site-log-stream` | server→client | access/error log line (Traffic Map & console) |
+
+> **PTY is NOT multiplexed.** Terminal sessions use their own dedicated binary WebSocket endpoints (`WS /websites/:slug/pty`, `WS /system/pty`) because they stream raw ANSI frames — mixing that into a JSON channel adds parsing overhead and input lag.
+> **One-way streams may use SSE.** `deploy-log`, `pod-logs` and `migration-progress` are server→client only; expose them as Server-Sent Events (`GET /websites/:slug/deploy/stream`, …) — plain HTTP, built-in browser reconnect, and more resilient to proxy/CDN timeouts (Cloudflare/Nginx) than WebSocket. Use the multiplexed `WS /api/v1/ws` for the remaining live channels.
+> **Auth:** never pass a token in the URL; `POST /api/v1/ws/ticket` returns a short-lived one-time ticket used for the handshake.
 
 ---
 
@@ -103,6 +107,9 @@ This is the main rework risk — the UI currently stores some values as presenta
   }
   ```
   `source.kind` ∈ `scaffold | github | upload | existing`. For `upload` the archive is sent to `POST /websites/:slug/files/upload`; for `existing` the target directory must already exist (the daemon returns `409` otherwise).
+- **`POST /websites` returns `202 Accepted`** with `{ slug, deployId }` — provisioning runs asynchronously (scaffold → database → cache → `.env` → automation steps). The UI then subscribes to `GET /websites/:slug/deploy/stream` (SSE) or the `deploy-log` channel.
+- The website model carries **`deployStatus`**: `pending | building | ready | failed`.
+- **Failure & rollback:** if a step fails, the deploy stops, `deployStatus` becomes `failed`, and the failure is reported on the stream. Partial resources are **kept** (so the log can be inspected and the deploy retried) but are marked as unlinked: a failed database/cache is created in the Recycle Bin rather than dropped, and `POST /websites/:slug/redeploy` retries from the failed step. A website that never reached `ready` can be deleted without leaving orphans.
 - `POST /websites/:slug/start|stop|restart`
 - `GET /websites/:slug/metrics?range=` · `GET /websites/:slug/logs?range=`
 - `PUT /websites/:slug/maintenance` · `PUT /websites/:slug/basic-auth` · `PUT /websites/:slug/anti-bruteforce`
@@ -122,6 +129,8 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `POST /websites/:slug/files` (new) · `mkdir` · `rename` · `copy` · `move` · `delete`
 - `POST /websites/:slug/files/upload` · `GET /websites/:slug/files/download?path=`
 - `POST /websites/:slug/files/compress` (batch `.zip`)
+
+> **Path safety:** every `path` parameter is **relative to the site root** (`/home/<tenant>/apps/<site>`). The daemon must resolve it (`filepath.Clean` + `EvalSymlinks`), then reject anything that does not satisfy `strings.HasPrefix(resolved, siteRoot)`. File operations run **as the tenant UID/GID** (fork worker + `setresuid`/`setresgid`), so the kernel enforces ownership on top of the prefix check. Symlinks pointing outside the site root are refused.
 
 ### 4.5 Terminal
 - `WS /websites/:slug/pty` — tenant shell (auto runtime switch)
@@ -252,7 +261,7 @@ curl -H "Authorization: Bearer bp_live_9f8a20bc…" \
 - **Outbound:** `GET|POST|DELETE /webhooks` → `{ url, secret, events[] }`.
   Events: `website.deployed`, `website.status_changed`, `backup.completed`, `migration.completed`, `cleanup.completed`, `cert.expiring`, `disk.threshold`. Payloads are signed with HMAC-SHA256 in the `X-BarePod-Signature` header.
 - **Inbound** (trigger automation): `POST /hooks/:token/run?action=deploy|cleanup|backup&target=<slug>` — no JWT; the token is one-shot/reusable per configuration.
-- GitHub push-to-deploy already follows this pattern (`POST /webhook/:siteId/deploy?token=…`).
+- GitHub push-to-deploy already follows this pattern (`POST /webhook/:slug/deploy?token=…`).
 
 ### 7.3 MCP Server (Model Context Protocol)
 
