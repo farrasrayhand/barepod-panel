@@ -11,6 +11,8 @@ import { PodsView } from './components/PodsView';
 import { UsersView } from './components/UsersView';
 import { OverviewView } from './components/OverviewView';
 import { ServerMonitoringView } from './components/ServerMonitoringView';
+import { PanelSettingsView } from './components/PanelSettingsView';
+import { DomainsView } from './components/DomainsView';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 
@@ -255,15 +257,18 @@ export function App() {
             />
           )}
 
-          {(currentTab === 'domains' || currentTab === 'settings') && (
-            <div className="p-8 max-w-7xl mx-auto">
-              <div className="bg-white p-8 rounded-xl border border-slate-200 text-center">
-                <h2 className="text-lg font-semibold text-slate-800 capitalize">{currentTab} Configuration</h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  Global reverse proxy & web server routing (OpenLiteSpeed, Nginx, Caddy, Apache).
-                </p>
-              </div>
-            </div>
+          {currentTab === 'domains' && (
+            <DomainsView
+              apps={apps}
+              onShowToast={showToast}
+            />
+          )}
+
+          {currentTab === 'settings' && (
+            <PanelSettingsView
+              onShowToast={showToast}
+              onOpenTerminal={() => setCurrentTab('terminal')}
+            />
           )}
         </main>
       </div>
