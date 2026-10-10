@@ -50,7 +50,12 @@ import {
   RefreshCw,
   Save,
   Radio,
-  Sparkles
+  Sparkles,
+  Sun,
+  Moon,
+  MapPin,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
 import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
@@ -82,6 +87,12 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [logType, setLogType] = useState<'all' | 'access' | 'error' | 'deploy'>('all');
   const [logSearch, setLogSearch] = useState('');
   const [logFormat, setLogFormat] = useState<'structured' | 'raw'>('structured');
+  const [logTheme, setLogTheme] = useState<'light' | 'dark'>('light'); // Default to light mode as requested!
+  const [wrapLogText, setWrapLogText] = useState(false);
+  const [expandedLogIdx, setExpandedLogIdx] = useState<number | null>(null);
+  const [showWorldMap, setShowWorldMap] = useState(true);
+  const [selectedCountryFilter, setSelectedCountryFilter] = useState<string | null>(null);
+  const [hoveredMapPin, setHoveredMapPin] = useState<{ country: string; name: string; flag: string; city: string; ip: string; reqs: number; latency: string; isp: string; x: number; y: number } | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedEnv, setCopiedEnv] = useState(false);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
@@ -811,6 +822,51 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
       },
       { 
         time: timeStr, 
+        type: 'access', 
+        ip: '45.33.32.156', 
+        country: 'DE', 
+        isp: 'Hetzner Online Frankfurt',
+        method: 'GET', 
+        path: '/api/v1/health', 
+        status: 200, 
+        latency: '28ms', 
+        size: '120 B',
+        userAgent: 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0',
+        msg: 'GET /api/v1/health 200 OK - 28ms (Frankfurt Node)',
+        rawLine: `45.33.32.156 - - [${dateFormatted}] "GET /api/v1/health HTTP/2.0" 200 120 "https://${app.domain}/" "Firefox/128.0" (CF-Ray: 8d2b932-FRA, Latency: 28ms)`
+      },
+      { 
+        time: timeStr, 
+        type: 'access', 
+        ip: '139.162.112.50', 
+        country: 'JP', 
+        isp: 'Linode Tokyo Datacenter',
+        method: 'GET', 
+        path: '/api/v1/realtime-feed', 
+        status: 200, 
+        latency: '36ms', 
+        size: '1.8 KB',
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 Chrome/127.0',
+        msg: 'GET /api/v1/realtime-feed 200 OK - 36ms (Tokyo Edge)',
+        rawLine: `139.162.112.50 - - [${dateFormatted}] "GET /api/v1/realtime-feed HTTP/2.0" 200 1840 "https://${app.domain}/" "Safari/605.1" (CF-Ray: 8d2b935-NRT, Latency: 36ms)`
+      },
+      { 
+        time: timeStr, 
+        type: 'access', 
+        ip: '13.236.40.91', 
+        country: 'AU', 
+        isp: 'AWS Sydney Edge',
+        method: 'GET', 
+        path: '/docs', 
+        status: 200, 
+        latency: '42ms', 
+        size: '8.4 KB',
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 Chrome/126.0',
+        msg: 'GET /docs 200 OK - 42ms (Sydney Edge)',
+        rawLine: `13.236.40.91 - - [${dateFormatted}] "GET /docs HTTP/2.0" 200 8420 "https://${app.domain}/" "Chrome/126.0" (CF-Ray: 8d2b938-SYD, Latency: 42ms)`
+      },
+      { 
+        time: timeStr, 
         type: 'deploy', 
         msg: '[Deploy Runner] git pull origin main - HEAD is at commit 7fa901',
         rawLine: `[${dateFormatted}] [system:deploy-runner] git pull origin main - HEAD is at commit 7fa901`
@@ -906,11 +962,21 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   const logs = getMockLogs();
   const uniqueVisitorIps = Array.from(new Set(logs.filter(l => l.ip).map(l => l.ip as string)));
 
+  const visitorCountryNodes = [
+    { country: 'ID', countryName: 'Indonesia', flag: '🇮🇩', city: 'Jakarta & Surabaya', ip: '114.124.180.52', isp: 'Telkomsel & Biznet', x: 796, y: 268, reqs: 3, percentage: 38, latency: '14ms', isThreat: false },
+    { country: 'SG', countryName: 'Singapura', flag: '🇸🇬', city: 'Singapore Edge', ip: '103.147.154.82', isp: 'MyRepublic Singapore', x: 788, y: 246, reqs: 2, percentage: 25, latency: '1ms', isThreat: false },
+    { country: 'US', countryName: 'Amerika Serikat', flag: '🇺🇸', city: 'Ashburn, VA', ip: '198.51.100.41', isp: 'Security Scanner', x: 240, y: 145, reqs: 1, percentage: 12, latency: '3ms', isThreat: true },
+    { country: 'DE', countryName: 'Jerman', flag: '🇩🇪', city: 'Frankfurt Node', ip: '45.33.32.156', isp: 'Hetzner Online', x: 524, y: 111, reqs: 1, percentage: 12, latency: '28ms', isThreat: false },
+    { country: 'JP', countryName: 'Jepang', flag: '🇯🇵', city: 'Tokyo Edge', ip: '139.162.112.50', isp: 'Linode Tokyo', x: 888, y: 151, reqs: 1, percentage: 12, latency: '36ms', isThreat: false },
+    { country: 'AU', countryName: 'Australia', flag: '🇦🇺', city: 'Sydney Edge', ip: '13.236.40.91', isp: 'AWS Sydney', x: 920, y: 344, reqs: 1, percentage: 12, latency: '42ms', isThreat: false },
+  ];
+
   const filteredLogs = logs.filter(log => {
     const matchesType = logType === 'all' || log.type === logType;
     const searchTarget = `${log.msg} ${log.time} ${log.ip || ''} ${log.country || ''} ${log.isp || ''} ${log.path || ''} ${log.method || ''} ${log.status || ''} ${log.rawLine || ''}`.toLowerCase();
     const matchesSearch = !logSearch || searchTarget.includes(logSearch.toLowerCase());
-    return matchesType && matchesSearch;
+    const matchesCountry = !selectedCountryFilter || log.country === selectedCountryFilter;
+    return matchesType && matchesSearch && matchesCountry;
   });
 
   const handleCopyEnv = () => {
@@ -1401,9 +1467,9 @@ QUEUE_CONNECTION=redis`;
 
         {/* TAB 2: STREAMING LOGS CONSOLE */}
         {activeTab === 'logs' && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {/* Real-IP Ingress Banner */}
-            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-900">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-900">
               <div className="flex items-center gap-2 font-mono">
                 <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                 <span className="font-bold">Real-IP Ingress Aktif:</span>
@@ -1415,8 +1481,223 @@ QUEUE_CONNECTION=redis`;
                 <span className="text-[11px] bg-emerald-100/80 text-emerald-800 px-2 py-0.5 rounded font-mono font-bold">
                   {uniqueVisitorIps.length} Unique Visitor IPs
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setShowWorldMap(!showWorldMap)}
+                  className="flex items-center gap-1 px-2.5 py-0.5 rounded text-[11px] bg-white border border-emerald-300 text-emerald-800 font-bold hover:bg-emerald-50 transition-colors cursor-pointer"
+                >
+                  <Globe className="w-3 h-3 text-emerald-600" />
+                  <span>{showWorldMap ? 'Tutup Peta' : 'Buka Peta Dunia'}</span>
+                </button>
               </div>
             </div>
+
+            {/* LIVE GLOBAL VISITOR WORLD MAP */}
+            {showWorldMap && (
+              <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-3.5 animate-in fade-in duration-200">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                      <Globe className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                        <span>Peta Distribusi Pengunjung Global (Live Geo Ingress)</span>
+                        <span className="px-1.5 py-0.2 text-[9px] bg-emerald-100 text-emerald-800 font-mono font-bold rounded">
+                          Live Pulse
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Visualisasi real-time asal negara traffic & edge node Cloudflare yang mengakses {app.domain}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {selectedCountryFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCountryFilter(null)}
+                        className="flex items-center gap-1 px-2.5 py-1 text-xs bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg font-bold transition-colors cursor-pointer"
+                      >
+                        <span>✕ Reset Filter ({selectedCountryFilter})</span>
+                      </button>
+                    )}
+                    <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200 font-semibold">
+                      {visitorCountryNodes.length} Lokasi Aktif di 5 Benua
+                    </span>
+                  </div>
+                </div>
+
+                {/* SVG Vector World Map */}
+                <div className={`relative rounded-xl border overflow-hidden p-2 transition-colors ${
+                  logTheme === 'light' ? 'bg-slate-50/70 border-slate-200' : 'bg-slate-950 border-slate-800'
+                }`}>
+                  <svg viewBox="0 0 1000 500" className="w-full h-auto max-h-[300px] select-none">
+                    {/* Latitude and Longitude Grid Lines */}
+                    <line x1="0" y1="250" x2="1000" y2="250" stroke={logTheme === 'light' ? '#e2e8f0' : '#1e293b'} strokeDasharray="4 4" strokeWidth="1" />
+                    <line x1="500" y1="0" x2="500" y2="500" stroke={logTheme === 'light' ? '#e2e8f0' : '#1e293b'} strokeDasharray="4 4" strokeWidth="1" />
+                    <line x1="250" y1="0" x2="250" y2="500" stroke={logTheme === 'light' ? '#f1f5f9' : '#0f172a'} strokeDasharray="4 4" strokeWidth="0.8" />
+                    <line x1="750" y1="0" x2="750" y2="500" stroke={logTheme === 'light' ? '#f1f5f9' : '#0f172a'} strokeDasharray="4 4" strokeWidth="0.8" />
+
+                    {/* World Continents (Vector paths) */}
+                    <g 
+                      fill={logTheme === 'light' ? '#cbd5e1' : '#1e293b'} 
+                      stroke={logTheme === 'light' ? '#94a3b8' : '#334155'} 
+                      strokeWidth="1" 
+                      className="transition-colors"
+                    >
+                      {/* North America */}
+                      <path d="M 90 70 L 150 50 L 230 45 L 300 70 L 330 100 L 310 140 L 275 145 L 255 170 L 215 180 L 190 230 L 175 260 L 165 250 L 145 195 L 125 175 L 90 120 Z" />
+                      {/* Greenland */}
+                      <path d="M 310 25 L 360 20 L 380 50 L 340 70 Z" />
+                      {/* South America */}
+                      <path d="M 225 270 L 270 260 L 320 300 L 330 360 L 300 430 L 270 460 L 250 430 L 235 350 L 215 300 Z" />
+                      {/* Europe */}
+                      <path d="M 465 65 L 525 60 L 555 85 L 545 130 L 510 150 L 480 145 L 455 125 L 445 85 Z" />
+                      {/* Great Britain & Ireland */}
+                      <path d="M 435 85 L 455 80 L 450 110 L 430 105 Z" />
+                      {/* Africa */}
+                      <path d="M 465 165 L 545 165 L 585 225 L 565 305 L 525 375 L 485 375 L 455 265 L 445 205 Z" />
+                      {/* Madagascar */}
+                      <path d="M 585 315 L 600 320 L 590 360 L 580 355 Z" />
+                      {/* Asia */}
+                      <path d="M 555 60 L 690 45 L 820 65 L 860 115 L 830 165 L 770 185 L 740 230 L 710 215 L 670 230 L 630 190 L 570 165 L 555 115 Z" />
+                      {/* Middle East */}
+                      <path d="M 565 175 L 625 175 L 615 220 L 575 220 Z" />
+                      {/* India */}
+                      <path d="M 675 190 L 725 190 L 705 255 L 680 235 Z" />
+                      {/* Japan */}
+                      <path d="M 870 125 L 890 130 L 880 165 L 865 155 Z" />
+                      {/* Southeast Asia & Indonesia */}
+                      <path d="M 735 235 L 775 235 L 785 265 L 750 255 Z" />
+                      <path d="M 765 275 L 825 275 L 815 290 L 755 290 Z" />
+                      <path d="M 825 260 L 855 260 L 845 280 L 820 280 Z" />
+                      {/* Australia */}
+                      <path d="M 805 315 L 905 305 L 935 365 L 895 425 L 825 415 L 795 365 Z" />
+                      {/* New Zealand */}
+                      <path d="M 940 405 L 955 410 L 935 445 L 925 435 Z" />
+                    </g>
+
+                    {/* Active Visitor Pings and Beacon Markers */}
+                    {visitorCountryNodes.map((node) => {
+                      const isSelected = selectedCountryFilter === node.country;
+                      return (
+                        <g 
+                          key={node.country} 
+                          className="cursor-pointer group"
+                          onClick={() => setSelectedCountryFilter(isSelected ? null : node.country)}
+                          onMouseEnter={() => setHoveredMapPin({ ...node, name: node.countryName })}
+                          onMouseLeave={() => setHoveredMapPin(null)}
+                        >
+                          {/* Animated Radar Pulse Circle */}
+                          <circle
+                            cx={node.x}
+                            cy={node.y}
+                            r={isSelected ? '22' : '15'}
+                            className={`animate-ping opacity-75 ${node.isThreat ? 'fill-rose-500' : 'fill-blue-500'}`}
+                          />
+                          {/* Mid Glow Halo */}
+                          <circle
+                            cx={node.x}
+                            cy={node.y}
+                            r={isSelected ? '10' : '7'}
+                            className={`${node.isThreat ? 'fill-rose-500/40 stroke-rose-500' : 'fill-blue-500/40 stroke-blue-500'} stroke-1.5`}
+                          />
+                          {/* Center Core Pin */}
+                          <circle
+                            cx={node.x}
+                            cy={node.y}
+                            r="4"
+                            className={`${node.isThreat ? 'fill-rose-600' : 'fill-blue-600'} shadow-md`}
+                          />
+                          {/* Flag & Latency Tag */}
+                          <g transform={`translate(${node.x + 8}, ${node.y - 8})`}>
+                            <rect
+                              x="0"
+                              y="-12"
+                              width="58"
+                              height="16"
+                              rx="4"
+                              fill={logTheme === 'light' ? '#ffffff' : '#0f172a'}
+                              stroke={isSelected ? '#2563eb' : (logTheme === 'light' ? '#cbd5e1' : '#334155')}
+                              strokeWidth={isSelected ? '1.5' : '1'}
+                              className="filter drop-shadow-xs"
+                            />
+                            <text
+                              x="4"
+                              y="0"
+                              fontSize="9"
+                              fontFamily="system-ui, sans-serif"
+                              fontWeight="bold"
+                              fill={logTheme === 'light' ? '#0f172a' : '#f8fafc'}
+                            >
+                              {node.flag} {node.latency}
+                            </text>
+                          </g>
+                        </g>
+                      );
+                    })}
+                  </svg>
+
+                  {/* Interactive Map Hover Tooltip */}
+                  {hoveredMapPin && (
+                    <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-xs border border-slate-200 text-slate-800 p-2.5 rounded-xl shadow-lg text-xs font-mono max-w-xs pointer-events-none z-20 animate-in fade-in duration-100">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-900 border-b border-slate-100 pb-1 mb-1">
+                        <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                        <span>{hoveredMapPin.flag} {hoveredMapPin.name}</span>
+                        <span className="text-[10px] text-slate-400">({hoveredMapPin.city})</span>
+                      </div>
+                      <div className="space-y-0.5 text-[11px] text-slate-600">
+                        <div><strong>IP Sampel:</strong> <code className="text-amber-700">{hoveredMapPin.ip}</code></div>
+                        <div><strong>ISP / Cloud:</strong> {hoveredMapPin.isp}</div>
+                        <div><strong>Latensi:</strong> <span className="text-emerald-600 font-bold">{hoveredMapPin.latency}</span></div>
+                        <div className="text-[10px] text-blue-600 pt-0.5">Klik pin untuk memfilter log ke negara ini</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Country Quick-Filter Badges */}
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+                  <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center gap-1">
+                    <Filter className="w-3 h-3 text-slate-400" />
+                    Filter Negara:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCountryFilter(null)}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-mono font-semibold transition-all cursor-pointer ${
+                      !selectedCountryFilter
+                        ? 'bg-blue-600 text-white shadow-2xs font-bold'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
+                    }`}
+                  >
+                    🌐 Semua ({logs.length})
+                  </button>
+                  {visitorCountryNodes.map((n) => (
+                    <button
+                      key={n.country}
+                      type="button"
+                      onClick={() => setSelectedCountryFilter(selectedCountryFilter === n.country ? null : n.country)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-mono transition-all cursor-pointer ${
+                        selectedCountryFilter === n.country
+                          ? 'bg-blue-600 text-white shadow-2xs font-bold'
+                          : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      <span>{n.flag}</span>
+                      <span className="font-semibold">{n.country}</span>
+                      <span className={`text-[10px] px-1 rounded ${
+                        selectedCountryFilter === n.country ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-500'
+                      }`}>
+                        {n.percentage}%
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Filter Toolbar (Clean & Search-Driven) */}
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5">
@@ -1426,7 +1707,7 @@ QUEUE_CONNECTION=redis`;
                   <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Cari IP (misal: 114.124), path, status code, error..."
+                    placeholder="Cari IP (misal: 114.124), path, status code, user agent, ISP..."
                     value={logSearch}
                     onChange={(e) => setLogSearch(e.target.value)}
                     className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white font-mono transition-colors"
@@ -1442,8 +1723,8 @@ QUEUE_CONNECTION=redis`;
                   )}
                 </div>
 
-                {/* Right controls: View Mode, Refresh, Auto-scroll */}
-                <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
+                {/* Right controls: View Mode, Wrap, Theme Toggle, Refresh, Auto-scroll */}
+                <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto shrink-0">
                   {/* View Mode Switch */}
                   <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-xs font-medium border border-slate-200/80">
                     <button
@@ -1467,6 +1748,41 @@ QUEUE_CONNECTION=redis`;
                       Raw Log
                     </button>
                   </div>
+
+                  {/* Wrap Text Toggle (Avoids Text Cut-off) */}
+                  <button
+                    type="button"
+                    onClick={() => setWrapLogText(!wrapLogText)}
+                    className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border font-medium transition-colors cursor-pointer ${
+                      wrapLogText 
+                        ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold' 
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                    }`}
+                    title="Bungkus teks agar path dan user-agent tidak terpotong"
+                  >
+                    <span>Bungkus Teks</span>
+                    {wrapLogText && <span className="text-[10px]">✓</span>}
+                  </button>
+
+                  {/* Light / Dark Mode Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setLogTheme(logTheme === 'light' ? 'dark' : 'light')}
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors cursor-pointer font-medium"
+                    title={`Ganti tema konsol ke ${logTheme === 'light' ? 'Dark Console' : 'Light Mode'}`}
+                  >
+                    {logTheme === 'light' ? (
+                      <>
+                        <Moon className="w-3 h-3 text-slate-500" />
+                        <span>Gelap</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sun className="w-3 h-3 text-amber-500" />
+                        <span>Terang</span>
+                      </>
+                    )}
+                  </button>
 
                   <button
                     onClick={() => {
@@ -1510,144 +1826,257 @@ QUEUE_CONNECTION=redis`;
               </div>
             </div>
 
-            {/* Terminal Window */}
-            <div className="bg-slate-950 text-slate-100 font-mono text-xs rounded-xl p-4 min-h-[380px] max-h-[520px] overflow-y-auto overflow-x-auto space-y-1.5 border border-slate-800 shadow-inner">
-              <div className="min-w-[920px]">
+            {/* Terminal Window (Styled in Clean Light Mode by Default or Dark Mode) */}
+            <div className={`font-mono text-xs rounded-xl p-4 min-h-[380px] max-h-[580px] overflow-y-auto overflow-x-auto border transition-colors shadow-2xs ${
+              logTheme === 'light'
+                ? 'bg-white text-slate-800 border-slate-200'
+                : 'bg-slate-950 text-slate-100 border-slate-800 shadow-inner'
+            }`}>
+              <div className="min-w-[1080px]">
                 {/* Terminal Table Header for Structured View */}
                 {logFormat === 'structured' && (
-                  <div className="grid grid-cols-12 gap-2.5 pb-2 mb-2 border-b border-slate-800 text-[10px] text-slate-400 font-bold uppercase tracking-wider select-none">
-                    <div className="col-span-1">WAKTU</div>
-                    <div className="col-span-2">IP PENGUNJUNG</div>
-                    <div className="col-span-2">METODE & STATUS</div>
-                    <div className="col-span-3">PATH REQUEST</div>
-                    <div className="col-span-4">LATENSI & CLIENT INFO (USER-AGENT)</div>
+                  <div className={`flex items-center gap-3 pb-2.5 mb-2 border-b text-[10px] font-bold uppercase tracking-wider select-none ${
+                    logTheme === 'light' ? 'border-slate-200 text-slate-500 bg-slate-50/50 -mx-2 px-2 py-1.5 rounded-t' : 'border-slate-800 text-slate-400'
+                  }`}>
+                    <div className="w-[85px] shrink-0">WAKTU</div>
+                    <div className="w-[170px] shrink-0">IP PENGUNJUNG</div>
+                    <div className="w-[125px] shrink-0">METODE & STATUS</div>
+                    <div className="w-[300px] shrink-0">PATH REQUEST</div>
+                    <div className="flex-1 min-w-[320px]">LATENSI & CLIENT INFO (USER-AGENT)</div>
+                    <div className="w-[70px] shrink-0 text-center">DETAIL</div>
                   </div>
                 )}
 
                 {filteredLogs.map((log, idx) => (
                   logFormat === 'structured' ? (
-                    <div 
-                      key={idx} 
-                      className="grid grid-cols-12 gap-2.5 items-center py-1.5 px-2 rounded hover:bg-slate-900/80 border border-transparent hover:border-slate-800/80 transition-colors leading-relaxed"
-                    >
-                      {/* Waktu */}
-                      <div className="col-span-1 text-slate-500 text-[11px] font-mono shrink-0">
-                        [{log.time}]
-                      </div>
+                    <div key={idx} className="flex flex-col mb-1">
+                      <div 
+                        onClick={() => setExpandedLogIdx(expandedLogIdx === idx ? null : idx)}
+                        className={`flex items-center gap-3 py-2 px-2.5 rounded-lg border transition-all cursor-pointer ${
+                          expandedLogIdx === idx
+                            ? (logTheme === 'light' ? 'bg-blue-50/90 border-blue-200' : 'bg-slate-900 border-slate-700')
+                            : (logTheme === 'light' ? 'hover:bg-slate-50 border-transparent hover:border-slate-200' : 'hover:bg-slate-900/80 border-transparent hover:border-slate-800')
+                        }`}
+                      >
+                        {/* Waktu */}
+                        <div className={`w-[85px] shrink-0 text-[11px] font-mono ${
+                          logTheme === 'light' ? 'text-slate-400 font-semibold' : 'text-slate-500'
+                        }`}>
+                          [{log.time}]
+                        </div>
 
-                      {/* Visitor Client IP Badge */}
-                      <div className="col-span-2 flex items-center gap-1.5 overflow-hidden">
-                        {log.ip ? (
-                          <span 
-                            className="inline-flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/40 text-amber-300 font-mono font-bold text-[11px] px-2 py-0.5 rounded shadow-2xs whitespace-nowrap"
-                            title={`Visitor IP: ${log.ip} | ISP: ${log.isp || 'Unknown'} | Country: ${log.country || 'Global'}`}
-                          >
-                            <Globe className="w-3 h-3 text-amber-400 shrink-0" />
-                            <span className="tracking-tight">{log.ip}</span>
-                            <span className="bg-amber-950/80 text-amber-200 text-[9px] px-1 rounded uppercase font-semibold border border-amber-800/40">
-                              {log.country || 'ID'}
+                        {/* Visitor Client IP Badge */}
+                        <div className="w-[170px] shrink-0 flex items-center gap-1.5 overflow-hidden">
+                          {log.ip ? (
+                            <span 
+                              className={`inline-flex items-center gap-1.5 font-mono font-bold text-[11px] px-2 py-0.5 rounded shadow-2xs whitespace-nowrap border ${
+                                logTheme === 'light'
+                                  ? 'bg-amber-50 text-amber-900 border-amber-300'
+                                  : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                              }`}
+                              title={`Visitor IP: ${log.ip} | ISP: ${log.isp || 'Unknown'} | Country: ${log.country || 'Global'}`}
+                            >
+                              <Globe className={`w-3 h-3 shrink-0 ${logTheme === 'light' ? 'text-amber-600' : 'text-amber-400'}`} />
+                              <span className="tracking-tight">{log.ip}</span>
+                              <span className={`text-[9px] px-1 rounded uppercase font-semibold border ${
+                                logTheme === 'light'
+                                  ? 'bg-amber-200/80 text-amber-900 border-amber-300'
+                                  : 'bg-amber-950/80 text-amber-200 border-amber-800/40'
+                              }`}>
+                                {log.country || 'ID'}
+                              </span>
                             </span>
-                          </span>
-                        ) : (
-                          <span className="text-slate-600 font-mono text-[10px] px-1">
-                            [system daemon]
-                          </span>
-                        )}
-                      </div>
+                          ) : (
+                            <span className={`font-mono text-[10px] px-1 ${
+                              logTheme === 'light' ? 'text-slate-400' : 'text-slate-600'
+                            }`}>
+                              [system daemon]
+                            </span>
+                          )}
+                        </div>
 
-                      {/* Method & Status */}
-                      <div className="col-span-2 flex items-center gap-1.5">
-                        {log.method ? (
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                            log.method === 'GET' ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/50' :
-                            log.method === 'POST' ? 'bg-indigo-950 text-indigo-300 border border-indigo-800/50' :
-                            'bg-slate-800 text-slate-300'
+                        {/* Method & Status */}
+                        <div className="w-[125px] shrink-0 flex items-center gap-1.5">
+                          {log.method ? (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase border ${
+                              log.method === 'GET'
+                                ? (logTheme === 'light' ? 'bg-cyan-50 text-cyan-800 border-cyan-300' : 'bg-cyan-950 text-cyan-300 border-cyan-800/50')
+                                : (logTheme === 'light' ? 'bg-indigo-50 text-indigo-800 border-indigo-300' : 'bg-indigo-950 text-indigo-300 border-indigo-800/50')
+                            }`}>
+                              {log.method}
+                            </span>
+                          ) : (
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                              log.type === 'error' ? 'bg-rose-100 text-rose-800' :
+                              log.type === 'deploy' ? 'bg-purple-100 text-purple-800' :
+                              'bg-slate-100 text-slate-600'
+                            }`}>
+                              {log.type}
+                            </span>
+                          )}
+
+                          {log.status && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded font-mono border ${
+                              log.status < 300 
+                                ? (logTheme === 'light' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-emerald-950 text-emerald-300 border-emerald-800/50')
+                                : log.status < 400 
+                                ? (logTheme === 'light' ? 'bg-blue-50 text-blue-800 border-blue-300' : 'bg-blue-950 text-blue-300 border-blue-800/50')
+                                : log.status < 500 
+                                ? (logTheme === 'light' ? 'bg-amber-50 text-amber-900 border-amber-300' : 'bg-amber-950 text-amber-300 border-amber-800/50')
+                                : (logTheme === 'light' ? 'bg-rose-50 text-rose-800 border-rose-300' : 'bg-rose-950 text-rose-300 border-rose-800/50')
+                            }`}>
+                              {log.status}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Path Request (No Clipping when wrapLogText is active) */}
+                        <div className={`w-[300px] shrink-0 ${wrapLogText ? 'break-all' : 'truncate'}`}>
+                          <span className={`text-[11px] font-mono font-bold ${
+                            logTheme === 'light' ? 'text-slate-900' : 'text-slate-100'
                           }`}>
-                            {log.method}
+                            {log.path || log.msg}
                           </span>
-                        ) : (
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
-                            log.type === 'error' ? 'bg-rose-950 text-rose-300' :
-                            log.type === 'deploy' ? 'bg-purple-950 text-purple-300' :
-                            'bg-slate-800 text-slate-400'
+                        </div>
+
+                        {/* Latency & Client Info (User-Agent) */}
+                        <div className={`flex-1 min-w-[320px] flex items-center gap-2 text-[11px] ${wrapLogText ? 'flex-wrap' : 'overflow-hidden'}`}>
+                          {log.latency && (
+                            <span className={`font-mono font-semibold shrink-0 px-1.5 py-0.5 rounded text-[10px] border ${
+                              logTheme === 'light'
+                                ? 'bg-slate-100 text-slate-700 border-slate-200'
+                                : 'bg-cyan-950/70 text-cyan-300 border-cyan-800/50'
+                            }`}>
+                              {log.latency} • {log.size}
+                            </span>
+                          )}
+                          <span 
+                            className={`flex-1 text-[11px] font-sans ${wrapLogText ? 'break-all leading-relaxed' : 'truncate'} ${
+                              logTheme === 'light' ? 'text-slate-600' : 'text-slate-300'
+                            }`}
+                            title={log.userAgent || log.msg}
+                          >
+                            {log.userAgent || log.msg}
+                          </span>
+                        </div>
+
+                        {/* Detail Inspector Toggle */}
+                        <div className="w-[70px] shrink-0 text-center">
+                          <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] rounded font-semibold transition-colors ${
+                            expandedLogIdx === idx
+                              ? 'bg-blue-600 text-white'
+                              : (logTheme === 'light' ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-slate-800 text-slate-300 hover:bg-slate-700')
                           }`}>
-                            {log.type}
+                            <span>Detail</span>
+                            {expandedLogIdx === idx ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                           </span>
-                        )}
-
-                        {log.status && (
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded font-mono ${
-                            log.status < 300 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50' :
-                            log.status < 400 ? 'bg-blue-950 text-blue-300 border border-blue-800/50' :
-                            log.status < 500 ? 'bg-amber-950 text-amber-300 border border-amber-800/50' :
-                            'bg-rose-950 text-rose-300 border border-rose-800/50'
-                          }`}>
-                            {log.status}
-                          </span>
-                        )}
+                        </div>
                       </div>
 
-                      {/* Path */}
-                      <div className="col-span-3 truncate">
-                        <span className="text-slate-100 font-semibold text-[11px] font-mono">
-                          {log.path || log.msg}
-                        </span>
-                      </div>
+                      {/* Expanded Request Inspector Drawer */}
+                      {expandedLogIdx === idx && (
+                        <div className={`p-3.5 my-1.5 mx-1 rounded-xl border space-y-2.5 text-xs animate-in fade-in duration-150 ${
+                          logTheme === 'light' ? 'bg-slate-50 border-blue-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-200'
+                        }`}>
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
+                            <span className="font-bold flex items-center gap-1.5 text-blue-600 text-xs">
+                              <Search className="w-3.5 h-3.5" />
+                              Detail Lengkap Request #{idx + 1} ({log.time})
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(log.rawLine || log.msg);
+                                onShowToast?.('Log Disalin', 'Baris raw log berhasil disalin ke clipboard.', 'success');
+                              }}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer shadow-2xs"
+                            >
+                              <Copy className="w-3 h-3 text-slate-500" />
+                              <span>Salin Raw Log</span>
+                            </button>
+                          </div>
 
-                      {/* Latency & Client Info */}
-                      <div className="col-span-4 flex items-center gap-2 text-[11px] overflow-hidden">
-                        {log.latency && (
-                          <span className="font-mono text-cyan-300 font-semibold shrink-0 bg-cyan-950/70 border border-cyan-800/50 px-1.5 py-0.5 rounded text-[10px]">
-                            {log.latency} • {log.size}
-                          </span>
-                        )}
-                        <span 
-                          className="text-slate-300 truncate flex-1 text-[11px] font-sans" 
-                          title={log.userAgent || log.msg}
-                        >
-                          {log.userAgent || log.msg}
-                        </span>
-                      </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                            <div>
+                              <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+                                Full Request Path / Target:
+                              </span>
+                              <div className="p-2.5 bg-white rounded-lg border border-slate-200 text-slate-900 font-mono font-bold select-all break-all shadow-2xs">
+                                {log.path || log.msg}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+                                Full Client Info (User-Agent):
+                              </span>
+                              <div className="p-2.5 bg-white rounded-lg border border-slate-200 text-slate-700 select-all break-all text-[11px] leading-relaxed shadow-2xs">
+                                {log.userAgent || 'Internal System Daemon'}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-4 pt-1.5 text-[11px] border-t border-slate-200/40">
+                            {log.ip && (
+                              <span>
+                                <strong>IP Asli:</strong> <code className="text-amber-700 font-bold px-1 bg-amber-50 rounded border border-amber-200">{log.ip}</code> ({log.country} • {log.isp})
+                              </span>
+                            )}
+                            {log.latency && <span><strong>Latensi:</strong> <code className="text-emerald-700 font-bold">{log.latency}</code></span>}
+                            {log.size && <span><strong>Payload:</strong> <code>{log.size}</code></span>}
+                            {log.status && <span><strong>Status HTTP:</strong> <code className="text-blue-700 font-bold">{log.status}</code></span>}
+                            {log.method && <span><strong>Metode:</strong> <code className="text-purple-700 font-bold">{log.method}</code></span>}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
-                  /* Raw Combined Log View (Nginx / OLS Format) */
-                  <div 
-                    key={idx} 
-                    className="font-mono text-[11px] text-slate-300 hover:bg-slate-900/80 p-1 rounded transition-colors break-all flex flex-wrap items-baseline gap-1.5"
-                  >
-                    {log.ip ? (
-                      <span className="text-amber-300 font-bold bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-800/50">
-                        {log.ip}
-                      </span>
-                    ) : (
-                      <span className="text-slate-600">127.0.0.1</span>
-                    )}
-                    <span className="text-slate-500">- - [{log.time}]</span>
-                    {log.method && (
-                      <span className="text-cyan-300 font-bold">"{log.method} {log.path || '/'} HTTP/2.0"</span>
-                    )}
-                    {log.status && (
-                      <span className={`font-bold ${log.status < 400 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {log.status}
-                      </span>
-                    )}
-                    {log.size && <span className="text-slate-400">{log.size}</span>}
-                    {log.userAgent && <span className="text-slate-500">"{log.userAgent}"</span>}
-                    {log.ip && (
-                      <span className="text-emerald-400 text-[10px]">
-                        (CF-Connecting-IP: {log.ip}, Country: {log.country}, {log.latency})
-                      </span>
-                    )}
-                    {!log.ip && <span className="text-purple-300">{log.msg}</span>}
-                  </div>
-                )
-              ))}
+                    /* Raw Combined Log View */
+                    <div 
+                      key={idx} 
+                      className={`font-mono text-[11px] p-2 rounded transition-colors break-all flex flex-wrap items-baseline gap-1.5 mb-1 ${
+                        logTheme === 'light'
+                          ? 'text-slate-800 hover:bg-slate-100 border border-transparent hover:border-slate-200'
+                          : 'text-slate-300 hover:bg-slate-900 border border-transparent hover:border-slate-800'
+                      }`}
+                    >
+                      {log.ip ? (
+                        <span className={`font-bold px-1.5 py-0.2 rounded border ${
+                          logTheme === 'light' ? 'bg-amber-100 text-amber-900 border-amber-300' : 'text-amber-300 bg-amber-950/60 border-amber-800/50'
+                        }`}>
+                          {log.ip}
+                        </span>
+                      ) : (
+                        <span className={logTheme === 'light' ? 'text-slate-500' : 'text-slate-600'}>127.0.0.1</span>
+                      )}
+                      <span className={logTheme === 'light' ? 'text-slate-400' : 'text-slate-500'}>- - [{log.time}]</span>
+                      {log.method && (
+                        <span className={`font-bold ${logTheme === 'light' ? 'text-blue-700' : 'text-cyan-300'}`}>
+                          "{log.method} {log.path || '/'} HTTP/2.0"
+                        </span>
+                      )}
+                      {log.status && (
+                        <span className={`font-bold ${log.status < 400 ? (logTheme === 'light' ? 'text-emerald-700' : 'text-emerald-400') : (logTheme === 'light' ? 'text-rose-700' : 'text-rose-400')}`}>
+                          {log.status}
+                        </span>
+                      )}
+                      {log.size && <span className={logTheme === 'light' ? 'text-slate-500' : 'text-slate-400'}>{log.size}</span>}
+                      {log.userAgent && <span className={logTheme === 'light' ? 'text-slate-600' : 'text-slate-500'}>"{log.userAgent}"</span>}
+                      {log.ip && (
+                        <span className={`text-[10px] ${logTheme === 'light' ? 'text-emerald-700' : 'text-emerald-400'}`}>
+                          (CF-Connecting-IP: {log.ip}, Country: {log.country}, {log.latency})
+                        </span>
+                      )}
+                      {!log.ip && <span className={logTheme === 'light' ? 'text-purple-700' : 'text-purple-300'}>{log.msg}</span>}
+                    </div>
+                  )
+                ))}
 
-              {filteredLogs.length === 0 && (
-                <div className="text-center py-12 text-slate-500">
-                  Tidak ada baris log yang sesuai dengan filter pencarian atau IP yang dipilih.
-                </div>
-              )}
+                {filteredLogs.length === 0 && (
+                  <div className="text-center py-12 text-slate-500">
+                    Tidak ada baris log yang sesuai dengan filter pencarian atau negara yang dipilih.
+                  </div>
+                )}
               </div>
             </div>
           </div>
