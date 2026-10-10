@@ -1,5 +1,5 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Document Version:** 0.6 (Status: Frontend UI Prototype Complete — Go Backend Daemon & OS Engine Not Yet Implemented)  
+> **Document Version:** 0.1 (Prototype) — Frontend UI prototype complete; Go backend daemon & OS engine not implemented yet  
 > **Last Updated:** October 10, 2026  
 > **Status:** Active & Maintained
 
@@ -7,17 +7,27 @@ This document is the complete technical architecture blueprint, module specifica
 
 ---
 
-## 0. Frontend Changelog (v0.6 — Oct 10, 2026)
+## 0. Frontend Changelog (Prototype — v0.1)
 
 Changes in Phase 1 (React UI prototype):
 
-> **Versioning note:** because this is still a prototype/simulation (no backend yet),
-> versioning starts at **0.x**. Major version 1.0 is only used once the Go backend + OS
-> engine are running.
+> **Versioning note:** this is still a prototype/simulation (no backend yet), so the
+> document stays on **0.1** until the Go backend + OS engine are actually running.
 
-### v0.6
+- **Guided Deploy wizard**: "Deploy New Website" is now a 5-step flow (Basics → Engine & Runtime → Source → Database & Cache → Review), with per-mode step sets for reverse proxy and static sites.
+- **Source selection**: Scaffold/Download (framework preset), GitHub repository (branch + auto-deploy webhook), Upload archive, or Existing files (with directory verification that blocks deploy when the folder is missing).
+- **Framework provision presets** (`src/data/frameworkProvision.ts`): per-framework install command plus post-deploy automation (Laravel `composer create-project` + migrate/seed, WordPress `wp core download` + installer, Symfony, Drupal, CodeIgniter, CakePHP, Django, Next.js, Nuxt, Astro, NestJS, Express, Rails, Python venv, Go/Rust/Ruby). The dropdown lists only templates with an automated download, plus a **Generic** ("bring your own code") option.
+- **Database vs Cache split**: the wizard provisions a database and a cache (Redis) independently — either, both, or neither — and generates a combined `.env`.
+- **Caches tab**: the Databases menu separates caches from databases (All Databases / PostgreSQL / MySQL / MongoDB / SQLite / **Caches (Redis)**), bookmarkable at `/databases/caches`.
+- **SQLite modeled correctly**: treated as a file database, not a daemon — file path instead of host:port, no user/password/max-connections, no SSO web GUI, "embedded file" execution mode, and `.sqlite` file download.
+- **Rotate database password**: confirm with the panel password, then either generate a random password or type a **custom** one (min. 12 chars), shown once with copy.
+- **Profile & Account page** (`/profile`): identity, change password, 2FA toggle, API tokens shortcut, active sessions with revoke, and effective permissions. The account menu now points there.
+- **API & MCP menu** (`/api`): blueprint screens for API tokens (create with scopes, reveal-once, revoke, audit log), webhooks, and the MCP server tool catalog.
+- **App footer**: brand, version, "100% free hobby project (MIT)", platform targets and a GitHub link.
+- **Validation**: FQDN validation on the domain field (bare hostname, no scheme).
+
 - **Term "App" → "Website"** across the entire UI (sidebar, list, detail, deploy modal, overview).
-- **Granular RBAC**: `GroupPermissions` type (9 capabilities) on tenant groups, matrix editor in the Create Group Modal, and an "Access Permissions" column in the group table (`src/data/permissions.ts`).
+- **Granular RBAC**: `GroupPermissions` type (10 capabilities) on tenant groups, matrix editor in the Create Group Modal, and an "Access Permissions" column in the group table (`src/data/permissions.ts`).
 - **Brand icons**: emoji replaced with **lucide-react** (UI icons) + **react-icons / Simple Icons** (brand logos: Python, PHP, Node.js, Go, Rust, Ruby, Flask, FastAPI, Django, Laravel, Symfony, WordPress, Next.js, Express, React, PostgreSQL, MySQL, MariaDB, MongoDB, Redis, phpMyAdmin) via `src/utils/brandIcons.tsx`.
 - **Server Monitoring**: time range filter is now real state + **Historical Trends** charts (CPU, Memory, Network I/O, Disk I/O); the **Terminal** tab (host root shell) is **admin-only**.
 - **App detail**: **World Traffic Map** promoted to its own tab; **File Manager** is now a tab (`/apps/<app>/files`, not a modal); the editor uses **highlight.js** (syntax highlighting).
@@ -26,7 +36,6 @@ Changes in Phase 1 (React UI prototype):
 - **Tenant terminal**: the Isolated Web Terminal menu shows a session picker first before opening a PTY.
 - **README**: rewritten in English + a note that this is a *100% free hobby project (MIT)*.
 
-### v0.5
 - **Client-side URL routing per menu**: each menu has its own endpoint (`/apps`, `/databases`, `/backup`, `/terminal`, etc.). Refresh & back/forward buttons restore the correct menu.
 - **Deep-link App Detail**: `/apps/<app-name>` along with its sub-tabs are part of the URL (`/apps/<app>/logs`, `/routing`, `/deploy`, etc.) so refreshing does not lose position.
 - **Terminal session picker**: opening the Terminal menu shows session choices first; the PTY is only opened after selecting one. The Terminal button on the App page still opens that app's session directly.
@@ -52,8 +61,8 @@ Changes in Phase 1 (React UI prototype):
 2. **Total Multi-Tenant Isolation (Linux cgroups v2 + Namespaces)**: Each tenant user has its own Linux system user, isolated directory (`/home/<tenant>/apps/<app>`), and safe resource quotas.
 3. **Smart CLI Automation (Auto-Switch Runtime)**: When a user opens a web terminal on a website, CLI commands such as `php -v`, `node -v`, or `python -v` automatically match the runtime version configured for that site without conflicting between tenants.
 4. **Flexibility of 4 Web Server Engines**: Supports OpenLiteSpeed (OLS + LSCache), Nginx, Caddy (Auto-HTTPS & HTTP/3), and Apache 2.4 according to the user's application architecture needs.
-5. **Complete Database & In-Memory Support**: PostgreSQL 16, MariaDB 11/MySQL 8, MongoDB 7.0, and Redis 7.2 ready to use from a single panel with a *Shared Daemon* or *Dedicated Pod* option.
-6. **Built-in Database Web GUI (SSO)**: GUI access (DbGate, phpMyAdmin, pgAdmin, Mongo Express) is protected behind an internal proxy and logs in automatically without requiring you to enter database credentials repeatedly.
+5. **Complete Database & In-Memory Support**: PostgreSQL 16, MariaDB 11/MySQL 8, MongoDB 7.0, Redis 7.2, and file-based SQLite ready to use from a single panel, with databases and caches provisioned independently with a *Shared Daemon* or *Dedicated Pod* option.
+6. **Built-in Database Web GUI (SSO)**: GUI access (DbGate, phpMyAdmin, pgAdmin, Mongo Express, Redis Commander) is protected behind an internal proxy and logs in automatically without requiring you to enter database credentials repeatedly.
 7. **Credential Password Protection**: Database passwords are encrypted and hidden. To display a password as plain text, the user must first enter their panel account password.
 8. **File Manager Pro (cPanel / VS Code Grade)**:
    - Checkbox on every file/folder with a master *Select All* checkbox.
@@ -156,7 +165,7 @@ graph TD
   - PECL package installer & `php.ini` directives form.
 
 ### 3.3. Database Suite & SSO Web GUI
-- **4 Integrated Engines**: PostgreSQL 16, MariaDB 11 / MySQL 8, MongoDB 7.0, Redis 7.2.
+- **5 Integrated Engines**: PostgreSQL 16, MariaDB 11 / MySQL 8, MongoDB 7.0, Redis 7.2, and SQLite (file-based, no daemon). Databases and caches are separate resources — provision either, both, or neither.
 - **Isolation Modes**:
   - *Shared Engine Daemon*: Shares an optimized server daemon to save RAM (suitable for small/medium databases).
   - *Dedicated Pod Container*: A standalone container with isolated CPU/RAM resources (suitable for heavy workload databases).
@@ -166,7 +175,8 @@ graph TD
   - Access DbGate, phpMyAdmin, pgAdmin, Mongo Express without needing to enter a password repeatedly.
 - **Password Vault Challenge & Connection String**:
   - Passwords are hidden behind panel account protection.
-  - Direct connection string URL (`postgresql://...`, `mysql://...`, `mongodb://...`, `redis://...`).
+  - Direct connection string URL (`postgresql://...`, `mysql://...`, `mongodb://...`, `redis://...`, `sqlite:///...`).
+  - **Rotate password** per database: confirm with the panel password, then generate a random password or type a custom one (min. 12 chars).
   - Instant Logical SQL Dump export per database.
 
 ### 3.4. File Manager Pro (Visual & Multi-Selection)
@@ -223,10 +233,14 @@ graph TD
 - **Docker Pods & Container Hosting**: deploy from an image / Dockerfile / docker-compose, env vars, volume mounts, port mapping, web-domain routing, restart policy.
 - **Per-App Access Control**: HTTP 503 Maintenance Mode (with preview + IP bypass) and HTTP Basic Auth (`.htpasswd` + login simulator), plus **Anti-Brute Force** (max attempts + IP ban duration).
 - **System & Docker Cleanup**: prune system and Docker resource waste (dangling images, stopped containers, unused volumes, build cache) on a cron schedule; list of recommended default cronjobs (metric retention, SSL renewal, security updates, logrotate, DB maintenance, fstrim, S.M.A.R.T., service watchdog, disk alert).
-- **RBAC & Groups**: tenant groups have a 9-capability matrix (deploy apps, file manager, terminal, databases, backups, domains, cloudflare tunnels, monitoring, user management).
+- **RBAC & Groups**: tenant groups have a 10-capability matrix (deploy apps, file manager, terminal, databases, backups, domains, cloudflare tunnels, monitoring, user management, API tokens & automation).
 - **Panel Settings**: 9 tabs (general, monitoring policy, security, reverse proxy & SSL, backup policy, notifications, database defaults, PHP defaults, system & cleanup).
 - **Domains & SSL** as well as **Overview/VPS Dashboard**.
 - **URL routing per menu & deep-linking**: all menus and app sub-tabs are bookmark/refresh-safe; the production server must implement SPA fallback.
+- **Guided Deploy wizard & provision presets**: 5-step deploy flow with source selection (scaffold / GitHub / upload / existing) and per-framework install + automation steps (`src/data/frameworkProvision.ts`).
+- **Database, Cache & SQLite semantics**: databases and caches are separate resources; SQLite is a file database (path, no credentials) rather than a shared daemon.
+- **API & MCP**: menu with API tokens, webhooks and the MCP tool catalog; API tokens are a new RBAC capability (10 total).
+- **Profile & Account**: dedicated page (identity, password, 2FA, sessions, permissions) plus an app footer.
 
 ## 4. Implementation Status & Development Roadmap
 
@@ -241,7 +255,7 @@ graph TD
 | Feature / Module | Frontend UI & Simulation (React) | Real Backend & OS Engine (Go / Linux) | Overall Real Status |
 |---|---|---|---|
 | **Design System & Panel Layout** | ✅ Complete (Responsive, Modern UI) | N/A (Frontend Only) | **Complete (Frontend)** |
-| **Apps & Runtime Selector** | ✅ Complete (27 PHP, Node, Python templates) | ⏳ Not yet (Chroot / Docker Runtime Engine) | **UI Simulation Complete** |
+| **Websites & Runtime Selector** | ✅ Complete (27 PHP, Node, Python templates) | ⏳ Not yet (Chroot / Docker Runtime Engine) | **UI Simulation Complete** |
 | **Hybrid Upstream Routing** | ✅ Complete (Form, mock ping, vhost preview) | ⏳ Not yet (Write config to `/usr/local/lsws/conf/`) | **UI Simulation Complete** |
 | **Database Suite & SSO** | ✅ Complete (Detail modal, vault mask, export dump) | ⏳ Not yet (Real DB provisioner & SSO proxy token) | **UI Simulation Complete** |
 | **File Manager Pro** | ✅ Complete (Checklist, batch action, previewer, edit) | ⏳ Not yet (Host FS `/home/<user>/apps/` API) | **UI Simulation Complete** |
@@ -252,8 +266,12 @@ graph TD
 | **Docker Pods & Container Hosting** | ✅ Complete (`PodsView`, `DeployPodModal`, `PodConfigModal`) | ⏳ Not yet (Docker Engine SDK) | **UI Simulation Complete** |
 | **Per-App Access Control** (503 Maintenance, Basic Auth, Anti-Brute Force) | ✅ Complete (toggle + simulator) | ⏳ Not yet (vhost snippet, `.htpasswd`, fail2ban) | **UI Simulation Complete** |
 | **System & Docker Cleanup + Cron** | ✅ Complete (Panel Settings → System & Cleanup) | ⏳ Not yet (systemd timer / cron writer, `docker system prune`) | **UI Simulation Complete** |
-| **RBAC & Multi-Tenant Groups** | ✅ Complete (9-capability matrix per group) | ⏳ Not yet (JWT + policy enforcement) | **UI Simulation Complete** |
+| **RBAC & Multi-Tenant Groups** | ✅ Complete (10-capability matrix per group) | ⏳ Not yet (JWT + policy enforcement) | **UI Simulation Complete** |
 | **URL Routing & Deep-link** | ✅ Complete (`/apps/<name>/<tab>`, `/settings/<tab>`, `/monitoring/<tab>`, etc.) | N/A (Frontend Only) | **Complete (Frontend)** |
+| **Guided Deploy Wizard** | ✅ Complete (5 steps, source choice, provision presets, .env/vhost preview) | ⏳ Not yet (scaffold runner, archive extractor, .env writer) | **UI Simulation Complete** |
+| **Caches (Redis) & SQLite** | ✅ Complete (Caches tab, file-based SQLite modeling, rotate password) | ⏳ Not yet (Redis ACL provisioning, SQLite file provisioning) | **UI Simulation Complete** |
+| **API & MCP** | ✅ Complete (token / webhook / MCP blueprint screens) | ⏳ Not yet (token store, webhook sender, MCP server) | **UI Simulation Complete** |
+| **Profile & Account** | ✅ Complete (identity, 2FA, sessions, permissions, footer) | ⏳ Not yet (session store, password change, TOTP) | **UI Simulation Complete** |
 
 ---
 
@@ -309,8 +327,9 @@ BarePod-Panel/
 │   │   ├── components/           # AppsView, AppDetailPage, DatabasesView, BackupMigrationView,
 │   │   │                         # FileManagerModal, WebTerminalView, ServerMonitoringView, etc.
 │   │   ├── types/                # TypeScript Interfaces & Model Definitions
-│   │   ├── data/                 # Static data (worldMapPath.ts, defaultPhpExtensions.ts)
-│   │   ├── utils/                # Helpers (zip.ts — store-only ZIP writer)
+│   │   ├── data/                 # Static data (worldMapPath, defaultPhpExtensions, databaseEngines, permissions, frameworkProvision)
+│   │   ├── hooks/                # useSubRoute (URL tabs), usePanelSize (S/M/L presets)
+│   │   ├── utils/                # Helpers (zip.ts, highlight.ts)
 │   │   ├── App.tsx               # URL Routers (/apps, /apps/<name>/<tab>) & Layout Controller
 │   │   ├── index.css             # Tailwind Design System & Custom Utilities
 │   │   └── main.tsx              # React Entrypoint

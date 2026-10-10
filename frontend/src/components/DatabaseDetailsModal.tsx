@@ -445,7 +445,8 @@ USE \`${database.name}\`;
               </div>
             </div>
 
-            {/* Password Protection & Decrypt Row */}
+            {/* Password Protection & Decrypt Row (not applicable to file-based SQLite) */}
+            {database.type !== 'sqlite' && (
             <div className="mt-3 p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div>
@@ -510,6 +511,14 @@ USE \`${database.name}\`;
                 <p className="text-[10px] text-rose-600 mt-1 font-semibold">{errorMsg}</p>
               )}
             </div>
+            )}
+
+            {database.type === 'sqlite' && (
+              <div className="mt-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 flex items-start gap-2">
+                <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                <span>SQLite is a file-based embedded database — there are no credentials or network daemon. Access is controlled by file ownership and permissions (0600, tenant user).</span>
+              </div>
+            )}
 
             {/* Tenant Isolation & Security Scope Card */}
             <div className="mt-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
@@ -528,7 +537,9 @@ USE \`${database.name}\`;
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] font-mono">
                 <div className="p-2 bg-white rounded border border-slate-200">
                   <span className="text-[10px] text-slate-400 font-sans block">Execution Mode</span>
-                  <span className="text-slate-800 font-semibold">Shared Daemon (Port {port})</span>
+                  <span className="text-slate-800 font-semibold">
+                    {database.type === 'sqlite' ? 'Embedded file (no daemon)' : `Shared Daemon (Port ${port})`}
+                  </span>
                 </div>
                 <div className="p-2 bg-white rounded border border-slate-200">
                   <span className="text-[10px] text-slate-400 font-sans block">SQL Privilege Scope</span>

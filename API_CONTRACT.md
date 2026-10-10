@@ -1,4 +1,4 @@
-# BarePod Panel — API Contract (Draft v0.2)
+# BarePod Panel — API Contract (Draft v0.1)
 
 > Blueprint for the contract between the **frontend (React, Phase 1)** and the **Go backend daemon (Phase 2)**.
 > Goal: the backend can follow the response shapes defined here without requiring UI changes.
@@ -51,6 +51,7 @@ This is the main rework risk — the UI currently stores some values as presenta
 | `createdAt: "Just now"` / `"2026-10-10"` | `createdAt: string (RFC3339)` |
 | `lastDeployedAt: "2026-10-10 16:40:12"` | `lastDeployedAt: string (RFC3339)` |
 | `DatabaseItem.size: "142 MB"` | `sizeBytes: number` |
+| `DatabaseItem.host/port` (SQLite) | `null` — SQLite is a file, only `path` applies |
 | `PodItem.ports: "5678:5678"` | `ports: Array<{ host: number, container: number }>` |
 | `PodItem.cpu/memory: "0.4%" / "48 MB"` | `cpuPercent: number`, `memoryBytes: number` |
 | `UserGroup.diskLimit: "10 GB"` | `diskLimitBytes: number \| null` |
@@ -71,15 +72,37 @@ This is the main rework risk — the UI currently stores some values as presenta
 
 ## 4. Endpoints by Module
 
-### 4.1 Auth & Session
+### 4.1 Auth, Profile & Session
 - `POST /auth/login` → `{ token, user }`
 - `POST /auth/logout`
 - `GET /auth/me` → `{ user, role, group, permissions }`
 - `POST /auth/verify` (re-auth for revealing DB passwords / sensitive actions)
 - `POST /auth/2fa/enable` · `POST /auth/2fa/verify`
+- `GET|PATCH /profile` (identity: username, email, group)
+- `POST /profile/password` (change the panel password)
+- `GET /sessions` · `DELETE /sessions/:id` (active sessions, revoke)
 
 ### 4.2 Websites
 - `GET /websites` · `POST /websites` · `GET|PATCH|DELETE /websites/:slug`
+- `POST /websites` — deploy payload from the wizard:
+  ```json
+  {
+    "name": "larastore-commerce",
+    "domain": "larastore.id",
+    "tenantUser": "farras",
+    "webServer": "openlitespeed",
+    "runtime": "php", "version": "8.4", "framework": "Laravel 12",
+    "source": { "kind": "scaffold" },
+    "git": { "repo": null, "branch": null, "autoDeploy": false },
+    "database": { "provision": true, "engine": "postgres", "version": "PostgreSQL 16.4",
+                  "name": "larastore_db", "user": "farras_user", "password": "…",
+                  "maxConnections": 25 },
+    "cache": { "provision": true, "engine": "redis", "version": "Redis 7.2.4", "password": "…" },
+    "autoEnv": true,
+    "automationSteps": ["composer install …", "php artisan migrate --force"]
+  }
+  ```
+  `source.kind` ∈ `scaffold | github | upload | existing`. For `upload` the archive is sent to `POST /websites/:slug/files/upload`; for `existing` the target directory must already exist (the daemon returns `409` otherwise).
 - `POST /websites/:slug/start|stop|restart`
 - `GET /websites/:slug/metrics?range=` · `GET /websites/:slug/logs?range=`
 - `PUT /websites/:slug/maintenance` · `PUT /websites/:slug/basic-auth` · `PUT /websites/:slug/anti-bruteforce`
@@ -104,14 +127,17 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `WS /websites/:slug/pty` — tenant shell (auto runtime switch)
 - `WS /system/pty` — host root shell (**admin only**)
 
-### 4.6 Databases & SSO
+### 4.6 Databases, Caches & SSO
 - `GET|POST /databases` · `GET|PATCH|DELETE /databases/:id`
 - `POST /databases/:id/max-connections`
+- `POST /databases/:id/rotate-password` → `{ password }` (random when the body is empty, or a custom one; min. 12 chars)
 - `POST /databases/:id/reveal` (panel password) · `GET /databases/:id/connection-string`
 - `GET /databases/:id/tables` · `POST /databases/:id/query`
-- `POST /databases/:id/export` (`.sql`)
+- `POST /databases/:id/export` (`.sql`, or a `.sqlite` file copy for SQLite)
 - `GET /databases/:id/gui?tool=pgadmin|phpmyadmin|dbgate|mongoexpress|rediscommander` → `{ ssoUrl }`
-- `GET /db-engines` (versions + shared-daemon ports)
+- **Caches (Redis) are a separate resource:** `GET|POST /caches` · `GET|PATCH|DELETE /caches/:id` · `POST /caches/:id/rotate-password`
+- `GET /db-engines` (versions + shared-daemon ports; SQLite reports `fileBased: true`, `port: null`)
+- **SQLite is file-based:** `host`/`port`/`username`/`password`/`maxConnections` are `null`; the record carries a `path` (e.g. `/home/<tenant>/apps/<site>/<name>.sqlite`) and has no SSO web GUI.
 
 ### 4.7 Cloudflare Tunnels
 - `GET|POST /tunnels` · `DELETE /tunnels/:id` · `POST /tunnels/:id/token` · `POST /tunnels/:id/restart`
@@ -167,6 +193,9 @@ This is the main rework risk — the UI currently stores some values as presenta
 | `/terminal` (tenant) | `GET /websites`, `WS /websites/:slug/pty` |
 | `/monitoring/*` | system monitoring endpoints (+ `WS`) |
 | `/databases` | `GET /databases`, `GET /db-engines` |
+| `/databases/caches` | `GET /caches` |
+| `/api` | `GET|POST|DELETE /api-tokens`, `GET|POST|DELETE /webhooks` |
+| `/profile` | `GET /profile`, `POST /profile/password`, `GET|DELETE /sessions` |
 | `/backup/*` | backup & migration endpoints |
 | `/users/*` | users & groups endpoints |
 | `/settings/*` | settings & system cleanup endpoints |

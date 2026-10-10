@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Database, Key, ShieldCheck, Sparkles, Check, Server, Lock, Cpu } from 'lucide-react';
+import { X, Database, Key, ShieldCheck, Sparkles, Check, Server, Lock, Cpu, Folder } from 'lucide-react';
 import type { DatabaseEngine, DatabaseItem } from '../types';
 import { dbIcon } from '../utils/brandIcons';
 import { AVAILABLE_ENGINE_VERSIONS as availableVersions } from '../data/databaseEngines';
@@ -43,15 +43,15 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
       name: name.toLowerCase().replace(/\s+/g, '_'),
       type,
       version: chosen.version,
-      port: chosen.port,
-      host: '127.0.0.1',
-      username: username.trim() || `${name.toLowerCase()}_user`,
+      port: type === 'sqlite' ? 0 : chosen.port,
+      host: type === 'sqlite' ? undefined : '127.0.0.1',
+      username: type === 'sqlite' ? '(file-based)' : username.trim() || `${name.toLowerCase()}_user`,
       size: '0 B',
-      charset: type === 'mongodb' ? 'BSON' : type === 'redis' ? 'In-Memory' : 'UTF8',
+      charset: type === 'mongodb' ? 'BSON' : type === 'sqlite' ? 'SQLite 3' : type === 'redis' ? 'In-Memory' : 'UTF8',
       status: 'active',
-      connections: 1,
-      maxConnections,
-      isolationMode: 'shared_daemon',
+      connections: type === 'sqlite' ? 0 : 1,
+      maxConnections: type === 'sqlite' ? undefined : maxConnections,
+      isolationMode: type === 'sqlite' ? undefined : 'shared_daemon',
     };
 
     onCreate(newDb);
@@ -96,6 +96,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
                 { id: 'mysql' as DatabaseEngine, label: 'MySQL / MariaDB' },
                 { id: 'mongodb' as DatabaseEngine, label: 'MongoDB' },
                 { id: 'redis' as DatabaseEngine, label: 'Redis Cache' },
+                { id: 'sqlite' as DatabaseEngine, label: 'SQLite (file)' },
               ].map((engine) => {
                 const DbIcon = dbIcon[engine.id] ?? Database;
                 return (
@@ -117,10 +118,10 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
             </div>
           </div>
 
-          {/* Version & Shared Port Selector */}
+          {/* Version Selector */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Shared Engine Version & Dedicated Port
+              {type === 'sqlite' ? 'SQLite Library Version' : 'Shared Engine Version & Dedicated Port'}
             </label>
             <select
               value={selectedVersionIndex}
@@ -134,8 +135,17 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
               ))}
             </select>
             <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 font-mono">
-              <Server className="w-3 h-3 text-slate-400" />
-              <span>Bind: 127.0.0.1:{activeVersion.port} (internal host / docker jail only)</span>
+              {type === 'sqlite' ? (
+                <>
+                  <Folder className="w-3 h-3 text-slate-400" />
+                  <span>File: /home/&lt;tenant&gt;/apps/&lt;website&gt;/{name || 'database'}.sqlite (no daemon)</span>
+                </>
+              ) : (
+                <>
+                  <Server className="w-3 h-3 text-slate-400" />
+                  <span>Bind: 127.0.0.1:{activeVersion.port} (internal host / docker jail only)</span>
+                </>
+              )}
             </p>
           </div>
 
@@ -163,8 +173,9 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
             )}
           </div>
 
-          {/* Grid: Username & Max Connections Quota */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Grid: Username & Max Connections Quota (daemon engines only) */}
+          {type !== 'sqlite' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 {type === 'redis' ? 'ACL User' : 'Isolated Database User'}
@@ -196,8 +207,10 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
               </span>
             </div>
           </div>
+          )}
 
-          {/* Generated Password */}
+          {/* Generated Password (daemon engines only) */}
+          {type !== 'sqlite' && (
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-semibold text-slate-700">Auto-Generated Isolated Password</label>
@@ -218,6 +231,17 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
               />
             </div>
           </div>
+          )}
+
+          {type === 'sqlite' && (
+            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 text-[11px] text-slate-600 flex items-start gap-2">
+              <Folder className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+              <span>
+                SQLite is a file-based embedded database: no daemon, port, user or password. Access is enforced by file ownership
+                and permissions (<code className="font-mono">0600</code>, tenant user) — ideal for small sites and local development.
+              </span>
+            </div>
+          )}
 
           {/* Footer */}
           <div className="flex items-center justify-end gap-3 pt-2">

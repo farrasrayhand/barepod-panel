@@ -13,7 +13,9 @@ import {
   ShieldCheck,
   Trash2,
   Zap,
-  Globe
+  Globe,
+  Folder,
+  Download
 } from 'lucide-react';
 import type { DatabaseItem, DatabaseEngine } from '../types';
 import { useSubRoute } from '../hooks/useSubRoute';
@@ -133,6 +135,19 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
       connections: 6,
       maxConnections: 25,
       isolationMode: 'shared_daemon',
+    },
+    {
+      id: 'db-7',
+      name: 'blog_content.sqlite',
+      type: 'sqlite',
+      version: 'SQLite 3.46',
+      port: 0,
+      username: '(file-based)',
+      tenantUser: 'tenant_alex',
+      size: '2.4 MB',
+      charset: 'SQLite 3',
+      status: 'active',
+      connections: 0,
     },
   ]);
 
@@ -324,6 +339,8 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
           <tbody className="divide-y divide-slate-100">
             {filtered.map((db) => {
               const badge = getDbBadge(db.type);
+              const isSqliteDb = db.type === 'sqlite';
+              const sqlitePath = `/home/${db.tenantUser ?? 'user'}/apps/${db.name}.sqlite`;
               const host = db.host || '127.0.0.1';
               const port = db.port || (
                 db.type === 'postgres' ? 5432 :
@@ -346,40 +363,57 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                     </div>
                   </td>
 
-                  {/* Engine & Shared Port */}
+                  {/* Engine & storage (daemon endpoint, or file path for SQLite) */}
                   <td className="py-3.5 px-4">
                     <div className="space-y-1">
                       <span className="font-semibold text-slate-800 block">{db.version}</span>
-                      <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[10px] border border-slate-200/60">
-                        <Server className="w-3 h-3 text-slate-400" />
-                        <span className="font-semibold text-slate-800">{host}</span>
-                        <span className="text-slate-400">:</span>
-                        <span className="text-blue-600 font-bold">{port}</span>
-                        <span className="text-[9px] text-slate-400">(Shared)</span>
-                      </div>
+                      {isSqliteDb ? (
+                        <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[10px] border border-slate-200/60 max-w-[260px]">
+                          <Folder className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="truncate" title={sqlitePath}>{sqlitePath}</span>
+                          <span className="text-[9px] text-slate-400 shrink-0">(file)</span>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[10px] border border-slate-200/60">
+                          <Server className="w-3 h-3 text-slate-400" />
+                          <span className="font-semibold text-slate-800">{host}</span>
+                          <span className="text-slate-400">:</span>
+                          <span className="text-blue-600 font-bold">{port}</span>
+                          <span className="text-[9px] text-slate-400">(Shared)</span>
+                        </div>
+                      )}
                     </div>
                   </td>
 
                   {/* Tenant Isolation & Access */}
                   <td className="py-3.5 px-4">
                     <div className="space-y-1">
-                      <div className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-[11px]">
-                        <Key className="w-3 h-3 text-slate-400" />
-                        <span className="font-semibold">{db.username}</span>
-                      </div>
+                      {isSqliteDb ? (
+                        <div className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-[11px]">
+                          <Folder className="w-3 h-3 text-slate-400" />
+                          <span className="font-semibold">tenant filesystem</span>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-[11px]">
+                          <Key className="w-3 h-3 text-slate-400" />
+                          <span className="font-semibold">{db.username}</span>
+                        </div>
+                      )}
                       <div className="flex items-center gap-1 text-[10px]">
                         <span className="inline-flex items-center gap-0.5 text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 font-semibold">
                           <ShieldCheck className="w-2.5 h-2.5" />
-                          <span>Isolated GRANT</span>
+                          <span>{isSqliteDb ? 'File 0600 · tenant user' : 'Isolated GRANT'}</span>
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedDbForDetails(db)}
-                          className="text-slate-500 hover:text-blue-600 font-mono cursor-pointer hover:underline decoration-dotted transition-colors"
-                          title="Click to edit connection quota"
-                        >
-                          Max {db.maxConnections || 25} conn
-                        </button>
+                        {!isSqliteDb && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDbForDetails(db)}
+                            className="text-slate-500 hover:text-blue-600 font-mono cursor-pointer hover:underline decoration-dotted transition-colors"
+                            title="Click to edit connection quota"
+                          >
+                            Max {db.maxConnections || 25} conn
+                          </button>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -387,27 +421,43 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                   {/* Size & Connections */}
                   <td className="py-3.5 px-4">
                     <span className="font-semibold text-slate-800">{db.size}</span>
-                    <span className="block text-[10px] text-slate-400">{db.connections} active pool</span>
+                    <span className="block text-[10px] text-slate-400">
+                      {isSqliteDb ? 'embedded file' : `${db.connections} active pool`}
+                    </span>
                   </td>
 
                   {/* Actions: Clean Details Button + Trash */}
                   <td className="py-3.5 px-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => setSelectedDbForRotate(db)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
-                        title="Rotate password"
-                      >
-                        <KeyRound className="w-3.5 h-3.5" />
-                      </button>
+                      {!isSqliteDb && (
+                        <>
+                          <button
+                            onClick={() => setSelectedDbForRotate(db)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
+                            title="Rotate password"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                          </button>
 
-                      <button
-                        onClick={() => setSelectedDbForCredentials(db)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
-                        title="Open Password Vault (requires panel account password)"
-                      >
-                        <Lock className="w-3.5 h-3.5" />
-                      </button>
+                          <button
+                            onClick={() => setSelectedDbForCredentials(db)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
+                            title="Open Password Vault (requires panel account password)"
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+
+                      {isSqliteDb && (
+                        <button
+                          onClick={() => onShowToast?.('Download started', `${db.name} is exported as a .sqlite file (snapshot copy).`, 'info')}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                          title="Download .sqlite file"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+                      )}
 
                       <button
                         onClick={() => setSelectedDbForDetails(db)}
