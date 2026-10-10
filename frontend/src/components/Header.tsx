@@ -53,7 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
           <CloudRain className="w-3.5 h-3.5 text-blue-500" />
           <span className="font-medium">Cloudflare Tunnel:</span>
-          <span className="font-semibold text-emerald-600">Connected (Zero-NAT)</span>
+          <span className="font-semibold text-emerald-600">Connected</span>
         </div>
 
         {/* Server Metrics Summary */}
