@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   LayoutDashboard, 
   Layers, 
@@ -12,7 +12,9 @@ import {
   ChevronRight,
   ShieldCheck,
   Activity,
-  Server
+  Server,
+  Copy,
+  Check
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { NavItem } from '../types';
@@ -31,6 +33,15 @@ interface NavGroupItem {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed }) => {
+  const [copiedIp, setCopiedIp] = useState(false);
+
+  const handleCopyIp = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText('103.147.154.82');
+    setCopiedIp(true);
+    setTimeout(() => setCopiedIp(false), 2000);
+  };
+
   const serviceItems: NavGroupItem[] = [
     { id: 'apps', label: 'Apps (Services)', icon: Layers, badge: '4 Active' },
     { id: 'pods', label: 'Pods (Containers)', icon: Box, badge: '2 Pods' },
@@ -123,19 +134,43 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
         {renderNavGroup('Developer & Security', devItems)}
       </div>
 
-      {/* Bottom Tenant Info */}
+      {/* Bottom Network & Cloudflare Status */}
       {!collapsed && (
-        <div className="p-3 border-t border-slate-100 bg-slate-50/70 m-2 rounded-xl">
-          <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
-            <span className="flex items-center gap-1.5 font-medium text-slate-700">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Tenant Jail Active
+        <div className="p-3 bg-slate-50/80 m-2 rounded-xl border border-slate-200/70 shadow-2xs space-y-2">
+          {/* Public IP */}
+          <div className="flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1.5 text-slate-500 font-medium">
+              <Globe className="w-3.5 h-3.5 text-blue-600" />
+              <span>IP Public:</span>
             </span>
-            <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1 rounded font-mono">
-              cgroups v2
-            </span>
+            <button
+              onClick={handleCopyIp}
+              className="group flex items-center gap-1 font-mono font-bold text-slate-800 text-[11px] bg-white hover:bg-blue-50 px-2 py-0.5 rounded border border-slate-200 hover:border-blue-300 transition-colors shadow-2xs"
+              title="Klik untuk salin IP Publik"
+            >
+              <span>103.147.154.82</span>
+              {copiedIp ? (
+                <Check className="w-3 h-3 text-emerald-600" />
+              ) : (
+                <Copy className="w-3 h-3 text-slate-400 group-hover:text-blue-600" />
+              )}
+            </button>
           </div>
-          <div className="text-[11px] text-slate-500">
-            Isolated CLI, PostgreSQL & Cloudflare Tunnel ready.
+
+          {/* Cloudflare Tunnel Status */}
+          <div 
+            onClick={() => onSelectTab('tunnels')}
+            className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-200/60 cursor-pointer group"
+            title="Kelola Cloudflare Tunnels"
+          >
+            <span className="flex items-center gap-1.5 text-slate-500 group-hover:text-slate-800 font-medium transition-colors">
+              <CloudRain className="w-3.5 h-3.5 text-amber-500" />
+              <span>CF Tunnel:</span>
+            </span>
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 group-hover:bg-emerald-100 transition-colors">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Connected (Zero-NAT)
+            </span>
           </div>
         </div>
       )}
