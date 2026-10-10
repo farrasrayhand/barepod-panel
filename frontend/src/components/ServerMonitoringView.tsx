@@ -573,17 +573,17 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             <span className="font-semibold text-slate-500 flex items-center gap-1.5">
               <Cpu className="w-4 h-4 text-blue-600" /> CPU LOAD
             </span>
-            <span className="font-mono text-slate-600">4 vCPUs</span>
+            <span className="font-mono text-slate-600">{kpi.cores} vCPUs</span>
           </div>
           
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-extrabold text-slate-900">{cpuUsage}%</span>
-            <span className="text-xs text-slate-400 font-mono">Load: 0.34, 0.48, 0.52</span>
+            <span className="text-3xl font-extrabold text-slate-900">{kpi.cpu.toFixed(1)}%</span>
+            <span className="text-xs text-slate-400 font-mono">Load: {kpi.load}</span>
           </div>
 
           {/* Sparkline Visual Graph */}
           <div className="h-8 flex items-end gap-1 pt-1">
-            {cpuHistory.map((val, idx) => (
+            {chart.cpu.slice(-16).map((val, idx) => (
               <div 
                 key={idx}
                 className="flex-1 bg-blue-500/80 hover:bg-blue-600 rounded-xs transition-all duration-300"
@@ -593,15 +593,21 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             ))}
           </div>
 
-          {/* Per-core small bars */}
-          <div className="pt-2 border-t border-slate-100 grid grid-cols-4 gap-1.5 text-[9px] text-slate-400 font-mono text-center">
-            {perCore.map((c, i) => (
-              <div key={i} className="bg-slate-50 p-1 rounded">
-                <span>c{i}</span>
-                <div className="font-bold text-slate-700">{c}%</div>
-              </div>
-            ))}
-          </div>
+          {/* Per-core small bars (prototype data — the daemon reports an aggregate) */}
+          {liveMode ? (
+            <p className="pt-2 border-t border-slate-100 text-[10px] text-slate-400">
+              Aggregate from <span className="font-mono">/proc/stat</span>; per-core detail arrives with the per-core sampler.
+            </p>
+          ) : (
+            <div className="pt-2 border-t border-slate-100 grid grid-cols-4 gap-1.5 text-[9px] text-slate-400 font-mono text-center">
+              {perCore.map((c, i) => (
+                <div key={i} className="bg-slate-50 p-1 rounded">
+                  <span>c{i}</span>
+                  <div className="font-bold text-slate-700">{c}%</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Card 2: Memory (RAM & Swap) */}
@@ -610,26 +616,33 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             <span className="font-semibold text-slate-500 flex items-center gap-1.5">
               <Activity className="w-4 h-4 text-emerald-600" /> RAM / MEMORY
             </span>
-            <span className="font-mono text-slate-600">DDR4 ECC</span>
+            <span className="font-mono text-slate-600">{liveMode ? 'from /proc/meminfo' : 'DDR4 ECC'}</span>
           </div>
 
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-extrabold text-slate-900">{ramUsed} <span className="text-sm font-semibold text-slate-400">/ {ramTotal} GB</span></span>
+            <span className="text-3xl font-extrabold text-slate-900">{kpi.ramUsedGb.toFixed(1)} <span className="text-sm font-semibold text-slate-400">/ {kpi.ramTotalGb.toFixed(1)} GB</span></span>
             <span className="text-xs font-bold text-emerald-600">
-              {((ramUsed / ramTotal) * 100).toFixed(0)}% Used
+              {kpi.ramTotalGb ? ((kpi.ramUsedGb / kpi.ramTotalGb) * 100).toFixed(0) : '0'}% Used
             </span>
           </div>
 
           {/* Progress bar */}
           <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden flex">
-            <div className="bg-emerald-500 h-2" style={{ width: `${(ramUsed / ramTotal) * 100}%` }} />
-            <div className="bg-amber-400 h-2" style={{ width: '38%' }} title="Buffers / Cached: 3.1 GB" />
+            <div
+              className="bg-emerald-500 h-2"
+              style={{ width: `${kpi.ramTotalGb ? (kpi.ramUsedGb / kpi.ramTotalGb) * 100 : 0}%` }}
+            />
+            {!liveMode && <div className="bg-amber-400 h-2" style={{ width: '38%' }} title="Buffers / Cached: 3.1 GB" />}
           </div>
 
           <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
-            <span>Cache: <strong className="text-slate-700">3.1 GB</strong></span>
-            <span>Free: <strong className="text-slate-700 font-mono">{(ramTotal - ramUsed - 3.1).toFixed(1)} GB</strong></span>
-            <span>Swap: <strong className="text-slate-700 font-mono">{(swapUsed * 1024).toFixed(0)} MB</strong></span>
+            {!liveMode && <span>Cache: <strong className="text-slate-700">3.1 GB</strong></span>}
+            <span>Free: <strong className="text-slate-700 font-mono">{(kpi.ramTotalGb - kpi.ramUsedGb).toFixed(1)} GB</strong></span>
+            <span>
+              Swap: <strong className="text-slate-700 font-mono">
+                {kpi.swapTotalGb ? `${kpi.swapUsedGb.toFixed(1)} / ${kpi.swapTotalGb.toFixed(1)} GB` : 'none'}
+              </strong>
+            </span>
           </div>
         </div>
 
@@ -639,21 +652,26 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             <span className="font-semibold text-slate-500 flex items-center gap-1.5">
               <HardDrive className="w-4 h-4 text-purple-600" /> NVME DISK I/O
             </span>
-            <span className="font-mono text-slate-600">PCIe 4.0</span>
+            <span className="font-mono text-slate-600">{liveMode ? 'host filesystem' : 'PCIe 4.0'}</span>
           </div>
 
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-extrabold text-slate-900">28.4 <span className="text-sm font-semibold text-slate-400">/ 160 GB</span></span>
-            <span className="text-xs font-bold text-purple-600">18% Space</span>
+            <span className="text-3xl font-extrabold text-slate-900">{kpi.diskUsedGb.toFixed(1)} <span className="text-sm font-semibold text-slate-400">/ {kpi.diskTotalGb.toFixed(0)} GB</span></span>
+            <span className="text-xs font-bold text-purple-600">
+              {kpi.diskTotalGb ? ((kpi.diskUsedGb / kpi.diskTotalGb) * 100).toFixed(0) : '0'}% Space
+            </span>
           </div>
 
           <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-            <div className="bg-purple-600 h-2 rounded-full" style={{ width: '18%' }} />
+            <div
+              className="bg-purple-600 h-2 rounded-full"
+              style={{ width: `${kpi.diskTotalGb ? (kpi.diskUsedGb / kpi.diskTotalGb) * 100 : 0}%` }}
+            />
           </div>
 
           <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
-            <span className="flex items-center gap-0.5"><ArrowDown className="w-3 h-3 text-emerald-500" /> Read: <strong className="text-slate-700">{diskReadMb} MB/s</strong></span>
-            <span className="flex items-center gap-0.5"><ArrowUp className="w-3 h-3 text-blue-500" /> Write: <strong className="text-slate-700">{diskWriteMb} MB/s</strong></span>
+            <span className="flex items-center gap-0.5"><ArrowDown className="w-3 h-3 text-emerald-500" /> Read: <strong className="text-slate-700">{kpi.diskReadMbs.toFixed(1)} MB/s</strong></span>
+            <span className="flex items-center gap-0.5"><ArrowUp className="w-3 h-3 text-blue-500" /> Write: <strong className="text-slate-700">{kpi.diskWriteMbs.toFixed(1)} MB/s</strong></span>
           </div>
         </div>
 
@@ -663,29 +681,35 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             <span className="font-semibold text-slate-500 flex items-center gap-1.5">
               <Wifi className="w-4 h-4 text-cyan-600" /> NETWORK TRAFFIC
             </span>
-            <span className="font-mono text-slate-600">eth0 • 1 Gbps</span>
+            <span className="font-mono text-slate-600">{liveMode ? 'all interfaces' : 'eth0 • 1 Gbps'}</span>
           </div>
 
           <div className="flex items-baseline justify-between">
-            <span className="text-3xl font-extrabold text-slate-900">{(netRxMbps + netTxMbps).toFixed(1)} <span className="text-sm font-semibold text-slate-400">Mbps</span></span>
-            <span className="text-xs font-bold text-emerald-600">Full Duplex</span>
+            <span className="text-3xl font-extrabold text-slate-900">{(kpi.netInMbps + kpi.netOutMbps).toFixed(1)} <span className="text-sm font-semibold text-slate-400">Mbps</span></span>
+            <span className="text-xs font-bold text-emerald-600">{liveMode ? 'live rate' : 'Full Duplex'}</span>
           </div>
 
           {/* Rx / Tx representation */}
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100 flex items-center justify-between">
               <span className="text-[10px] text-slate-400 flex items-center gap-0.5"><ArrowDown className="w-3 h-3 text-emerald-500" /> Inbound</span>
-              <strong className="text-xs font-mono text-slate-800">{netRxMbps} M</strong>
+              <strong className="text-xs font-mono text-slate-800">{kpi.netInMbps.toFixed(1)} M</strong>
             </div>
             <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100 flex items-center justify-between">
               <span className="text-[10px] text-slate-400 flex items-center gap-0.5"><ArrowUp className="w-3 h-3 text-blue-500" /> Outbound</span>
-              <strong className="text-xs font-mono text-slate-800">{netTxMbps} M</strong>
+              <strong className="text-xs font-mono text-slate-800">{kpi.netOutMbps.toFixed(1)} M</strong>
             </div>
           </div>
 
           <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
-            <span>Total In: 142.5 GB</span>
-            <span>Total Out: 380.2 GB</span>
+            {liveMode ? (
+              <span>Rates from <span className="font-mono">/proc/net/dev</span> (totals need the retention store)</span>
+            ) : (
+              <>
+                <span>Total In: 142.5 GB</span>
+                <span>Total Out: 380.2 GB</span>
+              </>
+            )}
           </div>
         </div>
 
@@ -909,17 +933,17 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">Historical Trends</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Aggregated host metrics over the selected time range.</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Aggregated host metrics over the selected time range.{!liveMode && ' (simulated)'}</p>
                   </div>
                   <span className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg">
                     {hostRangeLabel(hostRange)}
                   </span>
                 </div>
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                  <MetricHistoryChart title="CPU Usage" unit="%" data={history.cpu} timestamps={history.stamps} color="#2563eb" height={220} ticks={hostRangeTicks(hostRange)} />
-                  <MetricHistoryChart title="Memory Usage" unit="%" data={history.mem} timestamps={history.stamps} color="#10b981" height={220} ticks={hostRangeTicks(hostRange)} />
-                  <MetricHistoryChart title="Network I/O" unit=" Mbps" data={history.net} timestamps={history.stamps} color="#0ea5e9" height={220} ticks={hostRangeTicks(hostRange)} />
-                  <MetricHistoryChart title="Disk I/O" unit=" MB/s" data={history.disk} timestamps={history.stamps} color="#a855f7" height={220} ticks={hostRangeTicks(hostRange)} />
+                  <MetricHistoryChart title="CPU Usage" unit="%" data={chart.cpu} timestamps={chart.stamps} color="#2563eb" height={220} ticks={hostRangeTicks(hostRange)} />
+                  <MetricHistoryChart title="Memory Usage" unit="%" data={chart.mem} timestamps={chart.stamps} color="#10b981" height={220} ticks={hostRangeTicks(hostRange)} />
+                  <MetricHistoryChart title="Network I/O" unit=" Mbps" data={chart.net} timestamps={chart.stamps} color="#0ea5e9" height={220} ticks={hostRangeTicks(hostRange)} />
+                  <MetricHistoryChart title="Disk I/O" unit=" MB/s" data={chart.disk} timestamps={chart.stamps} color="#a855f7" height={220} ticks={hostRangeTicks(hostRange)} />
                 </div>
               </div>
 
