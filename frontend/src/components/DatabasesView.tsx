@@ -10,21 +10,28 @@ import {
   Server,
   Lock,
   Eye,
-  ShieldCheck
+  ShieldCheck,
+  Trash2
 } from 'lucide-react';
 import type { DatabaseItem, DatabaseEngine } from '../types';
 import { CredentialRevealModal } from './CredentialRevealModal';
 import { DatabaseGuiModal } from './DatabaseGuiModal';
+import { CreateDatabaseModal } from './CreateDatabaseModal';
 
-export const DatabasesView: React.FC = () => {
+interface DatabasesViewProps {
+  onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+}
+
+export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => {
   const [activeTab, setActiveTab] = useState<'all' | DatabaseEngine>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Modal States
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedDbForCredentials, setSelectedDbForCredentials] = useState<DatabaseItem | null>(null);
   const [selectedDbForGui, setSelectedDbForGui] = useState<DatabaseItem | null>(null);
 
-  const [databases] = useState<DatabaseItem[]>([
+  const [databases, setDatabases] = useState<DatabaseItem[]>([
     {
       id: 'db-1',
       name: 'larastore_production',
@@ -93,6 +100,20 @@ export const DatabasesView: React.FC = () => {
     },
   ]);
 
+  const handleCreateDatabase = (newDb: DatabaseItem) => {
+    setDatabases([newDb, ...databases]);
+    if (onShowToast) {
+      onShowToast('Database Created', `Database ${newDb.name} (${newDb.type.toUpperCase()}) successfully provisioned.`, 'success');
+    }
+  };
+
+  const handleDeleteDatabase = (dbId: string, dbName: string) => {
+    setDatabases(databases.filter(d => d.id !== dbId));
+    if (onShowToast) {
+      onShowToast('Database Removed', `Database ${dbName} has been dropped.`, 'info');
+    }
+  };
+
   const filtered = databases.filter(
     (db) => activeTab === 'all' || db.type === activeTab
   );
@@ -131,6 +152,9 @@ export const DatabasesView: React.FC = () => {
     navigator.clipboard?.writeText(uri);
     setCopiedId(db.id);
     setTimeout(() => setCopiedId(null), 1500);
+    if (onShowToast) {
+      onShowToast('URI Copied', 'Masked connection URI copied to clipboard.', 'info');
+    }
   };
 
   return (
@@ -150,11 +174,17 @@ export const DatabasesView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs">
+          <button 
+            onClick={() => onShowToast?.('Refreshed', 'Database connection pools synchronized.', 'info')}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
+          >
             <RefreshCw className="w-4 h-4 text-slate-500" />
             <span>Refresh</span>
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25">
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25"
+          >
             <Plus className="w-4 h-4" />
             <span>Create Database</span>
           </button>
@@ -325,6 +355,15 @@ export const DatabasesView: React.FC = () => {
                         <ExternalLink className="w-3 h-3" />
                         <span>Open GUI (SSO)</span>
                       </button>
+
+                      {/* Delete */}
+                      <button
+                        onClick={() => handleDeleteDatabase(db.id, db.name)}
+                        className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                        title="Drop database"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -333,6 +372,13 @@ export const DatabasesView: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Create Database Modal */}
+      <CreateDatabaseModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onCreate={handleCreateDatabase}
+      />
 
       {/* Credential Reveal Security Modal */}
       <CredentialRevealModal

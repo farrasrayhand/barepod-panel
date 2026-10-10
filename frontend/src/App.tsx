@@ -10,12 +10,29 @@ import { CloudflareTunnelView } from './components/CloudflareTunnelView';
 import { PodsView } from './components/PodsView';
 import { UsersView } from './components/UsersView';
 import { OverviewView } from './components/OverviewView';
+import { ToastContainer } from './components/Toast';
+import type { ToastMessage } from './components/Toast';
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<NavItem>('apps');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [terminalAppId, setTerminalAppId] = useState<string>('app-1');
+
+  // Interactive Toast State
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const showToast = (title: string, message?: string, type: 'success' | 'error' | 'info' = 'success') => {
+    const id = `toast-${Date.now()}-${Math.random()}`;
+    setToasts((prev) => [...prev, { id, title, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  };
+
+  const dismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
 
   // Realistic sample web apps with OpenLiteSpeed, Nginx, Caddy, Apache & Flask, Laravel, Next.js
   const [apps, setApps] = useState<WebApp[]>([
@@ -129,15 +146,22 @@ export function App() {
       createdAt: 'Just now',
     };
     setApps([created, ...apps]);
+    showToast('App Deployed Successfully', `${created.name} (${created.runtime.toUpperCase()} ${created.version}) is live.`);
   };
 
   const handleToggleAppStatus = (appId: string) => {
     setApps(apps.map(a => {
       if (a.id === appId) {
+        const nextStatus = a.status === 'running' ? 'stopped' : 'running';
+        showToast(
+          nextStatus === 'running' ? 'Service Started' : 'Service Stopped',
+          `Application ${a.name} is now ${nextStatus}.`,
+          'info'
+        );
         return {
           ...a,
-          status: a.status === 'running' ? 'stopped' : 'running',
-          memoryUsage: a.status === 'running' ? '0 MB' : '40 MB',
+          status: nextStatus,
+          memoryUsage: nextStatus === 'running' ? '36 MB' : '0 MB',
         };
       }
       return a;
@@ -147,6 +171,7 @@ export function App() {
   const handleOpenAppTerminal = (app: WebApp) => {
     setTerminalAppId(app.id);
     setCurrentTab('terminal');
+    showToast('Terminal Session Loaded', `Switched environment context to ${app.name} (${app.runtime.toUpperCase()} ${app.version}).`, 'info');
   };
 
   return (
@@ -186,9 +211,16 @@ export function App() {
             />
           )}
 
-          {currentTab === 'pods' && <PodsView />}
+          {currentTab === 'pods' && (
+            <PodsView
+              onShowToast={showToast}
+              onOpenTerminal={() => setCurrentTab('terminal')}
+            />
+          )}
 
-          {currentTab === 'databases' && <DatabasesView />}
+          {currentTab === 'databases' && (
+            <DatabasesView onShowToast={showToast} />
+          )}
 
           {currentTab === 'tunnels' && <CloudflareTunnelView />}
 
@@ -196,11 +228,22 @@ export function App() {
             <WebTerminalView
               apps={apps}
               selectedAppId={terminalAppId}
-              onSelectApp={setTerminalAppId}
+              onSelectApp={(id) => {
+                setTerminalAppId(id);
+                const target = apps.find(a => a.id === id);
+                if (target) {
+                  showToast('CLI Environment Switched', `Active runtime: ${target.runtime.toUpperCase()} ${target.version}`, 'info');
+                }
+              }}
             />
           )}
 
-          {currentTab === 'users' && <UsersView />}
+          {currentTab === 'users' && (
+            <UsersView
+              onShowToast={showToast}
+              onOpenTerminal={() => setCurrentTab('terminal')}
+            />
+          )}
 
           {(currentTab === 'domains' || currentTab === 'settings') && (
             <div className="p-8 max-w-7xl mx-auto">
@@ -220,6 +263,12 @@ export function App() {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onAddApp={handleAddApp}
+      />
+
+      {/* Interactive Toast Notifications */}
+      <ToastContainer
+        toasts={toasts}
+        onDismiss={dismissToast}
       />
     </div>
   );

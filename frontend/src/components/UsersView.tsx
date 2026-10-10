@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Users, 
   Plus, 
@@ -7,12 +7,20 @@ import {
   Layers, 
   Key, 
   Terminal,
-  MoreVertical 
+  Trash2 
 } from 'lucide-react';
 import type { TenantUser } from '../types';
+import { AddUserModal } from './AddUserModal';
 
-export const UsersView: React.FC = () => {
-  const tenants: TenantUser[] = [
+interface UsersViewProps {
+  onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+  onOpenTerminal?: () => void;
+}
+
+export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTerminal }) => {
+  const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+
+  const [tenants, setTenants] = useState<TenantUser[]>([
     {
       id: 'u-1',
       username: 'farras',
@@ -43,7 +51,21 @@ export const UsersView: React.FC = () => {
       diskLimit: '10 GB',
       status: 'active',
     },
-  ];
+  ]);
+
+  const handleAddUser = (user: TenantUser) => {
+    setTenants([...tenants, user]);
+    onShowToast?.('Tenant Created', `Tenant account ${user.username} created with ${user.diskLimit} disk quota.`, 'success');
+  };
+
+  const handleDeleteUser = (userId: string, username: string) => {
+    if (username === 'farras') {
+      onShowToast?.('Protected Account', 'Cannot delete primary root administrator account.', 'error');
+      return;
+    }
+    setTenants(tenants.filter(t => t.id !== userId));
+    onShowToast?.('Tenant Removed', `Tenant ${username} and isolated jail were removed.`, 'info');
+  };
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
@@ -60,7 +82,10 @@ export const UsersView: React.FC = () => {
           </p>
         </div>
 
-        <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25">
+        <button
+          onClick={() => setIsAddUserOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25"
+        >
           <Plus className="w-4 h-4" />
           <span>Add Tenant User</span>
         </button>
@@ -127,12 +152,20 @@ export const UsersView: React.FC = () => {
                 </td>
 
                 <td className="py-3.5 px-4 text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <button className="p-1 rounded text-slate-400 hover:text-slate-700">
-                      <Key className="w-4 h-4" />
-                    </button>
-                    <button className="p-1 rounded text-slate-400 hover:text-slate-700">
+                  <div className="flex items-center justify-end gap-1.5">
+                    <button
+                      onClick={onOpenTerminal}
+                      className="p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                      title="Open Terminal"
+                    >
                       <Terminal className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteUser(t.id, t.username)}
+                      className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                      title="Delete Tenant"
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 </td>
@@ -141,6 +174,12 @@ export const UsersView: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      <AddUserModal
+        isOpen={isAddUserOpen}
+        onClose={() => setIsAddUserOpen(false)}
+        onAddUser={handleAddUser}
+      />
     </div>
   );
 };
