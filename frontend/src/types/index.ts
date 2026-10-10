@@ -104,6 +104,7 @@ export interface DatabaseItem {
   maxConnections?: number;
   isolationMode?: 'shared_daemon' | 'dedicated_pod';
   passwordRotatedAt?: string;
+  deletedAt?: string;
 }
 
 export interface SharedEngineInstance {

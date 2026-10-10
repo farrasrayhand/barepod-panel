@@ -9,6 +9,7 @@ interface DangerConfirmModalProps {
   itemType: string; // e.g. "Database" | "Application" | "Container Pod"
   itemName: string; // e.g. "larastore_production"
   warningDescription?: string;
+  confirmLabel?: string;
 }
 
 export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
@@ -19,6 +20,7 @@ export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
   itemType,
   itemName,
   warningDescription,
+  confirmLabel = 'Delete Permanently',
 }) => {
   const [confirmInput, setConfirmInput] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
@@ -143,7 +145,7 @@ export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
               }`}
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete Permanently</span>
+              <span>{confirmLabel}</span>
             </button>
           </div>
         </form>

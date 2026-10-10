@@ -33,7 +33,7 @@ interface DatabasesViewProps {
 }
 
 export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => {
-  const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine | 'caches'>('all');
+  const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine | 'caches' | 'trash'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Modal States
@@ -44,6 +44,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
   const [selectedDbForGui, setSelectedDbForGui] = useState<DatabaseItem | null>(null);
   const [selectedToolForGui, setSelectedToolForGui] = useState<DatabaseManagerTool>('dbgate');
   const [dbToDelete, setDbToDelete] = useState<DatabaseItem | null>(null);
+  const [binToPurge, setBinToPurge] = useState<DatabaseItem | null>(null);
 
   const [databases, setDatabases] = useState<DatabaseItem[]>([
     {
@@ -171,9 +172,31 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
   };
 
   const handleDeleteDatabase = (dbId: string, dbName: string) => {
-    setDatabases(databases.filter(d => d.id !== dbId));
+    setDatabases(databases.map((d) => (d.id === dbId ? { ...d, deletedAt: new Date().toLocaleString() } : d)));
     if (onShowToast) {
-      onShowToast('Database Removed', `Database ${dbName} has been dropped.`, 'info');
+      onShowToast('Moved to Recycle Bin', `Database ${dbName} was moved to the Recycle Bin. You can restore it or delete it permanently.`, 'info');
+    }
+  };
+
+  const handleRestoreDatabase = (dbId: string, dbName: string) => {
+    setDatabases(databases.map((d) => (d.id === dbId ? { ...d, deletedAt: undefined } : d)));
+    if (onShowToast) {
+      onShowToast('Database Restored', `Database ${dbName} is active again.`, 'success');
+    }
+  };
+
+  const handlePurgeDatabase = (dbId: string, dbName: string) => {
+    setDatabases(databases.filter((d) => d.id !== dbId));
+    if (onShowToast) {
+      onShowToast('Database Deleted Permanently', `Database ${dbName} and all its data have been dropped.`, 'info');
+    }
+  };
+
+  const handleEmptyBin = () => {
+    const count = binnedDatabases.length;
+    setDatabases(databases.filter((d) => !isInBin(d)));
+    if (onShowToast) {
+      onShowToast('Recycle Bin Emptied', `${count} database(s) permanently deleted.`, 'info');
     }
   };
 
@@ -182,10 +205,17 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
     setSelectedToolForGui(tool);
   };
 
-  const filtered = databases.filter(
-    (db) =>
-      (activeTab === 'all' ? db.type !== 'redis' : activeTab === 'caches' ? db.type === 'redis' : db.type === activeTab)
-  );
+  const isInBin = (db: DatabaseItem) => Boolean(db.deletedAt);
+  const binnedDatabases = databases.filter(isInBin);
+  const activeDatabases = databases.filter((db) => !isInBin(db));
+
+  const filtered = databases.filter((db) => {
+    if (activeTab === 'trash') return isInBin(db);
+    if (isInBin(db)) return false;
+    if (activeTab === 'all') return db.type !== 'redis';
+    if (activeTab === 'caches') return db.type === 'redis';
+    return db.type === activeTab;
+  });
 
   const getDbBadge = (type: DatabaseEngine) => {
     switch (type) {
@@ -243,6 +273,15 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         </div>
 
         <div className="flex items-center gap-3">
+          {activeTab === 'trash' && binnedDatabases.length > 0 && (
+            <button
+              onClick={handleEmptyBin}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100 transition-colors shadow-2xs cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>Empty Recycle Bin</span>
+            </button>
+          )}
           <button 
             onClick={() => onShowToast?.('Refreshed', 'Database connection pools synchronized.', 'info')}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
@@ -270,7 +309,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
-          All Databases ({databases.filter((d) => d.type !== 'redis').length})
+          All Databases ({activeDatabases.filter((d) => d.type !== 'redis').length})
         </button>
         <button
           onClick={() => setActiveTab('postgres')}
@@ -320,9 +359,31 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
-          <span>Caches (Redis) ({databases.filter((d) => d.type === 'redis').length})</span>
+          <span>Caches (Redis) ({activeDatabases.filter((d) => d.type === 'redis').length})</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('trash')}
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            activeTab === 'trash'
+              ? 'bg-slate-900 text-white shadow-2xs'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>Recycle Bin ({binnedDatabases.length})</span>
         </button>
       </div>
+
+      {/* Recycle Bin notice */}
+      {activeTab === 'trash' && (
+        <div className="flex items-start gap-2 p-3.5 rounded-xl border border-amber-200 bg-amber-50 text-xs text-amber-900">
+          <Trash2 className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <span>
+            Databases in the Recycle Bin are kept for <strong>30 days</strong> and then purged automatically.
+            Restore them, or delete permanently to free the storage now.
+          </span>
+        </div>
+      )}
 
       {/* Database Cards Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
@@ -340,6 +401,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
             {filtered.map((db) => {
               const badge = getDbBadge(db.type);
               const isSqliteDb = db.type === 'sqlite';
+              const isBinned = isInBin(db);
               const sqlitePath = `/home/${db.tenantUser ?? 'user'}/apps/${db.name}.sqlite`;
               const host = db.host || '127.0.0.1';
               const port = db.port || (
@@ -349,7 +411,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
               );
 
               return (
-                <tr key={db.id} className="hover:bg-slate-50/70 transition-colors">
+                <tr key={db.id} className={`hover:bg-slate-50/70 transition-colors ${isBinned ? 'opacity-70' : ''}`}>
                   {/* Database Name */}
                   <td className="py-3.5 px-4">
                     <div className="flex items-center gap-2.5">
@@ -359,6 +421,12 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                       <div>
                         <span className="font-semibold text-slate-900 text-sm block">{db.name}</span>
                         <span className="text-[10px] text-slate-400 font-mono">Format: {db.charset}</span>
+                        {isBinned && (
+                          <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                            <Lock className="w-2.5 h-2.5" />
+                            Suspended — apps cannot connect
+                          </span>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -428,6 +496,26 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
 
                   {/* Actions: Clean Details Button + Trash */}
                   <td className="py-3.5 px-4 text-right">
+                    {isBinned ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="text-[10px] font-mono text-slate-400">deleted {db.deletedAt}</span>
+                        <button
+                          onClick={() => handleRestoreDatabase(db.id, db.name)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors text-xs font-semibold cursor-pointer"
+                          title="Restore database"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Restore</span>
+                        </button>
+                        <button
+                          onClick={() => setBinToPurge(db)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="Delete permanently"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
                     <div className="flex items-center justify-end gap-2">
                       {!isSqliteDb && (
                         <>
@@ -476,6 +564,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                    )}
                   </td>
                 </tr>
               );
@@ -497,7 +586,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         onUpdateDatabase={handleUpdateDatabase}
       />
 
-      {/* Danger Confirm Delete Modal */}
+      {/* Move to Recycle Bin Modal */}
       <DangerConfirmModal
         isOpen={!!dbToDelete}
         onClose={() => setDbToDelete(null)}
@@ -507,10 +596,27 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
             setDbToDelete(null);
           }
         }}
-        title={`Drop Database "${dbToDelete?.name}"`}
+        title={`Move Database "${dbToDelete?.name}" to Recycle Bin`}
         itemType="Database"
         itemName={dbToDelete?.name || ''}
-        warningDescription={`Database ${dbToDelete?.name} (${dbToDelete?.type.toUpperCase()}) along with all its tables, schemas, data rows, and user grants will be permanently deleted.`}
+        confirmLabel="Move to Recycle Bin"
+        warningDescription={`Database ${dbToDelete?.name} (${dbToDelete?.type.toUpperCase()}) will be detached from your apps and moved to the Recycle Bin instead of being dropped. You can restore it within 30 days, or delete it permanently to free the storage now.`}
+      />
+
+      {/* Permanent Delete Modal */}
+      <DangerConfirmModal
+        isOpen={!!binToPurge}
+        onClose={() => setBinToPurge(null)}
+        onConfirm={() => {
+          if (binToPurge) {
+            handlePurgeDatabase(binToPurge.id, binToPurge.name);
+            setBinToPurge(null);
+          }
+        }}
+        title={`Delete "${binToPurge?.name}" Permanently`}
+        itemType="Database"
+        itemName={binToPurge?.name || ''}
+        warningDescription={`Database ${binToPurge?.name} (${binToPurge?.type.toUpperCase()}) along with all its tables, schemas, data rows and user grants will be dropped permanently. This cannot be undone.`}
       />
 
       {/* Create Database Modal */}
