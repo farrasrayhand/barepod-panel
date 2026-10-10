@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   Lock
 } from 'lucide-react';
+import { siteSupportsFiles, siteSupportsCI, siteSupportsShell } from '../utils/siteRuntime';
 import type { WebApp, WebServerType } from '../types';
 import { GitDeploymentModal } from './GitDeploymentModal';
 import { AppDetailPage, type AppDetailTab } from './AppDetailPage';
@@ -352,7 +353,8 @@ export const AppsView: React.FC<AppsViewProps> = ({
                             <span>Manage</span>
                           </button>
 
-                          {/* File Manager Button */}
+                          {/* File Manager Button — a reverse proxy has no docroot */}
+                          {siteSupportsFiles(app) && (
                           <button
                             onClick={() => onOpenAppFiles?.(app)}
                             className="p-1.5 rounded-lg text-slate-600 hover:text-amber-600 hover:bg-amber-50 transition-colors"
@@ -360,8 +362,10 @@ export const AppsView: React.FC<AppsViewProps> = ({
                           >
                             <Folder className="w-4 h-4" />
                           </button>
+                          )}
 
                           {/* GitHub CI/CD & Redeploy Button */}
+                          {siteSupportsCI(app) && (
                           <button
                             onClick={() => setSelectedAppForGit(app)}
                             className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
@@ -369,8 +373,10 @@ export const AppsView: React.FC<AppsViewProps> = ({
                           >
                             <FolderGit2 className="w-4 h-4" />
                           </button>
+                          )}
 
                           {/* Dedicated Isolated Web Terminal */}
+                          {siteSupportsShell(app) && (
                           <button
                             onClick={() => onOpenAppTerminal(app)}
                             className="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors"
@@ -378,6 +384,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                           >
                             <Terminal className="w-4 h-4" />
                           </button>
+                          )}
 
                           {/* Toggle Status */}
                           <button

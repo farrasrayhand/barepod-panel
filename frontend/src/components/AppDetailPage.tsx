@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { siteSupportsShell, siteSupportsFiles, siteShellNote, siteFilesNote } from '../utils/siteRuntime';
+import { siteSupportsShell, siteSupportsFiles, siteSupportsCI, siteShellNote, siteFilesNote, siteCINote, siteTabSupport } from '../utils/siteRuntime';
 import { 
   ArrowLeft, 
   Activity, 
@@ -99,14 +99,23 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
     onTabChange?.(tab);
   };
 
-  // PHP stack tab only applies to PHP runtimes; redirect to monitoring otherwise
+  const tabSupport = siteTabSupport(app);
+
+  // Tabs that do not exist for this site type are hidden, so a deep link to one
+  // (or a stale tab) falls back to monitoring instead of rendering an empty pane.
   React.useEffect(() => {
-    if (activeTab === 'php' && app.runtime !== 'php') {
+    const unavailable =
+      (activeTab === 'php' && app.runtime !== 'php') ||
+      (activeTab === 'files' && !tabSupport.files) ||
+      (activeTab === 'env' && !tabSupport.env) ||
+      (activeTab === 'deploy' && !tabSupport.deploy);
+
+    if (unavailable) {
       setInternalTab('monitoring');
       onTabChange?.('monitoring');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, app.runtime]);
+  }, [activeTab, app.runtime, app.id]);
   const [logType, setLogType] = useState<'all' | 'access' | 'error' | 'deploy'>('all');
   const [logSearch, setLogSearch] = useState('');
   const [logFormat, setLogFormat] = useState<'structured' | 'raw'>('structured');
@@ -1208,41 +1217,38 @@ QUEUE_CONNECTION=redis`;
               <span>Open Web</span>
             </a>
 
-            <button
-              onClick={() => onOpenTerminal(app)}
-              disabled={!siteSupportsShell(app)}
-              title={siteShellNote(app)}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-colors shadow-2xs ${
-                siteSupportsShell(app)
-                  ? 'text-slate-700 bg-white border-slate-200 hover:bg-slate-50'
-                  : 'text-slate-400 bg-slate-50 border-slate-200 cursor-not-allowed'
-              }`}
-            >
-              <Terminal className={`w-3.5 h-3.5 ${siteSupportsShell(app) ? 'text-blue-600' : 'text-slate-400'}`} />
-              <span>Terminal CLI</span>
-            </button>
+            {siteSupportsShell(app) && (
+              <button
+                onClick={() => onOpenTerminal(app)}
+                title={siteShellNote(app)}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs"
+              >
+                <Terminal className="w-3.5 h-3.5 text-blue-600" />
+                <span>Terminal CLI</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('files')}
-              disabled={!siteSupportsFiles(app)}
-              title={siteFilesNote(app)}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-colors shadow-2xs ${
-                siteSupportsFiles(app)
-                  ? 'text-slate-700 bg-white border-slate-200 hover:bg-slate-50'
-                  : 'text-slate-400 bg-slate-50 border-slate-200 cursor-not-allowed'
-              }`}
-            >
-              <Folder className={`w-3.5 h-3.5 ${siteSupportsFiles(app) ? 'text-amber-600' : 'text-slate-400'}`} />
-              <span>File Manager</span>
-            </button>
+            {siteSupportsFiles(app) && (
+              <button
+                onClick={() => setActiveTab('files')}
+                title={siteFilesNote(app)}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs"
+              >
+                <Folder className="w-3.5 h-3.5 text-amber-600" />
+                <span>File Manager</span>
+              </button>
+            )}
 
-            <button
-              onClick={() => onOpenGit(app)}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs"
-            >
-              <FolderGit2 className="w-3.5 h-3.5 text-purple-600" />
-              <span>Git CI/CD</span>
-            </button>
+            {siteSupportsCI(app) && (
+              <button
+                onClick={() => onOpenGit(app)}
+                title={siteCINote(app)}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs"
+              >
+                <FolderGit2 className="w-3.5 h-3.5 text-purple-600" />
+                <span>Git CI/CD</span>
+              </button>
+            )}
 
             <button
               onClick={handleExportAppBackup}
@@ -1311,20 +1317,22 @@ QUEUE_CONNECTION=redis`;
           <span>Traffic Map</span>
         </button>
 
-        <button
-          onClick={() => setActiveTab('deploy')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'deploy'
-              ? 'border-blue-600 text-blue-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <FolderGit2 className="w-4 h-4 text-blue-600" />
-          <span>Deploy & Build Script</span>
-          <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">
-            Saved
-          </span>
-        </button>
+        {tabSupport.deploy && (
+          <button
+            onClick={() => setActiveTab('deploy')}
+            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+              activeTab === 'deploy'
+                ? 'border-blue-600 text-blue-700 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <FolderGit2 className="w-4 h-4 text-blue-600" />
+            <span>Deploy & Build Script</span>
+            <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">
+              Saved
+            </span>
+          </button>
+        )}
 
         <button
           onClick={() => setActiveTab('routing')}
@@ -1338,29 +1346,33 @@ QUEUE_CONNECTION=redis`;
           <span>Reverse Proxy & Multi-Engine Routing</span>
         </button>
 
-        <button
-          onClick={() => setActiveTab('env')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'env'
-              ? 'border-blue-600 text-blue-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Lock className="w-4 h-4" />
-          <span>Environment (.env)</span>
-        </button>
+        {tabSupport.env && (
+          <button
+            onClick={() => setActiveTab('env')}
+            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+              activeTab === 'env'
+                ? 'border-blue-600 text-blue-700 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Lock className="w-4 h-4" />
+            <span>Environment (.env)</span>
+          </button>
+        )}
 
-        <button
-          onClick={() => setActiveTab('files')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'files'
-              ? 'border-amber-600 text-amber-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Folder className="w-4 h-4" />
-          <span>File Manager</span>
-        </button>
+        {tabSupport.files && (
+          <button
+            onClick={() => setActiveTab('files')}
+            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+              activeTab === 'files'
+                ? 'border-amber-600 text-amber-700 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Folder className="w-4 h-4" />
+            <span>File Manager</span>
+          </button>
+        )}
 
         {app.runtime === 'php' && (
           <button

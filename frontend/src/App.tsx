@@ -258,11 +258,18 @@ export function App() {
 
   const setCurrentTab = (tab: NavItem) => navigatePath(TAB_PATHS[tab]);
 
-  // Menu navigation. The Terminal keeps whatever session was last opened —
-  // clearing it here is what made a shell opened from a pod or a website land
-  // on the picker instead of that session.
+  // Menu navigation. The Terminal menu always starts from the session picker;
+  // opening a shell from a website or pod goes through openShellOn instead, so
+  // that shortcut keeps its target.
   const navigate = (tab: NavItem) => {
+    if (tab === 'terminal') setTerminalTarget(null);
     setCurrentTab(tab);
+  };
+
+  /** Open the Terminal page already attached to a website or container. */
+  const openShellOn = (target: { kind: 'site' | 'pod'; id: string }) => {
+    setTerminalTarget(target);
+    setCurrentTab('terminal');
   };
 
   // Normalize bare "/" to the default menu endpoint on first load
@@ -392,8 +399,7 @@ export function App() {
       );
       return;
     }
-    setTerminalTarget({ kind: 'site', id: app.id });
-    setCurrentTab('terminal');
+    openShellOn({ kind: 'site', id: app.id });
     showToast('Terminal Session Loaded', `Switched environment context to ${app.name} (${app.runtime.toUpperCase()} ${app.version}).`, 'info');
   };
 
@@ -515,8 +521,7 @@ export function App() {
               onShowToast={showToast}
               onOpenTerminal={(podId) => {
                 // A pod's shell must land on that container, not on a website.
-                setTerminalTarget({ kind: 'pod', id: podId });
-                navigate('terminal');
+                openShellOn({ kind: 'pod', id: podId });
               }}
             />
           )}

@@ -29,3 +29,35 @@ export function siteFilesNote(app: WebApp): string {
   if (siteSupportsFiles(app)) return 'Browse this website\u2019s files';
   return 'A reverse proxy has no docroot of its own; its files live in the upstream container.';
 }
+
+/** True when the site has a repository and a build pipeline of its own. */
+export function siteSupportsCI(app: WebApp): boolean {
+  return app.runtime !== 'proxy';
+}
+
+/** Why there is no CI/CD for this site. */
+export function siteCINote(app: WebApp): string {
+  if (siteSupportsCI(app)) return 'Git repository, webhook and build script';
+  return 'A reverse proxy has no repository to build — it only forwards to its upstream.';
+}
+
+/**
+ * Which detail tabs a site type actually has. Anything false is hidden, not
+ * shown greyed out — a control that cannot work should not be on screen.
+ */
+export interface SiteTabSupport {
+  files: boolean;
+  env: boolean;
+  deploy: boolean;
+}
+
+export function siteTabSupport(app: WebApp): SiteTabSupport {
+  const proxy = app.runtime === 'proxy';
+  const staticSite = app.runtime === 'static';
+  return {
+    files: !proxy, // a forwarder has no docroot
+    env: !proxy && !staticSite, // no application environment to inject
+    deploy: !proxy, // nothing to build or deploy for a forwarder
+  };
+}
+
