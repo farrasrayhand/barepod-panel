@@ -8,19 +8,31 @@ import (
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/rbac"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 )
 
 const groupColumns = `g.id, g.name, g.description, g.permissions, g.is_default, g.is_system, g.created_at,
+	g.cpu_quota_percent, g.memory_mb, g.tasks_max, g.disk_quota_gb, g.inode_quota, g.max_sites, g.max_databases,
 	(SELECT COUNT(*) FROM users u WHERE u.group_name = g.name)`
 
-func scanGroup(row *sql.Row) (*rbac.Group, error) {
+// groupScanner reads a group row into the model.
+type groupScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanGroupRow(sc groupScanner) (*rbac.Group, error) {
 	var (
 		g           rbac.Group
 		permissions string
 		isDefault   bool
 		isSystem    bool
 	)
-	err := row.Scan(&g.ID, &g.Name, &g.Description, &permissions, &isDefault, &isSystem, &g.CreatedAt, &g.Members)
+	err := sc.Scan(
+		&g.ID, &g.Name, &g.Description, &permissions, &isDefault, &isSystem, &g.CreatedAt,
+		&g.Limits.CPUQuotaPercent, &g.Limits.MemoryMB, &g.Limits.TasksMax, &g.Limits.DiskQuotaGB,
+		&g.Limits.InodeQuota, &g.Limits.MaxSites, &g.Limits.MaxDatabases,
+		&g.Members,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -66,9 +78,12 @@ func (s *Store) EnsureDefaultGroups() (int, error) {
 			continue
 		}
 		_, err := s.DB.Exec(
-			`INSERT INTO groups (id, name, permissions, description, is_default, is_system, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO groups (id, name, permissions, description, is_default, is_system, created_at,
+			                     cpu_quota_percent, memory_mb, tasks_max, disk_quota_gb, inode_quota, max_sites, max_databases)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id.New(), g.Name, encodePermissions(g.Permissions), g.Description, g.IsDefault, g.IsSystem, now(),
+			g.Limits.CPUQuotaPercent, g.Limits.MemoryMB, g.Limits.TasksMax, g.Limits.DiskQuotaGB,
+			g.Limits.InodeQuota, g.Limits.MaxSites, g.Limits.MaxDatabases,
 		)
 		if err != nil {
 			return inserted, fmt.Errorf("store: insert group %q: %w", g.Name, err)
@@ -89,25 +104,34 @@ func (s *Store) ListGroups() ([]rbac.Group, error) {
 
 	out := []rbac.Group{}
 	for rows.Next() {
-		var (
-			g           rbac.Group
-			permissions string
-			isDefault   bool
-			isSystem    bool
-		)
-		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &permissions, &isDefault, &isSystem, &g.CreatedAt, &g.Members); err != nil {
+		group, err := scanGroupRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		g.Permissions = decodePermissions(permissions)
-		g.IsDefault = isDefault
-		g.IsSystem = isSystem
-		out = append(out, g)
+		out = append(out, *group)
 	}
 	return out, rows.Err()
 }
 
 // GroupByName loads one group, or ErrNotFound.
 func (s *Store) GroupByName(name string) (*rbac.Group, error) {
-	return scanGroup(s.DB.QueryRow(
-		`SELECT `+groupColumns+` FROM groups g WHERE g.name = ?`, name))
+	return scanGroupRow(s.DB.QueryRow(`SELECT `+groupColumns+` FROM groups g WHERE g.name = ?`, name))
+}
+
+// UpdateGroup replaces a group's description, capabilities and resource limits.
+func (s *Store) UpdateGroup(name, description string, permissions rbac.Permissions, limits resources.Limits) error {
+	res, err := s.DB.Exec(
+		`UPDATE groups SET description = ?, permissions = ?, cpu_quota_percent = ?, memory_mb = ?, tasks_max = ?,
+		                   disk_quota_gb = ?, inode_quota = ?, max_sites = ?, max_databases = ?
+		 WHERE name = ?`,
+		description, encodePermissions(permissions), limits.CPUQuotaPercent, limits.MemoryMB, limits.TasksMax,
+		limits.DiskQuotaGB, limits.InodeQuota, limits.MaxSites, limits.MaxDatabases, name,
+	)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

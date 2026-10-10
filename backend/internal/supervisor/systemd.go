@@ -28,6 +28,7 @@ type Spec struct {
 	Port        int
 	MemoryMaxMB int
 	CPUQuota    int // percent of one core, e.g. 100 = one full core
+	TasksMax    int // max processes/threads
 	Restart     string
 	ExtraEnv    map[string]string
 }
@@ -90,6 +91,9 @@ func DropIn(s Spec) string {
 	}
 	if s.CPUQuota > 0 {
 		fmt.Fprintf(&b, "CPUQuota=%d%%\n", s.CPUQuota)
+	}
+	if s.TasksMax > 0 {
+		fmt.Fprintf(&b, "TasksMax=%d\n", s.TasksMax)
 	}
 	b.WriteString("NoNewPrivileges=true\n")
 	b.WriteString("PrivateTmp=true\n")

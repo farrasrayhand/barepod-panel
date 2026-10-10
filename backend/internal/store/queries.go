@@ -202,6 +202,13 @@ func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
 	return out, rows.Err()
 }
 
+// CountWebsitesByTenant returns how many websites a tenant owns.
+func (s *Store) CountWebsitesByTenant(tenant string) (int, error) {
+	var n int
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM websites WHERE tenant_user = ?`, tenant).Scan(&n)
+	return n, err
+}
+
 // WebsiteBySlug looks a website up by its slug.
 func (s *Store) WebsiteBySlug(slug string) (*Website, error) {
 	var w Website

@@ -137,3 +137,48 @@ export async function apiReachable(): Promise<boolean> {
     return false;
   }
 }
+
+export interface DeployLogLine {
+  id: number;
+  jobId: string;
+  ts: string;
+  stream: 'stdout' | 'stderr' | 'step' | 'status';
+  line: string;
+}
+
+/**
+ * Subscribe to a deploy job's log over SSE.
+ *
+ * `EventSource` cannot send custom headers, but `withCredentials: true` does send
+ * the session cookie — and CSRF is not required for GET — so the stream is
+ * authenticated without putting a token in the URL. The returned function closes it.
+ */
+export function subscribeDeploy(
+  slug: string,
+  deployId: string | undefined,
+  onLine: (line: DeployLogLine) => void,
+  onDone?: (job: DeployJob) => void,
+): () => void {
+  const source = new EventSource(api.deployStreamUrl(slug, deployId), { withCredentials: true });
+
+  source.addEventListener('log', (event) => {
+    try {
+      onLine(JSON.parse((event as MessageEvent).data) as DeployLogLine);
+    } catch {
+      // Ignore a malformed frame rather than killing the stream.
+    }
+  });
+
+  source.addEventListener('done', (event) => {
+    try {
+      onDone?.(JSON.parse((event as MessageEvent).data) as DeployJob);
+    } catch {
+      // The final status frame may be unreadable; the job can still be polled.
+    }
+    source.close();
+  });
+
+  // EventSource reconnects on its own; the daemon replays the stored log, so a
+  // dropped connection loses nothing. Close only when the caller asks.
+  return () => source.close();
+}

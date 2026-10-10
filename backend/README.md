@@ -29,9 +29,11 @@ go build -o ./barepod ./cmd/barepod
 | `barepod serve` | Run the daemon (API + SPA fallback) |
 | `barepod admin create [--username X] [--password Y] [--force]` | Create the root admin; prints a generated password once |
 | `barepod admin passwd <username>` | Reset a password (revokes that account's sessions) |
-| `barepod user create --username X [--group Developer]` | Create a non-admin account in a permission group |
+| `barepod user create --username X [--group Developer] [--quota 10GB]` | Create a non-admin account in a package (also creates the Linux tenant account) |
 | `barepod user list` | List panel accounts |
-| `barepod user suspend\|activate <username>` | Disable/enable an account |
+| `barepod user suspend\|activate <username>` | Disable/enable an account (also locks/unlocks the Linux user) |
+| `barepod group list` | Show packages with their capabilities and resource limits |
+| `barepod tenant provision --username X` | Create/repair the Linux account for a panel user |
 | `barepod version` | Print the version |
 
 Use `--db <path>` on any command to point at a non-default database.
@@ -68,7 +70,9 @@ Everywhere else (macOS, containers without systemd, `-dry-run`) the daemon runs 
 | `POST` | `/api/v1/auth/verify` | Elevated (sudo) mode for 5 minutes |
 | `GET` | `/api/v1/sessions` | Active sessions (CSRF tokens never returned) |
 | `DELETE` | `/api/v1/sessions/{id}` | Revoke a session immediately |
-| `GET` | `/api/v1/groups` | Permission groups + capability list (needs `users`) |
+| `GET` | `/api/v1/groups` | Permission groups + package limits (needs `users`) |
+| `PATCH` | `/api/v1/groups/{name}` | Edit a package (capabilities, limits) — capacity-guarded |
+| `GET` | `/api/v1/system/capacity` | Host capacity, current allocation, live re-check |
 | `GET` | `/api/v1/system/capabilities` | systemd / LXC / Docker / S.M.A.R.T. / fstrim |
 | `GET` | `/api/v1/websites` | Website list |
 | `POST` | `/api/v1/websites` | Deploy wizard payload → `202` + `deployId` |
@@ -120,13 +124,40 @@ creates by itself:
 - Backup/migration and every other module follow the same rule: per account, own
   resources only, admin sees all. `Read Only` cannot even start one.
 
+## Resource limits (packages) & the capacity guard
+
+A group **is** the tenant package: the same row carries the capabilities and the
+per-member resource limits — CPU, RAM, tasks, disk quota, inodes, max websites,
+max databases. Zero means unlimited.
+
+- **Applied for real:** the limits land in the website's systemd drop-in
+  (`MemoryMax=`, `CPUQuota=`, `TasksMax=`, cgroup v2) and in the tenant's disk
+  quota (`setquota`). Nothing is hardcoded in the pipeline any more.
+- **Capacity guard:** `PATCH /groups/{name}` refuses a plan whose total
+  (limits × members, summed over all packages) exceeds the server, and returns
+  the numbers: `409 insufficient_capacity` →
+  `"memory: allocated 65536 of 16384 available (400%)"`.
+- **Live re-detection:** capacity is measured on every read — cgroup v2 `cpu.max`
+  (so a running container resize is seen), `/sys/.../cpu/online`, `/proc/meminfo`,
+  `statfs` of the sites filesystem (walking up if the path does not exist yet).
+  Scaling the server up or down changes the answer **without restarting the
+  daemon**; a plan that no longer fits is reported by `GET /system/capacity`
+  (`fits:false` + `exceeds:[…]`) and logged/audited once as
+  `system.capacity_exceeded`.
+- **Same model for pods:** the `resources.Limits` struct is also the input for a
+  pod's Docker resource spec in Phase 3 (one model, three consumers).
+- Existing systemd units keep the limits they were deployed with; a package
+  change applies to the next deploy/restart of that website.
+
 ## Layout
 
 ```
 cmd/barepod/          CLI + daemon entrypoint (serve / admin / user)
 internal/api/         router, middleware (logging, auth+CSRF, capability), handlers
-internal/store/       SQLite (WAL), migrations, queries, groups
+internal/store/       SQLite (WAL), migrations, queries, groups, job retention
 internal/rbac/        capability set + built-in permission groups
+internal/resources/   Limits/Capacity model, live detection, overcommit guard
+internal/tenant/      Linux account lifecycle (useradd, quota, lock/unlock)
 internal/deploy/      async provisioning pipeline + job log
 internal/host/        privileged operations (real vs dry-run runner)
 internal/supervisor/  systemd template + per-site drop-in rendering
@@ -160,8 +191,8 @@ login response).
 ## Tests
 
 ```bash
-go test ./...        # 29 tests: validate, secrets, auth, rbac, groups, supervisor, pipeline
-go test -race ./internal/deploy/
+go test ./...        # 48 tests: validate, secrets, auth, rbac, resources, tenant, store, supervisor, pipeline
+go test -race ./internal/deploy/ ./internal/resources/
 ```
 
 ## Notes

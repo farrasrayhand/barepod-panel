@@ -39,7 +39,7 @@ func envBool(key string, fallback bool) bool {
 
 func onLinux() bool { return runtime.GOOS == "linux" }
 
-func defaultSitesRoot() string {
+func DefaultSitesRoot() string {
 	if onLinux() {
 		return "/home"
 	}
@@ -71,7 +71,7 @@ func Load(args []string) (Config, error) {
 	dbPath := fs.String("db", DefaultDBPath(), "path to the panel SQLite database")
 	keyPath := fs.String("key", DefaultKeyPath(), "path to the secrets encryption key")
 	staticDir := fs.String("static", env("BAREPOD_STATIC", "./dist"), "path to the built frontend (SPA)")
-	sitesRoot := fs.String("sites-root", env("BAREPOD_SITES_ROOT", defaultSitesRoot()), "directory that holds tenant home directories")
+	sitesRoot := fs.String("sites-root", env("BAREPOD_SITES_ROOT", DefaultSitesRoot()), "directory that holds tenant home directories")
 	unitsDir := fs.String("units-dir", env("BAREPOD_UNITS_DIR", defaultUnitsDir()), "directory for systemd unit files")
 	logLevel := fs.String("log-level", env("BAREPOD_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	dryRun := fs.Bool("dry-run", envBool("BAREPOD_DRY_RUN", false), "never execute privileged commands (forced on non-Linux hosts)")

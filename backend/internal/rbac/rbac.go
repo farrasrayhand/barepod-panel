@@ -5,6 +5,8 @@
 // account with `barepod admin create`.
 package rbac
 
+import "github.com/farrasrayhand/barepod-panel/backend/internal/resources"
+
 // Capability names — these must match the frontend GroupPermissions type
 // (frontend/src/data/permissions.ts).
 const (
@@ -61,16 +63,18 @@ func GrantAll() Permissions {
 // GrantNothing grants no capability (view-only).
 func GrantNothing() Permissions { return Permissions{} }
 
-// Group is a permission group.
+// Group is a permission group. It doubles as the tenant "package": the same row
+// carries the capabilities and the resource limits its members run under.
 type Group struct {
-	ID          string      `json:"id"`
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Permissions Permissions `json:"permissions"`
-	Members     int         `json:"members,omitempty"`
-	IsDefault   bool        `json:"isDefault"`
-	IsSystem    bool        `json:"isSystem"`
-	CreatedAt   string      `json:"createdAt,omitempty"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Permissions Permissions      `json:"permissions"`
+	Limits      resources.Limits `json:"limits"`
+	Members     int              `json:"members,omitempty"`
+	IsDefault   bool             `json:"isDefault"`
+	IsSystem    bool             `json:"isSystem"`
+	CreatedAt   string           `json:"createdAt,omitempty"`
 }
 
 // RootGroup is the group every account created by `barepod admin create` joins.
@@ -78,12 +82,17 @@ const RootGroup = "Superadmin (Root)"
 
 // DefaultGroups are seeded once on a fresh database — and that is the only
 // built-in data the panel has.
+//
+// Limits are per member. The root group is deliberately unlimited (zero) so a
+// fresh install can never fail the capacity guard; the other two carry a
+// sensible package that the operator can adjust.
 func DefaultGroups() []Group {
 	return []Group{
 		{
 			Name:        RootGroup,
-			Description: "Full access to every module.",
+			Description: "Full access to every module, no resource limits.",
 			Permissions: GrantAll(),
+			Limits:      resources.Limits{},
 			IsDefault:   true,
 			IsSystem:    true,
 		},
@@ -102,6 +111,7 @@ func DefaultGroups() []Group {
 				CapUsers:             false,
 				CapAPITokens:         false,
 			},
+			Limits:    resources.DefaultLimits(),
 			IsDefault: true,
 			IsSystem:  true,
 		},
@@ -109,8 +119,14 @@ func DefaultGroups() []Group {
 			Name:        "Read Only",
 			Description: "View dashboards, metrics and logs; nothing can be changed.",
 			Permissions: GrantNothing(),
-			IsDefault:   true,
-			IsSystem:    true,
+			Limits: resources.Limits{
+				CPUQuotaPercent: 50,
+				MemoryMB:        512,
+				TasksMax:        128,
+				DiskQuotaGB:     5,
+			},
+			IsDefault: true,
+			IsSystem:  true,
 		},
 	}
 }

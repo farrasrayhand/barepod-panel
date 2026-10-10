@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -52,8 +53,11 @@ func userCreate(args []string) error {
 	fs := flag.NewFlagSet("barepod user create", flag.ContinueOnError)
 	username := fs.String("username", "", "account name")
 	email := fs.String("email", "", "email address (defaults to <username>@barepod.local)")
-	group := fs.String("group", "Developer", "permission group the account joins")
+	group := fs.String("group", "Developer", "permission group (package) the account joins")
 	password := fs.String("password", "", "password (defaults to a generated one; BAREPOD_ADMIN_PASSWORD)")
+	quota := fs.String("quota", "", "disk quota override, e.g. 10GB (defaults to the package limit)")
+	dryRun := fs.Bool("dry-run", false, "record OS commands instead of running them")
+	noOSUser := fs.Bool("no-os-user", false, "skip creating the Linux tenant account")
 	dbPath := fs.String("db", config.DefaultDBPath(), "path to the panel database")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -99,6 +103,16 @@ func userCreate(args []string) error {
 
 	fmt.Printf("Account %q created in group %q.\n\n", *username, grp.Name)
 	printCredentials(*username, pw, generated, *dbPath)
+
+	// The Linux account isolates the tenant; a failure here does not invalidate
+	// the panel account, and `barepod tenant provision` can retry it later.
+	if !*noOSUser {
+		fmt.Printf("\nPackage %q: %s\n", grp.Name, grp.Limits.Describe())
+		if err := provisionOSUser(st, *username, grp, *quota, *dryRun); err != nil {
+			fmt.Fprintf(os.Stderr, "\nbarepod: the panel account exists, but the Linux account could not be set up: %v\n", err)
+			fmt.Fprintln(os.Stderr, "         retry it with: barepod tenant provision --username "+*username)
+		}
+	}
 	return nil
 }
 
@@ -309,9 +323,18 @@ func userSetStatus(args []string, status string) error {
 	if err := st.SetUserStatus(username, status); err != nil {
 		return err
 	}
+	// Mirror the state on the OS account so a suspended tenant cannot run
+	// anything even if it reaches the host directly.
+	mgr := newTenantManager(false)
 	if status == "active" {
+		if err := mgr.Unlock(context.Background(), username); err != nil {
+			fmt.Fprintf(os.Stderr, "barepod: could not unlock the Linux account: %v\n", err)
+		}
 		fmt.Printf("Account %q is active again.\n", username)
 	} else {
+		if err := mgr.Lock(context.Background(), username); err != nil {
+			fmt.Fprintf(os.Stderr, "barepod: could not lock the Linux account: %v\n", err)
+		}
 		fmt.Printf("Account %q suspended — its sessions were revoked and it cannot sign in.\n", username)
 	}
 	return nil

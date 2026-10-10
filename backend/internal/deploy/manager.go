@@ -8,6 +8,7 @@ package deploy
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -18,10 +19,16 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/provision"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/supervisor"
 )
+
+// keepRecentJobs is how many deploy jobs (with their logs) are retained per
+// website; older ones are pruned so a frequently redeployed site cannot grow the
+// panel database without bound.
+const keepRecentJobs = 10
 
 // SourceSpec describes where the code comes from.
 type SourceSpec struct {
@@ -132,6 +139,13 @@ func plan() []step {
 }
 
 func (m *Manager) run(job *store.DeployJob, req Request, steps []step) {
+	// Bound the job history whether the deploy succeeds or fails.
+	defer func() {
+		if removed, err := m.store.PruneDeployJobs(job.Slug, keepRecentJobs); err == nil && removed > 0 {
+			log.Printf("deploy: pruned %d old job(s) for %s", removed, job.Slug)
+		}
+	}()
+
 	job.Status = "running"
 	_ = m.store.UpdateDeployJob(job)
 
@@ -417,7 +431,23 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 	return nil
 }
 
+// tenantLimits resolves the resource package of a tenant's group.
+// An unknown account or group means "unlimited", never a missing limit.
+func (m *Manager) tenantLimits(tenant string) resources.Limits {
+	account, err := m.store.UserByUsername(tenant)
+	if err != nil {
+		return resources.Limits{}
+	}
+	group, err := m.store.GroupByName(account.GroupName)
+	if err != nil {
+		return resources.Limits{}
+	}
+	return group.Limits
+}
+
 func stepRenderUnit(ctx context.Context, s *state) error {
+	// cgroup v2 limits come from the tenant's package (group), never hardcoded.
+	limits := s.m.tenantLimits(s.req.Tenant)
 	spec := supervisor.Spec{
 		Slug:        s.req.Slug,
 		Tenant:      s.req.Tenant,
@@ -428,14 +458,16 @@ func stepRenderUnit(ctx context.Context, s *state) error {
 		EnvFile:     s.envPath,
 		ExecStart:   provision.ExecStart(s.req.Runtime, s.req.Version, s.req.Framework, s.siteDir, s.req.Port),
 		Port:        s.req.Port,
-		MemoryMaxMB: 512,
-		CPUQuota:    100,
+		MemoryMaxMB: limits.MemoryMB,
+		CPUQuota:    limits.CPUQuotaPercent,
+		TasksMax:    limits.TasksMax,
 	}
 
 	templatePath, dropInPath, err := supervisor.Write(s.m.host.UnitsDir, spec)
 	if err != nil {
 		return err
 	}
+	s.log("stdout", "resource limits from the package: "+limits.Describe())
 	s.log("stdout", "unit template: "+templatePath)
 	s.log("stdout", "per-site override: "+dropInPath)
 	s.log("stdout", "exec: "+strings.Join(spec.ExecStart, " "))

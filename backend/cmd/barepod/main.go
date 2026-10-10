@@ -31,8 +31,10 @@ Commands:
   admin passwd <user>   set a new password for an account
   user create           create a non-admin account in a group
   user list             list panel accounts
-  user suspend <user>   suspend an account (revokes its sessions)
+  user suspend <user>   suspend an account (revokes its sessions, locks the Linux user)
   user activate <user>  re-activate a suspended account
+  group list            show packages with their permissions and resource limits
+  tenant provision      create/repair the Linux account for a panel user
   version               print the version
   help                  print this help
 
@@ -55,6 +57,10 @@ func main() {
 		err = runAdmin(os.Args[2:])
 	case "user":
 		err = runUser(os.Args[2:])
+	case "group":
+		err = runGroup(os.Args[2:])
+	case "tenant":
+		err = runTenant(os.Args[2:])
 	case "version", "-v", "--version":
 		fmt.Println("barepod " + version)
 	case "help", "-h", "--help":

@@ -20,6 +20,9 @@ type Capabilities struct {
 	Docker       bool   `json:"docker"`
 	Smart        bool   `json:"smart"`
 	Fstrim       bool   `json:"fstrim"`
+	Useradd      bool   `json:"useradd"`   // can create Linux tenant accounts
+	Quota        bool   `json:"quota"`     // setquota/quota tools available
+	RunAsUser    bool   `json:"runAsUser"` // can drop to a tenant UID/GID (Linux)
 	SystemdState string `json:"systemdState"`
 }
 
@@ -80,6 +83,9 @@ func Detect() Capabilities {
 		Docker:       has("docker"),
 		Smart:        has("smartctl"),
 		Fstrim:       has("fstrim") && !lxc,
+		Useradd:      runtime.GOOS == "linux" && has("useradd"),
+		Quota:        runtime.GOOS == "linux" && has("setquota"),
+		RunAsUser:    runtime.GOOS == "linux",
 		SystemdState: state,
 	}
 }

@@ -3,17 +3,16 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"regexp"
-	"strconv"
-	"strings"
-	"time"
-
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/provision"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/validate"
+	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type sourcePayload struct {
@@ -144,6 +143,20 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 	if user.Role != "admin" && user.Username != req.TenantUser {
 		writeError(w, http.StatusForbidden, "forbidden", "You can only deploy inside your own account")
 		return
+	}
+	// Package guard: the tenant's group may cap how many websites it can own.
+	if limits := s.limitsForTenant(req.TenantUser); limits.MaxSites > 0 {
+		count, err := s.store.CountWebsitesByTenant(req.TenantUser)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not check the package limits")
+			return
+		}
+		if count >= limits.MaxSites {
+			writeJSON(w, http.StatusConflict, validationResponse(
+				map[string]string{"slug": fmt.Sprintf("this account may own at most %d websites", limits.MaxSites)},
+				"The package limit for this account has been reached"))
+			return
+		}
 	}
 	if req.Source.Kind == "existing" && !s.host.SiteExists(req.TenantUser, req.Slug) {
 		writeJSON(w, http.StatusConflict, validationResponse(

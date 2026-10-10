@@ -11,6 +11,7 @@ var migrations = []migration{
 	{version: 1, statements: schemaV1},
 	{version: 2, statements: schemaV2},
 	{version: 3, statements: schemaV3},
+	{version: 4, statements: schemaV4},
 }
 
 // schemaV2 adds the deploy job ledger: one row per deployment, plus its step log.
@@ -54,4 +55,16 @@ const schemaV3 = `
 ALTER TABLE groups ADD COLUMN description TEXT NOT NULL DEFAULT '';
 ALTER TABLE groups ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE groups ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0;
+`
+
+// schemaV4 gives each group (= tenant package) its resource allowances.
+// 0 means unlimited for every column, so existing rows keep working.
+const schemaV4 = `
+ALTER TABLE groups ADD COLUMN cpu_quota_percent INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE groups ADD COLUMN memory_mb INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE groups ADD COLUMN tasks_max INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE groups ADD COLUMN disk_quota_gb INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE groups ADD COLUMN inode_quota INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE groups ADD COLUMN max_sites INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE groups ADD COLUMN max_databases INTEGER NOT NULL DEFAULT 0;
 `
