@@ -40,7 +40,11 @@ export const WebTerminalView: React.FC<WebTerminalViewProps> = ({
       setTerminalHistory([
         { 
           type: 'output', 
-          text: `[SYSTEM] Switched context to isolated tenant: '${currentApp.tenantUser}'\nWorkspace: /home/${currentApp.tenantUser}/apps/${currentApp.name}\nActive CLI Shim: ${currentApp.runtime.toUpperCase()} ${currentApp.version}\n` 
+          text: `[SYSTEM] Switched context to isolated tenant: '${currentApp.tenantUser}'
+Workspace: /home/${currentApp.tenantUser}/apps/${currentApp.name}
+Polyglot PATH: ${currentApp.runtime.toUpperCase()} ${currentApp.version} (Primary) + Node.js 22 LTS + Python 3.12
+Hybrid Monorepo Sandbox: ACTIVE (Full multi-runtime support for PHP backend, Vite/Node frontend & Python workers)
+` 
         }
       ]);
     }
@@ -65,52 +69,151 @@ export const WebTerminalView: React.FC<WebTerminalViewProps> = ({
     let response = '';
 
     if (trimmed === 'help') {
-      response = `Available commands in this isolated sandbox:
-  php -v        : Check active PHP version (auto-switched per site)
-  node -v       : Check active Node.js version
-  python -v     : Check active Python version
+      response = `Available commands in this Polyglot Hybrid Sandbox:
+  php -v        : Check active PHP version (Primary runtime or Polyglot shim)
+  php -m        : List all loaded PHP extensions (redis, imagick, swoole, pdo_*, etc.)
+  php --ini     : Show loaded php.ini and additional configuration files
+  php artisan   : Run Laravel Artisan command
+  node -v       : Check active Node.js version (ready for Vite / Tailwind build)
+  npm -v        : Check NPM package manager version
+  npx -v        : Check NPX package runner
+  pnpm -v       : Check fast PNPM package manager
+  python -v     : Check active Python version (ready for AI/Scraping scripts)
+  pip -V        : Check Python PIP package manager
+  composer -V   : Check PHP Composer version
   ls -la        : List directory files in isolated tenant jail
   pwd           : Print current isolated working directory
   whoami        : Show active tenant user
-  composer -V   : Check PHP Composer version
-  pnpm -v       : Check fast PNPM package manager
-  env           : Show isolated environment variables
+  env           : Show polyglot environment variables & PATH
   clear         : Clear terminal screen`;
-    } else if (trimmed === 'php -v') {
-      if (currentApp.runtime === 'php') {
-        response = `PHP ${currentApp.version}.2 (cli) (built: Oct 10 2026 12:40:11) (NTS)
+    } else if (trimmed === 'php -v' || trimmed === 'php --version') {
+      const phpVer = currentApp.runtime === 'php' ? currentApp.version : '8.4';
+      response = `PHP ${phpVer}.2 (cli) (built: Oct 10 2026 12:40:11) (NTS)
 Copyright (c) The PHP Group
 Zend Engine v4.4.2, Copyright (c) Zend Technologies
-    with Zend OPcache v8.4.2, Copyright (c), by Zend Technologies`;
-      } else {
-        response = `bash: php: command not loaded in default PATH for ${currentApp.runtime.toUpperCase()} container. (Auto-isolated)`;
-      }
-    } else if (trimmed === 'node -v' || trimmed === 'nodejs -v') {
+    with Zend OPcache v${phpVer}.2, Copyright (c), by Zend Technologies`;
+    } else if (trimmed === 'php -m' || trimmed === 'php --modules') {
+      response = `[PHP Modules]
+bcmath
+bz2
+calendar
+Core
+ctype
+curl
+date
+dom
+exif
+fileinfo
+filter
+ftp
+gd
+gettext
+hash
+iconv
+imagick
+intl
+json
+libxml
+mbstring
+mysqli
+mysqlnd
+openssl
+pcntl
+pcre
+PDO
+pdo_mysql
+pdo_pgsql
+pdo_sqlite
+Phar
+posix
+readline
+redis
+Reflection
+session
+shmop
+SimpleXML
+soap
+sockets
+sodium
+SPL
+standard
+swoole
+sysvmsg
+sysvsem
+sysvshm
+tokenizer
+xml
+xmlreader
+xmlwriter
+xsl
+Zend OPcache
+zip
+zlib
+
+[Zend Modules]
+Zend OPcache`;
+    } else if (trimmed === 'php --ini') {
+      const phpVer = currentApp.runtime === 'php' ? currentApp.version : '8.4';
+      response = `Configuration File (php.ini) Path: /etc/php/${phpVer}/cli
+Loaded Configuration File:         /etc/php/${phpVer}/cli/php.ini
+Scan for additional .ini files in: /etc/php/${phpVer}/cli/conf.d
+Additional .ini files parsed:      10-opcache.ini, 20-bcmath.ini, 20-curl.ini, 20-gd.ini, 20-imagick.ini, 20-intl.ini, 20-mbstring.ini, 20-pdo_mysql.ini, 20-pdo_pgsql.ini, 20-redis.ini, 20-swoole.ini, 20-zip.ini`;
+    } else if (trimmed === 'php artisan' || trimmed === 'artisan') {
+      response = `Laravel Framework 12.1.4
+
+Usage:
+  command [options] [arguments]
+
+Options:
+  -h, --help            Display help for the given command
+  -q, --quiet           Do not output any message
+  -V, --version         Display this application version
+  --env[=ENV]           The environment the command should run under
+
+Available commands:
+  about                 Display basic information about your application
+  clear-compiled        Remove the compiled class file
+  migrate               Run the database migrations
+  optimize              Cache the framework bootstrap files
+  route:list            List all registered routes
+  schedule:run          Run the scheduled tasks`;
+    } else if (trimmed === 'node -v' || trimmed === 'nodejs -v' || trimmed === 'node --version') {
       if (currentApp.runtime === 'nodejs') {
         response = `v${currentApp.version.replace(' LTS', '')}.11.0`;
       } else {
-        response = `bash: node: command not linked in ${currentApp.runtime.toUpperCase()} jail environment.`;
+        response = `v22.11.0 (Node.js 22 LTS active in tenant PATH for Vite/Tailwind frontend builds)`;
       }
-    } else if (trimmed === 'python -v' || trimmed === 'python --version' || trimmed === 'python3 --version') {
+    } else if (trimmed === 'npm -v' || trimmed === 'npm --version' || trimmed === 'npm') {
+      response = `10.8.2`;
+    } else if (trimmed === 'npx -v' || trimmed === 'npx') {
+      response = `10.8.2`;
+    } else if (trimmed === 'pnpm -v' || trimmed === 'pnpm') {
+      response = `9.12.0`;
+    } else if (trimmed === 'python -v' || trimmed === 'python --version' || trimmed === 'python3 --version' || trimmed === 'python3 -V') {
       if (currentApp.runtime === 'python') {
         response = `Python ${currentApp.version}.8 (main, Oct 10 2026, 11:22:15) [GCC 13.2.0] on linux`;
       } else {
-        response = `bash: python: isolated environment for ${currentApp.runtime.toUpperCase()}.`;
+        response = `Python 3.12.3 (main, Oct 10 2026, 11:22:15) [GCC 13.2.0] on linux (Polyglot Runtime linked in PATH)`;
       }
+    } else if (trimmed === 'pip -V' || trimmed === 'pip3 -V' || trimmed === 'pip') {
+      response = `pip 24.0 from /usr/local/lib/python3.12/site-packages/pip (python 3.12)`;
     } else if (trimmed === 'pwd') {
       response = `/home/${currentApp.tenantUser}/apps/${currentApp.name}`;
     } else if (trimmed === 'whoami') {
-      response = `${currentApp.tenantUser} (uid=1002, gid=1002, groups=tenant-jail)`;
+      response = `${currentApp.tenantUser} (uid=1002, gid=1002, groups=tenant-jail,hybrid-developers)`;
     } else if (trimmed === 'ls -la' || trimmed === 'ls') {
       if (currentApp.runtime === 'php') {
-        response = `total 72
-drwxr-xr-x 8 ${currentApp.tenantUser} ${currentApp.tenantUser} 4096 Oct 10 16:30 .
+        response = `total 80
+drwxr-xr-x 9 ${currentApp.tenantUser} ${currentApp.tenantUser} 4096 Oct 10 16:30 .
 drwxr-xr-x 3 ${currentApp.tenantUser} ${currentApp.tenantUser} 4096 Oct 10 16:29 ..
 -rw-r--r-- 1 ${currentApp.tenantUser} ${currentApp.tenantUser}  632 Oct 10 16:30 .env
 -rw-r--r-- 1 ${currentApp.tenantUser} ${currentApp.tenantUser} 1240 Oct 10 16:30 artisan
 drwxr-xr-x 2 ${currentApp.tenantUser} ${currentApp.tenantUser} 4096 Oct 10 16:30 app
 -rw-r--r-- 1 ${currentApp.tenantUser} ${currentApp.tenantUser} 1850 Oct 10 16:30 composer.json
+-rw-r--r-- 1 ${currentApp.tenantUser} ${currentApp.tenantUser}  540 Oct 10 16:30 package.json
+-rw-r--r-- 1 ${currentApp.tenantUser} ${currentApp.tenantUser}  120 Oct 10 16:30 vite.config.js
 drwxr-xr-x 4 ${currentApp.tenantUser} ${currentApp.tenantUser} 4096 Oct 10 16:30 public
+drwxr-xr-x 3 ${currentApp.tenantUser} ${currentApp.tenantUser} 4096 Oct 10 16:30 ai_scripts (python workers)
 drwxr-xr-x 5 ${currentApp.tenantUser} ${currentApp.tenantUser} 4096 Oct 10 16:30 storage`;
       } else if (currentApp.runtime === 'nodejs') {
         response = `total 64
@@ -127,19 +230,22 @@ drwxr-xr-x 5 ${currentApp.tenantUser} ${currentApp.tenantUser} 4096 Oct 10 17:15
 drwxr-xr-x 4 ${currentApp.tenantUser} ${currentApp.tenantUser} 4096 Oct 10 17:15 venv`;
       }
     } else if (trimmed === 'composer -V' || trimmed === 'composer --version') {
-      response = `Composer version 2.7.9 2026-09-04 14:02:12 (PHP ${currentApp.version})`;
-    } else if (trimmed === 'pnpm -v') {
-      response = `9.12.0`;
+      const phpVer = currentApp.runtime === 'php' ? currentApp.version : '8.4';
+      response = `Composer version 2.7.9 2026-09-04 14:02:12 (PHP ${phpVer}.2)`;
     } else if (trimmed === 'env') {
+      const phpVer = currentApp.runtime === 'php' ? currentApp.version : '8.4';
       response = `USER=${currentApp.tenantUser}
 HOME=/home/${currentApp.tenantUser}
 APP_PATH=/home/${currentApp.tenantUser}/apps/${currentApp.name}
 BAREPOD_RUNTIME=${currentApp.runtime}
 BAREPOD_VERSION=${currentApp.version}
-PATH=/opt/runtimes/${currentApp.runtime}/${currentApp.version}/bin:/usr/local/bin:/usr/bin
+BAREPOD_HYBRID_MONOREPO=enabled
+PATH=/opt/runtimes/${currentApp.runtime}/${currentApp.version}/bin:/opt/runtimes/php/${phpVer}/bin:/opt/runtimes/nodejs/22/bin:/opt/runtimes/python/3.12/bin:/usr/local/bin:/usr/bin
+NODE_PATH=/opt/runtimes/nodejs/22/lib/node_modules
+PYTHONPATH=/home/${currentApp.tenantUser}/apps/${currentApp.name}/ai_scripts
 SHELL=/bin/bash`;
     } else {
-      response = `bash: ${trimmed}: command executed in ${currentApp.tenantUser} isolated jail. Type 'help' to see sample commands.`;
+      response = `bash: ${trimmed}: command executed in ${currentApp.tenantUser} polyglot jail. Type 'help' to see sample commands.`;
     }
 
     newHistory.push({ type: 'output', text: response });
@@ -190,9 +296,9 @@ SHELL=/bin/bash`;
       <div className="p-4 bg-indigo-50/70 border border-indigo-200/60 rounded-xl flex items-start gap-3 text-xs text-indigo-900">
         <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
         <div>
-          <span className="font-semibold">Sistem Otomatisasi CLI Multi-Tenant:</span>
-          <p className="text-indigo-700 mt-0.5">
-            Di BarePod, setiap user/site memiliki sandbox isolasi mandiri. Saat Anda memilih <strong>{currentApp.name}</strong>, perintah <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-indigo-900">php -v</code> atau <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-indigo-900">node -v</code> otomatis menggunakan versi yang dipilih pada website tersebut tanpa mengganggu user lain di server.
+          <span className="font-semibold">Polyglot Hybrid Monorepo Sandbox (Multi-Runtime Aktif Bersamaan):</span>
+          <p className="text-indigo-700 mt-0.5 leading-relaxed">
+            Di BarePod, sandbox tenant mendukung ekosistem hybrid! Anda bebas menjalankan backend <strong>PHP {currentApp.version}</strong>, build frontend dengan <strong>Node.js 22 LTS (Vite & npm)</strong>, serta background script <strong>Python 3.12</strong> di satu workspace yang sama tanpa konflik. Gunakan <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-indigo-900">php -m</code> untuk memeriksa extension PHP yang aktif.
           </p>
         </div>
       </div>
@@ -202,11 +308,14 @@ SHELL=/bin/bash`;
         <span className="text-xs text-slate-400 font-medium">Quick commands:</span>
         {[
           { label: 'php -v', cmd: 'php -v' },
+          { label: 'php -m (Extensions)', cmd: 'php -m' },
+          { label: 'php --ini', cmd: 'php --ini' },
           { label: 'node -v', cmd: 'node -v' },
+          { label: 'npm -v', cmd: 'npm -v' },
           { label: 'python -v', cmd: 'python -v' },
+          { label: 'pip -V', cmd: 'pip -V' },
+          { label: 'php artisan', cmd: 'php artisan' },
           { label: 'ls -la', cmd: 'ls -la' },
-          { label: 'pwd', cmd: 'pwd' },
-          { label: 'whoami', cmd: 'whoami' },
           { label: 'env', cmd: 'env' },
           { label: 'clear', cmd: 'clear' },
         ].map((item) => (

@@ -36,7 +36,14 @@ import {
   ArrowRightLeft,
   Wifi,
   Code2,
-  Plus
+  Plus,
+  Sliders,
+  Settings,
+  Boxes,
+  FileCode,
+  ToggleLeft,
+  ToggleRight,
+  Package
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
 
@@ -47,6 +54,7 @@ interface AppDetailPageProps {
   onOpenTerminal: (app: WebApp) => void;
   onOpenFiles: (app: WebApp) => void;
   onOpenGit: (app: WebApp) => void;
+  onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const AppDetailPage: React.FC<AppDetailPageProps> = ({
@@ -56,14 +64,53 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   onOpenTerminal,
   onOpenFiles,
   onOpenGit,
+  onShowToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'monitoring' | 'overview' | 'logs' | 'routing' | 'env'>('monitoring');
+  const [activeTab, setActiveTab] = useState<'monitoring' | 'overview' | 'logs' | 'routing' | 'env' | 'php'>('monitoring');
   const [logType, setLogType] = useState<'all' | 'access' | 'error' | 'deploy'>('all');
   const [logSearch, setLogSearch] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedEnv, setCopiedEnv] = useState(false);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
   const [maskSecrets, setMaskSecrets] = useState(true);
+
+  // PHP Extensions & Configuration Studio State
+  const [phpExtensions, setPhpExtensions] = useState<Array<{ name: string; category: string; description: string; enabled: boolean; version?: string }>>([
+    { name: 'redis', category: 'cache', description: 'In-memory Redis cache client & session handler', enabled: true, version: '6.0.2' },
+    { name: 'imagick', category: 'media', description: 'ImageMagick image processing, format conversion & PDF rendering', enabled: true, version: '3.7.0' },
+    { name: 'gd', category: 'media', description: 'GD graphics drawing, thumbnail generation & WebP/PNG resizing', enabled: true, version: '2.3.3' },
+    { name: 'opcache', category: 'cache', description: 'Zend OPcache bytecode acceleration & JIT compiler engine', enabled: true, version: '8.4.2' },
+    { name: 'swoole', category: 'cache', description: 'High-concurrency async coroutine event-driven runtime (Laravel Octane)', enabled: false, version: '5.1.2' },
+    { name: 'pdo_mysql', category: 'database', description: 'MySQL 8 & MariaDB PDO relational database driver', enabled: true, version: '8.4.2' },
+    { name: 'pdo_pgsql', category: 'database', description: 'PostgreSQL 16 PDO relational database driver', enabled: true, version: '8.4.2' },
+    { name: 'pdo_sqlite', category: 'database', description: 'SQLite3 embedded file-based PDO database driver', enabled: true, version: '8.4.2' },
+    { name: 'mongodb', category: 'database', description: 'MongoDB official NoSQL BSON client driver', enabled: true, version: '1.18.1' },
+    { name: 'bcmath', category: 'core', description: 'Arbitrary precision mathematics for financial decimal calculations', enabled: true, version: '8.4.2' },
+    { name: 'zip', category: 'core', description: 'Zip archive compression, packaging & extraction library', enabled: true, version: '1.22.3' },
+    { name: 'intl', category: 'core', description: 'Internationalization & ICU Unicode collation formatting', enabled: true, version: '8.4.2' },
+    { name: 'xml', category: 'core', description: 'DOM, SimpleXML, and XMLReader parsing engines', enabled: true, version: '8.4.2' },
+    { name: 'curl', category: 'core', description: 'libcurl client for external HTTP/REST API outbound requests', enabled: true, version: '8.4.2' },
+    { name: 'pcntl', category: 'core', description: 'Process control & signal handling for queue worker supervisors', enabled: true, version: '8.4.2' },
+    { name: 'exif', category: 'media', description: 'Exchangeable Image File Format header & metadata reader', enabled: true, version: '8.4.2' },
+    { name: 'sodium', category: 'security', description: 'Modern high-security cryptographic functions (libsodium)', enabled: true, version: '8.4.2' },
+    { name: 'soap', category: 'core', description: 'Simple Object Access Protocol client and server provider', enabled: false, version: '8.4.2' },
+    { name: 'ioncube', category: 'security', description: 'IonCube Loader for executing encoded PHP commercial software', enabled: false, version: '13.0.4' },
+  ]);
+
+  const [extensionSearch, setExtensionSearch] = useState('');
+  const [extensionFilterCat, setExtensionFilterCat] = useState<string>('all');
+  const [customExtensionInput, setCustomExtensionInput] = useState('');
+  const [isInstallingExtension, setIsInstallingExtension] = useState(false);
+
+  // Core php.ini directives
+  const [memoryLimit, setMemoryLimit] = useState('512M');
+  const [uploadMaxFilesize, setUploadMaxFilesize] = useState('100M');
+  const [postMaxSize, setPostMaxSize] = useState('100M');
+  const [maxExecutionTime, setMaxExecutionTime] = useState('300');
+  const [maxInputVars, setMaxInputVars] = useState('5000');
+  const [displayErrors, setDisplayErrors] = useState(false);
+  const [opcacheEnabled, setOpcacheEnabled] = useState(true);
+  const [isReloadingFpm, setIsReloadingFpm] = useState(false);
 
   // Reverse Proxy Specific Interactive State
   const [currentUpstream, setCurrentUpstream] = useState(app.upstreamUrl || `http://127.0.0.1:${app.port}`);
@@ -114,6 +161,55 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
     setNewRouteUpstream('');
     setNewRouteTarget('');
     setShowAddRoute(false);
+  };
+
+  const handleToggleExtension = (extName: string) => {
+    setPhpExtensions(prev => prev.map(ext => {
+      if (ext.name === extName) {
+        const nextState = !ext.enabled;
+        onShowToast?.(
+          nextState ? 'Extension Activated' : 'Extension Deactivated',
+          `Executed: ${nextState ? 'phpenmod' : 'phpdismod'} ${ext.name}. Reloading PHP-FPM pool...`,
+          'success'
+        );
+        return { ...ext, enabled: nextState };
+      }
+      return ext;
+    }));
+  };
+
+  const handleInstallCustomExtension = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customExtensionInput.trim()) return;
+    const name = customExtensionInput.trim().toLowerCase();
+    setIsInstallingExtension(true);
+    onShowToast?.('PECL Compile Started', `Running: pecl install ${name} && phpenmod ${name}...`, 'info');
+    setTimeout(() => {
+      setIsInstallingExtension(false);
+      setPhpExtensions(prev => [
+        { name, category: 'core', description: `Custom PECL extension (${name}) installed & enabled in /etc/php/conf.d`, enabled: true, version: '1.0.0' },
+        ...prev
+      ]);
+      setCustomExtensionInput('');
+      onShowToast?.('Extension Installed', `Extension ${name} berhasil dikompilasi & diaktifkan di PHP ${app.version}.`, 'success');
+    }, 900);
+  };
+
+  const handleSavePhpIni = (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsReloadingFpm(true);
+    setTimeout(() => {
+      setIsReloadingFpm(false);
+      onShowToast?.('php.ini Tersimpan', `Konfigurasi pool ${app.tenantUser} diterapkan. systemctl reload php-fpm [OK].`, 'success');
+    }, 600);
+  };
+
+  const handleRestartFpmPool = () => {
+    setIsReloadingFpm(true);
+    setTimeout(() => {
+      setIsReloadingFpm(false);
+      onShowToast?.('PHP-FPM Reloaded', `Pool /run/php/php${app.version || '8.4'}-fpm.sock di-restart secara mulus.`, 'success');
+    }, 500);
   };
 
   // Simulated live CPU & RAM metrics
@@ -400,6 +496,21 @@ QUEUE_CONNECTION=redis`;
         >
           <Lock className="w-4 h-4" />
           <span>Environment (.env)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('php')}
+          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+            activeTab === 'php'
+              ? 'border-purple-600 text-purple-700 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>PHP & Extensions</span>
+          <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
+            {app.runtime === 'php' ? `PHP ${app.version}` : 'PHP 8.4'}
+          </span>
         </button>
 
         <button
@@ -991,6 +1102,335 @@ SESSION_DRIVER=redis
 CACHE_STORE=redis
 QUEUE_CONNECTION=redis`}
             </pre>
+          </div>
+        )}
+
+        {/* TAB: PHP EXTENSIONS & CONFIGURATION STUDIO */}
+        {activeTab === 'php' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* PHP-FPM Pool Info & Quick Actions */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-purple-50/70 border border-purple-200">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-purple-600" />
+                    PHP FastCGI Process Manager (PHP-FPM {app.runtime === 'php' ? app.version : '8.4'})
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    ACTIVE POOL
+                  </span>
+                </div>
+                <p className="text-xs text-purple-800 font-mono">
+                  Socket: <strong>/run/php/php{app.runtime === 'php' ? app.version : '8.4'}-fpm.sock</strong> • User: <strong>{app.tenantUser}</strong> • OPcache JIT: <strong>Enabled (128M)</strong>
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleRestartFpmPool}
+                  disabled={isReloadingFpm}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-700 bg-white hover:bg-purple-100 border border-purple-300 rounded-lg shadow-2xs transition-colors disabled:opacity-50"
+                >
+                  <RotateCw className={`w-3.5 h-3.5 ${isReloadingFpm ? 'animate-spin text-purple-600' : ''}`} />
+                  <span>{isReloadingFpm ? 'Reloading...' : 'Reload PHP-FPM Pool'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Stats: Loaded Extensions Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Loaded Extensions</span>
+                <div className="text-xl font-bold text-purple-700">
+                  {phpExtensions.filter(e => e.enabled).length} <span className="text-xs font-normal text-slate-500">/ {phpExtensions.length} Available</span>
+                </div>
+                <span className="text-[10px] text-slate-500">Managed via phpenmod/phpdismod</span>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Database Drivers</span>
+                <div className="text-xl font-bold text-slate-900">
+                  PDO MySQL, PgSQL, Mongo
+                </div>
+                <span className="text-[10px] text-emerald-600 font-medium">Ready for Eloquent & Doctrine</span>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Cache & Acceleration</span>
+                <div className="text-xl font-bold text-slate-900">
+                  Redis 6.0 + OPcache
+                </div>
+                <span className="text-[10px] text-purple-600 font-medium">Laravel Octane / Swoole Ready</span>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Memory Quota</span>
+                <div className="text-xl font-bold text-slate-900">
+                  {memoryLimit}
+                </div>
+                <span className="text-[10px] text-slate-500">max_execution_time: {maxExecutionTime}s</span>
+              </div>
+            </div>
+
+            {/* Extensions Filter & Search + Install PECL form */}
+            <div className="space-y-4 pt-2">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Cari extension (e.g. redis, imagick, swoole)..."
+                      value={extensionSearch}
+                      onChange={(e) => setExtensionSearch(e.target.value)}
+                      className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg w-64 focus:outline-hidden focus:ring-2 focus:ring-purple-500/20"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1 text-xs">
+                    {['all', 'database', 'cache', 'media', 'core', 'security'].map((cat) => (
+                      <button
+                        key={cat}
+                        onClick={() => setExtensionFilterCat(cat)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                          extensionFilterCat === cat
+                            ? 'bg-purple-600 text-white shadow-2xs'
+                            : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Inline PECL Installer Form */}
+                <form onSubmit={handleInstallCustomExtension} className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    placeholder="Nama extension PECL (e.g. grpc)..."
+                    value={customExtensionInput}
+                    onChange={(e) => setCustomExtensionInput(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono focus:outline-hidden focus:ring-2 focus:ring-purple-500/20"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isInstallingExtension || !customExtensionInput.trim()}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors disabled:opacity-50 whitespace-nowrap"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>{isInstallingExtension ? 'Installing...' : 'Install PECL'}</span>
+                  </button>
+                </form>
+              </div>
+
+              {/* Extensions Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {phpExtensions
+                  .filter(ext => {
+                    const matchesCat = extensionFilterCat === 'all' || ext.category === extensionFilterCat;
+                    const matchesSearch = ext.name.toLowerCase().includes(extensionSearch.toLowerCase()) || 
+                                          ext.description.toLowerCase().includes(extensionSearch.toLowerCase());
+                    return matchesCat && matchesSearch;
+                  })
+                  .map((ext) => (
+                    <div 
+                      key={ext.name}
+                      className={`p-3.5 rounded-xl border transition-all ${
+                        ext.enabled 
+                          ? 'border-purple-200 bg-white shadow-2xs' 
+                          : 'border-slate-200 bg-slate-50/60 opacity-80'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-xs text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">
+                              {ext.name}
+                            </span>
+                            <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200">
+                              {ext.category}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 mt-1 leading-snug line-clamp-2">
+                            {ext.description}
+                          </p>
+                        </div>
+
+                        {/* Interactive Toggle Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleToggleExtension(ext.name)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                            ext.enabled ? 'bg-purple-600' : 'bg-slate-300'
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                              ext.enabled ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                        <span>Config: 20-{ext.name}.ini</span>
+                        <span className={`font-bold ${ext.enabled ? 'text-emerald-600' : 'text-slate-400'}`}>
+                          {ext.enabled ? 'LOADED' : 'DISABLED'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            {/* Core php.ini Directives Form */}
+            <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-purple-600" />
+                    Core php.ini Runtime Directives
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Modifikasi parameter runtime PHP-FPM khusus untuk tenant <code>{app.tenantUser}</code> tanpa mempengaruhi website lain.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSavePhpIni}
+                  disabled={isReloadingFpm}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors disabled:opacity-50"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{isReloadingFpm ? 'Menyimpan...' : 'Simpan & Terapkan php.ini'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    memory_limit
+                  </label>
+                  <select
+                    value={memoryLimit}
+                    onChange={(e) => setMemoryLimit(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                  >
+                    <option value="128M">128M (Default)</option>
+                    <option value="256M">256M (Medium)</option>
+                    <option value="512M">512M (Recommended)</option>
+                    <option value="1024M">1024M (High Load)</option>
+                    <option value="2048M">2048M (Enterprise)</option>
+                    <option value="-1">-1 (Unlimited)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    upload_max_filesize
+                  </label>
+                  <select
+                    value={uploadMaxFilesize}
+                    onChange={(e) => setUploadMaxFilesize(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                  >
+                    <option value="20M">20M</option>
+                    <option value="50M">50M</option>
+                    <option value="100M">100M (Default)</option>
+                    <option value="250M">250M</option>
+                    <option value="500M">500M</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    post_max_size
+                  </label>
+                  <select
+                    value={postMaxSize}
+                    onChange={(e) => setPostMaxSize(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                  >
+                    <option value="25M">25M</option>
+                    <option value="55M">55M</option>
+                    <option value="100M">100M (Default)</option>
+                    <option value="255M">255M</option>
+                    <option value="512M">512M</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    max_execution_time
+                  </label>
+                  <select
+                    value={maxExecutionTime}
+                    onChange={(e) => setMaxExecutionTime(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                  >
+                    <option value="30">30 detik</option>
+                    <option value="60">60 detik</option>
+                    <option value="120">120 detik</option>
+                    <option value="300">300 detik (5 menit)</option>
+                    <option value="600">600 detik (10 menit)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    max_input_vars
+                  </label>
+                  <select
+                    value={maxInputVars}
+                    onChange={(e) => setMaxInputVars(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                  >
+                    <option value="1000">1000 (Default)</option>
+                    <option value="2500">2500</option>
+                    <option value="5000">5000 (WooCommerce / Large Forms)</option>
+                    <option value="10000">10000</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    display_errors
+                  </label>
+                  <select
+                    value={displayErrors ? '1' : '0'}
+                    onChange={(e) => setDisplayErrors(e.target.value === '1')}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                  >
+                    <option value="0">Off (Recommended for Production)</option>
+                    <option value="1">On (Development Debugging)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    opcache.enable
+                  </label>
+                  <select
+                    value={opcacheEnabled ? '1' : '0'}
+                    onChange={(e) => setOpcacheEnabled(e.target.value === '1')}
+                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                  >
+                    <option value="1">1 (Enabled - Maximum Speed)</option>
+                    <option value="0">0 (Disabled)</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col justify-end">
+                  <div className="text-[11px] text-slate-500 font-mono bg-slate-50 p-2 rounded-lg border border-slate-200">
+                    CLI Equivalent:
+                    <div className="text-purple-700 font-bold mt-0.5">php -i | grep memory_limit</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

@@ -30,6 +30,7 @@ interface AppsViewProps {
   onOpenAddModal: () => void;
   onOpenAppTerminal: (app: WebApp) => void;
   onToggleAppStatus: (appId: string) => void;
+  onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const AppsView: React.FC<AppsViewProps> = ({
@@ -37,6 +38,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
   onOpenAddModal,
   onOpenAppTerminal,
   onToggleAppStatus,
+  onShowToast,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -85,6 +87,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
           onOpenTerminal={onOpenAppTerminal}
           onOpenFiles={(a) => setSelectedAppForFiles(a)}
           onOpenGit={(a) => setSelectedAppForGit(a)}
+          onShowToast={onShowToast}
         />
 
         {/* File Manager Modal over App Detail Page */}

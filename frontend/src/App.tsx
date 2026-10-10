@@ -250,6 +250,7 @@ export function App() {
               onOpenAddModal={() => setIsAddModalOpen(true)}
               onOpenAppTerminal={handleOpenAppTerminal}
               onToggleAppStatus={handleToggleAppStatus}
+              onShowToast={showToast}
             />
           )}
 
