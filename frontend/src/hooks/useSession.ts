@@ -7,7 +7,7 @@
  *   mock     — no daemon reachable: stay in the frontend simulation
  */
 import { useCallback, useEffect, useState } from 'react';
-import { api, apiReachable, ApiError, type PanelUser } from '../api/client';
+import { api, ApiError, type PanelUser } from '../api/client';
 
 export type SessionMode = 'checking' | 'live' | 'mock';
 
@@ -18,6 +18,8 @@ export interface SessionState {
   elevated: boolean;
   error: string;
   busy: boolean;
+  /** Version reported by the daemon, so the UI never shows a made-up number. */
+  daemonVersion: string;
   signIn: (username: string, password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
   useSimulation: () => void;
@@ -31,16 +33,21 @@ export function useSession(): SessionState {
   const [elevated, setElevated] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [daemonVersion, setDaemonVersion] = useState('');
 
   // On mount: is a daemon there, and is this browser already signed in?
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      if (!(await apiReachable())) {
+      try {
+        const health = await api.health();
+        if (!cancelled) setDaemonVersion(health.version);
+      } catch {
         if (!cancelled) setMode('mock');
         return;
       }
+
       try {
         const me = await api.me();
         if (cancelled) return;
@@ -104,5 +111,5 @@ export function useSession(): SessionState {
     [mode, user, permissions],
   );
 
-  return { mode, user, permissions, elevated, error, busy, signIn, signOut, useSimulation, can };
+  return { mode, user, permissions, elevated, error, busy, daemonVersion, signIn, signOut, useSimulation, can };
 }

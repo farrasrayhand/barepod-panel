@@ -1,28 +1,58 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface MetricHistoryChartProps {
   title: string;
   unit?: string;
   data: number[];
+  /** ISO timestamps for each point, so hovering can show when it happened. */
+  timestamps?: string[];
   color: string;
   height?: number;
   ticks?: string[];
   gradientId?: string;
 }
 
+/** "10 Oct · 16:42" (or just the time on very short ranges). */
+function formatStamp(iso: string | undefined, withDate: boolean): string {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const day = date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+  const time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return withDate ? `${day} · ${time}` : time;
+}
+
 export const MetricHistoryChart: React.FC<MetricHistoryChartProps> = ({
   title,
   unit = '',
   data,
+  timestamps,
   color,
   height = 170,
   ticks,
   gradientId,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
-  const width = 420;
+  // The chart must fill the space it is given. A fixed viewBox width with
+  // `w-full` would letterbox the drawing in the middle of a wide card (the
+  // default preserveAspectRatio keeps the aspect ratio), so the width is
+  // measured and the viewBox follows it.
+  const [width, setWidth] = useState(420);
+  useEffect(() => {
+    const element = cardRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver((entries) => {
+      const measured = Math.round(entries[0].contentRect.width);
+      if (measured > 0) setWidth(Math.max(240, measured));
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   const padL = 36;
   const padR = 12;
   const padT = 12;
@@ -49,8 +79,20 @@ export const MetricHistoryChart: React.FC<MetricHistoryChartProps> = ({
   const hovered = hoverIdx === null ? null : data[hoverIdx];
   const hoverX = hoverIdx === null ? 0 : toX(hoverIdx);
   const hoverY = hovered === null ? 0 : toY(hovered);
-  const tooltipRight = hoverX > width - 110;
-  const tickLabel = hoverIdx === null ? '' : xTicks[hoverIdx < data.length / 3 ? 0 : hoverIdx < (data.length * 2) / 3 ? 1 : 2];
+
+  // Timestamps: show the date for long windows, and fall back to the axis label
+  // when the caller did not provide any.
+  const hasStamps = Boolean(timestamps && timestamps.length === data.length && timestamps.length > 1);
+  const spanMs =
+    hasStamps && timestamps
+      ? new Date(timestamps[timestamps.length - 1]).getTime() - new Date(timestamps[0]).getTime()
+      : 0;
+  const withDate = spanMs > 3 * 24 * 60 * 60 * 1000;
+  const axisLabel = hoverIdx === null ? '' : xTicks[hoverIdx < data.length / 3 ? 0 : hoverIdx < (data.length * 2) / 3 ? 1 : 2];
+  const stampLabel = hasStamps && hoverIdx !== null ? formatStamp(timestamps?.[hoverIdx], withDate) : axisLabel;
+
+  const tooltipW = 124;
+  const tooltipRight = hoverX > width - tooltipW - 12;
 
   const handleMove = (e: React.MouseEvent) => {
     const svg = svgRef.current;
@@ -62,7 +104,7 @@ export const MetricHistoryChart: React.FC<MetricHistoryChartProps> = ({
   };
 
   return (
-    <div className="p-3.5 rounded-xl border border-slate-200 bg-white">
+    <div ref={cardRef} className="p-3.5 rounded-xl border border-slate-200 bg-white">
       <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 mb-1.5">
         <span className="text-[11px] font-bold text-slate-700 whitespace-nowrap">{title}</span>
         <span className="text-[10px] font-mono text-slate-500 whitespace-nowrap">
@@ -118,13 +160,13 @@ export const MetricHistoryChart: React.FC<MetricHistoryChartProps> = ({
           <g pointerEvents="none">
             <line x1={hoverX} y1={padT} x2={hoverX} y2={padT + plotH} stroke={color} strokeWidth="1" strokeDasharray="3 3" opacity="0.7" />
             <circle cx={hoverX} cy={hoverY} r="4.5" fill="#fff" stroke={color} strokeWidth="2" />
-            <g transform={`translate(${tooltipRight ? hoverX - 92 : hoverX + 8}, ${Math.max(padT, hoverY - 26)})`}>
-              <rect width="86" height="20" rx="5" fill="#0f172a" opacity="0.92" />
-              <text x="7" y="13.5" fontSize="9.5" fill="#f8fafc" fontFamily="ui-monospace, monospace" fontWeight="bold">
+            <g transform={`translate(${tooltipRight ? hoverX - tooltipW - 8 : hoverX + 8}, ${Math.max(padT, hoverY - 34)})`}>
+              <rect width={tooltipW} height="34" rx="6" fill="#0f172a" opacity="0.94" />
+              <text x="8" y="14" fontSize="10.5" fill="#f8fafc" fontFamily="ui-monospace, monospace" fontWeight="bold">
                 {hovered.toFixed(1)}{unit}
               </text>
-              <text x="79" y="13.5" fontSize="8.5" fill="#94a3b8" textAnchor="end" fontFamily="system-ui, sans-serif">
-                {tickLabel}
+              <text x="8" y="27" fontSize="9" fill="#94a3b8" fontFamily="system-ui, sans-serif">
+                {stampLabel}
               </text>
             </g>
           </g>

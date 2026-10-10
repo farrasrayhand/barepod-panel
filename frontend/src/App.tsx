@@ -551,7 +551,7 @@ systemctl reload uvicorn-ai`,
             />
           )}
 
-          <Footer />
+          <Footer daemonVersion={session.daemonVersion} />
         </main>
       </div>
       {/* Add App Modal */}

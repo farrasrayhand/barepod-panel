@@ -1,7 +1,24 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Document Version:** 0.1 (Prototype) — Frontend UI prototype complete; Go backend daemon & OS engine not implemented yet  
+> **Document Version:** 0.1 (Prototype) — Phase 1 frontend prototype complete; Phase 2 Go daemon in progress (no real site started yet)
 > **Last Updated:** October 10, 2026  
 > **Status:** Active & Maintained
+
+## Versioning policy
+
+The number describes **completed milestones, not effort** — and nothing may
+invent its own version.
+
+- **0.x = prototype line.** It stays on `0.1` while the panel is still a
+  prototype (mock UI, dry-run provisioning, no release artefact).
+- **It only moves when a milestone is finished**, e.g. `0.2` = a website really
+  runs end-to-end on a Linux host; `0.3` = databases module; `1.0` = first
+  release with the installer and a supported upgrade path. Commits, features in
+  progress, and "looks almost done" never bump it.
+- **One source of truth:** the daemon carries the version (`api.Version`,
+  reported by `GET /health`) and the UI displays *that*; in simulation mode the
+  UI falls back to `frontend/src/version.ts`. No component hardcodes its own
+  version string (the footer previously drifted to "v0.6" — that is exactly
+  what this rule prevents).
 
 This document is the complete technical architecture blueprint, module specification, and development roadmap for **BarePod Panel**, a new-generation web hosting management, reverse proxy gateway, and hybrid container hosting platform that is secure, isolated, and easy to use.
 

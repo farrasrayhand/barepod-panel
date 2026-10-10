@@ -107,7 +107,21 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
         const noise = (Math.random() - 0.5) * amp * 0.5;
         return Math.max(0.1, Number((base + wave + drift + noise).toFixed(2)));
       });
-    return { cpu: gen(12, 8), mem: gen(26, 5), net: gen(18, 12), disk: gen(6, 4) };
+
+    // Real timestamps for the window, so hovering can show when a point happened.
+    const spanMs =
+      hostRange === 'live' ? 5 * 60_000
+        : hostRange === '1h' ? 60 * 60_000
+          : hostRange === '24h' ? 24 * 60 * 60_000
+            : hostRange === '7d' ? 7 * 24 * 60 * 60_000
+              : hostRange === '30d' ? 30 * 24 * 60 * 60_000
+                : 90 * 24 * 60 * 60_000;
+    const now = Date.now();
+    const stamps = Array.from({ length: points }, (_, i) =>
+      new Date(now - spanMs + (spanMs * i) / Math.max(1, points - 1)).toISOString(),
+    );
+
+    return { cpu: gen(12, 8), mem: gen(26, 5), net: gen(18, 12), disk: gen(6, 4), stamps };
   }, [hostRange]);
   const [ramUsed, setRamUsed] = useState(2.3);
   const [ramTotal] = useState(8.0);
@@ -722,8 +736,8 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                 </div>
               </div>
 
-              {/* Historical Trends */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
+              {/* Historical Trends — spans the full width, charts side by side on wide screens */}
+              <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">Historical Trends</h3>
@@ -733,11 +747,11 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                     {hostRangeLabel(hostRange)}
                   </span>
                 </div>
-                <div className="grid grid-cols-1 gap-4">
-                  <MetricHistoryChart title="CPU Usage" unit="%" data={history.cpu} color="#2563eb" height={190} ticks={hostRangeTicks(hostRange)} />
-                  <MetricHistoryChart title="Memory Usage" unit="%" data={history.mem} color="#10b981" height={190} ticks={hostRangeTicks(hostRange)} />
-                  <MetricHistoryChart title="Network I/O" unit=" Mbps" data={history.net} color="#0ea5e9" height={190} ticks={hostRangeTicks(hostRange)} />
-                  <MetricHistoryChart title="Disk I/O" unit=" MB/s" data={history.disk} color="#a855f7" height={190} ticks={hostRangeTicks(hostRange)} />
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <MetricHistoryChart title="CPU Usage" unit="%" data={history.cpu} timestamps={history.stamps} color="#2563eb" height={220} ticks={hostRangeTicks(hostRange)} />
+                  <MetricHistoryChart title="Memory Usage" unit="%" data={history.mem} timestamps={history.stamps} color="#10b981" height={220} ticks={hostRangeTicks(hostRange)} />
+                  <MetricHistoryChart title="Network I/O" unit=" Mbps" data={history.net} timestamps={history.stamps} color="#0ea5e9" height={220} ticks={hostRangeTicks(hostRange)} />
+                  <MetricHistoryChart title="Disk I/O" unit=" MB/s" data={history.disk} timestamps={history.stamps} color="#a855f7" height={220} ticks={hostRangeTicks(hostRange)} />
                 </div>
               </div>
 
