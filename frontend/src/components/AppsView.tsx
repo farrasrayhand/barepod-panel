@@ -16,12 +16,13 @@ import {
   Server,
   Folder,
   FolderGit2,
-  Activity
+  Activity,
+  Sliders
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
 import { FileManagerModal } from './FileManagerModal';
 import { GitDeploymentModal } from './GitDeploymentModal';
-import { AppDetailModal } from './AppDetailModal';
+import { AppDetailPage } from './AppDetailPage';
 
 interface AppsViewProps {
   apps: WebApp[];
@@ -71,6 +72,36 @@ export const AppsView: React.FC<AppsViewProps> = ({
         return { label: 'Apache', color: 'bg-rose-100 text-rose-800 border-rose-300' };
     }
   };
+
+  // Dedicated Full-Page View for Selected App
+  if (selectedAppForDetails) {
+    return (
+      <>
+        <AppDetailPage
+          app={selectedAppForDetails}
+          onBack={() => setSelectedAppForDetails(null)}
+          onToggleStatus={onToggleAppStatus}
+          onOpenTerminal={onOpenAppTerminal}
+          onOpenFiles={(a) => setSelectedAppForFiles(a)}
+          onOpenGit={(a) => setSelectedAppForGit(a)}
+        />
+
+        {/* File Manager Modal over App Detail Page */}
+        <FileManagerModal
+          isOpen={!!selectedAppForFiles}
+          onClose={() => setSelectedAppForFiles(null)}
+          app={selectedAppForFiles}
+        />
+
+        {/* GitHub Redeployment Modal over App Detail Page */}
+        <GitDeploymentModal
+          isOpen={!!selectedAppForGit}
+          onClose={() => setSelectedAppForGit(null)}
+          app={selectedAppForGit}
+        />
+      </>
+    );
+  }
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
@@ -258,16 +289,17 @@ export const AppsView: React.FC<AppsViewProps> = ({
                       {/* App Tools & Actions */}
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {/* Live Monitoring & Logs Button */}
+                          {/* Manage App Detail Page Button */}
                           <button
                             onClick={() => setSelectedAppForDetails(app)}
-                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
-                            title="Live Monitoring & Streaming Logs"
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer mr-1"
+                            title="Buka Halaman Detail & Monitoring App"
                           >
-                            <Activity className="w-4 h-4" />
+                            <Sliders className="w-3.5 h-3.5" />
+                            <span>Manage</span>
                           </button>
 
-                          {/* File Manager Button (cPanel Style) */}
+                          {/* File Manager Button */}
                           <button
                             onClick={() => setSelectedAppForFiles(app)}
                             className="p-1.5 rounded-lg text-slate-600 hover:text-amber-600 hover:bg-amber-50 transition-colors"
@@ -329,23 +361,6 @@ export const AppsView: React.FC<AppsViewProps> = ({
         isOpen={!!selectedAppForGit}
         onClose={() => setSelectedAppForGit(null)}
         app={selectedAppForGit}
-      />
-
-      {/* App Detail, Live Monitoring & Streaming Logs Modal */}
-      <AppDetailModal
-        isOpen={!!selectedAppForDetails}
-        onClose={() => setSelectedAppForDetails(null)}
-        app={selectedAppForDetails}
-        onToggleStatus={onToggleAppStatus}
-        onOpenTerminal={onOpenAppTerminal}
-        onOpenFiles={(a) => {
-          setSelectedAppForDetails(null);
-          setSelectedAppForFiles(a);
-        }}
-        onOpenGit={(a) => {
-          setSelectedAppForDetails(null);
-          setSelectedAppForGit(a);
-        }}
       />
     </div>
   );

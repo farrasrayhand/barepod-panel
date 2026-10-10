@@ -40,6 +40,7 @@ export interface WebApp {
   memoryUsage: string;
   cpuUsage: string;
   createdAt: string;
+  path?: string;
 }
 
 export type DatabaseEngine = 'postgres' | 'mysql' | 'mariadb' | 'mongodb' | 'redis';
