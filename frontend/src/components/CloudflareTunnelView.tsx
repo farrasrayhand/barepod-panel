@@ -4,7 +4,6 @@ import {
   CheckCircle2, 
   Key, 
   RefreshCw, 
-  ArrowRight, 
   ExternalLink, 
   ShieldCheck, 
   Plus, 
@@ -19,388 +18,445 @@ import {
   Layers,
   Sparkles,
   Server,
-  UserCheck
+  UserCheck,
+  Check,
+  AlertCircle
 } from 'lucide-react';
-import type { UserTunnel, IngressRoute } from '../types';
-import { AddUserTunnelModal } from './AddUserTunnelModal';
+import type { IngressRoute } from '../types';
+
+interface TenantTunnelData {
+  tenantUser: string;
+  tunnelName: string;
+  token: string;
+  status: 'connected' | 'disconnected' | 'configuring';
+  daemonPid: number;
+  memoryUsage: string;
+  uptime: string;
+  routes: IngressRoute[];
+}
 
 interface CloudflareTunnelViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onShowToast }) => {
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [selectedTenantFilter, setSelectedTenantFilter] = useState<string>('all');
-  const [visibleTokenTunnelId, setVisibleTokenTunnelId] = useState<string | null>(null);
+  // Simulated logged-in user (Default to tenant_alex to demonstrate that regular users configure their own tunnel)
+  const [activeUser, setActiveUser] = useState<string>('tenant_alex');
 
-  // New Route Modal State
-  const [isAddRouteOpen, setIsAddRouteOpen] = useState(false);
-  const [activeTunnelForRoute, setActiveTunnelForRoute] = useState<string | null>(null);
-  const [newHostname, setNewHostname] = useState('');
-  const [newTargetService, setNewTargetService] = useState('http://127.0.0.1:8000');
-  const [newAppName, setNewAppName] = useState('');
-
-  // Initial Multi-Tenant Tunnels
-  const [tunnels, setTunnels] = useState<UserTunnel[]>([
-    {
-      id: 'tun-1',
-      tenantUser: 'farras',
-      tunnelName: 'farras-master-tunnel',
-      token: 'eyJhIjoiY2ZmODljNjEyZDJlNDgxMmE5ZjY3YTZlNGMxMmI2YTciLCJ0IjoiZGI3MmE4MTAtYTVlOC00NGI3LThkYzEtY2MwMjI5ZGFkZTdlIiwicyI6Ik1ERTFaVGxtTXprdE1XTXdPUzAwTnpjeUxUbGhPR0V0TkdRMU5qSTRNV1JpT0RWaiJ9',
-      status: 'connected',
-      connectorVersion: '2024.9.1 (PID: 41289)',
-      uptime: '14 Days, 6 Hours',
-      routes: [
-        { hostname: 'larastore.id', service: 'http://127.0.0.1:8001', appName: 'larastore-api (OLS)', status: 'Healthy' },
-        { hostname: 'api.barepod.cloud', service: 'http://127.0.0.1:8080', appName: 'barepod-core (Caddy)', status: 'Healthy' },
-      ],
-    },
-    {
-      id: 'tun-2',
+  // Multi-Tenant Personal Tunnels (Isolated State per User)
+  const [userTunnels, setUserTunnels] = useState<Record<string, TenantTunnelData>>({
+    tenant_alex: {
       tenantUser: 'tenant_alex',
-      tunnelName: 'alex-client-zero-trust',
+      tunnelName: 'alex-zero-trust-tunnel',
       token: 'eyJhIjoiMWE4YmMyZDNlNGY1ZzZoN2k4ajlrMGxtMW4ybzNwNHEiLCJ0IjoiOGUxYTIzNDUtNjg3OS00OGM1LTk2OGUtYTFiMmMzZDRlNTVmIiwicyI6IlpURTNNVGttWXprdE5XTXdPUzAwTnpjeUxUbGhPR0V0TkdRMU5qSTRNV1JpT0RWaiJ9',
       status: 'connected',
-      connectorVersion: '2024.9.1 (PID: 53102)',
+      daemonPid: 53102,
+      memoryUsage: '18 MB',
       uptime: '3 Days, 11 Hours',
       routes: [
         { hostname: 'shop.alexclient.com', service: 'http://127.0.0.1:3000', appName: 'alex-storefront (Nginx)', status: 'Healthy' },
+        { hostname: 'api.alexclient.com', service: 'http://127.0.0.1:3001', appName: 'alex-backend (Node.js)', status: 'Healthy' },
       ],
     },
-    {
-      id: 'tun-3',
+    farras: {
+      tenantUser: 'farras',
+      tunnelName: 'farras-root-tunnel',
+      token: 'eyJhIjoiY2ZmODljNjEyZDJlNDgxMmE5ZjY3YTZlNGMxMmI2YTciLCJ0IjoiZGI3MmE4MTAtYTVlOC00NGI3LThkYzEtY2MwMjI5ZGFkZTdlIiwicyI6Ik1ERTFaVGxtTXprdE1XTXdPUzAwTnpjeUxUbGhPR0V0TkdRMU5qSTRNV1JpT0RWaiJ9',
+      status: 'connected',
+      daemonPid: 41289,
+      memoryUsage: '22 MB',
+      uptime: '14 Days, 6 Hours',
+      routes: [
+        { hostname: 'larastore.id', service: 'http://127.0.0.1:8001', appName: 'larastore-commerce (OLS)', status: 'Healthy' },
+        { hostname: 'sentiment.barepod.cloud', service: 'http://127.0.0.1:5000', appName: 'flask-sentiment-api (OLS)', status: 'Healthy' },
+        { hostname: 'api.barepod.cloud', service: 'http://127.0.0.1:8080', appName: 'barepod-core (Caddy)', status: 'Healthy' },
+      ],
+    },
+    tenant_clientB: {
       tenantUser: 'tenant_clientB',
-      tunnelName: 'agency-clientb-tunnel',
+      tunnelName: 'clientb-analytics-tunnel',
       token: 'eyJhIjoiN2I2YTVjNGQzZTJmMWcwaDlpOGprN2xtNm41bzRwM3EiLCJ0IjoiNWQxYTIzNDUtNjg3OS00OGM1LTk2OGUtYTFiMmMzZDRlNTVmIiwicyI6IllERTJaVGxtTXprdE1XTXdPUzAwTnpjeUxUbGhPR0V0TkdRMU5qSTRNV1JpT0RWaiJ9',
       status: 'connected',
-      connectorVersion: '2024.9.1 (PID: 67814)',
+      daemonPid: 67814,
+      memoryUsage: '16 MB',
       uptime: '1 Day, 4 Hours',
       routes: [
         { hostname: 'analytics.clientb.io', service: 'http://127.0.0.1:5000', appName: 'flask-analytics (Apache)', status: 'Healthy' },
       ],
     },
-  ]);
+  });
 
-  const tenantUsers = ['farras', 'tenant_alex', 'tenant_clientB', 'tenant_agency1'];
+  // Current tunnel data for the active logged-in user
+  const currentTunnel = userTunnels[activeUser] || {
+    tenantUser: activeUser,
+    tunnelName: `${activeUser}-tunnel`,
+    token: '',
+    status: 'disconnected',
+    daemonPid: 0,
+    memoryUsage: '0 MB',
+    uptime: 'Not Running',
+    routes: [],
+  };
 
-  const handleAddTunnel = (newTunnel: UserTunnel) => {
-    setTunnels([newTunnel, ...tunnels]);
+  const [inputToken, setInputToken] = useState(currentTunnel.token);
+  const [showTokenText, setShowTokenText] = useState(false);
+  const [isTokenSaved, setIsTokenSaved] = useState(false);
+
+  // New Route Modal State
+  const [isAddRouteOpen, setIsAddRouteOpen] = useState(false);
+  const [newHostname, setNewHostname] = useState('');
+  const [newTargetService, setNewTargetService] = useState('http://127.0.0.1:3000');
+  const [newAppName, setNewAppName] = useState('');
+
+  // Handle switching active user simulation
+  const handleSwitchUser = (username: string) => {
+    setActiveUser(username);
+    const target = userTunnels[username];
+    setInputToken(target ? target.token : '');
+    setShowTokenText(false);
     onShowToast?.(
-      'Tenant Tunnel Activated',
-      `Isolated cloudflared daemon started for ${newTunnel.tenantUser} (${newTunnel.tunnelName}).`,
+      'Simulasi User Aktif Diubah',
+      `Sekarang mengelola akun & tunnel pribadi milik: "${username}".`,
+      'info'
+    );
+  };
+
+  // Save Token
+  const handleSaveToken = (e: React.FormEvent) => {
+    e.preventDefault();
+    setUserTunnels(prev => ({
+      ...prev,
+      [activeUser]: {
+        ...currentTunnel,
+        token: inputToken.trim(),
+        status: inputToken.trim() ? 'connected' : 'disconnected',
+        daemonPid: currentTunnel.daemonPid || Math.floor(50000 + Math.random() * 20000),
+        uptime: currentTunnel.uptime === 'Not Running' ? 'Just started' : currentTunnel.uptime,
+      }
+    }));
+    setIsTokenSaved(true);
+    setTimeout(() => setIsTokenSaved(false), 2000);
+    onShowToast?.(
+      'Cloudflare Token Tersimpan',
+      `Proses daemon cloudflared untuk akun "${activeUser}" telah diperbarui.`,
       'success'
     );
   };
 
-  const handleRestartTunnel = (tunnel: UserTunnel) => {
+  // Restart daemon
+  const handleRestartDaemon = () => {
     onShowToast?.(
       'Daemon Restarted',
-      `cloudflared process for tenant "${tunnel.tenantUser}" re-initialized successfully.`,
+      `Proses daemon cloudflared milik akun "${activeUser}" di-restart ulang.`,
       'info'
     );
   };
 
-  const handleDeleteTunnel = (tunnelId: string, tenantUser: string) => {
-    setTunnels(tunnels.filter(t => t.id !== tunnelId));
-    onShowToast?.(
-      'Tunnel Disconnected',
-      `Stopped cloudflared daemon process for tenant "${tenantUser}".`,
-      'info'
-    );
-  };
-
-  const handleOpenAddRoute = (tunnelId: string) => {
-    setActiveTunnelForRoute(tunnelId);
-    setNewHostname('');
-    setNewTargetService('http://127.0.0.1:8000');
-    setNewAppName('');
-    setIsAddRouteOpen(true);
-  };
-
+  // Add Route
   const handleSaveRoute = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeTunnelForRoute || !newHostname.trim()) return;
+    if (!newHostname.trim()) return;
 
     const newRoute: IngressRoute = {
       hostname: newHostname.trim(),
       service: newTargetService.trim(),
-      appName: newAppName.trim() || 'Custom Ingress',
+      appName: newAppName.trim() || 'My Web Application',
       status: 'Healthy',
     };
 
-    setTunnels(tunnels.map(t => {
-      if (t.id === activeTunnelForRoute) {
-        return {
-          ...t,
-          routes: [...t.routes, newRoute],
-        };
+    setUserTunnels(prev => ({
+      ...prev,
+      [activeUser]: {
+        ...currentTunnel,
+        routes: [...currentTunnel.routes, newRoute],
       }
-      return t;
     }));
 
     setIsAddRouteOpen(false);
+    setNewHostname('');
     onShowToast?.(
-      'Ingress Route Added',
-      `${newRoute.hostname} mapped to ${newRoute.service} on isolated tenant tunnel.`,
+      'Domain Ingress Ditambahkan',
+      `Domain https://${newRoute.hostname} berhasil diarahkan ke ${newRoute.service} pada akun Anda.`,
       'success'
     );
   };
 
-  const filteredTunnels = selectedTenantFilter === 'all'
-    ? tunnels
-    : tunnels.filter(t => t.tenantUser === selectedTenantFilter);
-
-  const totalRoutes = tunnels.reduce((acc, t) => acc + t.routes.length, 0);
+  // Delete Route
+  const handleDeleteRoute = (hostname: string) => {
+    setUserTunnels(prev => ({
+      ...prev,
+      [activeUser]: {
+        ...currentTunnel,
+        routes: currentTunnel.routes.filter(r => r.hostname !== hostname),
+      }
+    }));
+    onShowToast?.(
+      'Domain Ingress Dihapus',
+      `Rute hostname ${hostname} telah dicabut dari tunnel akun Anda.`,
+      'info'
+    );
+  };
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
-      {/* Header */}
+      {/* Top Header & User Persona Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cloudflare Tunnels (Zero-NAT)</h1>
-            <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 flex items-center gap-1">
-              <Layers className="w-3 h-3 text-blue-600" /> Isolated Per User
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cloudflare Tunnel (Zero-NAT)</h1>
+            <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+              <Radio className="w-3 h-3 text-emerald-600 animate-pulse" /> Self-Service Tunnel
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Setiap tenant menjalankan instance <code>cloudflared</code> terisolasi dengan akun Cloudflare Zero Trust dan domain mereka sendiri.
+            Setiap user mengatur Cloudflare Tunnel mereka sendiri secara mandiri menggunakan akun Cloudflare Zero Trust pribadi.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Tenant Filter */}
-          <div className="flex items-center bg-white border border-slate-200 rounded-lg px-3 py-1.5 shadow-2xs">
-            <UserCheck className="w-4 h-4 text-slate-400 mr-2" />
-            <select
-              value={selectedTenantFilter}
-              onChange={(e) => setSelectedTenantFilter(e.target.value)}
-              className="text-xs font-semibold text-slate-700 bg-transparent focus:outline-hidden"
-            >
-              <option value="all">All Tenants ({tunnels.length} Daemons)</option>
-              {tenantUsers.map(u => (
-                <option key={u} value={u}>Tenant: {u}</option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            onClick={() => setIsAddModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 transition-all"
+        {/* User Context Switcher (For Panel Owner Demonstration) */}
+        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-2 shadow-2xs">
+          <UserCheck className="w-4 h-4 text-slate-500 ml-1" />
+          <span className="text-xs font-semibold text-slate-600">Akun Anda:</span>
+          <select
+            value={activeUser}
+            onChange={(e) => handleSwitchUser(e.target.value)}
+            className="text-xs font-bold text-blue-700 bg-blue-50/80 px-2.5 py-1 rounded-lg border border-blue-200 focus:outline-hidden cursor-pointer font-mono"
           >
-            <Plus className="w-4 h-4" />
-            <span>Connect Tenant Tunnel</span>
-          </button>
+            <option value="tenant_alex">tenant_alex (Akun Klien / Regular User)</option>
+            <option value="tenant_clientB">tenant_clientB (Akun Agensi / Regular User)</option>
+            <option value="farras">farras (Superadmin / Root)</option>
+          </select>
         </div>
       </div>
 
-      {/* Security Architecture Explainer Banner */}
-      <div className="bg-gradient-to-r from-blue-900 to-indigo-950 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
-        <div className="absolute top-0 right-0 translate-x-10 -translate-y-10 w-64 h-64 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
-        
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2 max-w-2xl">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-medium">
+      {/* Info Banner: Self-Service Independence */}
+      <div className="bg-gradient-to-r from-blue-900 to-indigo-950 rounded-2xl p-5 text-white shadow-md relative overflow-hidden">
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1 max-w-2xl">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-semibold">
               <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-              <span>Multi-Tenant Process & Network Isolation</span>
+              <span>Personal Tunnel Sandbox untuk @{activeUser}</span>
             </div>
-            <h2 className="text-lg font-bold tracking-tight text-white">
-              Bisa! Tiap user punya tunnel Cloudflare sendiri tanpa campur aduk
+            <h2 className="text-base font-bold text-white">
+              Tunnel Pribadi Anda: Tidak Tercampur dengan User Lain
             </h2>
             <p className="text-xs text-blue-100/80 leading-relaxed">
-              BarePod menjalankan 1 daemon <code>cloudflared</code> terpisah per tenant user (via cgroup/container). Token Zero Trust dimasukkan oleh masing-masing user, sehingga domain klien A langsung terhubung ke akun Cloudflare pribadi klien A tanpa memerlukan akses admin root.
+              Anda memiliki kontrol penuh atas akun Cloudflare Anda. Cukup masukkan token tunnel dari akun Cloudflare pribadi Anda, lalu arahkan domain/subdomain Anda langsung ke port aplikasi Anda.
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-3 shrink-0">
-            <div className="bg-white/10 backdrop-blur-md rounded-xl p-3 border border-white/10 text-center">
-              <span className="text-xl font-bold block">{tunnels.length}</span>
-              <span className="text-[10px] text-blue-200 uppercase font-semibold">Active Daemons</span>
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="bg-white/10 backdrop-blur-md rounded-xl px-4 py-2.5 border border-white/10 text-center">
+              <span className="text-lg font-bold block">{currentTunnel.routes.length}</span>
+              <span className="text-[10px] text-blue-200 uppercase font-semibold">Domain Aktif</span>
             </div>
-            <div className="bg-white/10 backdrop-blur-md rounded-xl p-3 border border-white/10 text-center">
-              <span className="text-xl font-bold block">{totalRoutes}</span>
-              <span className="text-[10px] text-blue-200 uppercase font-semibold">Public Hostnames</span>
-            </div>
-            <div className="bg-white/10 backdrop-blur-md rounded-xl p-3 border border-white/10 text-center">
-              <span className="text-xl font-bold block text-emerald-400">100%</span>
-              <span className="text-[10px] text-blue-200 uppercase font-semibold">Zero-NAT Pass</span>
+            <div className="bg-white/10 backdrop-blur-md rounded-xl px-4 py-2.5 border border-white/10 text-center">
+              <span className="text-lg font-bold block text-emerald-400">
+                {currentTunnel.status === 'connected' ? 'Live' : 'Off'}
+              </span>
+              <span className="text-[10px] text-blue-200 uppercase font-semibold">Status Tunnel</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* List of Isolated Tenant Tunnels */}
-      <div className="space-y-6">
-        {filteredTunnels.map((tunnel) => (
-          <div 
-            key={tunnel.id}
-            className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden transition-all hover:border-slate-300"
-          >
-            {/* Tunnel Card Header */}
-            <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100">
-                  <CloudRain className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-slate-900">{tunnel.tunnelName}</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      CONNECTED
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                      Tenant: @{tunnel.tenantUser}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-slate-500 font-mono">
-                    <span className="flex items-center gap-1">
-                      <Cpu className="w-3.5 h-3.5 text-slate-400" />
-                      {tunnel.connectorVersion}
-                    </span>
-                    <span>•</span>
-                    <span>Uptime: {tunnel.uptime}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons for this Tunnel */}
+      {/* Main Personal Tunnel Card */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-5">
+        {/* Card Header with Status & Process Info */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100 shrink-0">
+              <CloudRain className="w-6 h-6" />
+            </div>
+            <div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleRestartTunnel(tunnel)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
-                  title="Restart isolated cloudflared process"
-                >
-                  <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Restart Process</span>
-                </button>
-
-                <button
-                  onClick={() => handleOpenAddRoute(tunnel.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Route</span>
-                </button>
-
-                <button
-                  onClick={() => handleDeleteTunnel(tunnel.id, tunnel.tenantUser)}
-                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                  title="Stop and remove tunnel"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Token Info Strip */}
-            <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2 flex-1 max-w-xl">
-                <Key className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span className="text-slate-500 font-semibold shrink-0">Tenant Token:</span>
-                <span className="font-mono text-slate-600 truncate bg-white px-2 py-0.5 rounded border border-slate-200">
-                  {visibleTokenTunnelId === tunnel.id 
-                    ? tunnel.token 
-                    : `${tunnel.token.slice(0, 18)}••••••••••••••••••••••••${tunnel.token.slice(-8)}`}
+                <span className="text-base font-bold text-slate-900">{currentTunnel.tunnelName}</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  CONNECTED
                 </span>
-                <button
-                  onClick={() => setVisibleTokenTunnelId(visibleTokenTunnelId === tunnel.id ? null : tunnel.id)}
-                  className="p-1 text-slate-400 hover:text-slate-700"
-                >
-                  {visibleTokenTunnelId === tunnel.id ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-
-              <div className="flex items-center gap-1 text-[11px] text-slate-400">
-                <Lock className="w-3 h-3 text-emerald-500" />
-                <span>Isolated to Linux sandbox <code>/home/{tunnel.tenantUser}</code></span>
-              </div>
-            </div>
-
-            {/* Ingress Routing Table for this Tenant */}
-            <div className="p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Ingress Domain Routes ({tunnel.routes.length})
-                </h3>
-                <span className="text-[11px] text-slate-400">
-                  Traffic from Cloudflare Edge → Isolated Tenant App
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
+                  User: @{activeUser}
                 </span>
               </div>
-
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
-                    <tr>
-                      <th className="py-2.5 px-4">Public Domain (Cloudflare)</th>
-                      <th className="py-2.5 px-4">Target Application</th>
-                      <th className="py-2.5 px-4">Internal Service Target</th>
-                      <th className="py-2.5 px-4">Health Status</th>
-                      <th className="py-2.5 px-4 text-right">Edge Protection</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {tunnel.routes.map((route, rIdx) => (
-                      <tr key={rIdx} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="py-2.5 px-4">
-                          <div className="flex items-center gap-2">
-                            <Globe className="w-3.5 h-3.5 text-blue-500" />
-                            <a 
-                              href={`https://${route.hostname}`} 
-                              target="_blank" 
-                              rel="noreferrer"
-                              className="font-semibold text-slate-800 hover:text-blue-600 hover:underline flex items-center gap-1"
-                            >
-                              {route.hostname}
-                              <ExternalLink className="w-3 h-3 text-slate-400" />
-                            </a>
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-4 font-medium text-slate-700">
-                          {route.appName}
-                        </td>
-                        <td className="py-2.5 px-4 font-mono text-slate-600">
-                          <span className="bg-slate-100 px-2 py-0.5 rounded text-[11px] font-mono">
-                            {route.service}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4">
-                          <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold text-[11px]">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                            {route.status}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4 text-right">
-                          <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded font-medium">
-                            Cloudflare SSL + DDoS
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5 font-mono">
+                <span>Daemon: <code>cloudflared@{activeUser}</code></span>
+                <span>•</span>
+                <span>PID: {currentTunnel.daemonPid}</span>
+                <span>•</span>
+                <span>RAM: {currentTunnel.memoryUsage}</span>
+                <span>•</span>
+                <span>Uptime: {currentTunnel.uptime}</span>
               </div>
             </div>
           </div>
-        ))}
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRestartDaemon}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
+              title="Restart isolated daemon process"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+              <span>Restart Daemon</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Token Configuration Box */}
+        <form onSubmit={handleSaveToken} className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-bold text-slate-800">
+              Cloudflare Zero Trust Tunnel Token (Akun Pribadi Anda)
+            </label>
+            <span className="text-[11px] text-slate-400">
+              Cloudflare Dashboard → Zero Trust → Networks → Tunnels
+            </span>
+          </div>
+
+          <div className="flex gap-2.5">
+            <div className="relative flex-1">
+              <Key className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type={showTokenText ? 'text' : 'password'}
+                required
+                value={inputToken}
+                onChange={(e) => setInputToken(e.target.value)}
+                placeholder="eyJhIjoiY2ZmODljNjEyZDJlNDgxMmE5ZjY3YTZlNGMxMmI2YTciLCJ0I..."
+                className="w-full pl-9 pr-10 py-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white transition-all"
+              />
+              <button
+                type="button"
+                onClick={() => setShowTokenText(!showTokenText)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                title={showTokenText ? 'Sembunyikan Token' : 'Tampilkan Token'}
+              >
+                {showTokenText ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
+            <button
+              type="submit"
+              className="px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm shadow-blue-500/20 shrink-0 cursor-pointer"
+            >
+              {isTokenSaved ? (
+                <>
+                  <Check className="w-4 h-4 text-emerald-200" />
+                  <span>Tersimpan!</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="w-4 h-4" />
+                  <span>Update Token</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            💡 <strong>Tidak perlu setting port forwarding / IP publik:</strong> Cukup paste token dari akun Cloudflare Anda sendiri, daemon <code>cloudflared</code> yang berjalan di sandbox akun Anda akan otomatis menghubungkan seluruh domain di bawah ke aplikasi Anda.
+          </p>
+        </form>
       </div>
 
-      {/* Add User Tunnel Modal */}
-      <AddUserTunnelModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onAddTunnel={handleAddTunnel}
-        tenantUsers={tenantUsers}
-      />
+      {/* Ingress Domain Routes Table for This User */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-slate-900">Daftar Domain Ingress Anda</h2>
+              <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-semibold">
+                {currentTunnel.routes.length} Domain
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Domain-domain milik akun <strong>@{activeUser}</strong> yang diteruskan ke port lokal aplikasi
+            </p>
+          </div>
 
-      {/* Add Route Modal */}
+          <button
+            onClick={() => setIsAddRouteOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tambah Domain Ingress</span>
+          </button>
+        </div>
+
+        {currentTunnel.routes.length === 0 ? (
+          <div className="p-8 text-center text-slate-400">
+            <Globe className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+            <p className="text-xs font-semibold text-slate-600">Belum ada domain yang diarahkan.</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Klik tombol "+ Tambah Domain Ingress" di atas untuk menghubungkan domain pertama Anda.
+            </p>
+          </div>
+        ) : (
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
+              <tr>
+                <th className="py-3 px-4">Public Hostname (Cloudflare)</th>
+                <th className="py-3 px-4">Target Aplikasi Anda</th>
+                <th className="py-3 px-4">Internal Target Port</th>
+                <th className="py-3 px-4">Health Status</th>
+                <th className="py-3 px-4 text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {currentTunnel.routes.map((route, idx) => (
+                <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-blue-500" />
+                      <a 
+                        href={`https://${route.hostname}`} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="font-semibold text-slate-800 hover:text-blue-600 hover:underline flex items-center gap-1"
+                      >
+                        {route.hostname}
+                        <ExternalLink className="w-3 h-3 text-slate-400" />
+                      </a>
+                    </div>
+                  </td>
+                  <td className="py-3 px-4 font-medium text-slate-700">
+                    {route.appName}
+                  </td>
+                  <td className="py-3 px-4 font-mono text-slate-600">
+                    <span className="bg-slate-100 px-2 py-0.5 rounded text-[11px] font-mono border border-slate-200/60">
+                      {route.service}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4">
+                    <span className="inline-flex items-center gap-1 text-emerald-600 font-semibold text-[11px]">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      {route.status}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 text-right">
+                    <button
+                      onClick={() => handleDeleteRoute(route.hostname)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                      title="Hapus domain ini dari tunnel"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Add Route Modal for Current User */}
       {isAddRouteOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Globe className="w-4 h-4 text-blue-600" />
-                <h3 className="text-sm font-bold text-slate-900">Add Ingress Route to Tenant Tunnel</h3>
+                <h3 className="text-sm font-bold text-slate-900">Hubungkan Domain ke Aplikasi Anda</h3>
               </div>
               <button
                 onClick={() => setIsAddRouteOpen(false)}
@@ -413,25 +469,28 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
             <form onSubmit={handleSaveRoute} className="p-6 space-y-4 text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Public Hostname (Domain / Subdomain)
+                  Public Hostname (Domain / Subdomain Milik Anda)
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. app.mytenant.com or client.id"
+                  placeholder="e.g. app.alexclient.com atau shop.domain.id"
                   value={newHostname}
                   onChange={(e) => setNewHostname(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Pastikan CNAME hostname ini sudah mengarah ke tunnel di dashboard Cloudflare Anda.
+                </p>
               </div>
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Application Name / Service Label
+                  Nama Aplikasi / Label
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Next.js Web or WordPress OLS"
+                  placeholder="e.g. Toko Online Laravel atau REST API"
                   value={newAppName}
                   onChange={(e) => setNewAppName(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
@@ -440,18 +499,18 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Internal Service Target
+                  Internal Service Port
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="http://127.0.0.1:8000"
+                  placeholder="http://127.0.0.1:3000"
                   value={newTargetService}
                   onChange={(e) => setNewTargetService(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Port internal container/web server milik tenant ini di localhost server.
+                  Port internal aplikasi milik akun Anda (misal port 3000, 5000, atau 8001).
                 </p>
               </div>
 
@@ -461,13 +520,13 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   onClick={() => setIsAddRouteOpen(false)}
                   className="px-4 py-2 font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
                 >
-                  Cancel
+                  Batal
                 </button>
                 <button
                   type="submit"
                   className="px-4 py-2 font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20"
                 >
-                  Save Route
+                  Simpan Domain
                 </button>
               </div>
             </form>
