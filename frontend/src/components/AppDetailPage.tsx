@@ -82,7 +82,6 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [logType, setLogType] = useState<'all' | 'access' | 'error' | 'deploy'>('all');
   const [logSearch, setLogSearch] = useState('');
   const [logFormat, setLogFormat] = useState<'structured' | 'raw'>('structured');
-  const [selectedIpFilter, setSelectedIpFilter] = useState<string>('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedEnv, setCopiedEnv] = useState(false);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
@@ -743,10 +742,9 @@ systemctl reload ${app.name}`;
 
   const filteredLogs = logs.filter(log => {
     const matchesType = logType === 'all' || log.type === logType;
-    const matchesIp = selectedIpFilter === 'all' || log.ip === selectedIpFilter;
     const searchTarget = `${log.msg} ${log.time} ${log.ip || ''} ${log.country || ''} ${log.isp || ''} ${log.path || ''} ${log.method || ''} ${log.status || ''} ${log.rawLine || ''}`.toLowerCase();
     const matchesSearch = !logSearch || searchTarget.includes(logSearch.toLowerCase());
-    return matchesType && matchesIp && matchesSearch;
+    return matchesType && matchesSearch;
   });
 
   const handleCopyEnv = () => {
@@ -1254,60 +1252,53 @@ QUEUE_CONNECTION=redis`;
               </div>
             </div>
 
-            {/* Filter Toolbar */}
-            <div className="flex flex-col gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Cari IP (misal: 114.124), path, status..."
-                      value={logSearch}
-                      onChange={(e) => setLogSearch(e.target.value)}
-                      className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 w-64 font-mono shadow-2xs"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    {(['all', 'access', 'error', 'deploy'] as const).map(type => (
-                      <button
-                        key={type}
-                        onClick={() => setLogType(type)}
-                        className={`px-2.5 py-1 text-xs rounded-lg font-medium capitalize transition-colors ${
-                          logType === type
-                            ? 'bg-blue-600 text-white font-bold shadow-2xs'
-                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {type === 'all' ? 'Semua Log' : type === 'access' ? 'Access Logs' : type === 'error' ? 'Errors / WAF' : 'Deploy Logs'}
-                      </button>
-                    ))}
-                  </div>
+            {/* Filter Toolbar (Clean & Search-Driven) */}
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                {/* Search Bar (Search IP, Path, Status, Messages) */}
+                <div className="relative flex-1 max-w-lg">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Cari IP (misal: 114.124), path, status code, error..."
+                    value={logSearch}
+                    onChange={(e) => setLogSearch(e.target.value)}
+                    className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white font-mono transition-colors"
+                  />
+                  {logSearch && (
+                    <button
+                      onClick={() => setLogSearch('')}
+                      className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                      title="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                {/* Right controls: View Mode, Refresh, Auto-scroll */}
+                <div className="flex items-center gap-2.5 self-end sm:self-auto shrink-0">
                   {/* View Mode Switch */}
-                  <div className="flex items-center bg-slate-200/80 p-0.5 rounded-lg text-xs font-medium">
+                  <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-xs font-medium border border-slate-200/80">
                     <button
                       onClick={() => setLogFormat('structured')}
-                      className={`px-2.5 py-1 rounded-md transition-all ${
+                      className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                         logFormat === 'structured'
-                          ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                          ? 'bg-white text-slate-900 shadow-2xs font-semibold'
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      Tabel Kolom (IP Badge)
+                      Tabel Kolom
                     </button>
                     <button
                       onClick={() => setLogFormat('raw')}
-                      className={`px-2.5 py-1 rounded-md transition-all ${
+                      className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                         logFormat === 'raw'
-                          ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                          ? 'bg-white text-slate-900 shadow-2xs font-semibold'
                           : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      Raw Nginx / OLS
+                      Raw Log
                     </button>
                   </div>
 
@@ -1316,13 +1307,14 @@ QUEUE_CONNECTION=redis`;
                       setIsRefreshingLogs(true);
                       setTimeout(() => setIsRefreshingLogs(false), 500);
                     }}
-                    className="flex items-center gap-1 px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-100 shadow-2xs cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors cursor-pointer font-medium"
+                    title="Refresh logs"
                   >
-                    <RotateCw className={`w-3 h-3 ${isRefreshingLogs ? 'animate-spin' : ''}`} />
+                    <RotateCw className={`w-3 h-3 text-slate-500 ${isRefreshingLogs ? 'animate-spin' : ''}`} />
                     <span>Refresh</span>
                   </button>
 
-                  <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none">
+                  <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none pl-1">
                     <input
                       type="checkbox"
                       checked={autoScroll}
@@ -1334,46 +1326,21 @@ QUEUE_CONNECTION=redis`;
                 </div>
               </div>
 
-              {/* Quick Filter by Visitor IP Chips */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pt-1 border-t border-slate-200/60 text-xs">
-                <span className="text-slate-500 font-semibold text-[11px] shrink-0 flex items-center gap-1">
-                  <Globe className="w-3 h-3 text-slate-400" />
-                  <span>Filter IP Visitor:</span>
-                </span>
-                <button
-                  onClick={() => setSelectedIpFilter('all')}
-                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors shrink-0 ${
-                    selectedIpFilter === 'all'
-                      ? 'bg-blue-600 text-white font-bold'
-                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  Semua ({logs.filter(l => l.ip).length})
-                </button>
-                {uniqueVisitorIps.map(ip => {
-                  const ipLogs = logs.filter(l => l.ip === ip);
-                  const country = ipLogs[0]?.country || 'Global';
-                  const isSelected = selectedIpFilter === ip;
-                  return (
-                    <button
-                      key={ip}
-                      onClick={() => setSelectedIpFilter(isSelected ? 'all' : ip)}
-                      className={`px-2 py-0.5 rounded text-[11px] font-mono font-medium transition-colors shrink-0 flex items-center gap-1.5 ${
-                        isSelected
-                          ? 'bg-amber-600 text-white font-bold ring-2 ring-amber-400/50'
-                          : 'bg-white text-slate-700 border border-slate-200 hover:bg-amber-50 hover:border-amber-300'
-                      }`}
-                    >
-                      <span className="font-bold">{ip}</span>
-                      <span className={`text-[9px] px-1 rounded uppercase font-semibold ${
-                        isSelected ? 'bg-amber-800 text-amber-100' : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {country}
-                      </span>
-                      <span className="text-[10px] opacity-75">({ipLogs.length})</span>
-                    </button>
-                  );
-                })}
+              {/* Log Category Tabs */}
+              <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100 overflow-x-auto">
+                {(['all', 'access', 'error', 'deploy'] as const).map(type => (
+                  <button
+                    key={type}
+                    onClick={() => setLogType(type)}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      logType === type
+                        ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    {type === 'all' ? 'Semua Log' : type === 'access' ? 'Access Logs' : type === 'error' ? 'Errors / WAF' : 'Deploy Logs'}
+                  </button>
+                ))}
               </div>
             </div>
 
