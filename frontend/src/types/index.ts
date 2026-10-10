@@ -53,6 +53,9 @@ export interface DatabaseItem {
   charset: string;
   status: 'active' | 'inactive';
   connections: number;
+  host?: string;
+  port?: number;
+  tenantUser?: string;
 }
 
 export interface PodItem {

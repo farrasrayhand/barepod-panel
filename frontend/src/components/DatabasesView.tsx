@@ -20,6 +20,7 @@ import { CredentialRevealModal } from './CredentialRevealModal';
 import { DatabaseGuiModal } from './DatabaseGuiModal';
 import type { DatabaseManagerTool } from './DatabaseGuiModal';
 import { CreateDatabaseModal } from './CreateDatabaseModal';
+import { DatabaseDetailsModal } from './DatabaseDetailsModal';
 
 interface DatabasesViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
@@ -31,6 +32,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
 
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [selectedDbForDetails, setSelectedDbForDetails] = useState<DatabaseItem | null>(null);
   const [selectedDbForCredentials, setSelectedDbForCredentials] = useState<DatabaseItem | null>(null);
   const [selectedDbForGui, setSelectedDbForGui] = useState<DatabaseItem | null>(null);
   const [selectedToolForGui, setSelectedToolForGui] = useState<DatabaseManagerTool>('dbgate');
@@ -347,21 +349,28 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
             <tr>
               <th className="py-3.5 px-4">Database Name</th>
               <th className="py-3.5 px-4">Engine / Version</th>
+              <th className="py-3.5 px-4">Host & Port</th>
               <th className="py-3.5 px-4">Username & Access</th>
               <th className="py-3.5 px-4">Size & Pool</th>
-              <th className="py-3.5 px-4">Password Protection</th>
-              <th className="py-3.5 px-4 text-right">Built-in Manager & Actions</th>
+              <th className="py-3.5 px-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filtered.map((db) => {
               const badge = getDbBadge(db.type);
+              const host = db.host || '127.0.0.1';
+              const port = db.port || (
+                db.type === 'postgres' ? 5432 :
+                db.type === 'mysql' || db.type === 'mariadb' ? 3306 :
+                db.type === 'mongodb' ? 27017 : 6379
+              );
+
               return (
                 <tr key={db.id} className="hover:bg-slate-50/70 transition-colors">
                   {/* Database Name */}
                   <td className="py-3.5 px-4">
                     <div className="flex items-center gap-2.5">
-                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${badge.bg}`}>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shadow-2xs ${badge.bg}`}>
                         {badge.label}
                       </div>
                       <div>
@@ -373,15 +382,25 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
 
                   {/* Engine */}
                   <td className="py-3.5 px-4">
-                    <span className="font-medium text-slate-700">{db.version}</span>
+                    <span className="font-semibold text-slate-800">{db.version}</span>
                     <span className="block text-[10px] text-slate-400">
                       {badge.name}
                     </span>
                   </td>
 
+                  {/* Host & Port */}
+                  <td className="py-3.5 px-4">
+                    <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-100/80 px-2.5 py-1 rounded-md text-[11px] border border-slate-200/60">
+                      <Server className="w-3 h-3 text-slate-400" />
+                      <span className="font-semibold text-slate-800">{host}</span>
+                      <span className="text-slate-400">:</span>
+                      <span className="text-blue-600 font-bold">{port}</span>
+                    </div>
+                  </td>
+
                   {/* Username */}
                   <td className="py-3.5 px-4">
-                    <div className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
+                    <div className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-[11px]">
                       <Key className="w-3 h-3 text-slate-400" />
                       <span>{db.username}</span>
                     </div>
@@ -389,89 +408,25 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
 
                   {/* Size & Connections */}
                   <td className="py-3.5 px-4">
-                    <span className="font-medium text-slate-800">{db.size}</span>
-                    <span className="block text-[10px] text-slate-400">{db.connections} active connections</span>
+                    <span className="font-semibold text-slate-800">{db.size}</span>
+                    <span className="block text-[10px] text-slate-400">{db.connections} active pool</span>
                   </td>
 
-                  {/* Password Protection & Decrypt Trigger */}
-                  <td className="py-3.5 px-4">
-                    <button
-                      onClick={() => setSelectedDbForCredentials(db)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 transition-colors font-medium text-xs group"
-                      title="Masukkan password panel untuk melihat password database"
-                    >
-                      <Lock className="w-3.5 h-3.5 text-amber-600 group-hover:hidden" />
-                      <Eye className="w-3.5 h-3.5 text-amber-700 hidden group-hover:inline" />
-                      <span>•••••••• (Click to Reveal)</span>
-                    </button>
-                  </td>
-
-                  {/* Dedicated Launch Buttons per DB type */}
+                  {/* Actions: Clean Details Button + Trash */}
                   <td className="py-3.5 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {/* Copy URI */}
+                    <div className="flex items-center justify-end gap-2">
                       <button
-                        onClick={() => handleCopyUri(db)}
-                        className="p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-                        title="Copy masked URI"
+                        onClick={() => setSelectedDbForDetails(db)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all text-xs font-semibold border border-blue-200/80 shadow-2xs group"
+                        title="Lihat host, port, kredensial, URL connection & buka visual manager"
                       >
-                        {copiedId === db.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        <Zap className="w-3.5 h-3.5 text-blue-600 group-hover:text-white transition-colors" />
+                        <span>Details & Connect</span>
                       </button>
 
-                      {/* Engine Specific Tool Launch Button */}
-                      {db.type === 'postgres' && (
-                        <button
-                          onClick={() => openManagerWithTool(db, 'pgadmin')}
-                          className="px-2 py-1 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-colors text-[11px] font-semibold border border-blue-200 flex items-center gap-1"
-                          title="Launch pgAdmin 4 with SSO"
-                        >
-                          <span>🐘 pgAdmin</span>
-                        </button>
-                      )}
-
-                      {(db.type === 'mysql' || db.type === 'mariadb') && (
-                        <button
-                          onClick={() => openManagerWithTool(db, 'phpmyadmin')}
-                          className="px-2 py-1 rounded-md bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white transition-colors text-[11px] font-semibold border border-amber-200 flex items-center gap-1"
-                          title="Launch phpMyAdmin with SSO"
-                        >
-                          <span>🐬 phpMyAdmin</span>
-                        </button>
-                      )}
-
-                      {db.type === 'mongodb' && (
-                        <button
-                          onClick={() => openManagerWithTool(db, 'mongoexpress')}
-                          className="px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-colors text-[11px] font-semibold border border-emerald-200 flex items-center gap-1"
-                          title="Launch Mongo Express with SSO"
-                        >
-                          <span>🍃 Mongo Express</span>
-                        </button>
-                      )}
-
-                      {db.type === 'redis' && (
-                        <button
-                          onClick={() => openManagerWithTool(db, 'rediscommander')}
-                          className="px-2 py-1 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white transition-colors text-[11px] font-semibold border border-rose-200 flex items-center gap-1"
-                          title="Launch Redis Commander with SSO"
-                        >
-                          <span>🔴 Commander</span>
-                        </button>
-                      )}
-
-                      {/* Universal DbGate Button */}
-                      <button
-                        onClick={() => openManagerWithTool(db, 'dbgate')}
-                        className="px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white transition-colors text-[11px] font-semibold border border-indigo-200 flex items-center gap-1"
-                        title="Launch DbGate Studio with SSO"
-                      >
-                        <span>⚡ DbGate</span>
-                      </button>
-
-                      {/* Delete */}
                       <button
                         onClick={() => handleDeleteDatabase(db.id, db.name)}
-                        className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                         title="Drop database"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -484,6 +439,14 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
           </tbody>
         </table>
       </div>
+
+      {/* Database Details, Credentials & Direct URL Modal */}
+      <DatabaseDetailsModal
+        isOpen={!!selectedDbForDetails}
+        onClose={() => setSelectedDbForDetails(null)}
+        database={selectedDbForDetails}
+        onOpenGui={(db, tool) => openManagerWithTool(db, tool)}
+      />
 
       {/* Create Database Modal */}
       <CreateDatabaseModal
