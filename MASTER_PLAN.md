@@ -288,11 +288,15 @@ graph TD
 
 * **Phase 1: Frontend UI Prototyping (DONE ✅)**:
   Designing the entire user interface, user interactions, typed data architecture (TypeScript), and navigation flows so that the developer experience (DX) is perfectly validated before the backend is built.
-* **Phase 2: Go Backend Core Daemon (NEXT MILESTONE 🚀)**:
-  Initialize the daemon service in Go (Golang):
-  - Local SQLite setup (WAL mode) for the panel's internal database.
-  - REST API & WebSocket router (replacing the mock data in React).
-  - JWT Authentication & RBAC (Multi-tenant user manager).
+* **Phase 2: Go Backend Core Daemon (IN PROGRESS 🚧)**:
+  Initialize the daemon service in Go (Golang). **Skeleton landed in `backend/` and verified end-to-end**:
+  - ✅ Local SQLite (WAL mode, `busy_timeout`, foreign keys) + schema migrations + seed (root admin + demo websites).
+  - ✅ HTTP router (`net/http` `ServeMux` patterns) with request logging and **SPA fallback** so the path-based UI routes survive a refresh.
+  - ✅ Auth: **Argon2id** password hashing, opaque **session cookie + CSRF** (decision #4, *not* JWT), instant session revoke, **5-minute elevated (sudo) mode**, one-time WebSocket tickets, audit log.
+  - ✅ `internal/secrets`: **AES-256-GCM** with an auto-generated `0600` key file.
+  - ✅ `GET /system/capabilities` (systemd / LXC / Docker / S.M.A.R.T. / fstrim detection).
+  - ✅ Pilot module **Websites**: `GET /websites` and `GET /websites/:slug` served from real SQLite rows.
+  - ⏳ Next: `POST /websites` (`202` + `deployId`), systemd `barepod-app@<site>` unit rendering, metrics collection, files & terminal, then the remaining modules.
 * **Phase 3: Host OS & Container Integration (SCHEDULED 📋)**:
   - Docker Engine SDK (`docker/moby`) integration for container pod management.
   - File Manager backend API (reading/writing real Linux directories with isolated tenant user privileges).
@@ -343,19 +347,20 @@ BarePod-Panel/
 │   │   ├── index.css             # Tailwind Design System & Custom Utilities
 │   │   └── main.tsx              # React Entrypoint
 │   └── package.json
-├── backend/                      # Core Daemon (Go / Golang) [Planned]
+├── backend/                      # Core Daemon (Go / Golang) — skeleton implemented
 │   ├── cmd/
 │   │   └── barepod-daemon/       # Entrypoint binary daemon
 │   ├── internal/
-│   │   ├── api/                  # REST API & WebSocket handlers
-│   │   ├── docker/               # Docker SDK & Container execution
-│   │   ├── tenant/               # Linux user jail & cgroups v2 isolation
-│   │   ├── proxy/                # Caddy / Nginx / OLS config generator
-│   │   ├── database/             # PostgreSQL, MySQL, MongoDB, Redis driver
-│   │   ├── backup/               # Snapshot, rsync migration & S3/R2 sync engine
-│   │   ├── git/                  # Webhook & build runner
-│   │   └── pty/                  # Pseudo-terminal WebSocket bridge
-│   └── go.mod
+│   │   ├── api/                  # HTTP router, middleware & handlers (health, auth, sessions, websites, WS ticket)
+│   │   ├── config/               # Flags + environment configuration
+│   │   ├── store/                # SQLite (WAL), migrations, queries, seed data
+│   │   ├── auth/                 # Argon2id password hashing
+│   │   ├── secrets/              # AES-256-GCM for stored credentials (0600 key file)
+│   │   ├── sysinfo/              # Host capability detection (systemd / LXC / Docker / SMART / fstrim)
+│   │   └── id/                   # ULID & token generation
+│   ├── go.mod
+│   └── .gitignore
+│   # planned modules: docker/ tenant/ proxy/ database/ backup/ git/ pty/
 ├── scripts/
 │   └── install.sh                # 1-line installation script for Ubuntu/Debian VPS
 ├── MASTER_PLAN.md                # Master Plan & Main Architecture Document

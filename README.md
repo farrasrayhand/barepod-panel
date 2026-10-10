@@ -4,7 +4,7 @@
 
 > **Hobby project — 100% free.** BarePod Panel is a personal hobby project and is completely free to use, modify, and self-host. No paid tiers, no subscriptions, no feature gating, no telemetry. Released under the [MIT License](./LICENSE).
 
-> **Status:** Phase 1 — Frontend UI prototype (React 19 + Vite + TypeScript). All interactions currently run client-side with mock data. The Go backend daemon / Linux OS engine is **not implemented yet** (see [MASTER_PLAN.md](./MASTER_PLAN.md)).
+> **Status:** Phase 1 frontend is feature-complete, and **Phase 2 has started** — a Go daemon skeleton lives in [`backend/`](./backend) (SQLite/WAL, Argon2id + session-cookie auth with CSRF, `/system/capabilities`, and the pilot Websites API). Every other interaction still runs client-side against mock data; see [MASTER_PLAN.md](./MASTER_PLAN.md).
 
 ---
 
@@ -67,7 +67,7 @@ bash scripts/install.sh
 ```
 BarePod-Panel/
 ├── frontend/             # Dashboard web UI (React + Vite + TypeScript + Tailwind CSS)
-├── backend/              # Core daemon (Go / Golang) — planned
+├── backend/              # Core daemon (Go) — Phase 2 skeleton (SQLite, auth, websites API)
 ├── scripts/              # One-line VPS install scripts (Ubuntu/Debian) — planned
 ├── MASTER_PLAN.md        # Master architecture & development roadmap
 └── README.md
@@ -93,4 +93,17 @@ npm run preview   # preview the production build
 npm run lint      # oxlint
 ```
 
-> **Note for production deployment:** the UI uses path-based routes, so the web server (the future Go daemon) must serve `index.html` as an SPA fallback for unknown paths.
+> **Note for production deployment:** the UI uses path-based routes, so the web server (the Go daemon) must serve `index.html` as an SPA fallback for unknown paths.
+
+---
+
+## Running the Daemon (Backend)
+
+Requires Go 1.23+. Pure-Go SQLite driver — no cgo, so the same build runs on **amd64, arm64 and inside LXC**.
+
+```bash
+cd backend
+go run ./cmd/barepod-daemon -listen 127.0.0.1:8080 -db ./data/barepod.db -key ./data/secret.key
+```
+
+On first start it creates the root admin and prints the password once (set `BAREPOD_ADMIN_PASSWORD` to choose it yourself). See [`backend/README.md`](./backend/README.md) for the flags, the implemented endpoints and a smoke test.

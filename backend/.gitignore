@@ -1,0 +1,6 @@
+# BarePod daemon artifacts
+barepod-daemon
+/barepod.db
+/barepod.db-*
+/data/
+/dist/
