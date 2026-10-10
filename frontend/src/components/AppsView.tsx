@@ -13,9 +13,13 @@ import {
   Search,
   CheckCircle2,
   Layers,
-  Server
+  Server,
+  Folder,
+  FolderGit2
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
+import { FileManagerModal } from './FileManagerModal';
+import { GitDeploymentModal } from './GitDeploymentModal';
 
 interface AppsViewProps {
   apps: WebApp[];
@@ -33,6 +37,10 @@ export const AppsView: React.FC<AppsViewProps> = ({
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Modals
+  const [selectedAppForFiles, setSelectedAppForFiles] = useState<WebApp | null>(null);
+  const [selectedAppForGit, setSelectedAppForGit] = useState<WebApp | null>(null);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -68,7 +76,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Apps & Services</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Manage your websites with OpenLiteSpeed, Nginx, Caddy, or Apache & auto-isolated CLI runtimes
+            Manage your websites with File Manager, GitHub Redeploy, OpenLiteSpeed, Nginx, Caddy, or Apache
           </p>
         </div>
 
@@ -144,7 +152,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                 <th className="py-3.5 px-4">Tenant User</th>
                 <th className="py-3.5 px-4">Status</th>
                 <th className="py-3.5 px-4">Tunnel / Routing</th>
-                <th className="py-3.5 px-4 text-right">Actions</th>
+                <th className="py-3.5 px-4 text-right">App Tools & Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -239,9 +247,28 @@ export const AppsView: React.FC<AppsViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Actions */}
+                      {/* App Tools & Actions */}
                       <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                        <div className="flex items-center justify-end gap-1">
+                          {/* File Manager Button (cPanel Style) */}
+                          <button
+                            onClick={() => setSelectedAppForFiles(app)}
+                            className="p-1.5 rounded-lg text-slate-600 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                            title="Open File Manager & Code Editor"
+                          >
+                            <Folder className="w-4 h-4" />
+                          </button>
+
+                          {/* GitHub CI/CD & Redeploy Button */}
+                          <button
+                            onClick={() => setSelectedAppForGit(app)}
+                            className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                            title="GitHub Push-to-Deploy & Redeploy"
+                          >
+                            <FolderGit2 className="w-4 h-4" />
+                          </button>
+
+                          {/* Dedicated Isolated Web Terminal */}
                           <button
                             onClick={() => onOpenAppTerminal(app)}
                             className="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors"
@@ -250,6 +277,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                             <Terminal className="w-4 h-4" />
                           </button>
 
+                          {/* Toggle Status */}
                           <button
                             onClick={() => onToggleAppStatus(app.id)}
                             className={`p-1.5 rounded-lg transition-colors ${
@@ -262,6 +290,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                             {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                           </button>
 
+                          {/* Configuration */}
                           <button
                             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
                             title="Configuration"
@@ -278,6 +307,20 @@ export const AppsView: React.FC<AppsViewProps> = ({
           </table>
         </div>
       </div>
+
+      {/* File Manager Modal */}
+      <FileManagerModal
+        isOpen={!!selectedAppForFiles}
+        onClose={() => setSelectedAppForFiles(null)}
+        app={selectedAppForFiles}
+      />
+
+      {/* GitHub Redeployment Modal */}
+      <GitDeploymentModal
+        isOpen={!!selectedAppForGit}
+        onClose={() => setSelectedAppForGit(null)}
+        app={selectedAppForGit}
+      />
     </div>
   );
 };
