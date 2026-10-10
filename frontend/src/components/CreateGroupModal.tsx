@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Layers, ShieldCheck, HardDrive } from 'lucide-react';
-import type { UserGroup } from '../types';
+import type { GroupPermissions, UserGroup } from '../types';
+import { PERMISSION_MATRIX } from '../data/permissions';
 
 interface CreateGroupModalProps {
   isOpen: boolean;
@@ -21,6 +22,17 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   const [ramLimit, setRamLimit] = useState('1.5 GB');
   const [cpuLimit, setCpuLimit] = useState('1 vCPU');
   const [allowTerminal, setAllowTerminal] = useState(true);
+  const [permissions, setPermissions] = useState<GroupPermissions>({
+    deployApps: true,
+    fileManager: true,
+    terminal: true,
+    databases: true,
+    backups: false,
+    domains: false,
+    cloudflareTunnels: false,
+    monitoring: false,
+    users: false,
+  });
 
   if (!isOpen) return null;
 
@@ -37,7 +49,8 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       maxDatabases,
       ramLimit,
       cpuLimit,
-      allowTerminal,
+      allowTerminal: permissions.terminal,
+      permissions,
       userCount: 0,
     };
 
@@ -166,15 +179,34 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             </div>
           </div>
 
-          <label className="flex items-center gap-2.5 pt-1 text-xs text-slate-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={allowTerminal}
-              onChange={(e) => setAllowTerminal(e.target.checked)}
-              className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="font-semibold">Grant Web Terminal & SSH CLI Access</span>
-          </label>
+          <div className="pt-1 border-t border-slate-100">
+            <div className="flex items-center gap-1.5 mb-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+              <span className="text-xs font-bold text-slate-800">Capability Permissions</span>
+              <span className="text-[10px] text-slate-400 font-mono">
+                {Object.values(permissions).filter(Boolean).length}/{PERMISSION_MATRIX.length}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {PERMISSION_MATRIX.map((item) => (
+                <label
+                  key={item.key}
+                  className="flex items-start gap-2 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50/60 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={permissions[item.key]}
+                    onChange={(e) => setPermissions((prev) => ({ ...prev, [item.key]: e.target.checked }))}
+                    className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-[11px] leading-tight">
+                    <span className="font-semibold text-slate-700 block">{item.label}</span>
+                    <span className="text-slate-400">{item.desc}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
 
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
             <button

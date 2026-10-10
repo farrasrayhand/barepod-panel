@@ -153,6 +153,18 @@ export interface PodItem {
   command?: string;
 }
 
+export interface GroupPermissions {
+  deployApps: boolean;
+  fileManager: boolean;
+  terminal: boolean;
+  databases: boolean;
+  backups: boolean;
+  domains: boolean;
+  cloudflareTunnels: boolean;
+  monitoring: boolean;
+  users: boolean;
+}
+
 export interface UserGroup {
   id: string;
   name: string;
@@ -163,6 +175,7 @@ export interface UserGroup {
   ramLimit: string;
   cpuLimit: string;
   allowTerminal: boolean;
+  permissions?: GroupPermissions;
   userCount: number;
 }
 

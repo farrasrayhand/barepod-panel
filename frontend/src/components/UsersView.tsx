@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { TenantUser, UserGroup } from '../types';
 import { useSubRoute } from '../hooks/useSubRoute';
+import { PERMISSION_MATRIX, countPermissions } from '../data/permissions';
 import { AddUserModal } from './AddUserModal';
 import { CreateGroupModal } from './CreateGroupModal';
 
@@ -44,6 +45,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
       ramLimit: '512 MB',
       cpuLimit: '1 vCPU',
       allowTerminal: false,
+      permissions: { deployApps: true, fileManager: true, terminal: false, databases: true, backups: false, domains: false, cloudflareTunnels: false, monitoring: false, users: false },
       userCount: 1,
     },
     {
@@ -56,6 +58,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
       ramLimit: '2 GB',
       cpuLimit: '2 vCPU',
       allowTerminal: true,
+      permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false },
       userCount: 1,
     },
     {
@@ -68,6 +71,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
       ramLimit: '4 GB',
       cpuLimit: '4 vCPU',
       allowTerminal: true,
+      permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false },
       userCount: 0,
     },
   ]);
@@ -338,7 +342,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                 <th className="py-3.5 px-4">Disk Quota</th>
                 <th className="py-3.5 px-4">Max Databases</th>
                 <th className="py-3.5 px-4">RAM / CPU Limit</th>
-                <th className="py-3.5 px-4">Terminal Access</th>
+                <th className="py-3.5 px-4">Access Permissions</th>
                 <th className="py-3.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -369,15 +373,20 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                   </td>
 
                   <td className="py-3.5 px-4">
-                    {g.allowTerminal ? (
-                      <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium text-[11px]">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Enabled
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded font-mono">
+                        {countPermissions(g.permissions)}/{PERMISSION_MATRIX.length}
                       </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-slate-500 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
-                        <XCircle className="w-3.5 h-3.5 text-slate-400" /> Disabled
-                      </span>
-                    )}
+                      {g.permissions?.terminal ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium text-[10px]">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> terminal
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-slate-500 bg-slate-100 px-2 py-0.5 rounded text-[10px]">
+                          <XCircle className="w-3 h-3 text-slate-400" /> no terminal
+                        </span>
+                      )}
+                    </div>
                   </td>
 
                   <td className="py-3.5 px-4 text-right">

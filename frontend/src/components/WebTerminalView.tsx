@@ -11,6 +11,8 @@ import {
   ChevronRight
 } from 'lucide-react';
 import type { WebApp } from '../types';
+import { usePanelSize } from '../hooks/usePanelSize';
+import { PanelSizeControl } from './PanelSizeControl';
 
 interface WebTerminalViewProps {
   apps: WebApp[];
@@ -33,6 +35,7 @@ export const WebTerminalView: React.FC<WebTerminalViewProps> = ({
   ]);
   const [commandInput, setCommandInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { size: termSize, height: termHeight, setSize: setTermSize } = usePanelSize({ sm: 300, md: 420, lg: 620 });
 
   useEffect(() => {
     // Reset terminal banner when changing app
@@ -382,7 +385,10 @@ SHELL=/bin/bash`;
       </div>
 
       {/* Terminal Window (Styled like a modern Linux PTY Console) */}
-      <div className="bg-slate-950 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden font-mono text-xs text-slate-200">
+      <div
+        className="bg-slate-950 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden font-mono text-xs text-slate-200 flex flex-col"
+        style={{ height: termHeight }}
+      >
         {/* Terminal Header */}
         <div className="bg-slate-900/90 px-4 py-2.5 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -409,7 +415,7 @@ SHELL=/bin/bash`;
         </div>
 
         {/* Terminal Screen Body */}
-        <div className="p-5 min-h-[380px] max-h-[500px] overflow-y-auto space-y-2.5">
+        <div className="flex-1 min-h-0 p-5 overflow-y-auto space-y-2.5">
           {terminalHistory.map((item, idx) => (
             <div key={idx} className="leading-relaxed whitespace-pre-wrap">
               {item.type === 'input' ? (
@@ -440,6 +446,7 @@ SHELL=/bin/bash`;
           </div>
           <div ref={bottomRef} />
         </div>
+        <PanelSizeControl value={termSize} onChange={setTermSize} dark />
       </div>
     </div>
   );

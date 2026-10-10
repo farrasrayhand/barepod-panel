@@ -1,5 +1,5 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Versi Dokumen:** 2.5 (Status: Frontend UI Prototype Selesai — Backend Go Daemon & Engine OS Belum Dikerjakan)  
+> **Versi Dokumen:** 2.6 (Status: Frontend UI Prototype Selesai — Backend Go Daemon & Engine OS Belum Dikerjakan)  
 > **Terakhir Diperbarui:** 10 Oktober 2026  
 > **Status:** Active & Maintained
 
@@ -7,10 +7,21 @@ Dokumen ini merupakan cetak biru (blueprint) arsitektur teknis, spesifikasi modu
 
 ---
 
-## 0. Riwayat Perubahan Frontend (v2.5 — 10 Okt 2026)
+## 0. Riwayat Perubahan Frontend (v2.6 — 10 Okt 2026)
 
-Perubahan pada Fase 1 (React UI prototype) sejak v2.4:
+Perubahan pada Fase 1 (React UI prototype):
 
+### v2.6
+- **RBAC granular**: tipe `GroupPermissions` (9 kapabilitas) pada grup tenant, editor matriks di Create Group Modal, dan kolom "Access Permissions" di tabel grup (`src/data/permissions.ts`).
+- **Ikon brand**: emoji diganti **lucide-react** (ikon UI) + **react-icons / Simple Icons** (logo brand: Python, PHP, Node.js, Go, Rust, Ruby, Flask, FastAPI, Django, Laravel, Symfony, WordPress, Next.js, Express, React, PostgreSQL, MySQL, MariaDB, MongoDB, Redis, phpMyAdmin) via `src/utils/brandIcons.tsx`.
+- **Server Monitoring**: filter rentang waktu jadi state nyata + grafik **Historical Trends** (CPU, Memory, Network I/O, Disk I/O); tab **Terminal** (host root shell) bersifat **admin-only**.
+- **App detail**: **World Traffic Map** dipromosikan jadi tab sendiri; **File Manager** jadi tab (`/apps/<app>/files`, bukan modal); editor memakai **highlight.js** (syntax highlighting).
+- **Ukuran panel**: preset **S/M/L** (`PanelSizeControl`) untuk File Manager, Host Terminal, dan Isolated Web Terminal (menggantikan free-drag agar tidak bisa ditarik ekstrem).
+- **File Manager**: batch download **.zip** nyata (store-only ZIP writer), auto-lock vault 60 detik, generator vhost Apache lengkap.
+- **Terminal tenant**: menu Isolated Web Terminal menampilkan pemilih sesi dulu sebelum membuka PTY.
+- **README**: ditulis ulang dalam bahasa Inggris + catatan *hobby project 100% free (MIT)*.
+
+### v2.5
 - **Client-side URL routing per menu**: setiap menu punya endpoint sendiri (`/apps`, `/databases`, `/backup`, `/terminal`, dst). Refresh & tombol back/forward mengembalikan menu yang benar.
 - **Deep-link App Detail**: `/apps/<nama-app>` beserta sub-tab ikut di URL (`/apps/<app>/logs`, `/routing`, `/deploy`, dst) sehingga refresh tidak kehilangan posisi.
 - **Session picker Terminal**: membuka menu Terminal menampilkan pilihan sesi lebih dulu; PTY baru dibuka setelah memilih. Tombol Terminal dari halaman App tetap membuka sesi app tersebut langsung.
@@ -202,6 +213,16 @@ graph TD
 
 ---
 
+### 3.8. Modul UI Tambahan (di luar §3.1–§3.7)
+
+- **Docker Pods & Container Hosting**: deploy dari image / Dockerfile / docker-compose, env vars, volume mounts, port mapping, web-domain routing, restart policy.
+- **Per-App Access Control**: HTTP 503 Maintenance Mode (dengan preview + IP bypass) dan HTTP Basic Auth (`.htpasswd` + simulator login), plus **Anti-Brute Force** (max attempts + durasi ban IP).
+- **System & Docker Cleanup**: prune sampah sistem + resource Docker (dangling image, stopped container, unused volume, build cache) dengan jadwal cron; daftar cronjob default yang direkomendasikan (retensi metrik, SSL renewal, security update, logrotate, DB maintenance, fstrim, S.M.A.R.T., service watchdog, disk alert).
+- **RBAC & Group**: grup tenant punya matriks 9 kapabilitas (deploy apps, file manager, terminal, databases, backups, domains, cloudflare tunnels, monitoring, user management).
+- **Panel Settings**: 9 tab (general, monitoring policy, security, reverse proxy & SSL, backup policy, notifications, database defaults, PHP defaults, system & cleanup).
+- **Domains & SSL** serta **Overview/Dashboard VPS**.
+- **URL routing per menu & deep-link**: seluruh menu serta sub-tab app dibookmark/refresh-safe; server produksi wajib SPA fallback.
+
 ## 4. Status Implementasi & Roadmap Pengembangan
 
 > [!IMPORTANT]
@@ -223,6 +244,11 @@ graph TD
 | **Backup & Migration Hub** | ✅ Selesai (Wizard UI, Token gen, .bpod download) | ⏳ Belum (Rsync daemon stream & S3 backend upload) | **Simulasi UI Selesai** |
 | **Hardware S.M.A.R.T. & Network** | ✅ Selesai (Diagnostic visual, mock self-test, ping) | ⏳ Belum (CLI `smartctl` & `/proc/net/dev` parser) | **Simulasi UI Selesai** |
 | **Web Terminal PTY** | ✅ Selesai (Mock terminal & CLI shim command) | ⏳ Belum (Go `creack/pty` bridge via WebSocket) | **Simulasi UI Selesai** |
+| **Docker Pods & Container Hosting** | ✅ Selesai (`PodsView`, `DeployPodModal`, `PodConfigModal`) | ⏳ Belum (Docker Engine SDK) | **Simulasi UI Selesai** |
+| **Per-App Access Control** (503 Maintenance, Basic Auth, Anti-Brute Force) | ✅ Selesai (toggle + simulator) | ⏳ Belum (vhost snippet, `.htpasswd`, fail2ban) | **Simulasi UI Selesai** |
+| **System & Docker Cleanup + Cron** | ✅ Selesai (Panel Settings → System & Cleanup) | ⏳ Belum (systemd timer / cron writer, `docker system prune`) | **Simulasi UI Selesai** |
+| **RBAC & Multi-Tenant Groups** | ✅ Selesai (matriks 9 kapabilitas per grup) | ⏳ Belum (JWT + policy enforcement) | **Simulasi UI Selesai** |
+| **URL Routing & Deep-link** | ✅ Selesai (`/apps/<name>/<tab>`, `/settings/<tab>`, `/monitoring/<tab>`, dst) | N/A (Frontend Only) | **Selesai (Frontend)** |
 
 ---
 
