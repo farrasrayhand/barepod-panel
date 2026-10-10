@@ -16,6 +16,7 @@ import {
   Globe
 } from 'lucide-react';
 import type { DatabaseItem, DatabaseEngine } from '../types';
+import { useSubRoute } from '../hooks/useSubRoute';
 import { CredentialRevealModal } from './CredentialRevealModal';
 import { DatabaseGuiModal } from './DatabaseGuiModal';
 import type { DatabaseManagerTool } from './DatabaseGuiModal';
@@ -28,7 +29,7 @@ interface DatabasesViewProps {
 }
 
 export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => {
-  const [activeTab, setActiveTab] = useState<'all' | DatabaseEngine>('all');
+  const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Modal States

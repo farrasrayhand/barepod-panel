@@ -649,25 +649,27 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                 </label>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                   {[
-                    { id: 'python' as RuntimeType, label: 'Python', icon: '🐍' },
-                    { id: 'php' as RuntimeType, label: 'PHP', icon: '🐘' },
-                    { id: 'nodejs' as RuntimeType, label: 'Node.js', icon: '⚡' },
-                    { id: 'go' as RuntimeType, label: 'Golang', icon: '🐹' },
-                    { id: 'rust' as RuntimeType, label: 'Rust', icon: '🦀' },
-                    { id: 'ruby' as RuntimeType, label: 'Ruby', icon: '💎' },
+                    { id: 'python' as RuntimeType, label: 'Python', code: 'PY', accent: 'bg-blue-100 text-blue-700' },
+                    { id: 'php' as RuntimeType, label: 'PHP', code: 'PHP', accent: 'bg-indigo-100 text-indigo-700' },
+                    { id: 'nodejs' as RuntimeType, label: 'Node.js', code: 'JS', accent: 'bg-emerald-100 text-emerald-700' },
+                    { id: 'go' as RuntimeType, label: 'Golang', code: 'GO', accent: 'bg-cyan-100 text-cyan-700' },
+                    { id: 'rust' as RuntimeType, label: 'Rust', code: 'RS', accent: 'bg-orange-100 text-orange-700' },
+                    { id: 'ruby' as RuntimeType, label: 'Ruby', code: 'RB', accent: 'bg-rose-100 text-rose-700' },
                   ].map((item) => (
                     <button
                       type="button"
                       key={item.id}
                       onClick={() => handleRuntimeChange(item.id)}
-                      className={`p-2 rounded-xl border text-center transition-all ${
+                      className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all ${
                         runtime === item.id
-                          ? 'border-blue-500 bg-blue-50 text-blue-800 ring-2 ring-blue-500/10 font-bold'
+                          ? 'border-blue-500 bg-blue-50/70 text-blue-800 ring-2 ring-blue-500/10'
                           : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
                       }`}
                     >
-                      <span className="text-lg block">{item.icon}</span>
-                      <span className="text-xs block mt-0.5">{item.label}</span>
+                      <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold ${item.accent}`}>
+                        {item.code}
+                      </span>
+                      <span className={`text-[11px] ${runtime === item.id ? 'font-bold' : ''}`}>{item.label}</span>
                     </button>
                   ))}
                 </div>
@@ -743,31 +745,29 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                         <Database className="w-3.5 h-3.5 text-slate-700" />
                         Auto-Provision Database / Cache Instance
                       </span>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        Full suite: PostgreSQL, MySQL/MariaDB, MongoDB, and Redis.
-                      </p>
                     </div>
                   </label>
 
                   {createDb && (
                     <div className="mt-3 pl-6 grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {[
-                        { id: 'mongodb' as DatabaseEngine, label: '🍃 MongoDB 7.0' },
-                        { id: 'redis' as DatabaseEngine, label: '🔴 Redis 7.2' },
-                        { id: 'postgres' as DatabaseEngine, label: '🐘 PostgreSQL 16' },
-                        { id: 'mysql' as DatabaseEngine, label: '🐬 MariaDB 11' },
+                        { id: 'mongodb' as DatabaseEngine, label: 'MongoDB 7.0', dot: 'bg-emerald-500' },
+                        { id: 'redis' as DatabaseEngine, label: 'Redis 7.2', dot: 'bg-rose-500' },
+                        { id: 'postgres' as DatabaseEngine, label: 'PostgreSQL 16', dot: 'bg-blue-500' },
+                        { id: 'mysql' as DatabaseEngine, label: 'MariaDB 11', dot: 'bg-amber-500' },
                       ].map((engine) => (
                         <button
                           type="button"
                           key={engine.id}
                           onClick={() => setDbType(engine.id)}
-                          className={`px-2.5 py-1.5 rounded-lg border text-xs text-left transition-all ${
+                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] text-left transition-all ${
                             dbType === engine.id
                               ? 'border-blue-600 bg-blue-50 font-bold text-blue-900'
                               : 'border-slate-200 bg-white text-slate-700'
                           }`}
                         >
-                          {engine.label}
+                          <span className={`w-2 h-2 rounded-full ${engine.dot} shrink-0`} />
+                          <span>{engine.label}</span>
                         </button>
                       ))}
                     </div>
@@ -788,7 +788,7 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
                       Enable Cloudflare Tunnel (Zero-NAT)
                     </span>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      Expose the domain instantly without a static public IP or router port configuration.
+                      Publish the domain without a public IP or port forwarding.
                     </p>
                   </div>
                 </label>

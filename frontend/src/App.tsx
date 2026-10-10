@@ -48,8 +48,8 @@ const parseRoute = (pathname: string): AppRoute => {
       appSubTab: parts[2] ? decodeURIComponent(parts[2]) : undefined,
     };
   }
-  const match = (Object.keys(TAB_PATHS) as NavItem[]).find((tab) => TAB_PATHS[tab] === clean);
-  return { tab: match ?? 'apps' };
+  const match = (Object.keys(TAB_PATHS) as NavItem[]).find((tab) => TAB_PATHS[tab] === `/${parts[0]}`);
+  return match ? { tab: match, appSubTab: parts[1] ? decodeURIComponent(parts[1]) : undefined } : { tab: 'apps' };
 };
 
 export function App() {

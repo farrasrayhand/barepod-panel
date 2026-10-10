@@ -28,6 +28,7 @@ import {
   FileArchive
 } from 'lucide-react';
 import type { WebApp } from '../types';
+import { useSubRoute } from '../hooks/useSubRoute';
 
 interface BackupMigrationViewProps {
   apps: WebApp[];
@@ -53,7 +54,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
   onShowToast,
   onOpenTerminal,
 }) => {
-  const [activeTab, setActiveTab] = useState<'migration' | 'snapshots' | 'restore' | 'cloud_sync'>('migration');
+  const [activeTab, setActiveTab] = useSubRoute<'migration' | 'snapshots' | 'restore' | 'cloud_sync'>('migration');
   const [copiedKey, setCopiedKey] = useState(false);
 
   // Live Migration State

@@ -30,6 +30,7 @@ import {
   Trash2
 } from 'lucide-react';
 import type { WebServerType } from '../types';
+import { useSubRoute } from '../hooks/useSubRoute';
 import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
 
 interface PanelSettingsViewProps {
@@ -41,7 +42,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   onShowToast,
   onOpenTerminal,
 }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'databases' | 'php_defaults'>('general');
+  const [activeTab, setActiveTab] = useSubRoute<'general' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'databases' | 'php_defaults'>('general');
   const [isSaving, setIsSaving] = useState(false);
 
   // Global PHP Extensions Blueprint Settings

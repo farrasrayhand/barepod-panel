@@ -17,6 +17,7 @@ import {
   Pencil
 } from 'lucide-react';
 import type { TenantUser, UserGroup } from '../types';
+import { useSubRoute } from '../hooks/useSubRoute';
 import { AddUserModal } from './AddUserModal';
 import { CreateGroupModal } from './CreateGroupModal';
 
@@ -26,7 +27,7 @@ interface UsersViewProps {
 }
 
 export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTerminal }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'groups'>('users');
+  const [activeTab, setActiveTab] = useSubRoute<'users' | 'groups'>('users');
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<TenantUser | null>(null);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);

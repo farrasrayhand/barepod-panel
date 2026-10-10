@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSubRoute } from '../hooks/useSubRoute';
 import { 
   Activity, 
   Cpu, 
@@ -64,7 +65,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   onShowToast,
   onOpenTerminal
 }) => {
-  const [activeTab, setActiveTab] = useState<'metrics' | 'processes' | 'services' | 'storage' | 'network'>('metrics');
+  const [activeTab, setActiveTab] = useSubRoute<'metrics' | 'processes' | 'services' | 'storage' | 'network'>('metrics');
   const [refreshInterval, setRefreshInterval] = useState<number>(3000);
   const [isAutoRefresh, setIsAutoRefresh] = useState(true);
 

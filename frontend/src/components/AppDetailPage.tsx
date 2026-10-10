@@ -97,6 +97,15 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
     setInternalTab(tab);
     onTabChange?.(tab);
   };
+
+  // PHP stack tab only applies to PHP runtimes; redirect to monitoring otherwise
+  React.useEffect(() => {
+    if (activeTab === 'php' && app.runtime !== 'php') {
+      setInternalTab('monitoring');
+      onTabChange?.('monitoring');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, app.runtime]);
   const [logType, setLogType] = useState<'all' | 'access' | 'error' | 'deploy'>('all');
   const [logSearch, setLogSearch] = useState('');
   const [logFormat, setLogFormat] = useState<'structured' | 'raw'>('structured');
@@ -739,11 +748,13 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     }, 600);
   };
 
+  const phpVersion = app.runtime === 'php' ? app.version : '8.4';
+
   const handleRestartFpmPool = () => {
     setIsReloadingFpm(true);
     setTimeout(() => {
       setIsReloadingFpm(false);
-      onShowToast?.('PHP-FPM Reloaded', `Pool /run/php/php${app.version || '8.4'}-fpm.sock restarted gracefully.`, 'success');
+      onShowToast?.('PHP-FPM Reloaded', `Pool /run/php/php${phpVersion}-fpm.sock restarted gracefully.`, 'success');
     }, 500);
   };
 
@@ -1315,20 +1326,22 @@ QUEUE_CONNECTION=redis`;
           <span>Environment (.env)</span>
         </button>
 
-        <button
-          onClick={() => setActiveTab('php')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'php'
-              ? 'border-purple-600 text-purple-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>PHP & Extensions</span>
-          <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
-            {app.runtime === 'php' ? `PHP ${app.version}` : 'PHP 8.4'}
-          </span>
-        </button>
+        {app.runtime === 'php' && (
+          <button
+            onClick={() => setActiveTab('php')}
+            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+              activeTab === 'php'
+                ? 'border-purple-600 text-purple-700 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>PHP & Extensions</span>
+            <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
+              PHP {app.version}
+            </span>
+          </button>
+        )}
 
         <button
           onClick={() => setActiveTab('security')}
