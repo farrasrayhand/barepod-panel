@@ -41,8 +41,14 @@ export const WebTerminalView: React.FC<WebTerminalViewProps> = ({
     }
   ]);
   const [commandInput, setCommandInput] = useState('');
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const { size: termSize, height: termHeight, setSize: setTermSize } = usePanelSize({ sm: 300, md: 420, lg: 620 });
+
+  // Focus without scrolling the page (see HostConsole for the same fix).
+  useEffect(() => {
+    inputRef.current?.focus({ preventScroll: true });
+  }, []);
 
   useEffect(() => {
     // Reset terminal banner when changing app
@@ -60,8 +66,12 @@ Hybrid Monorepo Sandbox: ACTIVE (Full multi-runtime support for PHP backend, Vit
     }
   }, [currentApp?.id]);
 
+  // Scroll the terminal pane itself: `scrollIntoView` also scrolls the page,
+  // which made the whole view jump down when a session opened.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const pane = scrollRef.current;
+    if (!pane) return;
+    pane.scrollTop = pane.scrollHeight;
   }, [terminalHistory]);
 
   // No session selected yet -> ask the user to pick a site before opening the PTY
@@ -491,7 +501,7 @@ SHELL=/bin/bash`;
         </div>
 
         {/* Terminal Screen Body */}
-        <div className="flex-1 min-h-0 p-5 overflow-y-auto space-y-2.5">
+        <div ref={scrollRef} className="flex-1 min-h-0 p-5 overflow-y-auto space-y-2.5">
           {terminalHistory.map((item, idx) => (
             <div key={idx} className="leading-relaxed whitespace-pre-wrap">
               {item.type === 'input' ? (
@@ -512,7 +522,7 @@ SHELL=/bin/bash`;
             <span className="text-blue-400 font-semibold">{currentApp.tenantUser}@barepod:~$</span>
             <input
               type="text"
-              autoFocus
+              ref={inputRef}
               value={commandInput}
               onChange={(e) => setCommandInput(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -520,7 +530,6 @@ SHELL=/bin/bash`;
               className="flex-1 bg-transparent border-none outline-hidden text-slate-100 font-mono text-xs placeholder:text-slate-600 focus:ring-0"
             />
           </div>
-          <div ref={bottomRef} />
         </div>
         <PanelSizeControl value={termSize} onChange={setTermSize} dark />
       </div>

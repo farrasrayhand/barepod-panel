@@ -15,11 +15,24 @@ export const HostConsole: React.FC<HostConsoleProps> = ({ hostname = 'vps-barepo
     },
   ]);
   const [input, setInput] = useState('');
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const { size: termSize, height: termHeight, setSize: setTermSize } = usePanelSize({ sm: 260, md: 380, lg: 560 });
 
+  // Focus the prompt so the operator can type immediately — with
+  // `preventScroll`, because focusing an input scrolls its scrollable ancestor
+  // into view and that yanked the whole page down when the console opened.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    inputRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // Scroll the log pane itself. `scrollIntoView` would also scroll every
+  // ancestor — including the page — so opening the console yanked the whole
+  // view down to the footer.
+  useEffect(() => {
+    const pane = scrollRef.current;
+    if (!pane) return;
+    pane.scrollTop = pane.scrollHeight;
   }, [history]);
 
   const run = (raw: string) => {
@@ -137,7 +150,7 @@ a1b2c3d4e5f6   n8n:latest         Up 6 days      0.0.0.0:5678->5678/tcp   n8n-wo
           </div>
           <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-300">SSH PTY: ssh://localhost:22</span>
         </div>
-        <div className="flex-1 min-h-0 p-5 overflow-y-auto space-y-2">
+        <div ref={scrollRef} className="flex-1 min-h-0 p-5 overflow-y-auto space-y-2">
           {history.map((item, idx) => (
             <div key={idx} className="leading-relaxed whitespace-pre-wrap">
               {item.type === 'input' ? (
@@ -154,7 +167,7 @@ a1b2c3d4e5f6   n8n:latest         Up 6 days      0.0.0.0:5678->5678/tcp   n8n-wo
             <span className="text-blue-400 font-semibold">{hostname}:~#</span>
             <input
               type="text"
-              autoFocus
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') run(input); }}
@@ -162,7 +175,6 @@ a1b2c3d4e5f6   n8n:latest         Up 6 days      0.0.0.0:5678->5678/tcp   n8n-wo
               className="flex-1 bg-transparent border-none outline-hidden text-slate-100 font-mono text-xs placeholder:text-slate-600 focus:ring-0"
             />
           </div>
-          <div ref={bottomRef} />
         </div>
         <PanelSizeControl value={termSize} onChange={setTermSize} dark />
       </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Server } from 'lucide-react';
 import type { NavItem, WebApp } from './types';
 import { Sidebar } from './components/Sidebar';
@@ -77,6 +77,14 @@ export function App() {
   const session = useSession();
   const currentUser = session.user ?? MOCK_USER;
   const isAdmin = currentUser.role === 'admin';
+
+  // Every menu change starts at the top of the page — without this, a component
+  // that focuses an input (the terminal, the host console) drags the view down
+  // and the next page looks like it opened in the middle.
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 });
+  }, [route.tab, route.appSlug, route.appSubTab]);
 
   // Navigate to an explicit path (menu endpoint or app detail deep-link)
   const navigatePath = (path: string) => {
@@ -447,7 +455,7 @@ systemctl reload uvicorn-ai`,
         />
 
         {/* Dynamic Views */}
-        <main className="flex-1 overflow-y-auto">
+        <main ref={mainRef} className="flex-1 overflow-y-auto">
           {currentTab === 'overview' && (
             <OverviewView
               apps={apps}
