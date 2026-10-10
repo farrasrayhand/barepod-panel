@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   X, 
   Box, 
@@ -15,7 +15,12 @@ import {
   Code, 
   HelpCircle,
   Cloud,
-  Check
+  Check,
+  Upload,
+  FileUp,
+  FileCheck,
+  RotateCw,
+  FileText
 } from 'lucide-react';
 import type { PodItem, PodSourceType, PodEnvVar, PodVolumeMount } from '../types';
 
@@ -25,7 +30,8 @@ interface DeployPodModalProps {
   onDeploy: (pod: PodItem) => void;
 }
 
-const DEFAULT_DOCKERFILE = `# Sample multi-stage Dockerfile for Web Application
+const DOCKERFILE_TEMPLATES: Record<string, string> = {
+  'node': `# Node.js 20 Multi-Stage Build
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
@@ -41,12 +47,53 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
 EXPOSE 3000
-CMD ["node", "dist/index.js"]`;
+CMD ["node", "dist/index.js"]`,
 
-const DEFAULT_COMPOSE = `version: '3.8'
+  'python': `# Python 3.12 FastAPI / Uvicorn Service
+FROM python:3.12-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \\
+    PYTHONUNBUFFERED=1
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8000
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]`,
+
+  'php': `# PHP 8.4 FPM Alpine
+FROM php:8.4-fpm-alpine
+RUN docker-php-ext-install pdo pdo_mysql bcmath opcache
+WORKDIR /var/www/html
+COPY . .
+EXPOSE 9000
+CMD ["php-fpm"]`,
+
+  'go': `# Go 1.22 Alpine Static Binary
+FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/server .
+
+FROM alpine:latest
+WORKDIR /app
+COPY --from=builder /app/server .
+EXPOSE 8080
+CMD ["/app/server"]`,
+
+  'nginx': `# Static HTML / Single Page App (SPA)
+FROM nginx:alpine
+COPY . /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]`
+};
+
+const COMPOSE_TEMPLATES: Record<string, string> = {
+  'n8n': `version: '3.8'
 
 services:
-  app:
+  n8n:
     image: n8nio/n8n:latest
     container_name: n8n-automation
     restart: unless-stopped
@@ -57,13 +104,78 @@ services:
       - N8N_PORT=5678
       - N8N_PROTOCOL=https
       - NODE_ENV=production
-      - WEBHOOK_URL=https://n8n.demo.barepod.cloud/
     volumes:
       - n8n_storage:/home/node/.n8n
 
 volumes:
   n8n_storage:
-    driver: local`;
+    driver: local`,
+
+  'wordpress': `version: '3.8'
+
+services:
+  wordpress:
+    image: wordpress:latest
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: wp_user
+      WORDPRESS_DB_PASSWORD: secure_password_wp
+      WORDPRESS_DB_NAME: wp_production
+    volumes:
+      - wp_data:/var/www/html
+
+  db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret_password
+      MYSQL_DATABASE: wp_production
+      MYSQL_USER: wp_user
+      MYSQL_PASSWORD: secure_password_wp
+    volumes:
+      - db_data:/var/lib/mysql
+
+volumes:
+  wp_data:
+  db_data:`,
+
+  'nextcloud': `version: '3.8'
+
+services:
+  nextcloud:
+    image: nextcloud:apache
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      - REDIS_HOST=redis
+    volumes:
+      - nextcloud_data:/var/www/html
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+
+volumes:
+  nextcloud_data:`,
+
+  'custom': `version: '3.8'
+
+services:
+  app:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - app_data:/data
+
+volumes:
+  app_data:`
+};
 
 export const DeployPodModal: React.FC<DeployPodModalProps> = ({
   isOpen,
@@ -73,9 +185,18 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
   const [sourceType, setSourceType] = useState<PodSourceType>('image');
   const [name, setName] = useState('');
   const [image, setImage] = useState('');
-  const [dockerfileContent, setDockerfileContent] = useState(DEFAULT_DOCKERFILE);
-  const [composeContent, setComposeContent] = useState(DEFAULT_COMPOSE);
+  const [dockerfileContent, setDockerfileContent] = useState(DOCKERFILE_TEMPLATES['node']);
+  const [composeContent, setComposeContent] = useState(COMPOSE_TEMPLATES['n8n']);
   
+  // File upload metadata state
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; size: string; target: string } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Hidden File Inputs
+  const dockerfileInputRef = useRef<HTMLInputElement>(null);
+  const composeInputRef = useRef<HTMLInputElement>(null);
+  const envInputRef = useRef<HTMLInputElement>(null);
+
   // Web Application configuration
   const [isWebApp, setIsWebApp] = useState(false);
   const [webDomain, setWebDomain] = useState('');
@@ -106,6 +227,38 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
   const [configTab, setConfigTab] = useState<'source' | 'web' | 'env' | 'storage' | 'resources'>('source');
 
   if (!isOpen) return null;
+
+  // File Upload Processor
+  const processUploadedFile = (file: File, target: 'dockerfile' | 'compose' | 'env') => {
+    const sizeStr = file.size > 1024 * 1024 
+      ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` 
+      : `${(file.size / 1024).toFixed(1)} KB`;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      if (!text) return;
+
+      if (target === 'dockerfile') {
+        setDockerfileContent(text);
+        if (!name) {
+          const cleanName = file.name.replace(/(\.dockerfile|dockerfile|\.txt)$/i, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+          if (cleanName) setName(cleanName);
+        }
+      } else if (target === 'compose') {
+        setComposeContent(text);
+        if (!name) {
+          const cleanName = file.name.replace(/(\.ya?ml|\.txt)$/i, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+          if (cleanName && cleanName !== 'docker-compose') setName(cleanName);
+        }
+      } else if (target === 'env') {
+        syncRawToEnvVars(text);
+      }
+
+      setUploadedFile({ name: file.name, size: sizeStr, target });
+    };
+    reader.readAsText(file);
+  };
 
   const handleAddEnv = () => {
     setEnvVars([...envVars, { key: '', value: '', isSecret: false }]);
@@ -202,6 +355,38 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full flex flex-col max-h-[92vh] overflow-hidden">
         
+        {/* Hidden File Inputs */}
+        <input 
+          type="file" 
+          ref={dockerfileInputRef} 
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) processUploadedFile(f, 'dockerfile');
+          }}
+          accept=".dockerfile,Dockerfile,text/plain"
+          className="hidden" 
+        />
+        <input 
+          type="file" 
+          ref={composeInputRef} 
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) processUploadedFile(f, 'compose');
+          }}
+          accept=".yml,.yaml,docker-compose.yml,docker-compose.yaml,text/plain"
+          className="hidden" 
+        />
+        <input 
+          type="file" 
+          ref={envInputRef} 
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) processUploadedFile(f, 'env');
+          }}
+          accept=".env,text/plain"
+          className="hidden" 
+        />
+
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
           <div className="flex items-center gap-3">
@@ -216,7 +401,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Run any Docker Image, Dockerfile, or Docker Compose stack with web routing & envs
+                Run Docker Images, upload Dockerfile, or paste/upload Docker Compose stacks
               </p>
             </div>
           </div>
@@ -330,7 +515,10 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                 <div className="grid grid-cols-3 gap-2.5">
                   <button
                     type="button"
-                    onClick={() => setSourceType('image')}
+                    onClick={() => {
+                      setSourceType('image');
+                      setUploadedFile(null);
+                    }}
                     className={`p-3 rounded-xl border text-left transition-all ${
                       sourceType === 'image'
                         ? 'border-purple-600 bg-purple-50/60 ring-1 ring-purple-600'
@@ -348,7 +536,10 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setSourceType('dockerfile')}
+                    onClick={() => {
+                      setSourceType('dockerfile');
+                      setUploadedFile(null);
+                    }}
                     className={`p-3 rounded-xl border text-left transition-all ${
                       sourceType === 'dockerfile'
                         ? 'border-purple-600 bg-purple-50/60 ring-1 ring-purple-600'
@@ -360,13 +551,16 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                       <span className="text-xs font-bold text-slate-900">Dockerfile</span>
                     </div>
                     <p className="text-[10px] text-slate-500 leading-tight">
-                      Custom build directly from multi-stage Dockerfile source.
+                      Upload or write custom multi-stage Dockerfile source.
                     </p>
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => setSourceType('compose')}
+                    onClick={() => {
+                      setSourceType('compose');
+                      setUploadedFile(null);
+                    }}
                     className={`p-3 rounded-xl border text-left transition-all ${
                       sourceType === 'compose'
                         ? 'border-purple-600 bg-purple-50/60 ring-1 ring-purple-600'
@@ -378,13 +572,13 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                       <span className="text-xs font-bold text-slate-900">Compose YAML</span>
                     </div>
                     <p className="text-[10px] text-slate-500 leading-tight">
-                      Declare multi-container stack with networks & services.
+                      Upload or paste docker-compose.yml stack spec.
                     </p>
                   </button>
                 </div>
               </div>
 
-              {/* Source-specific input */}
+              {/* Source-specific input: Docker Image */}
               {sourceType === 'image' && (
                 <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200 space-y-2">
                   <label className="block text-xs font-bold text-slate-800">
@@ -417,39 +611,208 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                 </div>
               )}
 
+              {/* Source-specific input: Dockerfile (with Upload & Drag/Drop) */}
               {sourceType === 'dockerfile' && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-slate-800">
-                      Dockerfile Script
-                    </label>
-                    <span className="text-[10px] text-slate-400 font-mono">Build engine: BuildKit</span>
+                <div className="space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800">
+                        Dockerfile Script
+                      </label>
+                      <span className="text-[10px] text-slate-400 font-mono">Build engine: BuildKit</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {/* Template Selector */}
+                      <select
+                        onChange={(e) => {
+                          if (e.target.value && DOCKERFILE_TEMPLATES[e.target.value]) {
+                            setDockerfileContent(DOCKERFILE_TEMPLATES[e.target.value]);
+                            setUploadedFile(null);
+                          }
+                        }}
+                        className="text-[11px] bg-white border border-slate-200 px-2 py-1 rounded-lg text-slate-700 font-medium cursor-pointer"
+                        defaultValue="node"
+                      >
+                        <option value="node">Template: Node.js 20</option>
+                        <option value="python">Template: Python FastAPI</option>
+                        <option value="php">Template: PHP 8.4 FPM</option>
+                        <option value="go">Template: Go 1.22 Binary</option>
+                        <option value="nginx">Template: Nginx Static</option>
+                      </select>
+
+                      {/* Prominent Upload Button */}
+                      <button
+                        type="button"
+                        onClick={() => dockerfileInputRef.current?.click()}
+                        className="flex items-center gap-1.5 px-3 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Upload Dockerfile</span>
+                      </button>
+                    </div>
                   </div>
-                  <textarea
-                    rows={9}
-                    value={dockerfileContent}
-                    onChange={(e) => setDockerfileContent(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono bg-slate-900 text-slate-100 rounded-xl border border-slate-800 focus:outline-hidden focus:ring-1 focus:ring-purple-500"
-                    placeholder="FROM node:alpine..."
-                  />
+
+                  {/* Upload feedback banner if file loaded */}
+                  {uploadedFile && uploadedFile.target === 'dockerfile' && (
+                    <div className="p-2 px-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs text-emerald-800">
+                      <div className="flex items-center gap-2 truncate">
+                        <FileCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>File loaded: <strong className="font-mono">{uploadedFile.name}</strong> ({uploadedFile.size})</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUploadedFile(null);
+                          setDockerfileContent(DOCKERFILE_TEMPLATES['node']);
+                        }}
+                        className="text-[10px] text-emerald-700 hover:text-emerald-900 font-bold underline ml-2"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Drag & Drop Area */}
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDragging(true);
+                    }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragging(false);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) processUploadedFile(f, 'dockerfile');
+                    }}
+                    className={`relative rounded-xl border transition-all ${
+                      isDragging 
+                        ? 'border-purple-500 ring-2 ring-purple-300' 
+                        : 'border-slate-800'
+                    }`}
+                  >
+                    <textarea
+                      rows={9}
+                      value={dockerfileContent}
+                      onChange={(e) => setDockerfileContent(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-mono bg-slate-900 text-slate-100 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-purple-500"
+                      placeholder="FROM node:alpine..."
+                    />
+
+                    {isDragging && (
+                      <div className="absolute inset-0 bg-purple-900/80 backdrop-blur-xs rounded-xl flex items-center justify-center text-white text-xs font-bold gap-2 pointer-events-none">
+                        <FileUp className="w-5 h-5 animate-bounce" />
+                        <span>Lepaskan file Dockerfile untuk mengunggah</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                    <span>💡 Tip: Anda bisa klik tombol <strong>Upload Dockerfile</strong> di atas atau seret (drag-and-drop) file langsung ke editor.</span>
+                  </div>
                 </div>
               )}
 
+              {/* Source-specific input: Docker Compose (with Upload & Drag/Drop) */}
               {sourceType === 'compose' && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-slate-800">
-                      docker-compose.yml Specification
-                    </label>
-                    <span className="text-[10px] text-slate-400 font-mono">Compose spec v3.8</span>
+                <div className="space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800">
+                        docker-compose.yml Specification
+                      </label>
+                      <span className="text-[10px] text-slate-400 font-mono">Compose spec v3.8</span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {/* Template Selector */}
+                      <select
+                        onChange={(e) => {
+                          if (e.target.value && COMPOSE_TEMPLATES[e.target.value]) {
+                            setComposeContent(COMPOSE_TEMPLATES[e.target.value]);
+                            setUploadedFile(null);
+                          }
+                        }}
+                        className="text-[11px] bg-white border border-slate-200 px-2 py-1 rounded-lg text-slate-700 font-medium cursor-pointer"
+                        defaultValue="n8n"
+                      >
+                        <option value="n8n">Template: n8n Automation</option>
+                        <option value="wordpress">Template: WordPress + MariaDB</option>
+                        <option value="nextcloud">Template: Nextcloud + Redis</option>
+                        <option value="custom">Template: Minimal Web App</option>
+                      </select>
+
+                      {/* Prominent Upload Button */}
+                      <button
+                        type="button"
+                        onClick={() => composeInputRef.current?.click()}
+                        className="flex items-center gap-1.5 px-3 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Upload docker-compose.yml</span>
+                      </button>
+                    </div>
                   </div>
-                  <textarea
-                    rows={9}
-                    value={composeContent}
-                    onChange={(e) => setComposeContent(e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono bg-slate-900 text-slate-100 rounded-xl border border-slate-800 focus:outline-hidden focus:ring-1 focus:ring-purple-500"
-                    placeholder="version: '3.8'..."
-                  />
+
+                  {/* Upload feedback banner if file loaded */}
+                  {uploadedFile && uploadedFile.target === 'compose' && (
+                    <div className="p-2 px-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs text-emerald-800">
+                      <div className="flex items-center gap-2 truncate">
+                        <FileCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>File loaded: <strong className="font-mono">{uploadedFile.name}</strong> ({uploadedFile.size})</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUploadedFile(null);
+                          setComposeContent(COMPOSE_TEMPLATES['n8n']);
+                        }}
+                        className="text-[10px] text-emerald-700 hover:text-emerald-900 font-bold underline ml-2"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Drag & Drop Area */}
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDragging(true);
+                    }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragging(false);
+                      const f = e.dataTransfer.files?.[0];
+                      if (f) processUploadedFile(f, 'compose');
+                    }}
+                    className={`relative rounded-xl border transition-all ${
+                      isDragging 
+                        ? 'border-purple-500 ring-2 ring-purple-300' 
+                        : 'border-slate-800'
+                    }`}
+                  >
+                    <textarea
+                      rows={9}
+                      value={composeContent}
+                      onChange={(e) => setComposeContent(e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-mono bg-slate-900 text-slate-100 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-purple-500"
+                      placeholder="version: '3.8'..."
+                    />
+
+                    {isDragging && (
+                      <div className="absolute inset-0 bg-purple-900/80 backdrop-blur-xs rounded-xl flex items-center justify-center text-white text-xs font-bold gap-2 pointer-events-none">
+                        <FileUp className="w-5 h-5 animate-bounce" />
+                        <span>Lepaskan file docker-compose.yml untuk mengunggah</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                    <span>💡 Tip: Anda bisa klik tombol <strong>Upload docker-compose.yml</strong> di atas atau seret (drag-and-drop) file langsung ke editor.</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -575,27 +938,38 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: ENVIRONMENT VARIABLES */}
+          {/* TAB 3: ENVIRONMENT VARIABLES (with Upload .env) */}
           {configTab === 'env' && (
             <div className="space-y-3 animate-in fade-in duration-150">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-xs font-bold text-slate-900">Environment Variables</h3>
                   <p className="text-[11px] text-slate-500">Injeksi variabel rahasia, database URLs, atau config flags.</p>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Upload .env button */}
+                  <button
+                    type="button"
+                    onClick={() => envInputRef.current?.click()}
+                    className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg bg-white hover:bg-slate-50 text-slate-700 font-bold border border-slate-200 transition-colors shadow-2xs"
+                  >
+                    <Upload className="w-3 h-3 text-purple-600" />
+                    <span>Upload .env File</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => setEnvMode(envMode === 'table' ? 'raw' : 'table')}
-                    className="text-[10px] px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium"
+                    className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium"
                   >
                     {envMode === 'table' ? 'Switch to .env Text' : 'Switch to Table'}
                   </button>
+
                   {envMode === 'table' && (
                     <button
                       type="button"
                       onClick={handleAddEnv}
-                      className="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold border border-purple-200"
+                      className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold border border-purple-200"
                     >
                       <Plus className="w-3 h-3" />
                       Add Variable
@@ -603,6 +977,22 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                   )}
                 </div>
               </div>
+
+              {uploadedFile && uploadedFile.target === 'env' && (
+                <div className="p-2 px-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs text-emerald-800">
+                  <div className="flex items-center gap-2 truncate">
+                    <FileCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Environment loaded from <strong className="font-mono">{uploadedFile.name}</strong> ({envVars.length} variables parsed)</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUploadedFile(null)}
+                    className="text-[10px] text-emerald-700 hover:text-emerald-900 font-bold underline ml-2"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
 
               {envMode === 'table' ? (
                 <div className="space-y-2">
@@ -643,7 +1033,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                   ))}
                   {envVars.length === 0 && (
                     <div className="p-3 text-center text-xs text-slate-400 bg-slate-50 rounded-lg">
-                      Tidak ada variabel environment. Klik "Add Variable" untuk menambahkan.
+                      Tidak ada variabel environment. Klik "Add Variable" atau "Upload .env File".
                     </div>
                   )}
                 </div>
