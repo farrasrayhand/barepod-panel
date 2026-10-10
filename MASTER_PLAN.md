@@ -378,3 +378,19 @@ The panel must be automatable without the UI — for users, CI/CD, and **AI agen
 > Contract details (token/webhook endpoints, MCP tool list, client configuration examples) are in [`API_CONTRACT.md`](./API_CONTRACT.md) §7.
 
 ---
+
+## 8. Architecture Decisions (backend kickoff)
+
+Locked decisions to be implemented in Phase 2/3:
+
+1. **Tenant isolation model — Hybrid (LOCKED).**
+   - **Websites** run **native**: one Linux user per tenant, app directory `/home/<tenant>/apps/<site>`, per-app service, resource limits via **cgroups v2**. Native-first because it is light, instant to start, and works in **LXC without `security.nesting`** (AMD64/ARM64 friendly).
+   - **Pods** run as **Docker containers** (Phase 3, Docker SDK): images / Dockerfile / compose for heavier services and prebuilt images.
+   - Consequence: two operational paths (files, terminal, logs, backup) — the daemon must abstract them behind one interface so the UI stays the same.
+2. **Process supervision — proposed: systemd units per app.** The daemon generates and manages one unit per app (e.g. `barepod-<site>.service`) and calls `systemctl` (start/stop/restart/reload, `journalctl` for logs). Avoids writing a custom supervisor and reuses cgroup accounting. *(needs confirmation)*
+3. **Web server config ownership — global defaults + per-site override (LOCKED).** Admin manages **global defaults** in Panel Settings (default engine, global snippets/templates, shared-daemon versions & ports, PHP extension blueprint). Each website stores a **custom override diff** on top of the template; the effective config is resolved as *global template → per-site override*. Precedent already in the UI: global PHP blueprint vs per-app PHP tab.
+4. **Secrets & auth — proposed:** Argon2id for panel passwords; **AES-256-GCM** for database passwords at rest (key file `/etc/barepod/secret.key`, `0600`); JWT access token (~15 min) + rotating refresh token (~7 d); API tokens stored as `sha256` with a visible `bp_live_…` prefix; every API request audited. *(needs confirmation)*
+
+Remaining to confirm: **#2 (supervisor)** and **#4 (secrets/auth)**.
+
+---
