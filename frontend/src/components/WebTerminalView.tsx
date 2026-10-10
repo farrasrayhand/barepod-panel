@@ -8,13 +8,14 @@ import {
   Copy, 
   Trash2,
   Sparkles,
-  Info
+  Info,
+  ChevronRight
 } from 'lucide-react';
 import type { WebApp } from '../types';
 
 interface WebTerminalViewProps {
   apps: WebApp[];
-  selectedAppId?: string;
+  selectedAppId?: string | null;
   onSelectApp: (appId: string) => void;
 }
 
@@ -53,6 +54,69 @@ Hybrid Monorepo Sandbox: ACTIVE (Full multi-runtime support for PHP backend, Vit
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [terminalHistory]);
+
+  // No session selected yet -> ask the user to pick a site before opening the PTY
+  const hasActiveSession = Boolean(selectedAppId && apps.some((a) => a.id === selectedAppId));
+
+  if (!hasActiveSession) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-200">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Isolated Web Terminal</h1>
+            <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5" /> Tenant Sandboxed
+            </span>
+          </div>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Pilih situs / aplikasi untuk membuka sesi CLI-nya. Setiap sesi otomatis memakai tenant user, direktori kerja, dan runtime versi aplikasi terkait.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {apps.map((app) => (
+            <button
+              key={app.id}
+              type="button"
+              onClick={() => onSelectApp(app.id)}
+              className="text-left bg-white border border-slate-200 hover:border-blue-400 hover:shadow-md rounded-2xl p-4 transition-all cursor-pointer group"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+                    <TerminalIcon className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="font-semibold text-sm text-slate-900 block truncate">{app.name}</span>
+                    <span className="text-[11px] text-slate-400 font-mono block truncate">{app.domain}</span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-500 transition-colors shrink-0" />
+              </div>
+
+              <div className="mt-3 flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-blue-50 text-blue-700">
+                  {app.runtime.toUpperCase()} {app.version}
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600 font-mono">
+                  {app.tenantUser}
+                </span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                  app.status === 'running' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {app.status}
+                </span>
+              </div>
+
+              <div className="mt-2 text-[10px] text-slate-400 font-mono truncate">
+                /home/{app.tenantUser}/apps/{app.name}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   const executeCommand = (cmd: string) => {
     const trimmed = cmd.trim();

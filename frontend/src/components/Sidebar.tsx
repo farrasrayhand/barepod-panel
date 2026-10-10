@@ -30,7 +30,6 @@ interface NavGroupItem {
   id: NavItem;
   label: string;
   icon: LucideIcon;
-  badge?: string;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed }) => {
@@ -44,28 +43,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
   };
 
   const serviceItems: NavGroupItem[] = [
-    { id: 'apps', label: 'Apps (Services)', icon: Layers, badge: '4 Active' },
-    { id: 'pods', label: 'Pods (Containers)', icon: Box, badge: '2 Pods' },
-    { id: 'databases', label: 'Database (PG/MySQL)', icon: Database, badge: 'Postgres & MySQL' },
+    { id: 'apps', label: 'Apps (Services)', icon: Layers },
+    { id: 'pods', label: 'Pods (Containers)', icon: Box },
+    { id: 'databases', label: 'Database', icon: Database },
   ];
 
   const infraItems: NavGroupItem[] = [
-    { id: 'overview', label: 'Dashboard & VPS', icon: LayoutDashboard },
-    { id: 'monitoring', label: 'Server Monitoring', icon: Activity, badge: 'Live Metrics' },
-    { id: 'backup', label: 'Backup & Migration', icon: Archive, badge: 'Plug & Play' },
+    { id: 'monitoring', label: 'Server Monitoring', icon: Activity },
+    { id: 'backup', label: 'Backup & Migration', icon: Archive },
     { id: 'domains', label: 'Domains & SSL', icon: Globe },
-    { id: 'tunnels', label: 'Cloudflare Tunnels', icon: CloudRain, badge: 'Zero-NAT' },
+    { id: 'tunnels', label: 'Cloudflare Tunnels', icon: CloudRain },
   ];
 
   const devItems: NavGroupItem[] = [
-    { id: 'terminal', label: 'Isolated Web Terminal', icon: Terminal, badge: 'Auto CLI' },
+    { id: 'terminal', label: 'Isolated Web Terminal', icon: Terminal },
     { id: 'users', label: 'Tenants & Multi-User', icon: Users },
     { id: 'settings', label: 'Panel Settings', icon: Settings },
   ];
 
   const renderNavGroup = (title: string, items: NavGroupItem[]) => (
     <div className="mb-6">
-      {!collapsed && (
+      {!collapsed && title && (
         <div className="px-4 mb-2 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
           {title}
         </div>
@@ -89,13 +87,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
               {!collapsed && (
                 <div className="flex items-center justify-between flex-1 truncate">
                   <span className="truncate">{item.label}</span>
-                  {item.badge && (
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                      isActive ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      {item.badge}
-                    </span>
-                  )}
                 </div>
               )}
             </button>
@@ -118,12 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
         </div>
         {!collapsed && (
           <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-lg text-slate-900 tracking-tight">BarePod</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-amber-100 text-amber-800">
-                PRO
-              </span>
-            </div>
+            <span className="font-bold text-lg text-slate-900 tracking-tight">BarePod</span>
             <span className="text-[11px] text-slate-400">Web & Pod Management</span>
           </div>
         )}
@@ -131,6 +117,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
 
       {/* Nav List */}
       <div className="flex-1 overflow-y-auto py-4 scrollbar-thin">
+        {renderNavGroup('', [{ id: 'overview', label: 'Dashboard & VPS', icon: LayoutDashboard }])}
         {renderNavGroup('Services', serviceItems)}
         {renderNavGroup('Infrastructure', infraItems)}
         {renderNavGroup('Developer & Security', devItems)}

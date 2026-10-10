@@ -48,13 +48,37 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   const [activeTab, setActiveTab] = useState<'params' | 'env'>('params');
   const [isEditingMaxConn, setIsEditingMaxConn] = useState(false);
   const [selectedMaxConn, setSelectedMaxConn] = useState<number>(database?.maxConnections || 25);
+  const [autoLockSeconds, setAutoLockSeconds] = useState(60);
 
   React.useEffect(() => {
     if (database) {
       setSelectedMaxConn(database.maxConnections || 25);
       setIsEditingMaxConn(false);
+      setIsUnlocked(false);
+      setShowPasswordText(false);
+      setPanelPassword('');
+      setAutoLockSeconds(60);
     }
   }, [database]);
+
+  // Password Vault auto-lock: re-encrypt credential after 60 seconds unlocked
+  React.useEffect(() => {
+    if (!isUnlocked) return;
+    setAutoLockSeconds(60);
+    const timer = setInterval(() => {
+      setAutoLockSeconds(prev => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isUnlocked]);
+
+  React.useEffect(() => {
+    if (isUnlocked && autoLockSeconds === 0) {
+      setIsUnlocked(false);
+      setShowPasswordText(false);
+      setPanelPassword('');
+      setAutoLockSeconds(60);
+    }
+  }, [isUnlocked, autoLockSeconds]);
 
   if (!isOpen || !database) return null;
 
@@ -432,6 +456,13 @@ USE \`${database.name}\`;
                 <div className="flex items-center gap-2">
                   {isUnlocked ? (
                     <>
+                      <span
+                        className="px-2 py-1 text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 rounded-lg flex items-center gap-1 whitespace-nowrap"
+                        title="Kredensial otomatis terkunci kembali"
+                      >
+                        <Lock className="w-3 h-3" />
+                        Auto-lock {autoLockSeconds}s
+                      </span>
                       <button
                         onClick={() => setShowPasswordText(!showPasswordText)}
                         className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1"

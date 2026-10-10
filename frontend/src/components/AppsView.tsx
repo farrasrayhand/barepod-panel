@@ -25,10 +25,15 @@ import {
 import type { WebApp, WebServerType } from '../types';
 import { FileManagerModal } from './FileManagerModal';
 import { GitDeploymentModal } from './GitDeploymentModal';
-import { AppDetailPage } from './AppDetailPage';
+import { AppDetailPage, type AppDetailTab } from './AppDetailPage';
 
 interface AppsViewProps {
   apps: WebApp[];
+  selectedAppSlug?: string | null;
+  appSubTab?: string;
+  onSelectApp?: (slug: string) => void;
+  onSubTabChange?: (tab: AppDetailTab) => void;
+  onBack?: () => void;
   onOpenAddModal: () => void;
   onOpenAppTerminal: (app: WebApp) => void;
   onToggleAppStatus: (appId: string) => void;
@@ -38,6 +43,11 @@ interface AppsViewProps {
 
 export const AppsView: React.FC<AppsViewProps> = ({
   apps,
+  selectedAppSlug,
+  appSubTab,
+  onSelectApp,
+  onSubTabChange,
+  onBack,
   onOpenAddModal,
   onOpenAppTerminal,
   onToggleAppStatus,
@@ -51,7 +61,9 @@ export const AppsView: React.FC<AppsViewProps> = ({
   // Modals
   const [selectedAppForFiles, setSelectedAppForFiles] = useState<WebApp | null>(null);
   const [selectedAppForGit, setSelectedAppForGit] = useState<WebApp | null>(null);
-  const [selectedAppForDetails, setSelectedAppForDetails] = useState<WebApp | null>(null);
+
+  // Detail page is driven by the URL (/apps/<name>/<tab>) so it survives refresh
+  const selectedAppForDetails = apps.find((a) => a.name === selectedAppSlug || a.id === selectedAppSlug) || null;
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -81,8 +93,8 @@ export const AppsView: React.FC<AppsViewProps> = ({
   };
 
   const handleUpdateAppDetail = (updated: WebApp) => {
-    setSelectedAppForDetails(updated);
     onUpdateApp?.(updated);
+    setSelectedAppForGit((prev) => (prev && prev.id === updated.id ? updated : prev));
   };
 
   // Dedicated Full-Page View for Selected App
@@ -91,7 +103,9 @@ export const AppsView: React.FC<AppsViewProps> = ({
       <>
         <AppDetailPage
           app={selectedAppForDetails}
-          onBack={() => setSelectedAppForDetails(null)}
+          activeTab={appSubTab as AppDetailTab | undefined}
+          onTabChange={onSubTabChange}
+          onBack={() => onBack?.()}
           onToggleStatus={onToggleAppStatus}
           onOpenTerminal={onOpenAppTerminal}
           onOpenFiles={(a) => setSelectedAppForFiles(a)}
@@ -226,7 +240,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                       <td className="py-3.5 px-4">
                         <div className="flex flex-col">
                           <button 
-                            onClick={() => setSelectedAppForDetails(app)}
+                            onClick={() => onSelectApp?.(app.name)}
                             className="text-left font-semibold text-slate-900 text-sm hover:text-blue-600 transition-colors cursor-pointer"
                           >
                             {app.name}
@@ -338,7 +352,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                         <div className="flex items-center justify-end gap-1">
                           {/* Manage App Detail Page Button */}
                           <button
-                            onClick={() => setSelectedAppForDetails(app)}
+                            onClick={() => onSelectApp?.(app.name)}
                             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer mr-1"
                             title="Buka Halaman Detail & Monitoring App"
                           >

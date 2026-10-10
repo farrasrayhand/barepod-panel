@@ -1,9 +1,31 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Versi Dokumen:** 2.4 (Status: Frontend UI Prototype Selesai — Backend Go Daemon & Engine OS Belum Dikerjakan)  
+> **Versi Dokumen:** 2.5 (Status: Frontend UI Prototype Selesai — Backend Go Daemon & Engine OS Belum Dikerjakan)  
 > **Terakhir Diperbarui:** 10 Oktober 2026  
 > **Status:** Active & Maintained
 
 Dokumen ini merupakan cetak biru (blueprint) arsitektur teknis, spesifikasi modul, dan roadmap pengembangan lengkap untuk **BarePod Panel**, platform manajemen web hosting, reverse proxy gateway, dan container hosting hybrid generasi baru yang aman, terisolasi, dan mudah digunakan.
+
+---
+
+## 0. Riwayat Perubahan Frontend (v2.5 — 10 Okt 2026)
+
+Perubahan pada Fase 1 (React UI prototype) sejak v2.4:
+
+- **Client-side URL routing per menu**: setiap menu punya endpoint sendiri (`/apps`, `/databases`, `/backup`, `/terminal`, dst). Refresh & tombol back/forward mengembalikan menu yang benar.
+- **Deep-link App Detail**: `/apps/<nama-app>` beserta sub-tab ikut di URL (`/apps/<app>/logs`, `/routing`, `/deploy`, dst) sehingga refresh tidak kehilangan posisi.
+- **Session picker Terminal**: membuka menu Terminal menampilkan pilihan sesi lebih dulu; PTY baru dibuka setelah memilih. Tombol Terminal dari halaman App tetap membuka sesi app tersebut langsung.
+- **Users — Edit**: fungsionalitas edit user (role, paket/grup, status, email) via `AddUserModal` mode edit. Username Linux di-lock saat edit; kolom status mengikuti data.
+- **Database vault**: auto-lock 60 detik (countdown) saat reveal password; `CredentialRevealModal` kini benar-benar terpakai lewat tombol Reveal di tabel.
+- **Vhost generator**: engine **Apache** kini digenerate benar di `AddAppModal` (sebelumnya fallback ke Nginx) — 4 engine lengkap (OLS/Nginx/Caddy/Apache).
+- **File Manager**: batch Cut/Copy/Paste multi-select (Select All) diperbaiki; batch download menghasilkan arsip **.zip** nyata (store-only ZIP writer di `src/utils/zip.ts`).
+- **Security per app**: tambah **Anti-Brute Force Protection** (on/off, max failed attempts, durasi IP ban) di tab Security.
+- **World Traffic Map**: diganti world map asli (Natural Earth 110m, equirectangular, `src/data/worldMapPath.ts`) agar bentuk benua benar dan pin presisi (proyeksi sama); perbaikan animasi pulse (`transform-box: fill-box`); penanda threat (WAF) konsisten di pin & badge filter.
+- **Branding**: badge "PRO" dan badge per-menu di sidebar dihapus; favicon disamakan dengan logo BarePod.
+- **Overview**: konten diperkaya (metrik sekunder, daftar status app, aktivitas terbaru) dan dipindah ke paling atas sidebar.
+- **Panel Settings**: badge versi palsu ("v1.0.4 Release") diganti "Prototype UI • Simulasi"; tab di-rename "Monitoring Policy (Retensi)" & "Backup Policy (Jadwal)" untuk membedakan dari menu operasional Server Monitoring & Backup & Migration.
+- **Live Migration Stream**: dari hardcoded dark menjadi tema light agar konsisten.
+
+> **Catatan untuk Backend Go (Fase 2):** karena URL kini path-based, server produksi WAJIB menerapkan SPA fallback (semua path tak dikenal di-serve `index.html`). Kontrak REST/WS yang diharapkan UI tetap seperti pada §4.
 
 ---
 
@@ -240,7 +262,9 @@ BarePod-Panel/
 │   │   ├── components/           # AppsView, AppDetailPage, DatabasesView, BackupMigrationView,
 │   │   │                         # FileManagerModal, WebTerminalView, ServerMonitoringView, etc.
 │   │   ├── types/                # TypeScript Interfaces & Model Definitions
-│   │   ├── App.tsx               # Root Navigation & Layout Controller
+│   │   ├── data/                 # Static data (worldMapPath.ts, defaultPhpExtensions.ts)
+│   │   ├── utils/                # Helpers (zip.ts — store-only ZIP writer)
+│   │   ├── App.tsx               # URL Routers (/apps, /apps/<name>/<tab>) & Layout Controller
 │   │   ├── index.css             # Tailwind Design System & Custom Utilities
 │   │   └── main.tsx              # React Entrypoint
 │   └── package.json

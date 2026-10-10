@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { NavItem, WebApp } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -17,11 +17,77 @@ import { BackupMigrationView } from './components/BackupMigrationView';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 
+const TAB_PATHS: Record<NavItem, string> = {
+  overview: '/overview',
+  monitoring: '/monitoring',
+  apps: '/apps',
+  pods: '/pods',
+  databases: '/databases',
+  domains: '/domains',
+  tunnels: '/tunnels',
+  terminal: '/terminal',
+  users: '/users',
+  settings: '/settings',
+  backup: '/backup',
+};
+
+interface AppRoute {
+  tab: NavItem;
+  appSlug?: string;
+  appSubTab?: string;
+}
+
+const parseRoute = (pathname: string): AppRoute => {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  if (clean === '/') return { tab: 'apps' };
+  const parts = clean.split('/').filter(Boolean);
+  if (parts[0] === 'apps') {
+    return {
+      tab: 'apps',
+      appSlug: parts[1] ? decodeURIComponent(parts[1]) : undefined,
+      appSubTab: parts[2] ? decodeURIComponent(parts[2]) : undefined,
+    };
+  }
+  const match = (Object.keys(TAB_PATHS) as NavItem[]).find((tab) => TAB_PATHS[tab] === clean);
+  return { tab: match ?? 'apps' };
+};
+
 export function App() {
-  const [currentTab, setCurrentTab] = useState<NavItem>('apps');
+  const [route, setRoute] = useState<AppRoute>(() => parseRoute(window.location.pathname));
+  const currentTab = route.tab;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [terminalAppId, setTerminalAppId] = useState<string>('app-1');
+  const [terminalAppId, setTerminalAppId] = useState<string | null>(null);
+
+  // Navigate to an explicit path (menu endpoint or app detail deep-link)
+  const navigatePath = (path: string) => {
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, '', path);
+    }
+    setRoute(parseRoute(path));
+  };
+
+  const setCurrentTab = (tab: NavItem) => navigatePath(TAB_PATHS[tab]);
+
+  // Menu navigation: opening the Terminal tab always starts from the session picker
+  const navigate = (tab: NavItem) => {
+    if (tab === 'terminal') setTerminalAppId(null);
+    setCurrentTab(tab);
+  };
+
+  // Normalize bare "/" to the default menu endpoint on first load
+  useEffect(() => {
+    if (window.location.pathname === '/') {
+      window.history.replaceState(null, '', TAB_PATHS.apps);
+    }
+  }, []);
+
+  // Restore the correct route on refresh / browser back-forward
+  useEffect(() => {
+    const handlePopState = () => setRoute(parseRoute(window.location.pathname));
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Interactive Toast State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -264,7 +330,7 @@ systemctl reload uvicorn-ai`,
       {/* Sidebar Navigation */}
       <Sidebar
         currentTab={currentTab}
-        onSelectTab={setCurrentTab}
+        onSelectTab={navigate}
         collapsed={sidebarCollapsed}
       />
 
@@ -273,7 +339,7 @@ systemctl reload uvicorn-ai`,
         {/* Header */}
         <Header
           onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-          onOpenTerminal={() => setCurrentTab('terminal')}
+          onOpenTerminal={() => navigate('terminal')}
           activeTab={currentTab}
         />
 
@@ -282,7 +348,7 @@ systemctl reload uvicorn-ai`,
           {currentTab === 'overview' && (
             <OverviewView
               apps={apps}
-              onNavigate={setCurrentTab}
+              onNavigate={navigate}
               onOpenAddModal={() => setIsAddModalOpen(true)}
             />
           )}
@@ -290,13 +356,20 @@ systemctl reload uvicorn-ai`,
           {currentTab === 'monitoring' && (
             <ServerMonitoringView
               onShowToast={showToast}
-              onOpenTerminal={() => setCurrentTab('terminal')}
+              onOpenTerminal={() => navigate('terminal')}
             />
           )}
 
           {currentTab === 'apps' && (
             <AppsView
               apps={apps}
+              selectedAppSlug={route.appSlug ?? null}
+              appSubTab={route.appSubTab}
+              onSelectApp={(slug) => navigatePath(`/apps/${encodeURIComponent(slug)}`)}
+              onSubTabChange={(sub) => {
+                if (route.appSlug) navigatePath(`/apps/${encodeURIComponent(route.appSlug)}/${sub}`);
+              }}
+              onBack={() => navigatePath(TAB_PATHS.apps)}
               onOpenAddModal={() => setIsAddModalOpen(true)}
               onOpenAppTerminal={handleOpenAppTerminal}
               onToggleAppStatus={handleToggleAppStatus}
@@ -308,7 +381,7 @@ systemctl reload uvicorn-ai`,
           {currentTab === 'pods' && (
             <PodsView
               onShowToast={showToast}
-              onOpenTerminal={() => setCurrentTab('terminal')}
+              onOpenTerminal={() => navigate('terminal')}
             />
           )}
 
@@ -337,7 +410,7 @@ systemctl reload uvicorn-ai`,
           {currentTab === 'users' && (
             <UsersView
               onShowToast={showToast}
-              onOpenTerminal={() => setCurrentTab('terminal')}
+              onOpenTerminal={() => navigate('terminal')}
             />
           )}
 
@@ -352,14 +425,14 @@ systemctl reload uvicorn-ai`,
             <BackupMigrationView
               apps={apps}
               onShowToast={showToast}
-              onOpenTerminal={() => setCurrentTab('terminal')}
+              onOpenTerminal={() => navigate('terminal')}
             />
           )}
 
           {currentTab === 'settings' && (
             <PanelSettingsView
               onShowToast={showToast}
-              onOpenTerminal={() => setCurrentTab('terminal')}
+              onOpenTerminal={() => navigate('terminal')}
             />
           )}
         </main>

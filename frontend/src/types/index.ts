@@ -58,6 +58,10 @@ export interface WebApp {
   basicAuthPassword?: string;
   basicAuthRealm?: string;
   basicAuthBypassIps?: string;
+  // Anti-Brute Force Protection
+  antiBruteforce?: boolean;
+  antiBruteforceMaxAttempts?: number;
+  antiBruteforceBanMinutes?: number;
   // Metrics & Telemetry Retention (Max 30 days per app)
   metricsRetentionDays?: number;
   // CI/CD, Git Repository & Build Script (Persistent per-app)

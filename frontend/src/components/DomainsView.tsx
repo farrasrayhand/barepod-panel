@@ -33,7 +33,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ apps, onShowToast }) =
     sslExpiry: '2026-12-10 (60 days left)',
     tunnelEnabled: app.tunnelEnabled,
     forceHttps: true,
-    ip: '103.45.12.88'
+    ip: '103.147.154.82'
   }));
 
   const filtered = domains.filter(d => 

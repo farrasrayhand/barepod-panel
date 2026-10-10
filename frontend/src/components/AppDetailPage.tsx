@@ -60,8 +60,11 @@ import {
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
 import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
+import { WORLD_MAP_PATH } from '../data/worldMapPath';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
+
+export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'routing' | 'env' | 'php' | 'security' | 'deploy';
 
 interface AppDetailPageProps {
   app: WebApp;
@@ -72,6 +75,8 @@ interface AppDetailPageProps {
   onOpenGit: (app: WebApp) => void;
   onUpdateApp?: (updated: WebApp) => void;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+  activeTab?: AppDetailTab;
+  onTabChange?: (tab: AppDetailTab) => void;
 }
 
 export const AppDetailPage: React.FC<AppDetailPageProps> = ({
@@ -83,8 +88,15 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   onOpenGit,
   onUpdateApp,
   onShowToast,
+  activeTab: activeTabProp,
+  onTabChange,
 }) => {
-  const [activeTab, setActiveTab] = useState<'monitoring' | 'overview' | 'logs' | 'routing' | 'env' | 'php' | 'security' | 'deploy'>('monitoring');
+  const [internalTab, setInternalTab] = useState<AppDetailTab>('monitoring');
+  const activeTab: AppDetailTab = activeTabProp ?? internalTab;
+  const setActiveTab = (tab: AppDetailTab) => {
+    setInternalTab(tab);
+    onTabChange?.(tab);
+  };
   const [logType, setLogType] = useState<'all' | 'access' | 'error' | 'deploy'>('all');
   const [logSearch, setLogSearch] = useState('');
   const [logFormat, setLogFormat] = useState<'structured' | 'raw'>('structured');
@@ -227,6 +239,9 @@ npm run build`;
   const [isSavingMaintenance, setIsSavingMaintenance] = useState(false);
 
   const [basicAuthEnabled, setBasicAuthEnabled] = useState(app.basicAuthEnabled ?? false);
+  const [antiBruteforce, setAntiBruteforce] = useState(app.antiBruteforce ?? true);
+  const [antiBruteforceMaxAttempts, setAntiBruteforceMaxAttempts] = useState(app.antiBruteforceMaxAttempts ?? 5);
+  const [antiBruteforceBanMinutes, setAntiBruteforceBanMinutes] = useState(app.antiBruteforceBanMinutes ?? 15);
   const [basicAuthUser, setBasicAuthUser] = useState(app.basicAuthUser || 'admin');
   const [basicAuthPassword, setBasicAuthPassword] = useState(app.basicAuthPassword || 'BarePod$ecure2026!');
   const [basicAuthRealm, setBasicAuthRealm] = useState(app.basicAuthRealm || 'Restricted Area - BarePod Protected');
@@ -321,6 +336,24 @@ npm run build`;
         ? `Akses ke https://${app.domain} kini diproteksi password (user: ${basicAuthUser}).`
         : `Proteksi password untuk ${app.domain} telah dicabut.`,
       nextState ? 'info' : 'success'
+    );
+  };
+
+  const handleToggleAntiBruteforce = () => {
+    const nextState = !antiBruteforce;
+    setAntiBruteforce(nextState);
+    onUpdateApp?.({
+      ...app,
+      antiBruteforce: nextState,
+      antiBruteforceMaxAttempts,
+      antiBruteforceBanMinutes,
+    });
+    onShowToast?.(
+      nextState ? 'Anti-Brute Force Enabled' : 'Anti-Brute Force Disabled',
+      nextState
+        ? `Failed-login throttling active: max ${antiBruteforceMaxAttempts} attempts, ${antiBruteforceBanMinutes}-min IP ban.`
+        : `Login rate limiting disabled for ${app.domain}.`,
+      nextState ? 'success' : 'info'
     );
   };
 
@@ -1000,7 +1033,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   const visitorCountryNodes = [
     { country: 'ID', countryName: 'Indonesia', flag: '🇮🇩', city: 'Jakarta & Surabaya', ip: '114.124.180.52', isp: 'Telkomsel & Biznet', x: 796, y: 268, reqs: 3, percentage: 38, latency: '14ms', isThreat: false },
     { country: 'SG', countryName: 'Singapura', flag: '🇸🇬', city: 'Singapore Edge', ip: '103.147.154.82', isp: 'MyRepublic Singapore', x: 788, y: 246, reqs: 2, percentage: 25, latency: '1ms', isThreat: false },
-    { country: 'US', countryName: 'Amerika Serikat', flag: '🇺🇸', city: 'Ashburn, VA', ip: '198.51.100.41', isp: 'Security Scanner', x: 240, y: 145, reqs: 1, percentage: 12, latency: '3ms', isThreat: true },
+    { country: 'US', countryName: 'Amerika Serikat', flag: '🇺🇸', city: 'Ashburn, VA', ip: '198.51.100.41', isp: 'Security Scanner', x: 285, y: 142, reqs: 1, percentage: 12, latency: '3ms', isThreat: true },
     { country: 'DE', countryName: 'Jerman', flag: '🇩🇪', city: 'Frankfurt Node', ip: '45.33.32.156', isp: 'Hetzner Online', x: 524, y: 111, reqs: 1, percentage: 12, latency: '28ms', isThreat: false },
     { country: 'JP', countryName: 'Jepang', flag: '🇯🇵', city: 'Tokyo Edge', ip: '139.162.112.50', isp: 'Linode Tokyo', x: 888, y: 151, reqs: 1, percentage: 12, latency: '36ms', isThreat: false },
     { country: 'AU', countryName: 'Australia', flag: '🇦🇺', city: 'Sydney Edge', ip: '13.236.40.91', isp: 'AWS Sydney', x: 920, y: 344, reqs: 1, percentage: 12, latency: '42ms', isThreat: false },
@@ -1585,44 +1618,15 @@ QUEUE_CONNECTION=redis`;
                     <line x1="250" y1="0" x2="250" y2="500" stroke={logTheme === 'light' ? '#f1f5f9' : '#0f172a'} strokeDasharray="4 4" strokeWidth="0.8" />
                     <line x1="750" y1="0" x2="750" y2="500" stroke={logTheme === 'light' ? '#f1f5f9' : '#0f172a'} strokeDasharray="4 4" strokeWidth="0.8" />
 
-                    {/* World Continents (Vector paths) */}
-                    <g 
-                      fill={logTheme === 'light' ? '#cbd5e1' : '#1e293b'} 
-                      stroke={logTheme === 'light' ? '#94a3b8' : '#334155'} 
-                      strokeWidth="1" 
+                    {/* World Map — Natural Earth 110m land (equirectangular, matches pin projection) */}
+                    <path
+                      d={WORLD_MAP_PATH}
+                      fillRule="evenodd"
+                      fill={logTheme === 'light' ? '#cbd5e1' : '#1e293b'}
+                      stroke={logTheme === 'light' ? '#94a3b8' : '#334155'}
+                      strokeWidth="0.4"
                       className="transition-colors"
-                    >
-                      {/* North America */}
-                      <path d="M 90 70 L 150 50 L 230 45 L 300 70 L 330 100 L 310 140 L 275 145 L 255 170 L 215 180 L 190 230 L 175 260 L 165 250 L 145 195 L 125 175 L 90 120 Z" />
-                      {/* Greenland */}
-                      <path d="M 310 25 L 360 20 L 380 50 L 340 70 Z" />
-                      {/* South America */}
-                      <path d="M 225 270 L 270 260 L 320 300 L 330 360 L 300 430 L 270 460 L 250 430 L 235 350 L 215 300 Z" />
-                      {/* Europe */}
-                      <path d="M 465 65 L 525 60 L 555 85 L 545 130 L 510 150 L 480 145 L 455 125 L 445 85 Z" />
-                      {/* Great Britain & Ireland */}
-                      <path d="M 435 85 L 455 80 L 450 110 L 430 105 Z" />
-                      {/* Africa */}
-                      <path d="M 465 165 L 545 165 L 585 225 L 565 305 L 525 375 L 485 375 L 455 265 L 445 205 Z" />
-                      {/* Madagascar */}
-                      <path d="M 585 315 L 600 320 L 590 360 L 580 355 Z" />
-                      {/* Asia */}
-                      <path d="M 555 60 L 690 45 L 820 65 L 860 115 L 830 165 L 770 185 L 740 230 L 710 215 L 670 230 L 630 190 L 570 165 L 555 115 Z" />
-                      {/* Middle East */}
-                      <path d="M 565 175 L 625 175 L 615 220 L 575 220 Z" />
-                      {/* India */}
-                      <path d="M 675 190 L 725 190 L 705 255 L 680 235 Z" />
-                      {/* Japan */}
-                      <path d="M 870 125 L 890 130 L 880 165 L 865 155 Z" />
-                      {/* Southeast Asia & Indonesia */}
-                      <path d="M 735 235 L 775 235 L 785 265 L 750 255 Z" />
-                      <path d="M 765 275 L 825 275 L 815 290 L 755 290 Z" />
-                      <path d="M 825 260 L 855 260 L 845 280 L 820 280 Z" />
-                      {/* Australia */}
-                      <path d="M 805 315 L 905 305 L 935 365 L 895 425 L 825 415 L 795 365 Z" />
-                      {/* New Zealand */}
-                      <path d="M 940 405 L 955 410 L 935 445 L 925 435 Z" />
-                    </g>
+                    />
 
                     {/* Active Visitor Pings and Beacon Markers */}
                     {visitorCountryNodes.map((node) => {
@@ -1640,6 +1644,7 @@ QUEUE_CONNECTION=redis`;
                             cx={node.x}
                             cy={node.y}
                             r={isSelected ? '22' : '15'}
+                            style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
                             className={`animate-ping opacity-75 ${node.isThreat ? 'fill-rose-500' : 'fill-blue-500'}`}
                           />
                           {/* Mid Glow Halo */}
@@ -1657,22 +1662,22 @@ QUEUE_CONNECTION=redis`;
                             className={`${node.isThreat ? 'fill-rose-600' : 'fill-blue-600'} shadow-md`}
                           />
                           {/* Flag & Latency Tag */}
-                          <g transform={`translate(${node.x + 8}, ${node.y - 8})`}>
+                          <g transform={`translate(${node.x + 9}, ${node.y - 9})`}>
                             <rect
                               x="0"
-                              y="-12"
-                              width="58"
-                              height="16"
-                              rx="4"
+                              y="-15"
+                              width="78"
+                              height="21"
+                              rx="5"
                               fill={logTheme === 'light' ? '#ffffff' : '#0f172a'}
                               stroke={isSelected ? '#2563eb' : (logTheme === 'light' ? '#cbd5e1' : '#334155')}
                               strokeWidth={isSelected ? '1.5' : '1'}
                               className="filter drop-shadow-xs"
                             />
                             <text
-                              x="4"
-                              y="0"
-                              fontSize="9"
+                              x="5"
+                              y="1"
+                              fontSize="13"
                               fontFamily="system-ui, sans-serif"
                               fontWeight="bold"
                               fill={logTheme === 'light' ? '#0f172a' : '#f8fafc'}
@@ -1728,8 +1733,11 @@ QUEUE_CONNECTION=redis`;
                       className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-mono transition-all cursor-pointer ${
                         selectedCountryFilter === n.country
                           ? 'bg-blue-600 text-white shadow-2xs font-bold'
+                          : n.isThreat
+                          ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold'
                           : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
                       }`}
+                      title={n.isThreat ? 'Traffic flagged as threat (WAF blocked)' : undefined}
                     >
                       <span>{n.flag}</span>
                       <span className="font-semibold">{n.country}</span>
@@ -2164,48 +2172,52 @@ QUEUE_CONNECTION=redis`;
 
             {/* Primary Upstream Target Card (Especially prominent for Proxy Apps) */}
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
-                    <ArrowRightLeft className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-slate-900">Target Upstream Destination (Port / Socket / IP)</h4>
-                    <p className="text-[11px] text-slate-500">Service internal yang menerima forward traffic dari {app.domain}</p>
-                  </div>
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold shrink-0">
+                  <ArrowRightLeft className="w-4 h-4" />
                 </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handlePingUpstream}
-                    disabled={isPingingUpstream}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
-                  >
-                    <RotateCw className={`w-3.5 h-3.5 ${isPingingUpstream ? 'animate-spin' : ''}`} />
-                    <span>{isPingingUpstream ? 'Pinging...' : 'Ping Test Upstream'}</span>
-                  </button>
-
-                  {pingStatus && (
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg">
-                      <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>{pingStatus.code} OK ({pingStatus.latency})</span>
-                    </div>
-                  )}
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">
+                    Root Gateway — Target Upstream (Route <code className="font-mono bg-slate-100 px-1 rounded">/</code>)
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Service default penerima <strong>semua</strong> traffic {app.domain} yang tidak di-match oleh Path Route lain di bawah.
+                  </p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Upstream URL / IP Address
+                    Upstream URL / IP Address (tujuan route <code>/</code>)
                   </label>
-                  <input
-                    type="text"
-                    value={currentUpstream}
-                    onChange={(e) => setCurrentUpstream(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono text-purple-900 font-bold focus:bg-white focus:border-purple-500"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={currentUpstream}
+                      onChange={(e) => setCurrentUpstream(e.target.value)}
+                      className="flex-1 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono text-purple-900 font-bold focus:bg-white focus:border-purple-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePingUpstream}
+                      disabled={isPingingUpstream}
+                      title="Cek konektivitas upstream (test saja — tidak menyimpan config)"
+                      className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <RotateCw className={`w-3.5 h-3.5 ${isPingingUpstream ? 'animate-spin' : ''}`} />
+                      <span>{isPingingUpstream ? 'Pinging...' : 'Ping Test'}</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Ping hanya mengetes konektivitas (tidak menyimpan config). Field di kartu ini langsung dirender ke vhost di bawah.
+                  </p>
+                  {pingStatus && (
+                    <div className="inline-flex items-center gap-1.5 mt-1.5 px-2.5 py-1 text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg">
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{pingStatus.code} OK ({pingStatus.latency})</span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -2226,7 +2238,10 @@ QUEUE_CONNECTION=redis`;
               </div>
 
               {/* Ingress Protocol Feature Toggles */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
+              <span className="block text-[11px] font-bold text-slate-600 pt-2 border-t border-slate-100">
+                Perilaku Proxy Route <code className="font-mono bg-slate-100 px-1 rounded">/</code> (berlaku global untuk root gateway)
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
                   <input
                     type="checkbox"
@@ -3014,7 +3029,106 @@ QUEUE_CONNECTION=redis`}
                 </div>
               </div>
 
-              {/* CARD 2: HTTP BASIC AUTHENTICATION */}
+              {/* CARD 2: ANTI-BRUTE FORCE PROTECTION */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                <div className="p-5 space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center">
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">
+                          Anti-Brute Force Protection
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Throttle failed logins and temporarily ban abusive IPs
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleToggleAntiBruteforce}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                        antiBruteforce ? 'bg-rose-600' : 'bg-slate-200'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          antiBruteforce ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border text-xs ${
+                    antiBruteforce
+                      ? 'bg-rose-50/80 border-rose-200 text-rose-900'
+                      : 'bg-slate-50 border-slate-200 text-slate-600'
+                  }`}>
+                    {antiBruteforce ? (
+                      <div className="flex items-start gap-2">
+                        <ShieldCheck className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Protection Active</strong>
+                          <p className="mt-0.5 text-[11px] text-rose-800">
+                            Max {antiBruteforceMaxAttempts} failed attempts trigger a {antiBruteforceBanMinutes}-minute IP ban. Mirrored to {app.webServer.toUpperCase()} rate limiting + WAF rule.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px]">
+                        Login throttling is off. Enable it to protect admin panels and auth endpoints from credential-stuffing.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Max Failed Attempts
+                      </label>
+                      <select
+                        value={antiBruteforceMaxAttempts}
+                        disabled={!antiBruteforce}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setAntiBruteforceMaxAttempts(v);
+                          onUpdateApp?.({ ...app, antiBruteforce, antiBruteforceMaxAttempts: v, antiBruteforceBanMinutes });
+                        }}
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-rose-500 focus:outline-hidden disabled:opacity-50"
+                      >
+                        <option value={3}>3 attempts</option>
+                        <option value={5}>5 attempts</option>
+                        <option value={10}>10 attempts</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Ban Duration
+                      </label>
+                      <select
+                        value={antiBruteforceBanMinutes}
+                        disabled={!antiBruteforce}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setAntiBruteforceBanMinutes(v);
+                          onUpdateApp?.({ ...app, antiBruteforce, antiBruteforceMaxAttempts, antiBruteforceBanMinutes: v });
+                        }}
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-rose-500 focus:outline-hidden disabled:opacity-50"
+                      >
+                        <option value={5}>5 minutes</option>
+                        <option value={15}>15 minutes</option>
+                        <option value={60}>60 minutes</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CARD 3: HTTP BASIC AUTHENTICATION */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col justify-between">
                 <div className="p-5 space-y-4">
                   <div className="flex items-start justify-between">

@@ -13,7 +13,8 @@ import {
   Database,
   Crown,
   CheckCircle2,
-  XCircle
+  XCircle,
+  Pencil
 } from 'lucide-react';
 import type { TenantUser, UserGroup } from '../types';
 import { AddUserModal } from './AddUserModal';
@@ -27,6 +28,7 @@ interface UsersViewProps {
 export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTerminal }) => {
   const [activeTab, setActiveTab] = useState<'users' | 'groups'>('users');
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<TenantUser | null>(null);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
   // Groups / Packages State
@@ -125,6 +127,11 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
     onShowToast?.('Group Created', `Resource group ${group.name} successfully created.`, 'success');
   };
 
+  const handleUpdateUser = (updated: TenantUser) => {
+    setTenants(tenants.map(t => t.id === updated.id ? updated : t));
+    onShowToast?.('User Updated', `Account ${updated.username} diperbarui (role: ${updated.role}, status: ${updated.status}).`, 'success');
+  };
+
   const handleDeleteUser = (userId: string, username: string) => {
     if (username === 'farras') {
       onShowToast?.('Protected Account', 'Primary root administrator cannot be deleted.', 'error');
@@ -158,7 +165,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
         <div className="flex items-center gap-3">
           {activeTab === 'users' ? (
             <button
-              onClick={() => setIsAddUserOpen(true)}
+              onClick={() => { setEditingUser(null); setIsAddUserOpen(true); }}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25"
             >
               <Plus className="w-4 h-4" />
@@ -271,14 +278,28 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        Active
-                      </span>
+                      {t.status === 'suspended' ? (
+                        <span className="inline-flex items-center gap-1 text-amber-600 font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                          Suspended
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-emerald-600 font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          Active
+                        </span>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => { setEditingUser(t); setIsAddUserOpen(true); }}
+                          className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                          title="Edit User"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={onOpenTerminal}
                           className="p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"
@@ -374,11 +395,13 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
         </div>
       )}
 
-      {/* Add User Modal */}
+      {/* Add / Edit User Modal */}
       <AddUserModal
         isOpen={isAddUserOpen}
-        onClose={() => setIsAddUserOpen(false)}
+        onClose={() => { setIsAddUserOpen(false); setEditingUser(null); }}
         onAddUser={handleAddUser}
+        onUpdateUser={handleUpdateUser}
+        editUser={editingUser}
         groups={groups}
       />
 

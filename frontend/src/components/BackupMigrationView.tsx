@@ -549,9 +549,9 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
               </div>
 
               {/* Progress & Live Terminal Output */}
-              <div className="bg-slate-900 text-slate-100 rounded-2xl border border-slate-800 p-5 font-mono text-xs shadow-2xs space-y-4 flex flex-col">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <span className="font-bold text-purple-400 flex items-center gap-1.5">
+              <div className="bg-white text-slate-700 rounded-2xl border border-slate-200 p-5 font-mono text-xs shadow-2xs space-y-4 flex flex-col">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <span className="font-bold text-purple-700 flex items-center gap-1.5">
                     <Zap className="w-3.5 h-3.5" />
                     Live Migration Stream
                   </span>
@@ -562,32 +562,32 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
 
                 {/* Step indicator */}
                 <div className="space-y-1.5 text-[11px]">
-                  <div className={`flex items-center gap-2 ${migrationStep >= 1 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                  <div className={`flex items-center gap-2 ${migrationStep >= 1 ? 'text-emerald-600' : 'text-slate-400'}`}>
                     <span>{migrationStep > 1 ? '✓' : '1.'}</span>
                     <span>Handshake & Token Handover</span>
                   </div>
-                  <div className={`flex items-center gap-2 ${migrationStep >= 2 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                  <div className={`flex items-center gap-2 ${migrationStep >= 2 ? 'text-emerald-600' : 'text-slate-400'}`}>
                     <span>{migrationStep > 2 ? '✓' : '2.'}</span>
                     <span>Zero-Copy File Syncing (/var/www/apps)</span>
                   </div>
-                  <div className={`flex items-center gap-2 ${migrationStep >= 3 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                  <div className={`flex items-center gap-2 ${migrationStep >= 3 ? 'text-emerald-600' : 'text-slate-400'}`}>
                     <span>{migrationStep > 3 ? '✓' : '3.'}</span>
                     <span>Database Logical Dump & Import Stream</span>
                   </div>
-                  <div className={`flex items-center gap-2 ${migrationStep >= 4 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                  <div className={`flex items-center gap-2 ${migrationStep >= 4 ? 'text-emerald-600' : 'text-slate-400'}`}>
                     <span>{migrationStep > 4 ? '✓' : '4.'}</span>
                     <span>Web Server VHost & Cloudflare Repoint</span>
                   </div>
-                  <div className={`flex items-center gap-2 ${migrationStep >= 5 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                  <div className={`flex items-center gap-2 ${migrationStep >= 5 ? 'text-emerald-600' : 'text-slate-400'}`}>
                     <span>{migrationStep >= 5 ? '✓' : '5.'}</span>
                     <span>Selesai & Services Live</span>
                   </div>
                 </div>
 
                 {/* Console Log Area */}
-                <div className="flex-1 bg-slate-950 p-3 rounded-xl border border-slate-800/80 overflow-y-auto max-h-52 text-[10px] space-y-1 text-slate-300">
+                <div className="flex-1 bg-slate-50 p-3 rounded-xl border border-slate-200 overflow-y-auto max-h-52 text-[10px] space-y-1 text-slate-600">
                   {migrationLogs.length === 0 ? (
-                    <div className="text-slate-600 text-center py-6">
+                    <div className="text-slate-400 text-center py-6">
                       Menunggu perintah migrasi dimulai...
                     </div>
                   ) : (
@@ -611,6 +611,10 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
               </div>
 
               <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200 font-mono text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Domain:</span>
+                  <div className="text-slate-900 font-bold">panel.barepod.cloud</div>
+                </div>
                 <div>
                   <span className="text-[10px] text-slate-500 uppercase font-bold block">Server IP:</span>
                   <div className="text-slate-900 font-bold">103.147.154.82</div>

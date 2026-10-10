@@ -31,6 +31,7 @@ import {
   ExternalLink
 } from 'lucide-react';
 import type { WebApp } from '../types';
+import { createZip } from '../utils/zip';
 
 interface FileManagerModalProps {
   isOpen: boolean;
@@ -50,7 +51,7 @@ interface FileEntry {
 }
 
 interface ClipboardState {
-  file: FileEntry;
+  files: FileEntry[];
   operation: 'copy' | 'cut';
   sourcePath: string;
 }
@@ -214,13 +215,21 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       if (f) handleDownload(f);
       return;
     }
-    showToast(`Mengunduh ${selectedFiles.length} file...`);
-    selectedFiles.forEach((fileName, i) => {
-      const f = currentFiles.find(item => item.name === fileName);
-      if (f) {
-        setTimeout(() => handleDownload(f), i * 200);
-      }
-    });
+    const files = selectedFiles
+      .map(fileName => currentFiles.find(item => item.name === fileName))
+      .filter((f): f is FileEntry => Boolean(f));
+
+    const blob = createZip(files.map(f => ({
+      name: f.name,
+      content: f.content ?? `// Content of ${f.name}\n// Exported from BarePod Panel\n`,
+    })));
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${app?.name || 'files'}-export.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`Mengunduh ${files.length} file sebagai arsip .zip`);
   };
 
   const handleSaveFile = () => {
@@ -237,67 +246,72 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     setTimeout(() => setIsSaved(false), 1500);
   };
 
-  // Clipboard Actions
-  const handleCopy = (file: FileEntry) => {
-    setClipboard({ file, operation: 'copy', sourcePath: currentPath });
-    showToast(`Tersalin ke clipboard: ${file.name}`);
+  // Clipboard Actions (supports single selection & multi-select / Select All)
+  const getSelectedEntries = (): FileEntry[] => {
+    if (selectedFiles.length > 0) {
+      return currentFiles.filter(f => selectedFiles.includes(f.name));
+    }
+    return selectedFile ? [selectedFile] : [];
   };
 
-  const handleCut = (file: FileEntry) => {
-    setClipboard({ file, operation: 'cut', sourcePath: currentPath });
-    showToast(`Dipindah ke clipboard (Cut): ${file.name}`);
+  const resolveUniqueName = (name: string, existing: FileEntry[]): string => {
+    if (!existing.some(f => f.name === name)) return name;
+    const parts = name.split('.');
+    if (parts.length > 1) {
+      const ext = parts.pop();
+      return `${parts.join('.')}_copy.${ext}`;
+    }
+    return `${name}_copy`;
+  };
+
+  const handleCopy = (files: FileEntry[]) => {
+    if (files.length === 0) return;
+    setClipboard({ files, operation: 'copy', sourcePath: currentPath });
+    showToast(files.length === 1
+      ? `Tersalin ke clipboard: ${files[0].name}`
+      : `${files.length} item tersalin ke clipboard`);
+  };
+
+  const handleCut = (files: FileEntry[]) => {
+    if (files.length === 0) return;
+    setClipboard({ files, operation: 'cut', sourcePath: currentPath });
+    showToast(files.length === 1
+      ? `Dipindah ke clipboard (Cut): ${files[0].name}`
+      : `${files.length} item siap dipindah (Cut)`);
   };
 
   const handlePaste = () => {
-    if (!clipboard) return;
-    const { file, operation, sourcePath } = clipboard;
-    
-    setFileSystem(prev => {
-      const currentList = prev[currentPath] || [];
-      // Generate unique name if already exists
-      let targetName = file.name;
-      if (currentList.some(f => f.name === targetName)) {
-        const parts = targetName.split('.');
-        if (parts.length > 1) {
-          const ext = parts.pop();
-          targetName = `${parts.join('.')}_copy.${ext}`;
-        } else {
-          targetName = `${targetName}_copy`;
-        }
-      }
+    if (!clipboard || clipboard.files.length === 0) return;
+    const { files, operation, sourcePath } = clipboard;
+    const movingNames = files.map(f => f.name);
 
-      const newEntry: FileEntry = {
-        ...file,
-        name: targetName,
-        modified: 'Just now'
+    setFileSystem(prev => {
+      const currentList = [...(prev[currentPath] || [])];
+      const added: FileEntry[] = [];
+      files.forEach(file => {
+        const targetName = resolveUniqueName(file.name, [...currentList, ...added]);
+        added.push({ ...file, name: targetName, modified: 'Just now' });
+      });
+
+      const next: Record<string, FileEntry[]> = {
+        ...prev,
+        [currentPath]: [...currentList, ...added],
       };
 
-      const updatedDest = [...currentList, newEntry];
-
-      // If cut operation, remove from source folder
-      let updatedSource = prev[sourcePath];
       if (operation === 'cut') {
         if (sourcePath === currentPath) {
-          return {
-            ...prev,
-            [currentPath]: updatedDest.filter(f => f !== file)
-          };
+          next[currentPath] = next[currentPath].filter(f => !movingNames.includes(f.name));
+        } else {
+          next[sourcePath] = (prev[sourcePath] || []).filter(f => !movingNames.includes(f.name));
         }
-        updatedSource = (prev[sourcePath] || []).filter(f => f.name !== file.name);
-        return {
-          ...prev,
-          [sourcePath]: updatedSource,
-          [currentPath]: updatedDest
-        };
       }
 
-      return {
-        ...prev,
-        [currentPath]: updatedDest
-      };
+      return next;
     });
 
-    showToast(`Berhasil menempelkan ${file.name} ke ${currentPath}`);
+    showToast(operation === 'copy'
+      ? `${files.length} item ditempelkan ke ${currentPath}`
+      : `${files.length} item dipindahkan ke ${currentPath}`);
     if (operation === 'cut') setClipboard(null);
   };
 
@@ -537,37 +551,37 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
             {/* Clipboard Toolbar Buttons */}
             <button 
-              disabled={!selectedFile}
-              onClick={() => selectedFile && handleCopy(selectedFile)}
+              disabled={!selectedFile && selectedFiles.length === 0}
+              onClick={() => handleCopy(getSelectedEntries())}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
-              title="Copy Selected File"
+              title="Copy Selected File(s)"
             >
               <Copy className="w-3.5 h-3.5 text-slate-600" />
-              <span>Copy</span>
+              <span>Copy{selectedFiles.length > 1 ? ` (${selectedFiles.length})` : ''}</span>
             </button>
 
             <button 
-              disabled={!selectedFile}
-              onClick={() => selectedFile && handleCut(selectedFile)}
+              disabled={!selectedFile && selectedFiles.length === 0}
+              onClick={() => handleCut(getSelectedEntries())}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
-              title="Cut Selected File"
+              title="Cut Selected File(s)"
             >
               <Scissors className="w-3.5 h-3.5 text-slate-600" />
-              <span>Cut</span>
+              <span>Cut{selectedFiles.length > 1 ? ` (${selectedFiles.length})` : ''}</span>
             </button>
 
             <button 
-              disabled={!clipboard}
+              disabled={!clipboard || clipboard.files.length === 0}
               onClick={handlePaste}
               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer transition-colors ${
                 clipboard 
                   ? 'bg-blue-600 text-white hover:bg-blue-700' 
                   : 'bg-white border border-slate-200 text-slate-400 opacity-40'
               }`}
-              title={clipboard ? `Paste ${clipboard.file.name} to ${currentPath}` : 'Clipboard kosong'}
+              title={clipboard ? `Paste ${clipboard.files.length} item ke ${currentPath}` : 'Clipboard kosong'}
             >
               <Clipboard className="w-3.5 h-3.5" />
-              <span>Paste {clipboard ? `(${clipboard.file.name})` : ''}</span>
+              <span>Paste {clipboard ? `(${clipboard.files.length})` : ''}</span>
             </button>
 
             {selectedFile && selectedFiles.length === 0 && (
@@ -630,7 +644,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 {currentFiles.map((file, idx) => {
                   const isSelected = selectedFile?.name === file.name;
                   const isChecked = selectedFiles.includes(file.name);
-                  const isBeingCut = clipboard?.operation === 'cut' && clipboard.file.name === file.name && clipboard.sourcePath === currentPath;
+                  const isBeingCut = clipboard?.operation === 'cut' && clipboard.files.some(f => f.name === file.name) && clipboard.sourcePath === currentPath;
 
                   return (
                     <tr
@@ -752,7 +766,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
                 <button
                   onClick={() => {
-                    if (contextMenu.file) handleCopy(contextMenu.file);
+                    if (contextMenu.file) handleCopy([contextMenu.file]);
                     setContextMenu(null);
                   }}
                   className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
@@ -763,7 +777,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
                 <button
                   onClick={() => {
-                    if (contextMenu.file) handleCut(contextMenu.file);
+                    if (contextMenu.file) handleCut([contextMenu.file]);
                     setContextMenu(null);
                   }}
                   className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
@@ -851,7 +865,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     className="w-full px-3 py-1.5 text-left hover:bg-blue-50 text-blue-600 font-semibold flex items-center gap-2 cursor-pointer"
                   >
                     <Clipboard className="w-3.5 h-3.5" />
-                    <span>Paste ({clipboard.file.name})</span>
+                    <span>Paste ({clipboard.files.length})</span>
                   </button>
                 )}
               </>

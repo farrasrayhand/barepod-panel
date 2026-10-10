@@ -6,6 +6,8 @@ interface AddUserModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddUser: (user: TenantUser) => void;
+  onUpdateUser?: (user: TenantUser) => void;
+  editUser?: TenantUser | null;
   groups: UserGroup[];
 }
 
@@ -13,12 +15,35 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
   isOpen,
   onClose,
   onAddUser,
+  onUpdateUser,
+  editUser,
   groups,
 }) => {
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'admin' | 'user'>('user');
+  const isEditing = Boolean(editUser);
+  const [username, setUsername] = useState(editUser?.username ?? '');
+  const [email, setEmail] = useState(editUser?.email ?? '');
+  const [role, setRole] = useState<'admin' | 'user'>(editUser?.role ?? 'user');
+  const [status, setStatus] = useState<'active' | 'suspended'>(editUser?.status ?? 'active');
   const [selectedGroupId, setSelectedGroupId] = useState(groups[0]?.id || 'g-1');
+
+  // Sync form fields whenever the modal opens (create vs edit target changes)
+  React.useEffect(() => {
+    if (!isOpen) return;
+    if (editUser) {
+      setUsername(editUser.username);
+      setEmail(editUser.email);
+      setRole(editUser.role);
+      setStatus(editUser.status);
+      const match = groups.find(g => g.name === editUser.groupName);
+      if (match) setSelectedGroupId(match.id);
+    } else {
+      setUsername('');
+      setEmail('');
+      setRole('user');
+      setStatus('active');
+      setSelectedGroupId(groups[0]?.id || 'g-1');
+    }
+  }, [isOpen, editUser, groups]);
 
   if (!isOpen) return null;
 
@@ -29,10 +54,30 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
     if (!username.trim()) return;
 
     const isAdmin = role === 'admin';
+    const normalized = username.toLowerCase().replace(/[^a-z0-9_]/g, '');
+
+    if (isEditing && editUser) {
+      onUpdateUser?.({
+        ...editUser,
+        username: normalized,
+        email: email.trim() || `${normalized}@client.net`,
+        role,
+        status,
+        groupName: isAdmin
+          ? (editUser.role === 'admin' ? editUser.groupName : 'Admin (Unlimited)')
+          : activeGroup.name,
+        maxSites: isAdmin ? 'Unlimited' : activeGroup.maxSites,
+        diskLimit: isAdmin ? 'Unlimited' : activeGroup.diskLimit,
+        maxDatabases: isAdmin ? 'Unlimited' : activeGroup.maxDatabases,
+      });
+      onClose();
+      return;
+    }
+
     const newUser: TenantUser = {
       id: `u-${Date.now()}`,
-      username: username.toLowerCase().replace(/[^a-z0-9_]/g, ''),
-      email: email.trim() || `${username.toLowerCase()}@client.net`,
+      username: normalized,
+      email: email.trim() || `${normalized}@client.net`,
       role,
       groupName: isAdmin ? 'Admin (Unlimited)' : activeGroup.name,
       sitesCount: 0,
@@ -59,8 +104,12 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
               <Users className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-slate-900">Add New Tenant Account</h2>
-              <p className="text-xs text-slate-500">Configure role & assign resource limits package</p>
+              <h2 className="text-base font-semibold text-slate-900">
+                {isEditing ? 'Edit Tenant Account' : 'Add New Tenant Account'}
+              </h2>
+              <p className="text-xs text-slate-500">
+                {isEditing ? 'Perbarui role, paket limit, status, dan kontak akun' : 'Configure role & assign resource limits package'}
+              </p>
             </div>
           </div>
           <button
@@ -81,9 +130,15 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
               required
               placeholder="e.g. agency_partner"
               value={username}
+              disabled={isEditing}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
+              className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono disabled:opacity-60 disabled:cursor-not-allowed"
             />
+            {isEditing && (
+              <p className="text-[11px] text-slate-400 mt-1">
+                Username Linux tenant tidak dapat diubah (perubahan akan memerlukan pembuatan ulang jail user).
+              </p>
+            )}
           </div>
 
           <div>
@@ -160,6 +215,22 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
             </div>
           )}
 
+          {isEditing && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Account Status
+              </label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as 'active' | 'suspended')}
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
+              >
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+              </select>
+            </div>
+          )}
+
           <div className="flex items-center justify-end gap-3 pt-2">
             <button
               type="button"
@@ -172,7 +243,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
               type="submit"
               className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20"
             >
-              Create Account
+              {isEditing ? 'Save Changes' : 'Create Account'}
             </button>
           </div>
         </form>

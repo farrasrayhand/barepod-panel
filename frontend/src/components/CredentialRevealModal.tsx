@@ -29,6 +29,34 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
   const [errorMsg, setErrorMsg] = useState('');
   const [showPasswordText, setShowPasswordText] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [autoLockSeconds, setAutoLockSeconds] = useState(60);
+
+  // Reset unlock state whenever a different database is opened
+  React.useEffect(() => {
+    setIsUnlocked(false);
+    setShowPasswordText(false);
+    setPanelPassword('');
+    setAutoLockSeconds(60);
+  }, [database]);
+
+  // Password Vault auto-lock: re-encrypt credential after 60 seconds unlocked
+  React.useEffect(() => {
+    if (!isUnlocked) return;
+    setAutoLockSeconds(60);
+    const timer = setInterval(() => {
+      setAutoLockSeconds(prev => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isUnlocked]);
+
+  React.useEffect(() => {
+    if (isUnlocked && autoLockSeconds === 0) {
+      setIsUnlocked(false);
+      setShowPasswordText(false);
+      setPanelPassword('');
+      setAutoLockSeconds(60);
+    }
+  }, [isUnlocked, autoLockSeconds]);
 
   if (!isOpen || !database) return null;
 
@@ -159,7 +187,7 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
                 <Check className="w-3.5 h-3.5 text-emerald-600" /> Identity Verified
               </span>
               <span className="text-[10px] text-emerald-700 flex items-center gap-1">
-                <Clock className="w-3 h-3" /> Auto-locks in 60s
+                <Clock className="w-3 h-3" /> Auto-locks in {autoLockSeconds}s
               </span>
             </div>
 

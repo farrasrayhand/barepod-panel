@@ -153,8 +153,8 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Panel Settings & System</h1>
-            <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800">
-              v1.0.4 Release
+            <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">
+              Prototype UI • Simulasi
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
@@ -210,7 +210,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             }`}
           >
             <Activity className="w-4 h-4" />
-            <span>Monitoring & Retention</span>
+            <span>Monitoring Policy (Retensi)</span>
           </button>
 
           <button
@@ -246,7 +246,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             }`}
           >
             <HardDrive className="w-4 h-4" />
-            <span>Backup & Snapshots</span>
+            <span>Backup Policy (Jadwal)</span>
           </button>
 
           <button
