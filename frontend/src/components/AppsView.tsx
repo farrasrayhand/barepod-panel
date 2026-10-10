@@ -17,7 +17,8 @@ import {
   Folder,
   FolderGit2,
   Activity,
-  Sliders
+  Sliders,
+  ArrowRightLeft
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
 import { FileManagerModal } from './FileManagerModal';
@@ -139,6 +140,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
           {[
             { id: 'all', label: 'All Apps' },
+            { id: 'proxy', label: 'Reverse Proxy' },
             { id: 'python', label: 'Python (Flask/FastAPI)' },
             { id: 'php', label: 'PHP (WP/Laravel)' },
             { id: 'nodejs', label: 'Node.js (Next/Express)' },
@@ -228,15 +230,27 @@ export const AppsView: React.FC<AppsViewProps> = ({
 
                       {/* Framework & Runtime */}
                       <td className="py-3.5 px-4">
-                        <div className="flex flex-col items-start gap-1">
-                          <span className="font-semibold text-slate-800 text-xs flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-blue-500" />
-                            {app.framework || app.runtime.toUpperCase()}
-                          </span>
-                          <span className="text-[10px] text-slate-500 font-mono bg-slate-100 px-1.5 py-0.5 rounded">
-                            {app.runtime.toUpperCase()} {app.version}
-                          </span>
-                        </div>
+                        {app.runtime === 'proxy' ? (
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="font-bold text-purple-700 text-xs flex items-center gap-1.5">
+                              <ArrowRightLeft className="w-3.5 h-3.5 text-purple-600" />
+                              Reverse Proxy
+                            </span>
+                            <span className="text-[10px] text-purple-800 font-mono bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded">
+                              {app.upstreamUrl || `127.0.0.1:${app.port}`}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="font-semibold text-slate-800 text-xs flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-blue-500" />
+                              {app.framework || app.runtime.toUpperCase()}
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-mono bg-slate-100 px-1.5 py-0.5 rounded">
+                              {app.runtime.toUpperCase()} {app.version}
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Web Server */}

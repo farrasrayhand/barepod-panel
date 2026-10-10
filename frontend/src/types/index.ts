@@ -41,6 +41,13 @@ export interface WebApp {
   cpuUsage: string;
   createdAt: string;
   path?: string;
+  upstreamUrl?: string;
+  proxyWebsocket?: boolean;
+  proxyPreserveHost?: boolean;
+  proxyRealIp?: boolean;
+  proxyTimeoutSecs?: number;
+  customHeaders?: { key: string; value: string }[];
+  routes?: { path: string; upstream: string; target: string; cache: string; websocket?: boolean }[];
 }
 
 export type DatabaseEngine = 'postgres' | 'mysql' | 'mariadb' | 'mongodb' | 'redis';

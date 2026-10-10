@@ -128,6 +128,29 @@ export function App() {
       cpuUsage: '0%',
       createdAt: '2026-10-10',
     },
+    {
+      id: 'app-6',
+      name: 'internal-n8n-proxy',
+      domain: 'n8n.workflow.barepod.cloud',
+      runtime: 'proxy',
+      version: 'v1.0',
+      framework: 'Reverse Proxy (Upstream)',
+      webServer: 'nginx',
+      tenantUser: 'farras',
+      status: 'running',
+      ssl: true,
+      tunnelEnabled: true,
+      tunnelRoute: 'n8n.workflow.barepod.cloud -> 127.0.0.1:5678',
+      port: 5678,
+      upstreamUrl: 'http://127.0.0.1:5678',
+      proxyWebsocket: true,
+      proxyPreserveHost: true,
+      proxyRealIp: true,
+      proxyTimeoutSecs: 300,
+      memoryUsage: '14 MB',
+      cpuUsage: '0.1%',
+      createdAt: '2026-10-10',
+    },
   ]);
 
   const handleAddApp = (newApp: Partial<WebApp>) => {
@@ -143,13 +166,22 @@ export function App() {
       status: 'running',
       ssl: true,
       tunnelEnabled: newApp.tunnelEnabled ?? true,
+      tunnelRoute: newApp.tunnelRoute,
       port: newApp.port || 8010,
-      memoryUsage: '32 MB',
+      memoryUsage: newApp.memoryUsage || '28 MB',
       cpuUsage: '0.1%',
       createdAt: 'Just now',
+      upstreamUrl: newApp.upstreamUrl,
+      proxyWebsocket: newApp.proxyWebsocket,
+      proxyPreserveHost: newApp.proxyPreserveHost,
+      proxyRealIp: newApp.proxyRealIp,
+      proxyTimeoutSecs: newApp.proxyTimeoutSecs,
     };
     setApps([created, ...apps]);
-    showToast('App Deployed Successfully', `${created.name} (${created.runtime.toUpperCase()} ${created.version}) is live.`);
+    showToast(
+      created.runtime === 'proxy' ? 'Reverse Proxy Live' : 'App Deployed Successfully',
+      `${created.name} (${created.runtime === 'proxy' ? created.upstreamUrl : created.runtime.toUpperCase()}) is active.`
+    );
   };
 
   const handleToggleAppStatus = (appId: string) => {

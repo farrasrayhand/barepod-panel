@@ -32,7 +32,11 @@ import {
   GitBranch,
   Filter,
   Eye,
-  EyeOff
+  EyeOff,
+  ArrowRightLeft,
+  Wifi,
+  Code2,
+  Plus
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
 
@@ -60,6 +64,57 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [copiedEnv, setCopiedEnv] = useState(false);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
   const [maskSecrets, setMaskSecrets] = useState(true);
+
+  // Reverse Proxy Specific Interactive State
+  const [currentUpstream, setCurrentUpstream] = useState(app.upstreamUrl || `http://127.0.0.1:${app.port}`);
+  const [isPingingUpstream, setIsPingingUpstream] = useState(false);
+  const [pingStatus, setPingStatus] = useState<{ ok: boolean; latency: string; code: number } | null>(null);
+  const [wsEnabled, setWsEnabled] = useState(app.proxyWebsocket ?? true);
+  const [preserveHost, setPreserveHost] = useState(app.proxyPreserveHost ?? true);
+  const [realIp, setRealIp] = useState(app.proxyRealIp ?? true);
+  const [proxyTimeout, setProxyTimeout] = useState(app.proxyTimeoutSecs ?? 60);
+  const [copiedVhost, setCopiedVhost] = useState(false);
+  const [routes, setRoutes] = useState<Array<{ path: string; upstream: string; target: string; cache: string; websocket?: boolean }>>([
+    { path: '/', upstream: app.upstreamUrl || (app.runtime === 'php' ? 'unix:/run/php/php8.4-fpm.sock' : `http://127.0.0.1:${app.port}`), target: app.runtime === 'proxy' ? 'Primary Upstream Target' : `${app.runtime.toUpperCase()} Primary`, cache: 'Bypass / Realtime', websocket: true },
+    { path: '/api/v1/*', upstream: 'http://127.0.0.1:3000', target: 'Node.js (NestJS API)', cache: 'Bypass Cache', websocket: false },
+    { path: '/ai-worker/*', upstream: 'http://127.0.0.1:8000', target: 'Python 3.12 (FastAPI ML)', cache: 'Bypass Cache', websocket: false },
+    { path: '/assets/*', upstream: 'Direct Sendfile Zero-Copy', target: 'Static Media & Assets', cache: 'Browser Cache 365d', websocket: false },
+  ]);
+  const [showAddRoute, setShowAddRoute] = useState(false);
+  const [newRoutePath, setNewRoutePath] = useState('');
+  const [newRouteUpstream, setNewRouteUpstream] = useState('');
+  const [newRouteTarget, setNewRouteTarget] = useState('');
+
+  const handlePingUpstream = () => {
+    setIsPingingUpstream(true);
+    setTimeout(() => {
+      setIsPingingUpstream(false);
+      setPingStatus({
+        ok: true,
+        latency: (Math.random() * 2 + 1.2).toFixed(1) + 'ms',
+        code: 200,
+      });
+    }, 600);
+  };
+
+  const handleAddCustomRoute = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRoutePath || !newRouteUpstream) return;
+    setRoutes([
+      ...routes,
+      {
+        path: newRoutePath,
+        upstream: newRouteUpstream,
+        target: newRouteTarget || 'Custom Upstream Route',
+        cache: 'Bypass Cache',
+        websocket: true,
+      }
+    ]);
+    setNewRoutePath('');
+    setNewRouteUpstream('');
+    setNewRouteTarget('');
+    setShowAddRoute(false);
+  };
 
   // Simulated live CPU & RAM metrics
   const [liveMetrics, setLiveMetrics] = useState({
@@ -198,13 +253,15 @@ QUEUE_CONNECTION=redis`;
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-start gap-4">
             <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-2xl font-bold shadow-2xs border border-blue-100">
-              {app.runtime === 'php' ? '🐘' : app.runtime === 'nodejs' ? '⬢' : app.runtime === 'python' ? '🐍' : '⚡'}
+              {app.runtime === 'php' ? '🐘' : app.runtime === 'nodejs' ? '⬢' : app.runtime === 'python' ? '🐍' : app.runtime === 'proxy' ? '🔀' : '⚡'}
             </div>
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">{app.name}</h1>
-                <span className="text-xs px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider bg-slate-100 text-slate-700 font-mono">
-                  {app.runtime} {app.version}
+                <span className={`text-xs px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider font-mono ${
+                  app.runtime === 'proxy' ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'bg-slate-100 text-slate-700'
+                }`}>
+                  {app.runtime === 'proxy' ? 'Reverse Proxy' : `${app.runtime} ${app.version}`}
                 </span>
                 {app.framework && (
                   <span className="text-xs px-2.5 py-0.5 rounded-md font-bold bg-purple-50 text-purple-700 border border-purple-200">
@@ -230,7 +287,11 @@ QUEUE_CONNECTION=redis`;
                 <span>•</span>
                 <span>Tenant: <strong className="text-slate-700 font-mono">{app.tenantUser}</strong></span>
                 <span>•</span>
-                <span>Path: <strong className="text-slate-700 font-mono">{appPath}</strong></span>
+                {app.runtime === 'proxy' ? (
+                  <span>Upstream: <strong className="text-purple-700 font-mono">{currentUpstream}</strong></span>
+                ) : (
+                  <span>Path: <strong className="text-slate-700 font-mono">{appPath}</strong></span>
+                )}
               </div>
             </div>
           </div>
@@ -565,70 +626,317 @@ QUEUE_CONNECTION=redis`;
 
         {/* TAB 3: REVERSE PROXY & MULTI-ENGINE PATH ROUTING */}
         {activeTab === 'routing' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="space-y-6">
+            {/* Header Description */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-5 rounded-2xl border border-slate-200">
               <div>
-                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  Hybrid Engine Reverse Proxy & Upstream Mapping
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Arsitektur hybrid BarePod Panel memungkinkan satu website menggabungkan beberapa runtime sekaligus di bawah domain yang sama.
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-slate-900 tracking-tight">
+                    {app.runtime === 'proxy' ? 'Dedicated Reverse Proxy Gateway Manager' : 'Hybrid Engine Reverse Proxy & Upstream Mapping'}
+                  </h3>
+                  <span className={`px-2 py-0.5 text-[11px] rounded font-bold ${
+                    app.runtime === 'proxy' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {app.webServer.toUpperCase()} Reverse Proxy
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  {app.runtime === 'proxy' 
+                    ? `Domain ${app.domain} meneruskan seluruh traffic HTTP/WebSocket secara aman ke upstream backend internal.` 
+                    : `Arsitektur hybrid memungkinkan satu domain membagi traffic ke beberapa runtime (PHP-FPM, Node.js, Python, & Static).`}
                 </p>
               </div>
-              <span className="px-2 py-0.5 text-xs rounded font-bold bg-blue-100 text-blue-700">
-                Primary: {app.webServer.toUpperCase()}
-              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddRoute(!showAddRoute)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm shadow-blue-500/25"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tambah Path Route</span>
+                </button>
+              </div>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
+            {/* Primary Upstream Target Card (Especially prominent for Proxy Apps) */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
+                    <ArrowRightLeft className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900">Target Upstream Destination (Port / Socket / IP)</h4>
+                    <p className="text-[11px] text-slate-500">Service internal yang menerima forward traffic dari {app.domain}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePingUpstream}
+                    disabled={isPingingUpstream}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+                  >
+                    <RotateCw className={`w-3.5 h-3.5 ${isPingingUpstream ? 'animate-spin' : ''}`} />
+                    <span>{isPingingUpstream ? 'Pinging...' : 'Ping Test Upstream'}</span>
+                  </button>
+
+                  {pingStatus && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg">
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{pingStatus.code} OK ({pingStatus.latency})</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Upstream URL / IP Address
+                  </label>
+                  <input
+                    type="text"
+                    value={currentUpstream}
+                    onChange={(e) => setCurrentUpstream(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono text-purple-900 font-bold focus:bg-white focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Timeout Koneksi & Stream
+                  </label>
+                  <select
+                    value={proxyTimeout}
+                    onChange={(e) => setProxyTimeout(Number(e.target.value))}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono focus:border-purple-500"
+                  >
+                    <option value={60}>60 Detik (Standar Web)</option>
+                    <option value={180}>180 Detik (Long-Polling)</option>
+                    <option value={300}>300 Detik (Streaming LLM / AI)</option>
+                    <option value={600}>600 Detik (Heavy Export/Upload)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Ingress Protocol Feature Toggles */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
+                <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={wsEnabled}
+                    onChange={(e) => setWsEnabled(e.target.checked)}
+                    className="rounded text-purple-600 border-slate-300"
+                  />
+                  <div className="text-xs">
+                    <span className="font-bold text-slate-800 flex items-center gap-1">
+                      <Wifi className="w-3.5 h-3.5 text-purple-600" />
+                      WebSocket Upgrade
+                    </span>
+                    <span className="text-[10px] text-slate-500 block">HTTP 101 Switching Protocols</span>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={preserveHost}
+                    onChange={(e) => setPreserveHost(e.target.checked)}
+                    className="rounded text-purple-600 border-slate-300"
+                  />
+                  <div className="text-xs">
+                    <span className="font-bold text-slate-800">
+                      Preserve Host Header ($host)
+                    </span>
+                    <span className="text-[10px] text-slate-500 block">Teruskan domain asli ke service</span>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={realIp}
+                    onChange={(e) => setRealIp(e.target.checked)}
+                    className="rounded text-purple-600 border-slate-300"
+                  />
+                  <div className="text-xs">
+                    <span className="font-bold text-slate-800">
+                      Forward Client IP Headers
+                    </span>
+                    <span className="text-[10px] text-slate-500 block">X-Real-IP, X-Forwarded-For</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Add Custom Location Route Form (Toggleable) */}
+            {showAddRoute && (
+              <form onSubmit={handleAddCustomRoute} className="p-4 bg-blue-50/50 border border-blue-200 rounded-2xl space-y-3 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-blue-900">Tambah Route Split / Forward Baru</h4>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddRoute(false)}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    Batal
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Location Path URL Prefix
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="/api/v2/* atau /webhook/*"
+                      value={newRoutePath}
+                      onChange={(e) => setNewRoutePath(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Upstream Destination
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="http://127.0.0.1:4000"
+                      value={newRouteUpstream}
+                      onChange={(e) => setNewRouteUpstream(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Keterangan Service
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="e.g. Express Microservice"
+                        value={newRouteTarget}
+                        onChange={(e) => setNewRouteTarget(e.target.value)}
+                        className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg"
+                      />
+                      <button
+                        type="submit"
+                        className="px-3.5 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
+                      >
+                        Simpan
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </form>
+            )}
+
+            {/* Mapped Routes Table */}
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
               <table className="w-full text-left text-xs font-mono">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
                   <tr>
-                    <th className="py-2.5 px-3">LOCATION PATH</th>
-                    <th className="py-2.5 px-3">UPSTREAM HANDLER</th>
-                    <th className="py-2.5 px-3">TARGET RUNTIME</th>
-                    <th className="py-2.5 px-3">CACHE STRATEGY</th>
-                    <th className="py-2.5 px-3">STATUS</th>
+                    <th className="py-3 px-4">LOCATION PATH</th>
+                    <th className="py-3 px-4">UPSTREAM DESTINATION</th>
+                    <th className="py-3 px-4">SERVICE / RUNTIME</th>
+                    <th className="py-3 px-4">CACHE STRATEGY</th>
+                    <th className="py-3 px-4">STATUS</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  <tr>
-                    <td className="py-3 px-3 font-bold text-blue-600">/ (Root)</td>
-                    <td className="py-3 px-3 text-slate-700">FastCGI unix:/run/php/php8.4-fpm.sock</td>
-                    <td className="py-3 px-3 text-slate-800 font-sans">PHP 8.4 ({app.framework || 'WordPress/Laravel'})</td>
-                    <td className="py-3 px-3 text-slate-500">LSCache / FastCGI Microcache</td>
-                    <td className="py-3 px-3 text-emerald-600 font-bold">Active (Primary)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-3 px-3 font-bold text-blue-600">/api/v1/*</td>
-                    <td className="py-3 px-3 text-slate-700">proxy_pass http://127.0.0.1:3000</td>
-                    <td className="py-3 px-3 text-slate-800 font-sans">Node.js (NestJS / Express API)</td>
-                    <td className="py-3 px-3 text-slate-500">Bypass Cache (Realtime)</td>
-                    <td className="py-3 px-3 text-emerald-600 font-bold">Active (Route Split)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-3 px-3 font-bold text-blue-600">/ai-worker/*</td>
-                    <td className="py-3 px-3 text-slate-700">proxy_pass http://127.0.0.1:8000</td>
-                    <td className="py-3 px-3 text-slate-800 font-sans">Python 3.12 (FastAPI ML Service)</td>
-                    <td className="py-3 px-3 text-slate-500">Bypass Cache</td>
-                    <td className="py-3 px-3 text-emerald-600 font-bold">Active (Route Split)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-3 px-3 font-bold text-blue-600">/assets/*, /static/*</td>
-                    <td className="py-3 px-3 text-slate-700">Direct Nginx Sendfile Zero-Copy</td>
-                    <td className="py-3 px-3 text-slate-800 font-sans">Static Assets</td>
-                    <td className="py-3 px-3 text-slate-500">Browser Cache 365d (Immutable)</td>
-                    <td className="py-3 px-3 text-emerald-600 font-bold">Active</td>
-                  </tr>
+                  {routes.map((r, i) => (
+                    <tr key={i} className="hover:bg-slate-50/50">
+                      <td className="py-3 px-4 font-bold text-blue-600">{r.path}</td>
+                      <td className="py-3 px-4 text-purple-900 font-bold">{r.path === '/' ? currentUpstream : r.upstream}</td>
+                      <td className="py-3 px-4 text-slate-800 font-sans">{r.target}</td>
+                      <td className="py-3 px-4 text-slate-500">{r.cache}</td>
+                      <td className="py-3 px-4 text-emerald-600 font-bold">Active</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
 
-            <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 leading-relaxed">
-              💡 <strong>Multi-Engine Split Terintegrasi:</strong> Anda tidak perlu membuat subdomain terpisah untuk API backend atau worker Python Anda. Cukup petakan path prefix di atas dan reverse proxy akan otomatis meneruskan traffic ke unix socket atau port backend yang bersangkutan.
+            {/* Generated VHost Config Code Inspector */}
+            <div className="rounded-2xl border border-slate-200 bg-slate-950 overflow-hidden shadow-2xs">
+              <div className="px-4 py-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-slate-300 text-xs font-mono">
+                  <Code2 className="w-4 h-4 text-purple-400" />
+                  <span>Real-Time {app.webServer.toUpperCase()} Reverse Proxy VirtualHost Config</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const snippet = `# Generated by BarePod Panel Daemon
+server {
+    listen 80;
+    listen 443 ssl http2;
+    server_name ${app.domain};
+
+    ssl_certificate /etc/letsencrypt/live/${app.domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${app.domain}/privkey.pem;
+
+    client_max_body_size 100M;
+
+    location / {
+        proxy_pass ${currentUpstream};
+        proxy_http_version 1.1;
+${wsEnabled ? `        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";\n` : ''}${preserveHost ? `        proxy_set_header Host $host;\n` : ''}${realIp ? `        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;\n` : ''}        proxy_read_timeout ${proxyTimeout}s;
+    }
+}`;
+                    navigator.clipboard.writeText(snippet);
+                    setCopiedVhost(true);
+                    setTimeout(() => setCopiedVhost(false), 2000);
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
+                >
+                  {copiedVhost ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedVhost ? 'Tersalin' : 'Salin Konfigurasi'}</span>
+                </button>
+              </div>
+
+              <pre className="p-4 text-xs font-mono text-purple-300 overflow-x-auto leading-relaxed max-h-56">
+{`# Generated by BarePod Panel Daemon (${app.webServer.toUpperCase()})
+server {
+    listen 80;
+    listen 443 ssl http2;
+    server_name ${app.domain};
+
+    ssl_certificate /etc/letsencrypt/live/${app.domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${app.domain}/privkey.pem;
+
+    client_max_body_size 100M;
+
+    location / {
+        proxy_pass ${currentUpstream};
+        proxy_http_version 1.1;
+${wsEnabled ? `        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";\n` : ''}${preserveHost ? `        proxy_set_header Host $host;\n` : ''}${realIp ? `        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;\n` : ''}        proxy_read_timeout ${proxyTimeout}s;
+    }
+
+${routes.filter(r => r.path !== '/').map(r => `    location ${r.path} {
+        proxy_pass ${r.upstream};
+        proxy_set_header Host $host;
+    }`).join('\n\n')}
+}`}
+              </pre>
             </div>
           </div>
         )}
+
 
         {/* TAB 4: ENVIRONMENT VARIABLES (.ENV) */}
         {activeTab === 'env' && (
