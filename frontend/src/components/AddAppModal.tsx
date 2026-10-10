@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   X,
   Layers,
@@ -68,6 +68,10 @@ const stepsForMode = (mode: 'standard' | 'proxy' | 'static'): { id: WizardStep; 
 const defaultPortFor = (runtime: RuntimeType): number =>
   runtime === 'php' ? 8001 : runtime === 'python' ? 5000 : runtime === 'nodejs' ? 3000 : runtime === 'static' ? 80 : 8080;
 
+/** Accepts a bare FQDN like api.example.com (no scheme, no spaces, at least one dot). */
+const isValidDomain = (value: string): boolean =>
+  /^([a-z0-9](?:-*[a-z0-9])*)(?:\.([a-z0-9](?:-*[a-z0-9])*))+$/i.test(value);
+
 export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAddApp }) => {
   const [appMode, setAppMode] = useState<'standard' | 'proxy' | 'static'>('standard');
   const [stepIndex, setStepIndex] = useState(0);
@@ -90,6 +94,13 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const [gitBranch, setGitBranch] = useState('main');
   const [autoDeploy, setAutoDeploy] = useState(true);
   const [uploadFile, setUploadFile] = useState<string | null>(null);
+  const [dirCheck, setDirCheck] = useState<'idle' | 'checking' | 'ok' | 'missing'>('idle');
+  const KNOWN_EXISTING_APPS = ['flask-sentiment-api', 'larastore-commerce', 'billing-backend-api', 'fastapi-ai-service', 'legacy-news-portal', 'internal-n8n-proxy'];
+  const existingPath = `/home/${tenantUser}/apps/${name || '<website>'}`;
+  const checkExistingDir = () => {
+    setDirCheck('checking');
+    setTimeout(() => setDirCheck(KNOWN_EXISTING_APPS.includes(name.trim()) ? 'ok' : 'missing'), 600);
+  };
 
   // Database
   const [createDb, setCreateDb] = useState(true);
@@ -154,9 +165,9 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
         versions: ['22 LTS', '20 LTS', '18'],
         frameworks: ['Next.js', 'Nuxt', 'Astro', 'Express', 'NestJS', 'Generic (bring your own code)'],
       },
-      go: { versions: ['1.23', '1.22'], frameworks: ['Gin', 'Fiber', 'Standard HTTP'] },
-      rust: { versions: ['1.81', '1.80'], frameworks: ['Axum', 'Actix-web'] },
-      ruby: { versions: ['3.3', '3.2'], frameworks: ['Ruby on Rails', 'Sinatra'] },
+      go: { versions: ['1.23', '1.22'], frameworks: ['Gin', 'Fiber', 'Standard HTTP', 'Generic (bring your own code)'] },
+      rust: { versions: ['1.81', '1.80'], frameworks: ['Axum', 'Actix-web', 'Generic (bring your own code)'] },
+      ruby: { versions: ['3.3', '3.2'], frameworks: ['Ruby on Rails', 'Sinatra', 'Generic (bring your own code)'] },
       docker: { versions: ['Latest'], frameworks: ['Custom Containerfile'] },
       static: { versions: ['HTML5'], frameworks: ['Static Web App', 'Vite Dist', 'Astro Static'] },
       proxy: { versions: ['v1.0'], frameworks: ['Reverse Proxy Forwarder'] },
@@ -168,12 +179,43 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
   const currentStepId = currentStep?.id ?? 'basics';
 
+  // Only templates with an automated download are offered (plus the Generic option)
+  const availableFrameworks = useMemo(() => {
+    const list = runtimeConfigs[runtime].frameworks.filter(
+      (fw) => /generic|custom/i.test(fw) || getProvisionPlan(runtime, fw).mode === 'download',
+    );
+    return list.length ? list : ['Generic (bring your own code)'];
+  }, [runtime, runtimeConfigs]);
+
   const dbVersions = AVAILABLE_ENGINE_VERSIONS[dbType] ?? [];
   const activeDbVersion = dbVersions[Math.min(dbVersionIndex, dbVersions.length - 1)];
   const isSqlite = dbType === 'sqlite';
 
-  const plan = getProvisionPlan(runtime, framework, version);
+  const plan = getProvisionPlan(runtime, framework);
+  const isGenericFramework = /generic|custom/i.test(framework);
   const effectiveSource: SourceKind = appMode === 'static' && sourceKind === 'scaffold' ? 'upload' : sourceKind;
+  const domainValid = isValidDomain(domain.trim());
+
+  // Templates without an automated download can't use the Scaffold source
+  useEffect(() => {
+    if (plan.mode !== 'download' && sourceKind === 'scaffold') setSourceKind('github');
+  }, [plan.mode, sourceKind]);
+
+  // Keep the selected template inside the available list
+  useEffect(() => {
+    if (!availableFrameworks.includes(framework)) setFramework(availableFrameworks[0]);
+  }, [availableFrameworks, framework]);
+
+  const sourceValid =
+    effectiveSource === 'scaffold'
+      ? plan.mode === 'download'
+      : effectiveSource === 'github'
+        ? gitRepo.trim() !== ''
+        : effectiveSource === 'upload'
+          ? uploadFile !== null
+          : dirCheck === 'ok';
+
+  const sourceValidForMode = appMode === 'proxy' ? true : sourceValid;
 
   const handleModeSwitch = (mode: 'standard' | 'proxy' | 'static') => {
     setAppMode(mode);
@@ -301,7 +343,9 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
 
   if (!isOpen) return null;
 
-  const canContinue = currentStepId !== 'basics' || (name.trim() !== '' && domain.trim() !== '');
+  const canContinue =
+    (currentStepId !== 'basics' || (name.trim() !== '' && domainValid)) &&
+    (currentStepId !== 'source' || sourceValidForMode);
 
   const next = () => setStepIndex((i) => Math.min(i + 1, steps.length - 1));
   const back = () => setStepIndex((i) => Math.max(i - 1, 0));
@@ -443,7 +487,20 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Domain (FQDN)</label>
-                  <input type="text" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="app.example.com" className={inputClass} />
+                  <input
+                    type="text"
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                    placeholder="app.example.com"
+                    className={`${inputClass} ${
+                      domain.trim() !== '' && !domainValid ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40' : ''
+                    }`}
+                  />
+                  {domain.trim() !== '' && !domainValid && (
+                    <p className="text-[11px] text-rose-600 mt-1">
+                      Enter a valid domain without a scheme, e.g. <code className="font-mono">app.example.com</code>
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -528,13 +585,15 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Framework / Template</label>
                       <select value={framework} onChange={(e) => setFramework(e.target.value)} className={inputClass}>
-                        {runtimeConfigs[runtime].frameworks.map((fw) => (
+                        {availableFrameworks.map((fw) => (
                           <option key={fw} value={fw}>{fw}</option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">Version</label>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Runtime Version <span className="text-slate-400 font-normal">({runtime.toUpperCase()})</span>
+                      </label>
                       <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass}>
                         {runtimeConfigs[runtime].versions.map((ver) => (
                           <option key={ver} value={ver}>{ver}</option>
@@ -543,14 +602,21 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs space-y-1.5">
-                    <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                      <Download className="w-3.5 h-3.5 text-slate-500" />
-                      {plan.mode === 'download' ? 'This template will be downloaded' : 'No automatic download'}
-                    </span>
-                    {plan.install && <code className="block font-mono text-[11px] text-blue-700 bg-white border border-slate-200 rounded px-2 py-1">{plan.install}</code>}
-                    <p className="text-[11px] text-slate-500">{plan.note}</p>
-                  </div>
+                  {isGenericFramework ? (
+                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs text-slate-600 flex items-start gap-2">
+                      <FolderOpen className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                      <span>Bring your own code — choose GitHub, Upload or Existing files in the next step.</span>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs space-y-1.5">
+                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                        <Download className="w-3.5 h-3.5 text-slate-500" />
+                        {plan.mode === 'download' ? 'This template will be downloaded' : 'No automatic download'}
+                      </span>
+                      {plan.install && <code className="block font-mono text-[11px] text-blue-700 bg-white border border-slate-200 rounded px-2 py-1">{plan.install}</code>}
+                      <p className="text-[11px] text-slate-500">{plan.note}</p>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -582,7 +648,9 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
             <>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
-                  { id: 'scaffold' as SourceKind, label: plan.mode === 'download' ? 'Scaffold / Download' : 'Scaffold (n/a)', icon: Download },
+                  ...(plan.mode === 'download'
+                    ? [{ id: 'scaffold' as SourceKind, label: 'Scaffold / Download', icon: Download }]
+                    : []),
                   { id: 'github' as SourceKind, label: 'GitHub Repository', icon: GitBranch },
                   { id: 'upload' as SourceKind, label: 'Upload Archive', icon: Upload },
                   { id: 'existing' as SourceKind, label: 'Existing Files', icon: FolderOpen },
@@ -654,9 +722,42 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               )}
 
               {effectiveSource === 'existing' && (
-                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs text-slate-600 flex items-start gap-2">
-                  <FolderOpen className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-                  <span>Your code is already in <code className="font-mono">/home/{tenantUser}/apps/{name || '<website>'}</code>. Only dependencies/build steps run.</span>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Existing directory</label>
+                    <div className="flex items-center gap-2">
+                      <input type="text" value={existingPath} readOnly className={`${inputClass} font-mono text-slate-500`} />
+                      <button
+                        type="button"
+                        onClick={checkExistingDir}
+                        disabled={dirCheck === 'checking' || !name.trim()}
+                        className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg whitespace-nowrap disabled:opacity-40"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${dirCheck === 'checking' ? 'animate-spin' : ''}`} />
+                        <span>Check</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {dirCheck === 'ok' && (
+                    <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-xs text-emerald-800 flex items-start gap-2">
+                      <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>Directory found. Only dependencies and build steps will run.</span>
+                    </div>
+                  )}
+
+                  {dirCheck === 'missing' && (
+                    <div className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-xs text-rose-800 flex items-start gap-2">
+                      <X className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <span>
+                        Directory not found at <code className="font-mono">{existingPath}</code>. Deploy cannot continue — upload your code, use a GitHub repository, or scaffold a template instead.
+                      </span>
+                    </div>
+                  )}
+
+                  {dirCheck === 'idle' && (
+                    <p className="text-[11px] text-slate-400">Run the check to confirm the directory exists before continuing.</p>
+                  )}
                 </div>
               )}
             </>
@@ -912,7 +1013,8 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               <button
                 type="button"
                 onClick={handleDeploy}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                disabled={!sourceValidForMode}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Server className="w-3.5 h-3.5" />
                 <span>Deploy Website</span>
