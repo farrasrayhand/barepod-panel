@@ -58,15 +58,44 @@ export interface DatabaseItem {
   tenantUser?: string;
 }
 
+export type PodSourceType = 'image' | 'dockerfile' | 'compose';
+
+export interface PodEnvVar {
+  key: string;
+  value: string;
+  isSecret?: boolean;
+}
+
+export interface PodVolumeMount {
+  hostPath: string;
+  containerPath: string;
+  readOnly?: boolean;
+}
+
 export interface PodItem {
   id: string;
   name: string;
+  sourceType?: PodSourceType;
   image: string;
+  dockerfileContent?: string;
+  composeContent?: string;
   status: 'running' | 'stopped' | 'restarting';
   ports: string;
   cpu: string;
   memory: string;
   restartPolicy: string;
+  // Web Application & Routing Configuration
+  isWebApp?: boolean;
+  webDomain?: string;
+  webPort?: number;
+  sslEnabled?: boolean;
+  useCloudflareTunnel?: boolean;
+  // Env & Storage
+  envVars?: PodEnvVar[];
+  volumes?: PodVolumeMount[];
+  memoryLimit?: string;
+  cpuLimit?: string;
+  command?: string;
 }
 
 export interface UserGroup {
