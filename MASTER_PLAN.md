@@ -334,3 +334,21 @@ BarePod-Panel/
 ├── README.md
 └── LICENSE
 ```
+
+---
+
+## 7. Otomasi & Integrasi Agen (REST API · Webhook · MCP Server)
+
+Panel harus bisa diotomasi tanpa UI — untuk pengguna, CI/CD, dan **agen AI**.
+
+- **API Token per-user**: `bp_live_<random>` (hanya hash yang disimpan), scope terbatas = irisan dengan permission grup pemiliknya, ada expiry/revoke/IP allowlist, rate limit, dan **audit log** tiap request. Kapabilitas baru: `apiTokens` pada `GroupPermissions`.
+- **Spesifikasi terbuka**: `GET /openapi.json` (OpenAPI 3) dari seluruh endpoint §4.
+- **Webhook keluar**: event `website.deployed`, `backup.completed`, `migration.completed`, `cleanup.completed`, `cert.expiring`, `disk.threshold` (HMAC-SHA256 `X-BarePod-Signature`). **Webhook masuk**: `POST /hooks/:token/run?action=…`.
+- **MCP Server (Model Context Protocol)**: server MCP **standalone** yang membungkus REST API (berjalan di mesin agen/CI, auth pakai API token) sehingga Claude/Command Code/Cursor bisa memanggil tool seperti `list_websites`, `create_website`, `redeploy_website`, `create_backup`, `run_cleanup`, `list_users`.
+  - Default **read-only**; tulis/hapus butuh scope eksplisit; aksi destruktif 2-langkah (`preview_*` → `apply_*`).
+  - Resource: `barepod://websites`, `barepod://system/capabilities`. Prompt: `deploy-website`, `migrate-server`.
+- **Prinsip keamanan**: MCP tidak pernah menerima password panel (hanya token); semua aksi agen tetap dibatasi cgroup/kapabilitas tenant; server panel bisa menonaktifkan otomasi per grup (`apiTokens=false`).
+
+> Detail kontrak (endpoint token/webhook, daftar tool MCP, contoh konfigurasi klien) ada di [`API_CONTRACT.md`](./API_CONTRACT.md) §7.
+
+---

@@ -10,6 +10,7 @@ export const ALL_PERMISSIONS: GroupPermissions = {
   cloudflareTunnels: true,
   monitoring: true,
   users: true,
+  apiTokens: true,
 };
 
 export const PERMISSION_MATRIX: Array<{ key: keyof GroupPermissions; label: string; desc: string }> = [
@@ -22,6 +23,7 @@ export const PERMISSION_MATRIX: Array<{ key: keyof GroupPermissions; label: stri
   { key: 'cloudflareTunnels', label: 'Cloudflare Tunnels', desc: 'Publish apps with Zero-NAT' },
   { key: 'monitoring', label: 'Server monitoring', desc: 'View host telemetry' },
   { key: 'users', label: 'User & group management', desc: 'Admin-only by default' },
+  { key: 'apiTokens', label: 'API tokens & automation', desc: 'Create tokens, webhooks, agent access' },
 ];
 
 export const countPermissions = (permissions?: GroupPermissions): number =>

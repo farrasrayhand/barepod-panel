@@ -180,3 +180,92 @@ Ini titik rawan rework — UI saat ini menyimpan beberapa nilai sebagai string p
 7. **Cleanup & Cron** (systemd timer), **Pods** (Docker SDK).
 
 > Catatan platform: semua di atas harus jalan di **linux/amd64 & linux/arm64** (lihat MASTER_PLAN §5). Deteksi LXC → matikan fitur yang tidak tersedia (S.M.A.R.T./fstrim) dan tampilkan status, bukan error.
+
+---
+
+## 7. Otomasi: API Token, Webhook & MCP Server
+
+Tujuan: pengguna (dan **agen AI**) bisa mengotomasi panel tanpa membuka UI.
+
+### 7.1 API Token (untuk REST API)
+
+- Dibuat per-user: `GET|POST|DELETE /api-tokens` (butuh permission grup `apiTokens`).
+- Format: `bp_live_<base62>` (mis. `bp_live_9f8a20bc…`); hanya **prefix + hash** yang disimpan server. Nilai penuh ditampilkan sekali saat dibuat.
+- **Scope** (subset `GroupPermissions` + tingkat akses):
+  `websites:read`, `websites:write`, `files:read`, `files:write`, `databases:read`, `databases:write`, `backup:run`, `system:read`, `cleanup:run`, `users:write`, `tokens:manage`.
+- Token **tidak boleh melebihi** permission grup pemiliknya (efektif = irisan).
+- Atribut: `expiresAt`, `lastUsedAt`, `ipAllowlist`, `revoked`.
+- Audit log setiap request: `{ tokenId, userId, method, path, status, ip, ts }`.
+- Rate limit per token (mis. 120 req/min burst).
+- `GET /openapi.json` menyediakan spesifikasi OpenAPI 3 dari seluruh endpoint §4.
+
+Contoh:
+```bash
+curl -H "Authorization: Bearer bp_live_9f8a20bc…" \
+     https://panel.example.com/api/v1/websites
+```
+
+### 7.2 Webhook (event keluar & masuk)
+
+- **Keluar**: `GET|POST|DELETE /webhooks` → `{ url, secret, events[] }`.
+  Event: `website.deployed`, `website.status_changed`, `backup.completed`, `migration.completed`, `cleanup.completed`, `cert.expiring`, `disk.threshold`. Payload ditandatangani HMAC-SHA256 di header `X-BarePod-Signature`.
+- **Masuk** (trigger otomasi): `POST /hooks/:token/run?action=deploy|cleanup|backup&target=<slug>` — tanpa JWT, token one-shot/berulang sesuai konfigurasi.
+- GitHub push-to-deploy sudah memakai pola ini (`POST /webhook/:siteId/deploy?token=…`).
+
+### 7.3 MCP Server (Model Context Protocol)
+
+Supaya agen (Claude / Command Code / Cursor / dsb.) bisa memanggil panel sebagai *tools*.
+
+**Arsitektur (disarankan): MCP standalone yang membungkus REST API.**
+- Server MCP kecil (Node/Go) berjalan di mesin agen/CI, **bukan** di server panel.
+- Auth: **API token** (scoped), bukan password panel → tidak menambah attack surface di server.
+- Alternatif: subcommand bawaan `barepod mcp` (stdio) yang memanggil API internal via Unix socket.
+
+Konfigurasi klien:
+```json
+{
+  "mcpServers": {
+    "barepod": {
+      "command": "npx",
+      "args": ["-y", "@barepod/mcp"],
+      "env": {
+        "BAREPOD_URL": "https://panel.example.com",
+        "BAREPOD_TOKEN": "bp_live_9f8a20bc…"
+      }
+    }
+  }
+}
+```
+
+**Tools (contoh surface):**
+
+| Tool | Scope | Aksi |
+|---|---|---|
+| `list_websites` / `get_website` | `websites:read` | daftar/detail website |
+| `create_website` / `delete_website` | `websites:write` | buat/hapus website |
+| `start_website` / `stop_website` / `restart_website` | `websites:write` | kontrol lifecycle |
+| `redeploy_website` | `websites:write` | trigger deploy (stream via events) |
+| `get_website_metrics` / `tail_website_logs` | `websites:read` | metrik & log |
+| `list_files` / `read_file` / `write_file` | `files:read` / `files:write` | file manager |
+| `list_databases` / `create_database` / `rotate_db_password` | `databases:*` | DB suite |
+| `create_backup` / `list_backups` / `restore_backup` / `start_migration` | `backup:run` | backup & migrasi |
+| `create_tunnel` / `add_tunnel_route` | `websites:write` | Cloudflare Tunnel |
+| `list_users` / `create_user` / `update_user` / `assign_group` | `users:write` | user & grup |
+| `system_metrics` / `list_services` / `restart_service` | `system:read` | monitoring host |
+| `run_cleanup` / `list_cron_jobs` | `cleanup:run` | system & Docker cleanup |
+
+**Resources** (konteks read-only): `barepod://websites`, `barepod://system/capabilities`, `barepod://settings`.
+**Prompts**: `deploy-website`, `migrate-server` (panduan langkah untuk agen).
+
+**Aturan keamanan:**
+1. Default token **read-only**; write/delete butuh scope eksplisit.
+2. Aksi destruktif (`delete_website`, `restore_backup`) wajib scope khusus + konfirmasi dua-langkah (tool `preview_*` → `apply_*`).
+3. Semua aksi terekam di audit log dengan `tokenId`.
+4. MCP tidak pernah menyimpan password panel; hanya token.
+5. Server panel bisa mematikan otomasi per grup (permission `apiTokens = false`).
+
+### 7.4 Otomasi per Pengguna
+
+- Setiap pengguna bisa membuat token **sendiri** dengan scope ≤ permission grupnya. Contoh: tenant `alex` membuat token `websites:read` + `files:write` untuk pipeline CI-nya.
+- Kuota token & webhook per grup (mis. Starter: 1 token, Agency: 10 token).
+- Aktivitas yang dipicu agen tetap tunduk pada **cgroup/cpu/disk quota** tenant seperti aksi manual.

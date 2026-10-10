@@ -45,7 +45,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
       ramLimit: '512 MB',
       cpuLimit: '1 vCPU',
       allowTerminal: false,
-      permissions: { deployApps: true, fileManager: true, terminal: false, databases: true, backups: false, domains: false, cloudflareTunnels: false, monitoring: false, users: false },
+      permissions: { deployApps: true, fileManager: true, terminal: false, databases: true, backups: false, domains: false, cloudflareTunnels: false, monitoring: false, users: false, apiTokens: false },
       userCount: 1,
     },
     {
@@ -58,7 +58,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
       ramLimit: '2 GB',
       cpuLimit: '2 vCPU',
       allowTerminal: true,
-      permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false },
+      permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false, apiTokens: true },
       userCount: 1,
     },
     {
@@ -71,7 +71,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
       ramLimit: '4 GB',
       cpuLimit: '4 vCPU',
       allowTerminal: true,
-      permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false },
+      permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false, apiTokens: true },
       userCount: 0,
     },
   ]);

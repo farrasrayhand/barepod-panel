@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Server } from 'lucide-react';
 import type { NavItem, WebApp } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -61,6 +62,7 @@ export function App() {
   const currentTab = route.tab;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [loggedOut, setLoggedOut] = useState(false);
   const [terminalAppId, setTerminalAppId] = useState<string | null>(null);
 
   // Navigate to an explicit path (menu endpoint or app detail deep-link)
@@ -329,6 +331,29 @@ systemctl reload uvicorn-ai`,
     setApps(apps.map(a => a.id === updated.id ? updated : a));
   };
 
+  if (loggedOut) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-8 w-full max-w-sm text-center space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto shadow-sm shadow-blue-500/25">
+            <Server className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">Signed out</h1>
+            <p className="text-xs text-slate-500 mt-1">You have been signed out of BarePod Panel.</p>
+          </div>
+          <button
+            onClick={() => setLoggedOut(false)}
+            className="w-full px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+          >
+            Sign in as farras (admin)
+          </button>
+          <p className="text-[10px] text-slate-400">Authentication is simulated in this prototype.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
       {/* Sidebar Navigation */}
@@ -345,6 +370,8 @@ systemctl reload uvicorn-ai`,
           onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
           onOpenTerminal={() => navigate('terminal')}
           activeTab={currentTab}
+          onNavigatePath={navigatePath}
+          onLogout={() => setLoggedOut(true)}
         />
 
         {/* Dynamic Views */}

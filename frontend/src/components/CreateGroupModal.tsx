@@ -32,6 +32,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     cloudflareTunnels: false,
     monitoring: false,
     users: false,
+    apiTokens: false,
   });
 
   if (!isOpen) return null;

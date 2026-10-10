@@ -163,6 +163,7 @@ export interface GroupPermissions {
   cloudflareTunnels: boolean;
   monitoring: boolean;
   users: boolean;
+  apiTokens: boolean;
 }
 
 export interface UserGroup {
