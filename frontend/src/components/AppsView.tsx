@@ -113,7 +113,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
           onShowToast={onShowToast}
         />
 
-        {/* GitHub Redeployment Modal over App Detail Page */}
+        {/* GitHub Redeployment Modal over Website Detail Page */}
         <GitDeploymentModal
           isOpen={!!selectedAppForGit}
           onClose={() => setSelectedAppForGit(null)}
@@ -130,7 +130,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
       {/* Top Header Row */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Apps & Services</h1>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Websites</h1>
           <p className="text-sm text-slate-500 mt-0.5">
             Manage your websites with File Manager, GitHub Redeploy, OpenLiteSpeed, Nginx, Caddy, or Apache
           </p>
@@ -150,7 +150,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25"
           >
             <Plus className="w-4 h-4" />
-            <span>Add App</span>
+            <span>Add Website</span>
           </button>
         </div>
       </div>
@@ -160,7 +160,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
         {/* Runtime Tabs */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
           {[
-            { id: 'all', label: 'All Apps' },
+            { id: 'all', label: 'All Websites' },
             { id: 'proxy', label: 'Reverse Proxy' },
             { id: 'python', label: 'Python (Flask/FastAPI)' },
             { id: 'php', label: 'PHP (WP/Laravel)' },
@@ -189,7 +189,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="Search app, framework, domain..."
+            placeholder="Search website, framework, domain..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
@@ -209,7 +209,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                 <th className="py-3.5 px-4">Tenant User</th>
                 <th className="py-3.5 px-4">Status</th>
                 <th className="py-3.5 px-4 whitespace-nowrap">Route & SSL</th>
-                <th className="py-3.5 px-4 text-right">App Tools & Actions</th>
+                <th className="py-3.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -217,8 +217,8 @@ export const AppsView: React.FC<AppsViewProps> = ({
                 <tr>
                   <td colSpan={7} className="py-16 text-center text-slate-400">
                     <Layers className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                    <p className="text-sm font-medium text-slate-600">No apps found</p>
-                    <p className="text-xs text-slate-400 mt-1">Click "Add App" to deploy a Flask, Laravel, WordPress, or Next.js app.</p>
+                    <p className="text-sm font-medium text-slate-600">No websites found</p>
+                    <p className="text-xs text-slate-400 mt-1">Click "Add Website" to deploy a Flask, Laravel, WordPress, or Next.js app.</p>
                   </td>
                 </tr>
               ) : (
@@ -339,14 +339,14 @@ export const AppsView: React.FC<AppsViewProps> = ({
                         </div>
                       </td>
 
-                      {/* App Tools & Actions */}
+                      {/* Actions */}
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          {/* Manage App Detail Page Button */}
+                          {/* Manage Website Detail Page Button */}
                           <button
                             onClick={() => onSelectApp?.(app.name)}
                             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer mr-1"
-                            title="Open App Detail & Monitoring Page"
+                            title="Open Website Detail & Monitoring Page"
                           >
                             <Sliders className="w-3.5 h-3.5" />
                             <span>Manage</span>

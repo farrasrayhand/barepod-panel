@@ -577,7 +577,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     <div>
                       <strong className="text-purple-900">Panel Policy: Maximum App Retention = 30 Days</strong>
                       <p className="text-[11px] text-slate-600 mt-0.5">
-                        App-level monitoring is capped at <strong>30 days</strong> to avoid disk exhaustion in tenant home partitions (<code className="font-mono text-purple-800">/home/[user]/apps/</code>).
+                        Website-level monitoring is capped at <strong>30 days</strong> to avoid disk exhaustion in tenant home partitions (<code className="font-mono text-purple-800">/home/[user]/apps/</code>).
                       </p>
                     </div>
                   </div>
@@ -586,7 +586,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Default Retention for New App Metrics
+                      Default Retention for New Website Metrics
                     </label>
                     <select
                       value={appDefaultRetentionDays}
@@ -598,7 +598,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                       <option value={30}>30 Days (panel maximum)</option>
                     </select>
                     <p className="text-[10px] text-slate-400 mt-1">
-                      App owners can adjust this up to 30 days on the App Detail page.
+                      Website owners can adjust this up to 30 days on the App Detail page.
                     </p>
                   </div>
 

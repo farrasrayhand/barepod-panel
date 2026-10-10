@@ -36,6 +36,31 @@
 
 ---
 
+## Platform Support
+
+BarePod Panel targets **64-bit Linux** and is designed to install on **AMD64 and ARM64**, on bare metal, VPS, or inside **LXC / LXD** containers.
+
+| Item | Support |
+|---|---|
+| Architecture | `linux/amd64` (x86_64) and `linux/arm64` (aarch64). 32-bit ARM is **not** supported. |
+| OS | Debian 12 / Ubuntu 22.04+ (systemd) |
+| Containers | LXC / LXD — see caveats below |
+| cgroups | **v2 (unified hierarchy)** required for tenant isolation |
+| Runtime deps | Node.js 20+ (frontend), Docker (container pods, Phase 3) |
+
+**LXC / LXD caveats**
+- Docker-in-LXC (container pods) requires `security.nesting=true` (and `keyctl=1`) in the container config.
+- Cloudflare Tunnel needs `/dev/net/tun` (`lxc.cgroup2.devices.allow: c 10:200 rwm`).
+- S.M.A.R.T. disk diagnostics and `fstrim` are typically unavailable in unprivileged containers.
+
+Run the environment check (detects architecture and container type automatically):
+
+```bash
+bash scripts/install.sh
+```
+
+---
+
 ## Repository Structure
 
 ```

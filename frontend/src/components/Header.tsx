@@ -28,7 +28,7 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="text-slate-400 font-medium">BarePod</span>
           <span className="text-slate-300">/</span>
           <span className="text-slate-800 font-semibold capitalize">
-            {activeTab === 'apps' ? 'Apps (Services)' : activeTab}
+            {activeTab === 'apps' ? 'Websites' : activeTab}
           </span>
         </div>
       </div>

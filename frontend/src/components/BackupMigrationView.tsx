@@ -490,7 +490,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                         className="rounded text-blue-600 border-slate-300"
                       />
                       <div>
-                        <span className="font-bold text-slate-800 block">All Applications & Codebase</span>
+                        <span className="font-bold text-slate-800 block">All Websites & Codebase</span>
                         <span className="text-[10px] text-slate-500">Folder /var/www/apps, .env, build scripts</span>
                       </div>
                     </label>

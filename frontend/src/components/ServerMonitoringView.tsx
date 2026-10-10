@@ -90,6 +90,14 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   const hostRangeLabel = (r: string) =>
     r === 'live' ? 'Live (5 min)' : r === '1h' ? '1 Hour' : r === '24h' ? '24 Hours' : r === '7d' ? '7 Days' : r === '30d' ? '30 Days' : '90 Days';
 
+  const hostRangeTicks = (r: string): string[] =>
+    r === 'live' ? ['-5m', '-2.5m', 'now']
+      : r === '1h' ? ['-60m', '-30m', 'now']
+        : r === '24h' ? ['-24h', '-12h', 'now']
+          : r === '7d' ? ['-7d', '-3.5d', 'now']
+            : r === '30d' ? ['-30d', '-15d', 'now']
+              : ['-90d', '-45d', 'now'];
+
   const history = useMemo(() => {
     const points = hostRange === 'live' ? 24 : hostRange === '1h' ? 30 : hostRange === '24h' ? 48 : hostRange === '7d' ? 56 : 60;
     const gen = (base: number, amp: number) =>
@@ -725,11 +733,11 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                     {hostRangeLabel(hostRange)}
                   </span>
                 </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <MetricHistoryChart title="CPU Usage" unit="%" data={history.cpu} color="#2563eb" />
-                  <MetricHistoryChart title="Memory Usage" unit="%" data={history.mem} color="#10b981" />
-                  <MetricHistoryChart title="Network I/O" unit=" Mbps" data={history.net} color="#0ea5e9" />
-                  <MetricHistoryChart title="Disk I/O" unit=" MB/s" data={history.disk} color="#a855f7" />
+                <div className="grid grid-cols-1 gap-4">
+                  <MetricHistoryChart title="CPU Usage" unit="%" data={history.cpu} color="#2563eb" height={190} ticks={hostRangeTicks(hostRange)} />
+                  <MetricHistoryChart title="Memory Usage" unit="%" data={history.mem} color="#10b981" height={190} ticks={hostRangeTicks(hostRange)} />
+                  <MetricHistoryChart title="Network I/O" unit=" Mbps" data={history.net} color="#0ea5e9" height={190} ticks={hostRangeTicks(hostRange)} />
+                  <MetricHistoryChart title="Disk I/O" unit=" MB/s" data={history.disk} color="#a855f7" height={190} ticks={hostRangeTicks(hostRange)} />
                 </div>
               </div>
 

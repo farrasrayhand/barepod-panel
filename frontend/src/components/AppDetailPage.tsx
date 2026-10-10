@@ -1094,7 +1094,7 @@ QUEUE_CONNECTION=redis`;
             className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs group cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4 text-slate-500 group-hover:-translate-x-0.5 transition-transform" />
-            <span>Back to All Apps</span>
+            <span>Back to All Websites</span>
           </button>
           
           <span className="text-slate-300 font-mono">/</span>

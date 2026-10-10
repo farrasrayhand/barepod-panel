@@ -1,5 +1,5 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Versi Dokumen:** 2.6 (Status: Frontend UI Prototype Selesai — Backend Go Daemon & Engine OS Belum Dikerjakan)  
+> **Versi Dokumen:** 0.6 (Status: Frontend UI Prototype Selesai — Backend Go Daemon & Engine OS Belum Dikerjakan)  
 > **Terakhir Diperbarui:** 10 Oktober 2026  
 > **Status:** Active & Maintained
 
@@ -7,11 +7,16 @@ Dokumen ini merupakan cetak biru (blueprint) arsitektur teknis, spesifikasi modu
 
 ---
 
-## 0. Riwayat Perubahan Frontend (v2.6 — 10 Okt 2026)
+## 0. Riwayat Perubahan Frontend (v0.6 — 10 Okt 2026)
 
 Perubahan pada Fase 1 (React UI prototype):
 
-### v2.6
+> **Catatan penomoran:** karena ini masih prototipe/simulasi (belum ada backend),
+> versi dimulai dari **0.x**. Versi mayor 1.0 baru dipakai saat backend Go + engine
+> OS sudah berjalan.
+
+### v0.6
+- **Istilah "App" → "Website"** pada seluruh UI (sidebar, daftar, detail, modal deploy, overview).
 - **RBAC granular**: tipe `GroupPermissions` (9 kapabilitas) pada grup tenant, editor matriks di Create Group Modal, dan kolom "Access Permissions" di tabel grup (`src/data/permissions.ts`).
 - **Ikon brand**: emoji diganti **lucide-react** (ikon UI) + **react-icons / Simple Icons** (logo brand: Python, PHP, Node.js, Go, Rust, Ruby, Flask, FastAPI, Django, Laravel, Symfony, WordPress, Next.js, Express, React, PostgreSQL, MySQL, MariaDB, MongoDB, Redis, phpMyAdmin) via `src/utils/brandIcons.tsx`.
 - **Server Monitoring**: filter rentang waktu jadi state nyata + grafik **Historical Trends** (CPU, Memory, Network I/O, Disk I/O); tab **Terminal** (host root shell) bersifat **admin-only**.
@@ -21,7 +26,7 @@ Perubahan pada Fase 1 (React UI prototype):
 - **Terminal tenant**: menu Isolated Web Terminal menampilkan pemilih sesi dulu sebelum membuka PTY.
 - **README**: ditulis ulang dalam bahasa Inggris + catatan *hobby project 100% free (MIT)*.
 
-### v2.5
+### v0.5
 - **Client-side URL routing per menu**: setiap menu punya endpoint sendiri (`/apps`, `/databases`, `/backup`, `/terminal`, dst). Refresh & tombol back/forward mengembalikan menu yang benar.
 - **Deep-link App Detail**: `/apps/<nama-app>` beserta sub-tab ikut di URL (`/apps/<app>/logs`, `/routing`, `/deploy`, dst) sehingga refresh tidak kehilangan posisi.
 - **Session picker Terminal**: membuka menu Terminal menampilkan pilihan sesi lebih dulu; PTY baru dibuka setelah memilih. Tombol Terminal dari halaman App tetap membuka sesi app tersebut langsung.
@@ -279,7 +284,23 @@ graph TD
 
 ---
 
-## 5. Struktur Repositori Terpadu
+## 5. Dukungan Instalasi (AMD64 / ARM64 / LXC)
+
+BarePod Panel dirancang untuk **Linux 64-bit** dan dipastikan berjalan di **AMD64 maupun ARM64**, baik di bare metal, VPS, maupun container **LXC/LXD**.
+
+- **Arsitektur**: `linux/amd64` (x86_64) dan `linux/arm64` (aarch64). ARM 32-bit tidak didukung.
+  - Semua komponen (Node.js/Vite frontend, Go daemon, highlight.js/react-icons) memiliki build resmi untuk arm64.
+  - `scripts/install.sh` mendeteksi arsitektur otomatis (`uname -m` → `amd64` / `arm64`).
+- **Container LXC/LXD** — catatan penting:
+  - cgroups **v2 (unified)** wajib untuk isolasi tenant.
+  - Docker-in-LXC (container pods) butuh `security.nesting=true` (+ `keyctl=1`).
+  - Cloudflare Tunnel butuh `/dev/net/tun` (`lxc.cgroup2.devices.allow: c 10:200 rwm`).
+  - S.M.A.R.T. disk diagnostics dan `fstrim` umumnya tidak tersedia di container unprivileged — UI harus menampilkan status "tidak tersedia" (bukan error) saat backend mendeteksinya.
+- **Script instalasi**: `scripts/install.sh` melakukan pemeriksaan environment (OS, arch, virtualisasi, cgroups v2, Node.js, Docker) dan sudah menolak platform yang tidak didukung dengan pesan jelas.
+
+---
+
+## 6. Struktur Repositori Terpadu
 
 ```
 BarePod-Panel/
