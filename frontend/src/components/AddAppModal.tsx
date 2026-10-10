@@ -111,6 +111,10 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const [dbPassword, setDbPassword] = useState('bp_' + Math.random().toString(36).slice(2, 12));
   const [showDbPassword, setShowDbPassword] = useState(false);
   const [maxConnections, setMaxConnections] = useState(25);
+  const [createCache, setCreateCache] = useState(true);
+  const [cacheVersionIndex, setCacheVersionIndex] = useState(0);
+  const [cachePassword, setCachePassword] = useState('bp_' + Math.random().toString(36).slice(2, 12));
+  const [showCachePassword, setShowCachePassword] = useState(false);
   const [autoEnv, setAutoEnv] = useState(true);
 
   // Proxy
@@ -191,6 +195,11 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const activeDbVersion = dbVersions[Math.min(dbVersionIndex, dbVersions.length - 1)];
   const isSqlite = dbType === 'sqlite';
 
+  const cacheVersions = AVAILABLE_ENGINE_VERSIONS.redis;
+  const activeCacheVersion = cacheVersions[Math.min(cacheVersionIndex, cacheVersions.length - 1)];
+  const resolvedDbName = dbName || `${name || 'website'}_db`;
+  const resolvedDbUser = dbUser || `${tenantUser}_user`;
+
   const plan = getProvisionPlan(runtime, framework);
   const isGenericFramework = /generic|custom/i.test(framework);
   const effectiveSource: SourceKind = appMode === 'static' && sourceKind === 'scaffold' ? 'upload' : sourceKind;
@@ -225,18 +234,21 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
       setVersion('v1.0');
       setWebServer('nginx');
       setCreateDb(false);
+      setCreateCache(false);
     } else if (mode === 'static') {
       setRuntime('static');
       setVersion('HTML5');
       setFramework('Static Web App');
       setWebServer('caddy');
       setCreateDb(false);
+      setCreateCache(false);
     } else {
       setRuntime('php');
       setVersion('8.4');
       setFramework('Laravel 12');
       setWebServer('openlitespeed');
       setCreateDb(true);
+      setCreateCache(true);
     }
   };
 
@@ -251,24 +263,49 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   };
 
   const envPreview = useMemo(() => {
-    if (!createDb) return '';
-    const base = `APP_ENV=production\nAPP_URL=https://${domain || 'example.com'}\n`;
-    if (isSqlite) {
-      return `${base}\n# SQLite (file-based, no daemon)\nDB_CONNECTION=sqlite\nDB_DATABASE=/home/${tenantUser}/apps/${name || 'website'}/${dbName || 'database'}.sqlite`;
+    const lines: string[] = ['APP_ENV=production', `APP_URL=https://${domain || 'example.com'}`];
+
+    if (createDb) {
+      lines.push('');
+      if (isSqlite) {
+        lines.push('# Database — SQLite (file-based, no daemon)');
+        lines.push('DB_CONNECTION=sqlite');
+        lines.push(`DB_DATABASE=/home/${tenantUser}/apps/${name || 'website'}/${resolvedDbName}.sqlite`);
+      } else {
+        const host = '127.0.0.1';
+        const port = activeDbVersion?.port ?? 0;
+        if (dbType === 'postgres') {
+          lines.push('# Database — PostgreSQL');
+          lines.push('DB_CONNECTION=pgsql');
+        } else if (dbType === 'mysql' || dbType === 'mariadb') {
+          lines.push('# Database — MySQL / MariaDB');
+          lines.push('DB_CONNECTION=mysql');
+        } else {
+          lines.push('# Database — MongoDB');
+          lines.push(`MONGODB_URI="mongodb://${resolvedDbUser}:${dbPassword}@${host}:${port}/${resolvedDbName}?authSource=admin"`);
+          lines.push(`MONGO_INITDB_DATABASE=${resolvedDbName}`);
+        }
+        if (dbType !== 'mongodb') {
+          lines.push(`DB_HOST=${host}`);
+          lines.push(`DB_PORT=${port}`);
+          lines.push(`DB_DATABASE=${resolvedDbName}`);
+          lines.push(`DB_USERNAME=${resolvedDbUser}`);
+          lines.push(`DB_PASSWORD=${dbPassword}`);
+        }
+      }
     }
-    const host = '127.0.0.1';
-    const port = activeDbVersion?.port ?? 0;
-    if (dbType === 'postgres') {
-      return `${base}\nDB_CONNECTION=pgsql\nDB_HOST=${host}\nDB_PORT=${port}\nDB_DATABASE=${dbName}\nDB_USERNAME=${dbUser}\nDB_PASSWORD=${dbPassword}`;
+
+    if (createCache) {
+      lines.push('');
+      lines.push('# Cache — Redis');
+      lines.push('CACHE_STORE=redis');
+      lines.push(`REDIS_HOST=127.0.0.1`);
+      lines.push(`REDIS_PORT=${activeCacheVersion?.port ?? 6379}`);
+      lines.push(`REDIS_PASSWORD=${cachePassword}`);
     }
-    if (dbType === 'mysql' || dbType === 'mariadb') {
-      return `${base}\nDB_CONNECTION=mysql\nDB_HOST=${host}\nDB_PORT=${port}\nDB_DATABASE=${dbName}\nDB_USERNAME=${dbUser}\nDB_PASSWORD=${dbPassword}`;
-    }
-    if (dbType === 'mongodb') {
-      return `${base}\nMONGODB_URI="mongodb://${dbUser}:${dbPassword}@${host}:${port}/${dbName}?authSource=admin"`;
-    }
-    return `${base}\nREDIS_HOST=${host}\nREDIS_PORT=${port}\nREDIS_PASSWORD=${dbPassword}`;
-  }, [createDb, dbType, dbName, dbUser, dbPassword, domain, name, tenantUser, isSqlite, activeDbVersion]);
+
+    return lines.join('\n');
+  }, [createDb, createCache, dbType, resolvedDbName, resolvedDbUser, dbPassword, cachePassword, domain, name, tenantUser, isSqlite, activeDbVersion, activeCacheVersion]);
 
   const getGeneratedConfig = () => {
     const dName = domain || 'example.com';
@@ -381,8 +418,10 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
       proxyTimeoutSecs,
       dbAutoProvision: createDb,
       dbEngine: createDb ? dbType : undefined,
-      dbName: createDb ? dbName || `${name}_db` : undefined,
-      dbUser: createDb ? dbUser : undefined,
+      dbName: createDb ? resolvedDbName : undefined,
+      dbUser: createDb ? resolvedDbUser : undefined,
+      cacheAutoProvision: createCache,
+      cacheEngine: createCache ? 'redis' : undefined,
       autoEnv,
       provisionMode: effectiveSource === 'scaffold' ? 'download' : 'generic',
       automationSteps: plan.steps.length ? plan.steps : undefined,
@@ -766,20 +805,21 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
           {/* STEP: DATABASE & CACHE */}
           {currentStepId === 'database' && (
             <>
+              {/* Database */}
               <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
                 <input type="checkbox" checked={createDb} onChange={(e) => setCreateDb(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-blue-600" />
                 <span className="text-xs">
                   <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                    <Database className="w-3.5 h-3.5 text-slate-700" /> Auto-provision database / cache
+                    <Database className="w-3.5 h-3.5 text-slate-700" /> Provision a database
                   </span>
-                  <span className="text-slate-500 block mt-0.5">Creates the database, a dedicated user with the password below, and writes it into .env.</span>
+                  <span className="text-slate-500 block mt-0.5">Creates the database plus a dedicated user with the password below.</span>
                 </span>
               </label>
 
               {createDb && (
-                <>
+                <div className="pl-5 space-y-4">
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                    {(['postgres', 'mysql', 'mariadb', 'mongodb', 'redis', 'sqlite'] as DatabaseEngine[]).map((engineId) => {
+                    {(['postgres', 'mysql', 'mariadb', 'mongodb', 'sqlite'] as DatabaseEngine[]).map((engineId) => {
                       const DbIcon = dbIcon[engineId] ?? Database;
                       return (
                         <button
@@ -806,7 +846,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Database Name</label>
-                      <input type="text" value={dbName} onChange={(e) => setDbName(e.target.value)} placeholder={`${name || 'website'}_db`} className={`${inputClass} font-mono`} />
+                      <input type="text" value={dbName} onChange={(e) => setDbName(e.target.value)} placeholder={resolvedDbName} className={`${inputClass} font-mono`} />
                     </div>
                   </div>
 
@@ -814,7 +854,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">Username</label>
-                        <input type="text" value={dbUser} onChange={(e) => setDbUser(e.target.value)} placeholder={`${tenantUser}_user`} className={`${inputClass} font-mono`} />
+                        <input type="text" value={dbUser} onChange={(e) => setDbUser(e.target.value)} placeholder={resolvedDbUser} className={`${inputClass} font-mono`} />
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">Password</label>
@@ -853,10 +893,57 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       <span>SQLite is file-based (no daemon, no credentials). The database file is created inside the website directory and referenced from .env.</span>
                     </div>
                   )}
+                </div>
+              )}
 
+              {/* Cache */}
+              <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
+                <input type="checkbox" checked={createCache} onChange={(e) => setCreateCache(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-rose-600" />
+                <span className="text-xs">
+                  <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-rose-600" /> Provision a cache (Redis)
+                  </span>
+                  <span className="text-slate-500 block mt-0.5">In-memory cache / sessions / queues. Independent from the database — combine freely.</span>
+                </span>
+              </label>
+
+              {createCache && (
+                <div className="pl-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Redis Version &amp; Port</label>
+                    <select value={cacheVersionIndex} onChange={(e) => setCacheVersionIndex(Number(e.target.value))} className={`${inputClass} font-mono`}>
+                      {cacheVersions.map((opt, i) => (
+                        <option key={opt.version} value={i}>{opt.label} — {opt.statusText}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Cache Password (ACL)</label>
+                    <div className="relative">
+                      <input
+                        type={showCachePassword ? 'text' : 'password'}
+                        value={cachePassword}
+                        onChange={(e) => setCachePassword(e.target.value)}
+                        className={`${inputClass} pr-14 font-mono`}
+                      />
+                      <div className="absolute right-2 top-1.5 flex items-center gap-1">
+                        <button type="button" onClick={() => setShowCachePassword((v) => !v)} className="p-1 text-slate-400 hover:text-slate-600" title="Show/hide">
+                          {showCachePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                        <button type="button" onClick={() => setCachePassword('bp_' + Math.random().toString(36).slice(2, 14))} className="p-1 text-slate-400 hover:text-blue-600" title="Generate">
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {(createDb || createCache) && (
+                <>
                   <label className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer">
                     <input type="checkbox" checked={autoEnv} onChange={(e) => setAutoEnv(e.target.checked)} className="rounded border-slate-300 text-blue-600" />
-                    <span className="font-semibold">Generate <code className="font-mono">.env</code> automatically from this database</span>
+                    <span className="font-semibold">Generate <code className="font-mono">.env</code> automatically from the provisioned services</span>
                   </label>
 
                   {autoEnv && envPreview && (
@@ -940,7 +1027,10 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       ] as [string, string][])
                     : ([['Upstream', upstreamUrl]] as [string, string][])),
                   ...(appMode === 'standard'
-                    ? ([['Database', createDb ? `${ENGINE_LABELS[dbType]}${isSqlite ? '' : ` :${activeDbVersion?.port}`} → ${dbName || `${name}_db`}` : 'None']] as [string, string][])
+                    ? ([
+                        ['Database', createDb ? `${ENGINE_LABELS[dbType]}${isSqlite ? '' : ` :${activeDbVersion?.port}`} → ${resolvedDbName}` : 'None'],
+                        ['Cache', createCache ? `Redis 7.2 :${activeCacheVersion?.port ?? 6379}` : 'None'],
+                      ] as [string, string][])
                     : []),
                   ['Cloudflare Tunnel', tunnelEnabled ? 'Enabled' : 'Disabled'],
                 ].map(([label, value]) => (

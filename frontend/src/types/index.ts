@@ -79,6 +79,8 @@ export interface WebApp {
   dbEngine?: DatabaseEngine;
   dbName?: string;
   dbUser?: string;
+  cacheAutoProvision?: boolean;
+  cacheEngine?: 'redis';
   autoEnv?: boolean;
   provisionMode?: 'download' | 'generic';
   automationSteps?: string[];
