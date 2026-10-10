@@ -17,6 +17,10 @@ import { BackupMigrationView } from './components/BackupMigrationView';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 
+// Current session user (mock — real auth/RBAC arrives with the Go backend)
+const CURRENT_USER = { username: 'farras', role: 'admin' as const };
+const isAdmin = CURRENT_USER.role === 'admin';
+
 const TAB_PATHS: Record<NavItem, string> = {
   overview: '/overview',
   monitoring: '/monitoring',
@@ -355,6 +359,7 @@ systemctl reload uvicorn-ai`,
 
           {currentTab === 'monitoring' && (
             <ServerMonitoringView
+              isAdmin={isAdmin}
               onShowToast={showToast}
               onOpenTerminal={() => navigate('terminal')}
             />

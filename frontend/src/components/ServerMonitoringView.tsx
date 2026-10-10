@@ -61,15 +61,23 @@ interface ServiceItem {
 interface ServerMonitoringViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   onOpenTerminal?: () => void;
+  isAdmin?: boolean;
 }
 
 export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({ 
   onShowToast,
-  onOpenTerminal
+  onOpenTerminal,
+  isAdmin = false,
 }) => {
   const [activeTab, setActiveTab] = useSubRoute<'metrics' | 'processes' | 'services' | 'storage' | 'network' | 'console'>('metrics');
   const [refreshInterval, setRefreshInterval] = useState<number>(3000);
   const [isAutoRefresh, setIsAutoRefresh] = useState(true);
+
+  // Host console (root shell) is admin-only; bounce others back to metrics
+  useEffect(() => {
+    if (!isAdmin && activeTab === 'console') setActiveTab('metrics');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, activeTab]);
 
   // Live Metrics State
   const [cpuUsage, setCpuUsage] = useState(14.2);
@@ -313,13 +321,17 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             </button>
           </div>
 
-          <button
-            onClick={() => setActiveTab('console')}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors"
-          >
-            <Terminal className="w-3.5 h-3.5" />
-            <span>Terminal</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('console')}
+              title="Host root shell — admin only"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors"
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              <span>Terminal</span>
+              <span className="text-[9px] bg-rose-500/25 text-rose-200 px-1 rounded font-bold">root</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -518,17 +530,20 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           </span>
         </button>
 
-        <button
-          onClick={() => setActiveTab('console')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'console'
-              ? 'border-slate-900 text-slate-900 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Terminal className="w-4 h-4" />
-          <span>Terminal</span>
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab('console')}
+            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+              activeTab === 'console'
+                ? 'border-slate-900 text-slate-900 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Terminal className="w-4 h-4" />
+            <span>Terminal</span>
+            <span className="text-[9px] bg-rose-100 text-rose-700 px-1 rounded font-bold">root</span>
+          </button>
+        )}
 
         <button
           onClick={() => setActiveTab('services')}
@@ -1682,8 +1697,8 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
         </div>
       )}
 
-        {/* TAB 6: HOST CONSOLE (htop / bash) */}
-        {activeTab === 'console' && (
+        {/* TAB 6: HOST CONSOLE (root shell, admin only) */}
+        {activeTab === 'console' && isAdmin && (
           <HostConsole hostname="vps-barepod-edge-01" />
         )}
 

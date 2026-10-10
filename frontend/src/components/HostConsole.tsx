@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Terminal as TerminalIcon, Cpu, HardDrive, Activity } from 'lucide-react';
+import { useResizableHeight } from '../hooks/useResizableHeight';
 
 interface HostConsoleProps {
   hostname?: string;
@@ -14,6 +15,7 @@ export const HostConsole: React.FC<HostConsoleProps> = ({ hostname = 'vps-barepo
   ]);
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { height: termHeight, onDragStart: onTermDragStart } = useResizableHeight(380, 220, 900);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -119,7 +121,10 @@ a1b2c3d4e5f6   n8n:latest         Up 6 days      0.0.0.0:5678->5678/tcp   n8n-wo
         </div>
       </div>
 
-      <div className="bg-slate-950 rounded-2xl border border-slate-800 shadow-2xs overflow-hidden font-mono text-xs text-slate-200">
+      <div
+        className="bg-slate-950 rounded-2xl border border-slate-800 shadow-2xs overflow-hidden font-mono text-xs text-slate-200 flex flex-col"
+        style={{ height: termHeight }}
+      >
         <div className="bg-slate-900/90 px-4 py-2.5 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full bg-rose-500/80 inline-block" />
@@ -131,7 +136,7 @@ a1b2c3d4e5f6   n8n:latest         Up 6 days      0.0.0.0:5678->5678/tcp   n8n-wo
           </div>
           <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-300">SSH PTY: ssh://localhost:22</span>
         </div>
-        <div className="p-5 min-h-[320px] max-h-[440px] overflow-y-auto space-y-2">
+        <div className="flex-1 min-h-0 p-5 overflow-y-auto space-y-2">
           {history.map((item, idx) => (
             <div key={idx} className="leading-relaxed whitespace-pre-wrap">
               {item.type === 'input' ? (
@@ -157,6 +162,13 @@ a1b2c3d4e5f6   n8n:latest         Up 6 days      0.0.0.0:5678->5678/tcp   n8n-wo
             />
           </div>
           <div ref={bottomRef} />
+        </div>
+        <div
+          onMouseDown={onTermDragStart}
+          title="Drag to resize"
+          className="group flex items-center justify-center h-3 shrink-0 cursor-row-resize bg-slate-900 border-t border-slate-800"
+        >
+          <span className="w-10 h-1 rounded-full bg-slate-600 group-hover:bg-blue-400 transition-colors" />
         </div>
       </div>
     </div>

@@ -33,6 +33,7 @@ import {
 import type { WebApp } from '../types';
 import { createZip } from '../utils/zip';
 import { highlightCode } from '../utils/highlight';
+import { useResizableHeight } from '../hooks/useResizableHeight';
 import 'highlight.js/styles/github-dark.css';
 
 interface FileManagerModalProps {
@@ -72,6 +73,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   const [editorContent, setEditorContent] = useState('');
   const [isSaved, setIsSaved] = useState(false);
   const editorPreRef = useRef<HTMLPreElement>(null);
+  const { height: panelHeight, onDragStart: onPanelDragStart } = useResizableHeight(600, 380, 1200);
 
   // Clipboard State (Copy, Cut, Paste)
   const [clipboard, setClipboard] = useState<ClipboardState | null>(null);
@@ -437,9 +439,12 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
   return (
     <div className={inline ? 'block' : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200'}>
-      <div className={inline
-        ? 'bg-white rounded-2xl border border-slate-200 shadow-2xs w-full h-[70vh] min-h-[480px] flex flex-col overflow-hidden relative'
-        : 'bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-6xl w-full h-[90vh] flex flex-col overflow-hidden relative'}>
+      <div
+        className={inline
+          ? 'bg-white rounded-2xl border border-slate-200 shadow-2xs w-full flex flex-col overflow-hidden relative'
+          : 'bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-6xl w-full h-[90vh] flex flex-col overflow-hidden relative'}
+        style={inline ? { height: panelHeight } : undefined}
+      >
         
         {/* Toast Notification */}
         {toastMessage && (
@@ -1095,6 +1100,16 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {inline && (
+          <div
+            onMouseDown={onPanelDragStart}
+            title="Drag to resize"
+            className="group flex items-center justify-center h-3 shrink-0 cursor-row-resize bg-slate-100 border-t border-slate-200"
+          >
+            <span className="w-10 h-1 rounded-full bg-slate-300 group-hover:bg-blue-500 transition-colors" />
           </div>
         )}
 
