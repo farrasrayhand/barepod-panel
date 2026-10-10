@@ -139,6 +139,18 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
     }
   };
 
+  const handleUpdateDatabase = (updated: DatabaseItem) => {
+    setDatabases(databases.map(d => d.id === updated.id ? updated : d));
+    setSelectedDbForDetails(updated);
+    if (onShowToast) {
+      onShowToast(
+        'Quota Max Connection Diperbarui', 
+        `Batas koneksi untuk ${updated.username} berhasil diubah ke ${updated.maxConnections || 25} connections (ALTER ROLE/USER executed).`, 
+        'success'
+      );
+    }
+  };
+
   const handleDeleteDatabase = (dbId: string, dbName: string) => {
     setDatabases(databases.filter(d => d.id !== dbId));
     if (onShowToast) {
@@ -340,9 +352,14 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                           <ShieldCheck className="w-2.5 h-2.5" />
                           <span>Isolated GRANT</span>
                         </span>
-                        <span className="text-slate-400 font-mono">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDbForDetails(db)}
+                          className="text-slate-500 hover:text-blue-600 font-mono cursor-pointer hover:underline decoration-dotted transition-colors"
+                          title="Klik untuk ubah quota connection"
+                        >
                           Max {db.maxConnections || 25} conn
-                        </span>
+                        </button>
                       </div>
                     </div>
                   </td>
@@ -358,7 +375,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => setSelectedDbForDetails(db)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all text-xs font-semibold border border-blue-200/80 shadow-2xs group"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all text-xs font-semibold border border-blue-200/80 shadow-2xs group cursor-pointer"
                         title="Lihat host, port, kredensial, URL connection & buka visual manager"
                       >
                         <Zap className="w-3.5 h-3.5 text-blue-600 group-hover:text-white transition-colors" />
@@ -391,6 +408,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
           setSelectedDbForDetails(null);
           setDbToDelete(db);
         }}
+        onUpdateDatabase={handleUpdateDatabase}
       />
 
       {/* Danger Confirm Delete Modal */}

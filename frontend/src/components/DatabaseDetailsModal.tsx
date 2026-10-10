@@ -28,6 +28,7 @@ interface DatabaseDetailsModalProps {
   database: DatabaseItem | null;
   onOpenGui: (db: DatabaseItem, tool: DatabaseManagerTool) => void;
   onDelete?: (db: DatabaseItem) => void;
+  onUpdateDatabase?: (updated: DatabaseItem) => void;
 }
 
 export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
@@ -36,6 +37,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   database,
   onOpenGui,
   onDelete,
+  onUpdateDatabase,
 }) => {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [panelPassword, setPanelPassword] = useState('');
@@ -43,6 +45,15 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   const [showPasswordText, setShowPasswordText] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'params' | 'env'>('params');
+  const [isEditingMaxConn, setIsEditingMaxConn] = useState(false);
+  const [selectedMaxConn, setSelectedMaxConn] = useState<number>(database?.maxConnections || 25);
+
+  React.useEffect(() => {
+    if (database) {
+      setSelectedMaxConn(database.maxConnections || 25);
+      setIsEditingMaxConn(false);
+    }
+  }, [database]);
 
   if (!isOpen || !database) return null;
 
@@ -454,12 +465,59 @@ REDIS_PASSWORD=${pwd}`;
                     GRANT ON {database.name}.*
                   </span>
                 </div>
-                <div className="p-2 bg-white rounded border border-slate-200">
-                  <span className="text-[10px] text-slate-400 font-sans block">Max Connection Pool</span>
-                  <span className="text-slate-800 font-semibold">
-                    {database.maxConnections || 25} connections quota
-                  </span>
-                </div>
+                {isEditingMaxConn ? (
+                  <div className="p-2 bg-white rounded border border-blue-300 ring-1 ring-blue-100">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] text-blue-600 font-sans font-bold">Ubah Quota Koneksi</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingMaxConn(false)}
+                        className="text-[10px] text-slate-400 hover:text-slate-600 font-sans cursor-pointer"
+                      >
+                        Batal
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={selectedMaxConn}
+                        onChange={(e) => setSelectedMaxConn(Number(e.target.value))}
+                        className="text-[11px] font-mono px-1.5 py-0.5 border border-slate-300 rounded bg-slate-50 flex-1 focus:outline-hidden"
+                      >
+                        <option value={15}>15 conn (Micro)</option>
+                        <option value={25}>25 conn (Standard)</option>
+                        <option value={50}>50 conn (High)</option>
+                        <option value={100}>100 conn (Heavy)</option>
+                        <option value={250}>250 conn (Max)</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUpdateDatabase?.({ ...database, maxConnections: selectedMaxConn });
+                          setIsEditingMaxConn(false);
+                        }}
+                        className="px-2 py-0.5 bg-blue-600 text-white rounded text-[10px] font-sans font-semibold hover:bg-blue-700 cursor-pointer"
+                      >
+                        Simpan
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-2 bg-white rounded border border-slate-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400 font-sans block">Max Connection Pool</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingMaxConn(true)}
+                        className="text-[10px] font-sans text-blue-600 hover:text-blue-800 font-semibold hover:underline cursor-pointer"
+                      >
+                        Ubah
+                      </button>
+                    </div>
+                    <span className="text-slate-800 font-semibold block mt-0.5">
+                      {database.maxConnections || 25} connections quota
+                    </span>
+                  </div>
+                )}
               </div>
 
               <p className="text-[10px] text-slate-500 italic">
