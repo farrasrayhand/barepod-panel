@@ -102,33 +102,47 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
             </div>
           </div>
 
-          {/* Database Name */}
+          {/* Database / Instance Name */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Database Name
+              {type === 'redis' ? 'Redis Instance Label / Name' : 'Database Name'}
             </label>
             <input
               type="text"
               required
-              placeholder="e.g. ecommerce_db"
+              placeholder={type === 'redis' ? 'e.g. session_cache or redis_queue' : 'e.g. ecommerce_db'}
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
             />
+            {type === 'redis' ? (
+              <p className="text-[10px] text-amber-700 mt-1 bg-amber-50 p-1.5 rounded border border-amber-200/80">
+                ⚡ <strong>Redis Key-Value:</strong> Redis tidak menggunakan nama database SQL, melainkan database numerik (<strong>db 0</strong> s/d <strong>db 15</strong>).
+              </p>
+            ) : (
+              <p className="text-[10px] text-slate-400 mt-1">
+                Hanya huruf kecil, angka, dan underscore (_).
+              </p>
+            )}
           </div>
 
           {/* Username */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Database Username (Optional)
+              {type === 'redis' ? 'ACL Username' : 'Database Username (Optional)'}
             </label>
             <input
               type="text"
-              placeholder="Leave empty for auto-generated user"
+              placeholder={type === 'redis' ? 'default' : 'Leave empty for auto-generated user'}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
             />
+            {type === 'redis' && (
+              <p className="text-[10px] text-slate-400 mt-1">
+                Default akun Redis 6+ adalah <code>default</code> yang diproteksi dengan password auth di bawah.
+              </p>
+            )}
           </div>
 
           {/* Generated Password */}

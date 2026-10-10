@@ -80,7 +80,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
       version: 'Redis 7.2.4',
       username: 'default (auth key)',
       size: '18 MB (RAM)',
-      charset: 'In-Memory',
+      charset: 'Key-Value (db 0)',
       status: 'active',
       connections: 45,
     },

@@ -338,8 +338,12 @@ REDIS_PASSWORD=${pwd}`;
               {/* Database Name */}
               <div className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Database Name</span>
-                  <span className="font-mono font-semibold text-slate-800 text-xs">{database.name}</span>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                    {database.type === 'redis' ? 'DB Index (Numeric)' : 'Database Name'}
+                  </span>
+                  <span className="font-mono font-semibold text-slate-800 text-xs">
+                    {database.type === 'redis' ? '0 (db0 Key-Value)' : database.name}
+                  </span>
                 </div>
                 <button
                   onClick={() => handleCopy(database.name, 'dbname')}
