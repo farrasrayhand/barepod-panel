@@ -51,6 +51,8 @@ Use `--db <path>` on any command to point at a non-default database.
 | `-units-dir` | `BAREPOD_UNITS_DIR` | `/etc/systemd/system` (Linux) | systemd unit output |
 | `-dry-run` | `BAREPOD_DRY_RUN` | `false` | Record privileged commands instead of running them |
 | `-max-upload-mb` | `BAREPOD_MAX_UPLOAD_MB` | `64` | File manager upload/edit ceiling |
+| `-metrics-interval` | `BAREPOD_METRICS_INTERVAL` | `15s` | How often host and per-website metrics are sampled |
+| `-metrics-history` | `BAREPOD_METRICS_HISTORY` | `2880` | Samples kept in memory (2880 × 15s = 12h) |
 | `-log-level` | `BAREPOD_LOG_LEVEL` | `info` | Log verbosity |
 
 `BAREPOD_ADMIN_PASSWORD` is read by `admin create` / `admin passwd` when
@@ -76,6 +78,8 @@ Everywhere else (macOS, containers without systemd, `-dry-run`) the daemon runs 
 | `PATCH` | `/api/v1/groups/{name}` | Edit a package (capabilities, limits) — capacity-guarded |
 | `GET` | `/api/v1/system/capacity` | Host capacity, current allocation, live re-check |
 | `GET` | `/api/v1/system/capabilities` | systemd / LXC / Docker / S.M.A.R.T. / fstrim **+ `limitations[]`** |
+| `GET` | `/api/v1/system/metrics?range=1h` | Host time series (`?live=1` for the latest sample only) |
+| `GET` | `/api/v1/websites/{slug}/metrics?range=1h` | Per-website cgroup v2 usage |
 | `GET` | `/api/v1/websites/{slug}/files?path=` | Directory listing (relative paths only) |
 | `GET` `PUT` | `/api/v1/websites/{slug}/files/content?path=` | Read / save a file for the editor |
 | `GET` | `/api/v1/websites/{slug}/files/download?path=` | Download a file |
@@ -157,6 +161,26 @@ max databases. Zero means unlimited.
 - Existing systemd units keep the limits they were deployed with; a package
   change applies to the next deploy/restart of that website.
 
+## Metrics
+
+Sampled in the background (default 15s) and returned as **raw numbers with
+RFC3339 timestamps** — the UI formats them.
+
+- **Host** (`/system/metrics`): CPU% from `/proc/stat` deltas, memory/swap from
+  `/proc/meminfo` (used = total − MemAvailable), load, uptime, disk usage
+  (`statfs`) and per-second disk/network rates from `/proc/diskstats` +
+  `/proc/net/dev`. The first sample reports rates as 0 (there is nothing to
+  compare with yet) instead of averaging over the machine's uptime.
+- **Per website** (`/websites/{slug}/metrics`): cgroup v2 of
+  `barepod-app@<slug>.service` — `memory.current`, `memory.max`, `pids.current`
+  and a CPU% derived from `cpu.stat`'s `usage_usec`.
+- A metric the host cannot provide is **unavailable with a reason**, never a
+  misleading zero: on a stopped/dry-run website the reason is "the service is not
+  running", and on macOS (development) host CPU/memory/network are real while
+  disk I/O rates are 0 because macOS has no simple cumulative counter.
+- Ranges: `5m`, `1h`, `6h`, `12h`, `24h` (bounded by the in-memory history).
+  Persisting longer history is a later module.
+
 ## File manager & the path jail
 
 Two independent layers, because one is never enough:
@@ -219,6 +243,7 @@ internal/api/         router, middleware (logging, auth+CSRF, capability), handl
 internal/store/       SQLite (WAL), migrations, queries, groups, job retention
 internal/rbac/        capability set + built-in permission groups
 internal/resources/   Limits/Capacity model, live detection, overcommit guard
+internal/metrics/     Host (proc/sysctl) + per-website (cgroup v2) sampling
 internal/tenant/      Linux account lifecycle (useradd, quota, lock/unlock)
 internal/files/       File manager: hardened path jail, ops, zip
 internal/terminal/    PTY sessions (allow-listed shells, resize, process group)
@@ -255,8 +280,8 @@ login response).
 ## Tests
 
 ```bash
-go test ./...        # 78 tests: validate, secrets, auth, rbac, resources, tenant, files, terminal, store, supervisor, pipeline, HTTP/WS end-to-end
-go test -race ./internal/deploy/ ./internal/resources/
+go test ./...        # 87 tests: validate, secrets, auth, rbac, resources, metrics, tenant, files, terminal, store, supervisor, pipeline, HTTP/WS end-to-end
+go test -race ./internal/deploy/ ./internal/resources/ ./internal/metrics/
 ```
 
 ## Notes

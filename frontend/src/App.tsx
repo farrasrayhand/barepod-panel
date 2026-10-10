@@ -20,10 +20,13 @@ import { DomainsView } from './components/DomainsView';
 import { BackupMigrationView } from './components/BackupMigrationView';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
+import { LoginView } from './components/LoginView';
+import { useSession } from './hooks/useSession';
+import { api } from './api/client';
+import { toWebApp, formatBytes } from './api/adapters';
 
-// Current session user (mock — real auth/RBAC arrives with the Go backend)
-const CURRENT_USER = { username: 'farras', role: 'admin' as const };
-const isAdmin = CURRENT_USER.role === 'admin';
+// Identity used only while the daemon is unreachable (simulation mode).
+const MOCK_USER = { username: 'farras', role: 'admin' as const };
 
 const TAB_PATHS: Record<NavItem, string> = {
   overview: '/overview',
@@ -69,6 +72,11 @@ export function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [loggedOut, setLoggedOut] = useState(false);
   const [terminalAppId, setTerminalAppId] = useState<string | null>(null);
+
+  // Session: the daemon answers (live) or the prototype stays on mock data.
+  const session = useSession();
+  const currentUser = session.user ?? MOCK_USER;
+  const isAdmin = currentUser.role === 'admin';
 
   // Navigate to an explicit path (menu endpoint or app detail deep-link)
   const navigatePath = (path: string) => {
@@ -276,6 +284,36 @@ systemctl reload uvicorn-ai`,
     },
   ]);
 
+  // Live mode: replace the mock list with the daemon's websites (with their
+  // service metrics). Simulation mode keeps the mock array untouched.
+  useEffect(() => {
+    if (session.mode !== 'live' || !session.user) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { items } = await api.websites();
+        const mapped = await Promise.all(
+          items.map(async (site) => {
+            try {
+              const series = await api.siteMetrics(site.slug, '5m');
+              return toWebApp(site, series.latest);
+            } catch {
+              return toWebApp(site);
+            }
+          }),
+        );
+        if (!cancelled) setApps(mapped);
+      } catch {
+        // Keep whatever is on screen; the toast below explains the failure.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session.mode, session.user]);
+
   const handleAddApp = (newApp: Partial<WebApp>) => {
     const created: WebApp = {
       id: `app-${Date.now()}`,
@@ -336,6 +374,29 @@ systemctl reload uvicorn-ai`,
     setApps(apps.map(a => a.id === updated.id ? updated : a));
   };
 
+  if (session.mode === 'checking') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="flex items-center gap-3 text-sm text-slate-500">
+          <Server className="w-5 h-5 animate-pulse text-blue-600" />
+          <span>Looking for the BarePod daemon…</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (session.mode === 'live' && !session.user) {
+    return (
+      <LoginView
+        onSignIn={session.signIn}
+        onSimulate={session.useSimulation}
+        error={session.error}
+        busy={session.busy}
+        mode={session.mode}
+      />
+    );
+  }
+
   if (loggedOut) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
@@ -351,9 +412,9 @@ systemctl reload uvicorn-ai`,
             onClick={() => setLoggedOut(false)}
             className="w-full px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
           >
-            Sign in as farras (admin)
+            Return to the panel
           </button>
-          <p className="text-[10px] text-slate-400">Authentication is simulated in this prototype.</p>
+          <p className="text-[10px] text-slate-400">Authentication is simulated in this mode.</p>
         </div>
       </div>
     );
@@ -376,7 +437,13 @@ systemctl reload uvicorn-ai`,
           onOpenTerminal={() => navigate('terminal')}
           activeTab={currentTab}
           onNavigatePath={navigatePath}
-          onLogout={() => setLoggedOut(true)}
+          onLogout={() => {
+            if (session.mode === 'live') {
+              void session.signOut();
+            } else {
+              setLoggedOut(true);
+            }
+          }}
         />
 
         {/* Dynamic Views */}
@@ -435,6 +502,8 @@ systemctl reload uvicorn-ai`,
             <WebTerminalView
               apps={apps}
               selectedAppId={terminalAppId}
+              liveMode={session.mode === 'live'}
+              isAdmin={isAdmin}
               onSelectApp={(id) => {
                 setTerminalAppId(id);
                 const target = apps.find(a => a.id === id);

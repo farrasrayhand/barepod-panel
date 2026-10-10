@@ -183,6 +183,12 @@ This is the main rework risk — the UI currently stores some values as presenta
   - Retention: `retentionDays` (default **30**) lives in settings; a daily cron purges expired items.
   - Implementation note: for daemon engines "suspend" means refuse connections (e.g. PostgreSQL `ALLOW_CONNECTIONS false` after renaming; MySQL/MariaDB revoke + rename); for SQLite the file is moved/renamed. MongoDB/Redis use a suspended namespace. Restore reverses the same operation; purge is the only destructive step.
 
+### 4.6.1 Metrics
+- `GET /system/metrics?range=1h` (also `?live=1`) → `{ latest, items[], range, windowSeconds, intervalSeconds, buffered, maxRangeSeconds, source, checkedAt }`. `latest`/`items[]` carry **raw numbers**: `cpuPercent`, `memoryUsedBytes`, `memoryTotalBytes`, `swapUsedBytes`, `diskUsedBytes`, `netRxBps`, `diskReadBps`, `load1`, `uptimeSeconds`, …
+- `GET /websites/:slug/metrics?range=1h` → the same envelope for one website (`cpuPercent`, `memoryBytes`, `memoryLimitBytes`, `tasks`) plus `unit` (e.g. `barepod-app@my-shop.service`).
+- **Unavailable ≠ zero:** when the host or the cgroup cannot provide a metric, the sample carries `available:false` with a `reason` (e.g. "the service is not running"), so no chart draws a fake flat line.
+- Ranges: `5m | 1h | 6h | 12h | 24h`, bounded by `-metrics-history` samples held in memory.
+
 ### 4.7 Cloudflare Tunnels
 - `GET|POST /tunnels` · `DELETE /tunnels/:id` · `POST /tunnels/:id/token` · `POST /tunnels/:id/restart`
 - `POST|DELETE /tunnels/:id/routes`

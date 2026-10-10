@@ -307,7 +307,9 @@ graph TD
   - ✅ **File manager** (`internal/files`): listing, read/save for the editor (text or base64), create, mkdir, rename, copy, move, delete, multipart upload, download and batch `.zip`. Two-layer safety: a **separator-safe path jail** (`IsLocal` + `EvalSymlinks` on the deepest existing ancestor + `root+"/"` prefix test, so `/apps/site-evil` can never pass as `/apps/site`) and operations executed **as the tenant UID/GID** through a helper process (`barepod fs-exec`), so new files belong to the tenant instead of root.
   - ✅ **Terminal (PTY)** (`internal/terminal`): `WS /websites/:slug/pty` spawns an allow-listed shell **as the tenant** in the site directory, `WS /system/pty` is an admin-only host shell. One-time ticket auth (never a token in the URL), `{"type":"resize"}` → `pty.Setsize`, binary stdin/stdout, 30-minute idle timeout, process-group cleanup and audit on open/close.
   - ✅ **LXC-aware degradation**: `GET /system/capabilities` also returns a **`limitations[]`** list (reason + advice) for what an unprivileged container cannot do — S.M.A.R.T. (no block device), fstrim (no discard; use host `fstrim.timer` or pool `discard`/`autotrim`), `setquota` (use host-side quotas) — instead of showing an error. CPU/RAM capacity stays container-aware.
-  - ⏳ Next: metrics collection (`/system/metrics`, per-website), the databases module, and wiring the React UI to this API.
+  - ✅ **Metrics** (`internal/metrics`): a background sampler (default 15s, ring buffer in memory) serves `GET /system/metrics?range=1h` and `GET /websites/:slug/metrics`. Host figures come from `/proc` (stat deltas, meminfo, diskstats, net/dev) with real deltas — the first sample reports rates as 0 instead of averaging over uptime — and per-website figures from cgroup v2 (`memory.current`, `memory.max`, `pids.current`, `cpu.stat`). Raw numbers + RFC3339 only; a metric the host cannot provide is **unavailable with a reason**, never a fake zero.
+  - ✅ **Frontend wired to the API**: `src/api/client.ts` (session, websites, deploy SSE, files, terminal ticket, metrics, capacity), `useSession` (daemon reachable → real login; otherwise the prototype stays in simulation mode with its mock data), a real **sign-in screen** (with the `barepod admin create` hint), the website list loaded from the daemon with per-site metrics, and a **live terminal pane** (`@xterm/xterm`) over the ticketed WebSocket — tenant shell per website, host shell switch for admins.
+  - ⏳ Next: wiring the remaining views (monitoring charts, file manager tab, databases) to the API, then the databases module.
 * **Phase 3: Host OS & Container Integration (SCHEDULED 📋)**:
   - Docker Engine SDK (`docker/moby`) integration for container pod management.
   - File Manager backend API (reading/writing real Linux directories with isolated tenant user privileges).
@@ -367,6 +369,7 @@ BarePod-Panel/
 │   │   ├── config/               # Flags + environment configuration
 │   │   ├── store/                # SQLite (WAL), migrations, queries, groups
 │   │   ├── resources/            # Limits/Capacity model, live detection, overcommit guard
+│   │   ├── metrics/              # Host (/proc, sysctl) + per-website (cgroup v2) sampling
 │   │   ├── tenant/               # Linux account lifecycle (useradd, quota, lock/unlock)
 │   │   ├── files/                # File manager: path jail, ops, zip
 │   │   ├── terminal/             # PTY sessions (tenant credentials, resize)

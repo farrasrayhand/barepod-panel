@@ -85,6 +85,15 @@ npm run dev
 
 Then open **`http://127.0.0.1:5173/`**.
 
+> **The UI talks to the daemon when it is running.** On load it asks
+> `/api/v1/health`; if the Go daemon answers you get the real sign-in screen and
+> the website list/metrics come from the API. If nothing answers, the panel stays
+> in **simulation mode** with its mock data — both paths are supported.
+>
+> If your environment sets `NODE_ENV=production`, npm skips devDependencies
+> (Vite/TypeScript disappear). Install with
+> `NODE_ENV=development npm install --include=dev`.
+
 Other scripts:
 
 ```bash

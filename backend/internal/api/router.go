@@ -12,6 +12,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/metrics"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/rbac"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/tenant"
@@ -28,6 +29,8 @@ type Deps struct {
 	Host           *host.Host
 	Deploy         *deploy.Manager
 	Tenants        *tenant.Manager
+	Metrics        *metrics.Sampler
+	SiteMetrics    *metrics.SiteSampler
 	MaxUploadBytes int64
 }
 
@@ -39,6 +42,8 @@ type Server struct {
 	host           *host.Host
 	deploy         *deploy.Manager
 	tenants        *tenant.Manager
+	metrics        *metrics.Sampler
+	siteMetrics    *metrics.SiteSampler
 	tickets        *ticketStore
 	maxUploadBytes int64
 }
@@ -56,6 +61,8 @@ func New(d Deps) http.Handler {
 		host:           d.Host,
 		deploy:         d.Deploy,
 		tenants:        d.Tenants,
+		metrics:        d.Metrics,
+		siteMetrics:    d.SiteMetrics,
 		tickets:        newTicketStore(),
 		maxUploadBytes: maxUpload,
 	}
@@ -80,6 +87,7 @@ func New(d Deps) http.Handler {
 
 	// System — "monitoring" capability
 	mux.HandleFunc("GET /api/v1/system/capabilities", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleCapabilities)))
+	mux.HandleFunc("GET /api/v1/system/metrics", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemMetrics)))
 	mux.HandleFunc("POST /api/v1/ws/ticket", s.requireAuth(s.handleWSTicket))
 
 	// Interactive terminals. Auth uses the one-time ticket (never a long-lived
@@ -99,6 +107,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy", deploy(s.handleLatestDeploy))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/stream", deploy(s.handleDeployStream))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/{id}", deploy(s.handleDeployJob))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/metrics", deploy(s.handleWebsiteMetrics))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/secrets", deploy(s.handleListSecrets))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/secrets/{name}/reveal", deploy(s.handleRevealSecret))
 

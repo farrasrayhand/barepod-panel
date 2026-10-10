@@ -13,19 +13,26 @@ import {
 import type { WebApp } from '../types';
 import { usePanelSize } from '../hooks/usePanelSize';
 import { PanelSizeControl } from './PanelSizeControl';
+import { LiveTerminal } from './LiveTerminal';
 
 interface WebTerminalViewProps {
   apps: WebApp[];
   selectedAppId?: string | null;
   onSelectApp: (appId: string) => void;
+  /** True when the daemon is reachable: use the real PTY instead of the mock. */
+  liveMode?: boolean;
+  isAdmin?: boolean;
 }
 
 export const WebTerminalView: React.FC<WebTerminalViewProps> = ({
   apps,
   selectedAppId,
   onSelectApp,
+  liveMode = false,
+  isAdmin = false,
 }) => {
   const currentApp = apps.find(a => a.id === selectedAppId) || apps[0];
+  const [hostShell, setHostShell] = useState(false);
   
   const [terminalHistory, setTerminalHistory] = useState<Array<{ type: 'input' | 'output'; text: string }>>([
     { 
@@ -59,6 +66,75 @@ Hybrid Monorepo Sandbox: ACTIVE (Full multi-runtime support for PHP backend, Vit
 
   // No session selected yet -> ask the user to pick a site before opening the PTY
   const hasActiveSession = Boolean(selectedAppId && apps.some((a) => a.id === selectedAppId));
+
+  // Live mode: a real PTY over WebSocket, running as the tenant (or as root for
+  // the host shell, which is administrators only).
+  if (liveMode && (hasActiveSession || (hostShell && isAdmin))) {
+    return (
+      <div className="p-8 max-w-5xl mx-auto space-y-5 animate-in fade-in duration-200">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Isolated Web Terminal</h1>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Each session runs as that website's tenant user, inside its own directory.
+            </p>
+          </div>
+          {isAdmin && (
+            <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-100">
+              <button
+                type="button"
+                onClick={() => setHostShell(false)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                  !hostShell ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Website shell
+              </button>
+              <button
+                type="button"
+                onClick={() => setHostShell(true)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                  hostShell ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Host shell (root)
+              </button>
+            </div>
+          )}
+        </div>
+
+        {hostShell && isAdmin ? (
+          <LiveTerminal title="Host console" subtitle="/root" isHost />
+        ) : (
+          currentApp && (
+            <>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {apps.map((app) => (
+                  <button
+                    key={app.id}
+                    type="button"
+                    onClick={() => onSelectApp(app.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap border transition-colors ${
+                      app.id === currentApp.id
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                    }`}
+                  >
+                    {app.name}
+                  </button>
+                ))}
+              </div>
+              <LiveTerminal
+                slug={currentApp.id}
+                title={currentApp.name}
+                subtitle={`${currentApp.tenantUser}@${currentApp.name}`}
+              />
+            </>
+          )
+        )}
+      </div>
+    );
+  }
 
   if (!hasActiveSession) {
     return (

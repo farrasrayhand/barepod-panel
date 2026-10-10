@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"time"
 )
 
 // Config is the resolved daemon configuration.
@@ -20,6 +21,18 @@ type Config struct {
 	LogLevel    string
 	DryRun      bool
 	MaxUploadMB int
+
+	MetricsInterval time.Duration
+	MetricsHistory  int
+}
+
+func envDuration(key string, fallback time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if parsed, err := time.ParseDuration(v); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return fallback
 }
 
 func env(key, fallback string) string {
@@ -87,20 +100,24 @@ func Load(args []string) (Config, error) {
 	logLevel := fs.String("log-level", env("BAREPOD_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	dryRun := fs.Bool("dry-run", envBool("BAREPOD_DRY_RUN", false), "never execute privileged commands (forced on non-Linux hosts)")
 	maxUpload := fs.Int("max-upload-mb", envInt("BAREPOD_MAX_UPLOAD_MB", 64), "upload/edit ceiling for the file manager, in MiB")
+	metricsInterval := fs.Duration("metrics-interval", envDuration("BAREPOD_METRICS_INTERVAL", 15*time.Second), "how often host and per-website metrics are sampled")
+	metricsHistory := fs.Int("metrics-history", envInt("BAREPOD_METRICS_HISTORY", 2880), "how many metric samples to keep in memory (2880 x 15s = 12h)")
 
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
 
 	return Config{
-		Listen:      *listen,
-		DBPath:      filepath.Clean(*dbPath),
-		KeyPath:     filepath.Clean(*keyPath),
-		StaticDir:   filepath.Clean(*staticDir),
-		SitesRoot:   filepath.Clean(*sitesRoot),
-		UnitsDir:    filepath.Clean(*unitsDir),
-		LogLevel:    *logLevel,
-		DryRun:      *dryRun,
-		MaxUploadMB: *maxUpload,
+		Listen:          *listen,
+		DBPath:          filepath.Clean(*dbPath),
+		KeyPath:         filepath.Clean(*keyPath),
+		StaticDir:       filepath.Clean(*staticDir),
+		SitesRoot:       filepath.Clean(*sitesRoot),
+		UnitsDir:        filepath.Clean(*unitsDir),
+		LogLevel:        *logLevel,
+		DryRun:          *dryRun,
+		MaxUploadMB:     *maxUpload,
+		MetricsInterval: *metricsInterval,
+		MetricsHistory:  *metricsHistory,
 	}, nil
 }

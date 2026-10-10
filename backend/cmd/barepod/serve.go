@@ -16,6 +16,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/metrics"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/sysinfo"
@@ -71,6 +72,27 @@ func runServe(args []string) error {
 	deploys := deploy.NewManager(st, h, key)
 	tenants := tenant.New(runner, cfg.SitesRoot, caps)
 
+	// Metrics run in the background so history exists even while nobody is
+	// looking at the UI.
+	metricsCtx, stopMetrics := context.WithCancel(context.Background())
+	defer stopMetrics()
+	sampler := metrics.NewSampler(metrics.NewCollector(cfg.SitesRoot), cfg.MetricsInterval, cfg.MetricsHistory)
+	siteSampler := metrics.NewSiteSampler(cfg.MetricsHistory)
+	go sampler.Start(metricsCtx)
+	go siteSampler.Run(metricsCtx, func() []string {
+		sites, err := st.ListWebsites()
+		if err != nil {
+			return nil
+		}
+		slugs := make([]string, 0, len(sites))
+		for _, site := range sites {
+			slugs = append(slugs, site.Slug)
+		}
+		return slugs
+	}, cfg.MetricsInterval)
+	log.Printf("metrics: sampling every %s (history %d samples, source %s)",
+		cfg.MetricsInterval, cfg.MetricsHistory, sampler.Collector().Mode())
+
 	log.Printf("host: %s/%s %q systemd=%v lxc=%v docker=%v smart=%v fstrim=%v",
 		caps.OS, caps.Arch, caps.Distro, caps.Systemd, caps.LXC, caps.Docker, caps.Smart, caps.Fstrim)
 	log.Printf("execution mode: %s (sites root %s, units dir %s)", h.Mode(), cfg.SitesRoot, cfg.UnitsDir)
@@ -87,6 +109,8 @@ func runServe(args []string) error {
 			Host:           h,
 			Deploy:         deploys,
 			Tenants:        tenants,
+			Metrics:        sampler,
+			SiteMetrics:    siteSampler,
 			MaxUploadBytes: int64(cfg.MaxUploadMB) << 20,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
