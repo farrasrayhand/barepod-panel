@@ -21,6 +21,7 @@ import { DatabaseGuiModal } from './DatabaseGuiModal';
 import type { DatabaseManagerTool } from './DatabaseGuiModal';
 import { CreateDatabaseModal } from './CreateDatabaseModal';
 import { DatabaseDetailsModal } from './DatabaseDetailsModal';
+import { DangerConfirmModal } from './DangerConfirmModal';
 
 interface DatabasesViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
@@ -36,6 +37,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
   const [selectedDbForCredentials, setSelectedDbForCredentials] = useState<DatabaseItem | null>(null);
   const [selectedDbForGui, setSelectedDbForGui] = useState<DatabaseItem | null>(null);
   const [selectedToolForGui, setSelectedToolForGui] = useState<DatabaseManagerTool>('dbgate');
+  const [dbToDelete, setDbToDelete] = useState<DatabaseItem | null>(null);
 
   const [databases, setDatabases] = useState<DatabaseItem[]>([
     {
@@ -425,8 +427,8 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                       </button>
 
                       <button
-                        onClick={() => handleDeleteDatabase(db.id, db.name)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        onClick={() => setDbToDelete(db)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                         title="Drop database"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -446,6 +448,26 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         onClose={() => setSelectedDbForDetails(null)}
         database={selectedDbForDetails}
         onOpenGui={(db, tool) => openManagerWithTool(db, tool)}
+        onDelete={(db) => {
+          setSelectedDbForDetails(null);
+          setDbToDelete(db);
+        }}
+      />
+
+      {/* Danger Confirm Delete Modal */}
+      <DangerConfirmModal
+        isOpen={!!dbToDelete}
+        onClose={() => setDbToDelete(null)}
+        onConfirm={() => {
+          if (dbToDelete) {
+            handleDeleteDatabase(dbToDelete.id, dbToDelete.name);
+            setDbToDelete(null);
+          }
+        }}
+        title={`Hapus / Drop Database "${dbToDelete?.name}"`}
+        itemType="Database"
+        itemName={dbToDelete?.name || ''}
+        warningDescription={`Database ${dbToDelete?.name} (${dbToDelete?.type.toUpperCase()}) beserta seluruh tabel, skema, data rows, dan hak akses user akan dihapus secara permanen.`}
       />
 
       {/* Create Database Modal */}

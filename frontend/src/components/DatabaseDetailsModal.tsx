@@ -16,7 +16,8 @@ import {
   Sparkles,
   Link2,
   Terminal,
-  Layers
+  Layers,
+  Trash2
 } from 'lucide-react';
 import type { DatabaseItem } from '../types';
 import type { DatabaseManagerTool } from './DatabaseGuiModal';
@@ -26,6 +27,7 @@ interface DatabaseDetailsModalProps {
   onClose: () => void;
   database: DatabaseItem | null;
   onOpenGui: (db: DatabaseItem, tool: DatabaseManagerTool) => void;
+  onDelete?: (db: DatabaseItem) => void;
 }
 
 export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
@@ -33,6 +35,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   onClose,
   database,
   onOpenGui,
+  onDelete,
 }) => {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [panelPassword, setPanelPassword] = useState('');
@@ -450,12 +453,24 @@ REDIS_PASSWORD=${pwd}`;
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
             <span>Protected by BarePod Internal Proxy & Linux Security Vault</span>
           </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            {onDelete && (
+              <button
+                onClick={() => onDelete(database)}
+                className="px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-white hover:bg-rose-600 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                title="Drop database permanently"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Drop Database</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="px-4 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
     </div>

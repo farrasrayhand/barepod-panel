@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { PodItem } from '../types';
 import { DeployPodModal } from './DeployPodModal';
+import { DangerConfirmModal } from './DangerConfirmModal';
 
 interface PodsViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
@@ -19,6 +20,7 @@ interface PodsViewProps {
 
 export const PodsView: React.FC<PodsViewProps> = ({ onShowToast, onOpenTerminal }) => {
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
+  const [podToDelete, setPodToDelete] = useState<PodItem | null>(null);
 
   const [pods, setPods] = useState<PodItem[]>([
     {
@@ -175,8 +177,8 @@ export const PodsView: React.FC<PodsViewProps> = ({ onShowToast, onOpenTerminal 
                     {isRunning ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                   </button>
                   <button 
-                    onClick={() => handleDeletePod(pod.id, pod.name)}
-                    className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                    onClick={() => setPodToDelete(pod)}
+                    className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
                     title="Delete Pod"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -193,6 +195,22 @@ export const PodsView: React.FC<PodsViewProps> = ({ onShowToast, onOpenTerminal 
         isOpen={isDeployModalOpen}
         onClose={() => setIsDeployModalOpen(false)}
         onDeploy={handleDeployPod}
+      />
+
+      {/* Danger Confirm Delete Modal */}
+      <DangerConfirmModal
+        isOpen={!!podToDelete}
+        onClose={() => setPodToDelete(null)}
+        onConfirm={() => {
+          if (podToDelete) {
+            handleDeletePod(podToDelete.id, podToDelete.name);
+            setPodToDelete(null);
+          }
+        }}
+        title={`Hapus Container Pod "${podToDelete?.name}"`}
+        itemType="Container Pod"
+        itemName={podToDelete?.name || ''}
+        warningDescription={`Container pod ${podToDelete?.name} (${podToDelete?.image}) akan dihentikan paksa dan dihapus permanen dari Docker runtime.`}
       />
     </div>
   );
