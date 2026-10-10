@@ -20,7 +20,16 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
-  Filter
+  Filter,
+  Thermometer,
+  Disc,
+  Radio,
+  CheckCircle2,
+  ArrowDownRight,
+  ArrowUpRight,
+  Globe,
+  Gauge,
+  CircleDot
 } from 'lucide-react';
 
 interface ProcessItem {
@@ -69,8 +78,21 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   const [swapTotal] = useState(2.0);
   const [netRxMbps, setNetRxMbps] = useState(18.4);
   const [netTxMbps, setNetTxMbps] = useState(42.1);
+  const [netRxHistory, setNetRxHistory] = useState<number[]>([14.2, 16.5, 15.0, 18.4, 21.2, 17.8, 19.4, 18.4]);
+  const [netTxHistory, setNetTxHistory] = useState<number[]>([36.1, 38.4, 40.2, 42.1, 46.5, 39.8, 41.2, 42.1]);
   const [diskReadMb, setDiskReadMb] = useState(4.8);
   const [diskWriteMb, setDiskWriteMb] = useState(22.4);
+
+  // S.M.A.R.T. Disk Health State
+  const [selectedDriveIdx, setSelectedDriveIdx] = useState(0);
+  const [isTestingSmart, setIsTestingSmart] = useState(false);
+  const [smartTestProgress, setSmartTestProgress] = useState(0);
+  const [smartTestResult, setSmartTestResult] = useState<string | null>(null);
+
+  // Network Diagnostic & Filter State
+  const [selectedNetIface, setSelectedNetIface] = useState<string>('all');
+  const [isPingingNet, setIsPingingNet] = useState(false);
+  const [pingLatencyResults, setPingLatencyResults] = useState<{ cloudflare: string; google: string; gateway: string } | null>(null);
 
   // Process Kill Confirmation State
   const [processToKill, setProcessToKill] = useState<ProcessItem | null>(null);
@@ -130,8 +152,12 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
       const ramDelta = (Math.random() - 0.5) * 0.08;
       setRamUsed(Math.max(2.1, Math.min(3.8, Number((ramUsed + ramDelta).toFixed(2)))));
 
-      setNetRxMbps(Math.max(8, Number((netRxMbps + (Math.random() - 0.5) * 5).toFixed(1))));
-      setNetTxMbps(Math.max(20, Number((netTxMbps + (Math.random() - 0.5) * 8).toFixed(1))));
+      const nextRx = Math.max(8, Number((netRxMbps + (Math.random() - 0.5) * 5).toFixed(1)));
+      const nextTx = Math.max(20, Number((netTxMbps + (Math.random() - 0.5) * 8).toFixed(1)));
+      setNetRxMbps(nextRx);
+      setNetTxMbps(nextTx);
+      setNetRxHistory(prev => [...prev.slice(1), nextRx]);
+      setNetTxHistory(prev => [...prev.slice(1), nextTx]);
 
       setDiskReadMb(Math.max(1.2, Number((diskReadMb + (Math.random() - 0.5) * 2).toFixed(1))));
       setDiskWriteMb(Math.max(8.0, Number((diskWriteMb + (Math.random() - 0.5) * 6).toFixed(1))));
@@ -139,6 +165,40 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
     return () => clearInterval(interval);
   }, [cpuUsage, ramUsed, perCore, netRxMbps, netTxMbps, diskReadMb, diskWriteMb, isAutoRefresh, refreshInterval]);
+
+  const handleRunSmartSelfTest = () => {
+    setIsTestingSmart(true);
+    setSmartTestProgress(15);
+    setSmartTestResult(null);
+    onShowToast?.('S.M.A.R.T. Self-Test Diinisiasi', 'Menjalankan smartctl -t short pada drive physical...', 'info');
+
+    let currentProg = 15;
+    const interval = setInterval(() => {
+      currentProg += 25;
+      if (currentProg >= 100) {
+        clearInterval(interval);
+        setSmartTestProgress(100);
+        setIsTestingSmart(false);
+        setSmartTestResult('S.M.A.R.T. Self-Test Completed: 0 read/write errors found. Overall health assessment: PASSED.');
+        onShowToast?.('S.M.A.R.T. Test Selesai', 'Drive fisik dinyatakan sehat (Status PASSED).', 'success');
+      } else {
+        setSmartTestProgress(currentProg);
+      }
+    }, 450);
+  };
+
+  const handlePingProbe = () => {
+    setIsPingingNet(true);
+    setTimeout(() => {
+      setIsPingingNet(false);
+      setPingLatencyResults({
+        cloudflare: `${(Math.random() * 0.4 + 0.7).toFixed(1)} ms`,
+        google: `${(Math.random() * 0.5 + 1.2).toFixed(1)} ms`,
+        gateway: `${(Math.random() * 0.2 + 0.2).toFixed(1)} ms`,
+      });
+      onShowToast?.('Network Latency Probed', 'ICMP round-trip latency berhasil diuji.', 'success');
+    }, 600);
+  };
 
   const handleKillProcess = (pid: number, signal: 'SIGTERM' | 'SIGKILL') => {
     setProcesses(processes.filter(p => p.pid !== pid));
@@ -421,8 +481,11 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          <HardDrive className="w-4 h-4" />
-          <span>Filesystem & Partitions</span>
+          <Disc className="w-4 h-4" />
+          <span>Storage & S.M.A.R.T. Health</span>
+          <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+            NVMe 39°C
+          </span>
         </button>
 
         <button
@@ -433,8 +496,11 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Wifi className="w-4 h-4" />
-          <span>Ports & Sockets (netstat)</span>
+          <Radio className="w-4 h-4" />
+          <span>Network Interfaces & Traffic</span>
+          <span className="px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 font-bold text-[10px]">
+            {netTxMbps.toFixed(1)} Mbps
+          </span>
         </button>
       </div>
 
@@ -741,156 +807,701 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           </div>
         )}
 
-        {/* TAB 4: FILESYSTEM & PARTITIONS */}
+        {/* TAB 4: S.M.A.R.T. DISK HEALTH & PARTITIONS */}
         {activeTab === 'storage' && (
-          <div className="space-y-4">
-            <h3 className="text-sm font-bold text-slate-900">Mounted Filesystems & Disk Partitions</h3>
-            
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
-                  <tr>
-                    <th className="py-2.5 px-3">MOUNT POINT</th>
-                    <th className="py-2.5 px-3">FILESYSTEM</th>
-                    <th className="py-2.5 px-3">TYPE</th>
-                    <th className="py-2.5 px-3">SIZE</th>
-                    <th className="py-2.5 px-3">USED</th>
-                    <th className="py-2.5 px-3">AVAIL</th>
-                    <th className="py-2.5 px-3">USAGE</th>
-                    <th className="py-2.5 px-3">INODES</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-mono">
-                  <tr>
-                    <td className="py-3 px-3 font-bold text-slate-900">/ (Root)</td>
-                    <td className="py-3 px-3 text-slate-500">/dev/nvme0n1p2</td>
-                    <td className="py-3 px-3 text-slate-700">ext4</td>
-                    <td className="py-3 px-3 text-slate-700">160 GB</td>
-                    <td className="py-3 px-3 text-purple-600 font-bold">28.4 GB</td>
-                    <td className="py-3 px-3 text-emerald-600 font-bold">131.6 GB</td>
-                    <td className="py-3 px-3">
-                      <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                        <div className="bg-purple-600 h-1.5" style={{ width: '18%' }} />
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-slate-500">420K / 10.2M (4%)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-3 px-3 font-bold text-slate-900">/boot/efi</td>
-                    <td className="py-3 px-3 text-slate-500">/dev/nvme0n1p1</td>
-                    <td className="py-3 px-3 text-slate-700">vfat</td>
-                    <td className="py-3 px-3 text-slate-700">512 MB</td>
-                    <td className="py-3 px-3 text-slate-700">12 MB</td>
-                    <td className="py-3 px-3 text-slate-700">500 MB</td>
-                    <td className="py-3 px-3">
-                      <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                        <div className="bg-blue-600 h-1.5" style={{ width: '2%' }} />
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-slate-500">18 / 64K (&lt;1%)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-3 px-3 font-bold text-slate-900">/var/lib/docker</td>
-                    <td className="py-3 px-3 text-slate-500">overlay2</td>
-                    <td className="py-3 px-3 text-slate-700">overlay</td>
-                    <td className="py-3 px-3 text-slate-700">160 GB</td>
-                    <td className="py-3 px-3 text-slate-700">14.2 GB</td>
-                    <td className="py-3 px-3 text-slate-700">131.6 GB</td>
-                    <td className="py-3 px-3">
-                      <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                        <div className="bg-purple-600 h-1.5" style={{ width: '9%' }} />
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-slate-500">110K / 10.2M (1%)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-3 px-3 font-bold text-slate-900">/home (Tenants)</td>
-                    <td className="py-3 px-3 text-slate-500">/dev/nvme0n1p2</td>
-                    <td className="py-3 px-3 text-slate-700">ext4 (quota)</td>
-                    <td className="py-3 px-3 text-slate-700">160 GB</td>
-                    <td className="py-3 px-3 text-slate-700">6.8 GB</td>
-                    <td className="py-3 px-3 text-slate-700">131.6 GB</td>
-                    <td className="py-3 px-3">
-                      <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                        <div className="bg-emerald-500 h-1.5" style={{ width: '4%' }} />
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-slate-500">85K / 10.2M (&lt;1%)</td>
-                  </tr>
-                </tbody>
-              </table>
+          <div className="space-y-6">
+            {/* Drive Selection Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div className="flex items-center gap-2">
+                <HardDrive className="w-4 h-4 text-purple-600" />
+                <span className="text-xs font-bold text-slate-900">Physical Storage Device:</span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setSelectedDriveIdx(0)}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors ${
+                      selectedDriveIdx === 0
+                        ? 'bg-purple-600 text-white shadow-2xs font-bold'
+                        : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                    }`}
+                  >
+                    /dev/nvme0n1 (Samsung PM9A1 1TB)
+                  </button>
+                  <button
+                    onClick={() => setSelectedDriveIdx(1)}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors ${
+                      selectedDriveIdx === 1
+                        ? 'bg-purple-600 text-white shadow-2xs font-bold'
+                        : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                    }`}
+                  >
+                    /dev/sda (Crucial MX500 500GB)
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleRunSmartSelfTest}
+                  disabled={isTestingSmart}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-white hover:bg-purple-50 text-purple-700 rounded-lg border border-purple-200 shadow-2xs transition-colors disabled:opacity-50"
+                >
+                  <RotateCw className={`w-3.5 h-3.5 ${isTestingSmart ? 'animate-spin text-purple-600' : ''}`} />
+                  <span>{isTestingSmart ? `Testing (${smartTestProgress}%)...` : 'Run S.M.A.R.T. Self-Test'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* S.M.A.R.T. Self-Test Progress & Result Notice */}
+            {isTestingSmart && (
+              <div className="p-3.5 rounded-xl bg-purple-50 border border-purple-200 animate-in fade-in duration-200 space-y-2">
+                <div className="flex items-center justify-between text-xs text-purple-900">
+                  <span className="font-semibold flex items-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5 text-purple-600 animate-pulse" />
+                    Executing short offline self-test on {selectedDriveIdx === 0 ? '/dev/nvme0n1' : '/dev/sda'}...
+                  </span>
+                  <span className="font-mono font-bold">{smartTestProgress}%</span>
+                </div>
+                <div className="w-full bg-purple-200 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${smartTestProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {smartTestResult && (
+              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between animate-in fade-in">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span><strong>smartctl diagnostic pass:</strong> {smartTestResult}</span>
+                </div>
+                <button 
+                  onClick={() => setSmartTestResult(null)}
+                  className="text-emerald-700 hover:text-emerald-900 font-bold p-1"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {/* S.M.A.R.T. Telemetry Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <div className="flex items-center justify-between text-slate-400">
+                  <span className="text-[10px] uppercase font-bold tracking-wider">Health Status</span>
+                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div className="text-xl font-bold text-emerald-600 flex items-center gap-1.5">
+                  <span>PASSED</span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {selectedDriveIdx === 0 ? 'NVMe Life Remaining: 99%' : 'SATA Life Remaining: 98%'}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <div className="flex items-center justify-between text-slate-400">
+                  <span className="text-[10px] uppercase font-bold tracking-wider">Drive Temperature</span>
+                  <Thermometer className="w-4 h-4 text-blue-500" />
+                </div>
+                <div className="text-xl font-bold text-slate-900">
+                  {selectedDriveIdx === 0 ? '39°C' : '33°C'}
+                </div>
+                <p className="text-[11px] text-emerald-600 font-medium">
+                  Optimal (Throttling @ 70°C)
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <div className="flex items-center justify-between text-slate-400">
+                  <span className="text-[10px] uppercase font-bold tracking-wider">Total Written (TBW)</span>
+                  <ArrowUpRight className="w-4 h-4 text-purple-500" />
+                </div>
+                <div className="text-xl font-bold text-slate-900">
+                  {selectedDriveIdx === 0 ? '24.8 TB' : '11.4 TB'}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Read: {selectedDriveIdx === 0 ? '51.2 TB' : '18.7 TB'}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <div className="flex items-center justify-between text-slate-400">
+                  <span className="text-[10px] uppercase font-bold tracking-wider">Power-On Time</span>
+                  <Clock className="w-4 h-4 text-amber-500" />
+                </div>
+                <div className="text-xl font-bold text-slate-900">
+                  {selectedDriveIdx === 0 ? '6,420 hrs' : '12,850 hrs'}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Cycles: {selectedDriveIdx === 0 ? '94' : '142'} • Unsafe: {selectedDriveIdx === 0 ? '3' : '2'}
+                </p>
+              </div>
+            </div>
+
+            {/* S.M.A.R.T. Raw Attributes & NVMe Telemetry Table */}
+            <div className="rounded-xl border border-slate-200 bg-white shadow-2xs overflow-hidden">
+              <div className="p-3 bg-slate-50/70 border-b border-slate-200 flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">
+                    S.M.A.R.T. Hardware Health Attributes ({selectedDriveIdx === 0 ? 'NVMe 1.4 Smart Log' : 'ATA / SMART Attributes'})
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Controller: {selectedDriveIdx === 0 ? 'Samsung Electronics PM9A1 (PCIe Gen4 x4)' : 'Crucial MX500 3D NAND (SATA 6Gb/s)'}
+                  </p>
+                </div>
+                <span className="text-[11px] font-mono text-slate-500">
+                  Firmware: <strong>{selectedDriveIdx === 0 ? 'GXA7301Q' : 'M3CR043'}</strong>
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
+                    <tr>
+                      <th className="py-2.5 px-3">ID / FIELD</th>
+                      <th className="py-2.5 px-3">ATTRIBUTE DESCRIPTION</th>
+                      <th className="py-2.5 px-3">CURRENT VALUE</th>
+                      <th className="py-2.5 px-3">THRESHOLD</th>
+                      <th className="py-2.5 px-3">RAW VALUE</th>
+                      <th className="py-2.5 px-3 text-right">STATUS</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {selectedDriveIdx === 0 ? (
+                      <>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">0x00</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Critical Warning</td>
+                          <td className="py-2.5 px-3 text-slate-900">0</td>
+                          <td className="py-2.5 px-3 text-slate-400">0</td>
+                          <td className="py-2.5 px-3 text-slate-500">0x00 (Normal)</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">PASSED</span></td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">0x01</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Composite Temperature</td>
+                          <td className="py-2.5 px-3 text-slate-900">312 Kelvin</td>
+                          <td className="py-2.5 px-3 text-slate-400">353 Kelvin</td>
+                          <td className="py-2.5 px-3 text-slate-500">39 °C</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">PASSED</span></td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">0x02</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Available Spare Blocks</td>
+                          <td className="py-2.5 px-3 text-slate-900">100%</td>
+                          <td className="py-2.5 px-3 text-slate-400">10%</td>
+                          <td className="py-2.5 px-3 text-slate-500">100</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">PASSED</span></td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">0x03</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Percentage Used (Wear Index)</td>
+                          <td className="py-2.5 px-3 text-slate-900">1%</td>
+                          <td className="py-2.5 px-3 text-slate-400">100%</td>
+                          <td className="py-2.5 px-3 text-slate-500">1 (99% Remaining)</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">PASSED</span></td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">0x04</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Data Units Read (TBR)</td>
+                          <td className="py-2.5 px-3 text-slate-900">100,000,000</td>
+                          <td className="py-2.5 px-3 text-slate-400">-</td>
+                          <td className="py-2.5 px-3 text-slate-500">51.2 TB</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">OK</span></td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">0x05</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Data Units Written (TBW)</td>
+                          <td className="py-2.5 px-3 text-slate-900">48,437,500</td>
+                          <td className="py-2.5 px-3 text-slate-400">-</td>
+                          <td className="py-2.5 px-3 text-slate-500">24.8 TB</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">OK</span></td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">0x0E</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Media and Data Integrity Errors</td>
+                          <td className="py-2.5 px-3 text-slate-900">0</td>
+                          <td className="py-2.5 px-3 text-slate-400">0</td>
+                          <td className="py-2.5 px-3 text-slate-500">0</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">PASSED</span></td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">0x0F</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Error Information Log Entries</td>
+                          <td className="py-2.5 px-3 text-slate-900">0</td>
+                          <td className="py-2.5 px-3 text-slate-400">0</td>
+                          <td className="py-2.5 px-3 text-slate-500">0</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">PASSED</span></td>
+                        </tr>
+                      </>
+                    ) : (
+                      <>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">05</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Reallocated Sectors Count</td>
+                          <td className="py-2.5 px-3 text-slate-900">100</td>
+                          <td className="py-2.5 px-3 text-slate-400">10</td>
+                          <td className="py-2.5 px-3 text-slate-500">0</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">PASSED</span></td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">09</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Power-On Hours Count</td>
+                          <td className="py-2.5 px-3 text-slate-900">100</td>
+                          <td className="py-2.5 px-3 text-slate-400">0</td>
+                          <td className="py-2.5 px-3 text-slate-500">12,850 hrs</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">OK</span></td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">C5</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Current Pending Sector Count</td>
+                          <td className="py-2.5 px-3 text-slate-900">100</td>
+                          <td className="py-2.5 px-3 text-slate-400">0</td>
+                          <td className="py-2.5 px-3 text-slate-500">0</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">PASSED</span></td>
+                        </tr>
+                        <tr>
+                          <td className="py-2.5 px-3 font-bold text-slate-900">CA</td>
+                          <td className="py-2.5 px-3 font-sans text-slate-700">Percentage Used Endurance Indicator</td>
+                          <td className="py-2.5 px-3 text-slate-900">98</td>
+                          <td className="py-2.5 px-3 text-slate-400">0</td>
+                          <td className="py-2.5 px-3 text-slate-500">2% Used</td>
+                          <td className="py-2.5 px-3 text-right"><span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">PASSED</span></td>
+                        </tr>
+                      </>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Mounted Filesystems & Disk Partitions */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-slate-900">Mounted Filesystems & Disk Partitions</h3>
+              
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
+                    <tr>
+                      <th className="py-2.5 px-3">MOUNT POINT</th>
+                      <th className="py-2.5 px-3">FILESYSTEM</th>
+                      <th className="py-2.5 px-3">TYPE</th>
+                      <th className="py-2.5 px-3">SIZE</th>
+                      <th className="py-2.5 px-3">USED</th>
+                      <th className="py-2.5 px-3">AVAIL</th>
+                      <th className="py-2.5 px-3">USAGE</th>
+                      <th className="py-2.5 px-3">INODES</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-mono">
+                    <tr>
+                      <td className="py-3 px-3 font-bold text-slate-900">/ (Root)</td>
+                      <td className="py-3 px-3 text-slate-500">/dev/nvme0n1p2</td>
+                      <td className="py-3 px-3 text-slate-700">ext4</td>
+                      <td className="py-3 px-3 text-slate-700">160 GB</td>
+                      <td className="py-3 px-3 text-purple-600 font-bold">28.4 GB</td>
+                      <td className="py-3 px-3 text-emerald-600 font-bold">131.6 GB</td>
+                      <td className="py-3 px-3">
+                        <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                          <div className="bg-purple-600 h-1.5" style={{ width: '18%' }} />
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-slate-500">420K / 10.2M (4%)</td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 px-3 font-bold text-slate-900">/boot/efi</td>
+                      <td className="py-3 px-3 text-slate-500">/dev/nvme0n1p1</td>
+                      <td className="py-3 px-3 text-slate-700">vfat</td>
+                      <td className="py-3 px-3 text-slate-700">512 MB</td>
+                      <td className="py-3 px-3 text-slate-700">12 MB</td>
+                      <td className="py-3 px-3 text-slate-700">500 MB</td>
+                      <td className="py-3 px-3">
+                        <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                          <div className="bg-blue-600 h-1.5" style={{ width: '2%' }} />
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-slate-500">18 / 64K (&lt;1%)</td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 px-3 font-bold text-slate-900">/var/lib/docker</td>
+                      <td className="py-3 px-3 text-slate-500">overlay2</td>
+                      <td className="py-3 px-3 text-slate-700">overlay</td>
+                      <td className="py-3 px-3 text-slate-700">160 GB</td>
+                      <td className="py-3 px-3 text-slate-700">14.2 GB</td>
+                      <td className="py-3 px-3 text-slate-700">131.6 GB</td>
+                      <td className="py-3 px-3">
+                        <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                          <div className="bg-purple-600 h-1.5" style={{ width: '9%' }} />
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-slate-500">110K / 10.2M (1%)</td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 px-3 font-bold text-slate-900">/home (Tenants)</td>
+                      <td className="py-3 px-3 text-slate-500">/dev/nvme0n1p2</td>
+                      <td className="py-3 px-3 text-slate-700">ext4 (quota)</td>
+                      <td className="py-3 px-3 text-slate-700">160 GB</td>
+                      <td className="py-3 px-3 text-slate-700">6.8 GB</td>
+                      <td className="py-3 px-3 text-slate-700">131.6 GB</td>
+                      <td className="py-3 px-3">
+                        <div className="w-24 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                          <div className="bg-emerald-500 h-1.5" style={{ width: '4%' }} />
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-slate-500">85K / 10.2M (&lt;1%)</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
 
-        {/* TAB 5: PORTS & SOCKETS (NETSTAT) */}
+        {/* TAB 5: NETWORK INTERFACES, TRAFFIC & PORTS */}
         {activeTab === 'network' && (
-          <div className="space-y-4">
-            <h3 className="text-sm font-bold text-slate-900">Open TCP/UDP Sockets & Listening Ports</h3>
+          <div className="space-y-6">
+            {/* Real-time Bandwidth Sparklines & Latency Probes */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {/* Ingress Throughput */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-2">
+                <div className="flex items-center justify-between text-slate-400">
+                  <span className="text-[10px] uppercase font-bold tracking-wider">Ingress (Download Rx)</span>
+                  <ArrowDownRight className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-bold font-mono text-emerald-600">{netRxMbps}</span>
+                  <span className="text-xs text-slate-400 font-mono">Mbps</span>
+                </div>
+                {/* SVG Sparkline */}
+                <div className="h-9 w-full flex items-end gap-1 pt-1">
+                  {netRxHistory.map((val, idx) => {
+                    const max = Math.max(...netRxHistory, 30);
+                    const pct = Math.min(100, Math.max(15, (val / max) * 100));
+                    return (
+                      <div key={idx} className="flex-1 bg-emerald-100 rounded-t h-full flex items-end">
+                        <div 
+                          className="w-full bg-emerald-500 rounded-t transition-all duration-300"
+                          style={{ height: `${pct}%` }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono pt-1">
+                  <span>Min: 8.4 Mbps</span>
+                  <span>Max: 26.2 Mbps</span>
+                </div>
+              </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full text-left text-xs font-mono">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
-                  <tr>
-                    <th className="py-2.5 px-3">PROTO</th>
-                    <th className="py-2.5 px-3">PORT</th>
-                    <th className="py-2.5 px-3">BIND ADDRESS</th>
-                    <th className="py-2.5 px-3">PROCESS / SERVICE</th>
-                    <th className="py-2.5 px-3">STATUS</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  <tr>
-                    <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900">80</td>
-                    <td className="py-2.5 px-3 text-slate-600">0.0.0.0:80</td>
-                    <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">nginx (HTTP)</td>
-                    <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN</td>
-                  </tr>
-                  <tr>
-                    <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900">443</td>
-                    <td className="py-2.5 px-3 text-slate-600">0.0.0.0:443</td>
-                    <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">nginx (HTTPS SSL)</td>
-                    <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN</td>
-                  </tr>
-                  <tr>
-                    <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900">5432</td>
-                    <td className="py-2.5 px-3 text-slate-600">127.0.0.1:5432</td>
-                    <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">postgres</td>
-                    <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN (Local only)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900">3306</td>
-                    <td className="py-2.5 px-3 text-slate-600">127.0.0.1:3306</td>
-                    <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">mariadbd (MySQL)</td>
-                    <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN (Local only)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900">6379</td>
-                    <td className="py-2.5 px-3 text-slate-600">127.0.0.1:6379</td>
-                    <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">redis-server</td>
-                    <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN (Local only)</td>
-                  </tr>
-                  <tr>
-                    <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900">22</td>
-                    <td className="py-2.5 px-3 text-slate-600">0.0.0.0:22</td>
-                    <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">sshd (OpenSSH)</td>
-                    <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN</td>
-                  </tr>
-                  <tr>
-                    <td className="py-2.5 px-3 font-bold text-purple-600">tcp</td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900">8443</td>
-                    <td className="py-2.5 px-3 text-slate-600">127.0.0.1:8443</td>
-                    <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">barepod-panel daemon</td>
-                    <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN (Proxy protected)</td>
-                  </tr>
-                </tbody>
-              </table>
+              {/* Egress Throughput */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-2">
+                <div className="flex items-center justify-between text-slate-400">
+                  <span className="text-[10px] uppercase font-bold tracking-wider">Egress (Upload Tx)</span>
+                  <ArrowUpRight className="w-4 h-4 text-purple-500" />
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-bold font-mono text-purple-600">{netTxMbps}</span>
+                  <span className="text-xs text-slate-400 font-mono">Mbps</span>
+                </div>
+                {/* SVG Sparkline */}
+                <div className="h-9 w-full flex items-end gap-1 pt-1">
+                  {netTxHistory.map((val, idx) => {
+                    const max = Math.max(...netTxHistory, 60);
+                    const pct = Math.min(100, Math.max(15, (val / max) * 100));
+                    return (
+                      <div key={idx} className="flex-1 bg-purple-100 rounded-t h-full flex items-end">
+                        <div 
+                          className="w-full bg-purple-600 rounded-t transition-all duration-300"
+                          style={{ height: `${pct}%` }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono pt-1">
+                  <span>Min: 22.0 Mbps</span>
+                  <span>Max: 54.8 Mbps</span>
+                </div>
+              </div>
+
+              {/* Network Latency Prober */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-3 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">ICMP Edge Latency</span>
+                    <button
+                      onClick={handlePingProbe}
+                      disabled={isPingingNet}
+                      className="flex items-center gap-1 text-[11px] font-bold text-purple-600 hover:text-purple-700 disabled:opacity-50"
+                    >
+                      <RotateCw className={`w-3 h-3 ${isPingingNet ? 'animate-spin' : ''}`} />
+                      <span>{isPingingNet ? 'Pinging...' : 'Ping Test'}</span>
+                    </button>
+                  </div>
+                  <div className="space-y-1.5 mt-2.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600 flex items-center gap-1.5 font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                        Cloudflare (1.1.1.1):
+                      </span>
+                      <span className="font-mono font-bold text-slate-800">
+                        {pingLatencyResults?.cloudflare || '0.9 ms'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600 flex items-center gap-1.5 font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                        Google DNS (8.8.8.8):
+                      </span>
+                      <span className="font-mono font-bold text-slate-800">
+                        {pingLatencyResults?.google || '1.3 ms'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-slate-600 flex items-center gap-1.5 font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        Uplink Gateway (103.147.154.1):
+                      </span>
+                      <span className="font-mono font-bold text-slate-800">
+                        {pingLatencyResults?.gateway || '0.3 ms'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                  <span>Packet Drops: <strong>0%</strong></span>
+                  <span>Jitter: <strong>0.1 ms</strong></span>
+                </div>
+              </div>
+            </div>
+
+            {/* Network Interfaces Cards */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                Network Interfaces & Telemetry
+              </h4>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Interface eth0 (WAN) */}
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-2.5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-blue-600" />
+                        <span className="text-xs font-bold text-slate-900 font-mono">eth0 (WAN Uplink)</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono block mt-0.5">52:54:00:8a:3f:1c</span>
+                    </div>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      UP 10 Gbps
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 text-[11px] font-mono text-slate-600 bg-slate-50 p-2 rounded-lg">
+                    <div>IPv4: <strong className="text-slate-900">103.147.154.82/24</strong></div>
+                    <div>IPv6: <span className="text-slate-500">2001:df4:*:*:1/64</span></div>
+                    <div>MTU: <strong className="text-slate-800">1500</strong> (Full Duplex)</div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-100">
+                    <div>
+                      <span className="block text-slate-400">Rx Total:</span>
+                      <strong className="text-slate-800">4.18 TB</strong> (0 err)
+                    </div>
+                    <div>
+                      <span className="block text-slate-400">Tx Total:</span>
+                      <strong className="text-slate-800">12.65 TB</strong> (0 err)
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interface docker0 (Bridge) */}
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-2.5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <Radio className="w-3.5 h-3.5 text-purple-600" />
+                        <span className="text-xs font-bold text-slate-900 font-mono">docker0 (Bridge)</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono block mt-0.5">02:42:1a:4e:88:99</span>
+                    </div>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      UP / ACTIVE
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 text-[11px] font-mono text-slate-600 bg-slate-50 p-2 rounded-lg">
+                    <div>IPv4: <strong className="text-slate-900">172.17.0.1/16</strong></div>
+                    <div>Scope: <span className="text-slate-500">Container Subnet</span></div>
+                    <div>MTU: <strong className="text-slate-800">1500</strong></div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-100">
+                    <div>
+                      <span className="block text-slate-400">Rx Containers:</span>
+                      <strong className="text-slate-800">840 GB</strong>
+                    </div>
+                    <div>
+                      <span className="block text-slate-400">Tx Containers:</span>
+                      <strong className="text-slate-800">812 GB</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interface cloudflared0 (Tunnel) */}
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-2.5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
+                        <span className="text-xs font-bold text-slate-900 font-mono">cloudflared0 (Tunnel)</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono block mt-0.5">tun device (QUIC)</span>
+                    </div>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                      ZERO TRUST
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 text-[11px] font-mono text-slate-600 bg-slate-50 p-2 rounded-lg">
+                    <div>Protocol: <strong className="text-slate-900">HTTP/3 QUIC</strong></div>
+                    <div>Endpoint: <span className="text-slate-500">Edge Gateway</span></div>
+                    <div>MTU: <strong className="text-slate-800">1280</strong></div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-100">
+                    <div>
+                      <span className="block text-slate-400">Rx Ingress:</span>
+                      <strong className="text-slate-800">1.24 TB</strong>
+                    </div>
+                    <div>
+                      <span className="block text-slate-400">Tx Egress:</span>
+                      <strong className="text-slate-800">1.89 TB</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Interface lo (Loopback) */}
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-2.5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <CircleDot className="w-3.5 h-3.5 text-slate-600" />
+                        <span className="text-xs font-bold text-slate-900 font-mono">lo (Loopback)</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono block mt-0.5">Local Interprocess</span>
+                    </div>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600">
+                      INTERNAL
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 text-[11px] font-mono text-slate-600 bg-slate-50 p-2 rounded-lg">
+                    <div>IPv4: <strong className="text-slate-900">127.0.0.1/8</strong></div>
+                    <div>IPv6: <span className="text-slate-500">::1/128</span></div>
+                    <div>MTU: <strong className="text-slate-800">65536</strong></div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-100">
+                    <div>
+                      <span className="block text-slate-400">Rx Loopback:</span>
+                      <strong className="text-slate-800">18.2 GB</strong>
+                    </div>
+                    <div>
+                      <span className="block text-slate-400">Tx Loopback:</span>
+                      <strong className="text-slate-800">18.2 GB</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* TCP Socket States Summary */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <span className="font-bold text-slate-900 flex items-center gap-2">
+                <Gauge className="w-4 h-4 text-purple-600" />
+                Kernel TCP Socket States:
+              </span>
+              <div className="flex items-center gap-4 font-mono text-xs">
+                <span>ESTABLISHED: <strong className="text-emerald-600">142</strong></span>
+                <span>TIME_WAIT: <strong className="text-slate-700">18</strong></span>
+                <span>CLOSE_WAIT: <strong className="text-amber-600">4</strong></span>
+                <span>SYN_SENT: <strong className="text-slate-500">1</strong></span>
+                <span>LISTEN: <strong className="text-blue-600">12</strong></span>
+              </div>
+            </div>
+
+            {/* Listening Ports & Sockets (netstat/ss) */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-bold text-slate-900">Open TCP/UDP Sockets & Listening Ports (ss -tulpn)</h3>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
+                    <tr>
+                      <th className="py-2.5 px-3">PROTO</th>
+                      <th className="py-2.5 px-3">PORT</th>
+                      <th className="py-2.5 px-3">BIND ADDRESS</th>
+                      <th className="py-2.5 px-3">PROCESS / SERVICE</th>
+                      <th className="py-2.5 px-3">STATUS</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    <tr>
+                      <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
+                      <td className="py-2.5 px-3 font-bold text-slate-900">80</td>
+                      <td className="py-2.5 px-3 text-slate-600">0.0.0.0:80</td>
+                      <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">nginx (HTTP)</td>
+                      <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
+                      <td className="py-2.5 px-3 font-bold text-slate-900">443</td>
+                      <td className="py-2.5 px-3 text-slate-600">0.0.0.0:443</td>
+                      <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">nginx (HTTPS SSL)</td>
+                      <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
+                      <td className="py-2.5 px-3 font-bold text-slate-900">5432</td>
+                      <td className="py-2.5 px-3 text-slate-600">127.0.0.1:5432</td>
+                      <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">postgres</td>
+                      <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN (Local only)</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
+                      <td className="py-2.5 px-3 font-bold text-slate-900">3306</td>
+                      <td className="py-2.5 px-3 text-slate-600">127.0.0.1:3306</td>
+                      <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">mariadbd (MySQL)</td>
+                      <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN (Local only)</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
+                      <td className="py-2.5 px-3 font-bold text-slate-900">6379</td>
+                      <td className="py-2.5 px-3 text-slate-600">127.0.0.1:6379</td>
+                      <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">redis-server</td>
+                      <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN (Local only)</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 px-3 font-bold text-blue-600">tcp</td>
+                      <td className="py-2.5 px-3 font-bold text-slate-900">22</td>
+                      <td className="py-2.5 px-3 text-slate-600">0.0.0.0:22</td>
+                      <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">sshd (OpenSSH)</td>
+                      <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN</td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 px-3 font-bold text-purple-600">tcp</td>
+                      <td className="py-2.5 px-3 font-bold text-slate-900">8443</td>
+                      <td className="py-2.5 px-3 text-slate-600">127.0.0.1:8443</td>
+                      <td className="py-2.5 px-3 text-slate-800 font-sans font-semibold">barepod-panel daemon</td>
+                      <td className="py-2.5 px-3 text-emerald-600 font-bold">LISTEN (Proxy protected)</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
