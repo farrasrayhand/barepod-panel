@@ -302,6 +302,44 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
         </div>
       </div>
 
+      {/* Telemetry Filter & Server Retention Policy Status Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-blue-600" />
+            <span>Rentang Waktu Host:</span>
+          </span>
+          <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200 text-xs">
+            {(['live', '1h', '24h', '7d', '30d', '90d'] as const).map(range => (
+              <button
+                key={range}
+                type="button"
+                onClick={() => {
+                  onShowToast?.('Filter Waktu Server', `Menampilkan agregasi telemetri host ${range === 'live' ? 'Live (5 Menit)' : range === '1h' ? '1 Jam' : range === '24h' ? '24 Jam' : range === '7d' ? '7 Hari' : range === '30d' ? '30 Hari' : '90 Hari (Maksimal Kebijakan TSDB)'}.`, 'info');
+                }}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                  range === '24h'
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {range === 'live' ? '⚡ 5m Live' : range === '1h' ? '1 Jam' : range === '24h' ? '24 Jam' : range === '7d' ? '7 Hari' : range === '30d' ? '30 Hari' : '90 Hari'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500 font-medium">
+            Retensi Metrik Server:
+          </span>
+          <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200 flex items-center gap-1" title="Retensi metrik server global dapat dikonfigurasi hingga 365 hari di menu Panel Settings.">
+            <Server className="w-3.5 h-3.5 text-blue-600" />
+            <span>90 Hari (Dikonfigurasi di Panel Settings)</span>
+          </span>
+        </div>
+      </div>
+
       {/* Primary Telemetry Cards (CPU, RAM, Disk I/O, Network) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         

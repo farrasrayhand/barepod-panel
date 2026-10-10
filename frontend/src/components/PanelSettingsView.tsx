@@ -23,7 +23,11 @@ import {
   Send,
   Zap,
   Terminal,
-  RefreshCw
+  RefreshCw,
+  Activity,
+  Cpu,
+  Clock,
+  Trash2
 } from 'lucide-react';
 import type { WebServerType } from '../types';
 
@@ -36,8 +40,16 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   onShowToast,
   onOpenTerminal,
 }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'security' | 'proxy' | 'backups' | 'notifications' | 'databases'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'databases'>('general');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Monitoring & Telemetry Retention Settings
+  const [serverMetricsRetentionDays, setServerMetricsRetentionDays] = useState(90);
+  const [metricsSampleIntervalSecs, setMetricsSampleIntervalSecs] = useState(15);
+  const [enableSmartHourlySnapshot, setEnableSmartHourlySnapshot] = useState(true);
+  const [appDefaultRetentionDays, setAppDefaultRetentionDays] = useState(30); // Max 30 days
+  const [autoPruneSchedule, setAutoPruneSchedule] = useState('0 3 * * *');
+  const [isPruning, setIsPruning] = useState(false);
 
   // 1. General Settings
   const [panelPort, setPanelPort] = useState(8443);
@@ -114,6 +126,15 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     onShowToast?.('Daemon Restarting', 'systemctl restart barepod-daemon executed.', 'info');
   };
 
+  const handlePruneOldMetrics = () => {
+    setIsPruning(true);
+    onShowToast?.('Pruning Metrics Dimulai', `Membersihkan time-series metrics yang lebih lama dari ${serverMetricsRetentionDays} hari...`, 'info');
+    setTimeout(() => {
+      setIsPruning(false);
+      onShowToast?.('Pruning Selesai', `1.42 juta data poin lama dibersihkan. 420 MB ruang disk berhasil dibebaskan.`, 'success');
+    }, 1100);
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-200">
       
@@ -168,6 +189,18 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           >
             <Settings className="w-4 h-4" />
             <span>General & Defaults</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('monitoring')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
+              activeTab === 'monitoring'
+                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>Monitoring & Retention</span>
           </button>
 
           <button
@@ -335,6 +368,192 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     Otomatis mengunduh patch keamanan dan pembaharuan kernel cgroups pada jam 03:00 WIB.
                   </p>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* MONITORING & TELEMETRY RETENTION SETTINGS */}
+          {activeTab === 'monitoring' && (
+            <div className="space-y-6 max-w-3xl">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">
+                  Monitoring & Telemetry Retention Policy
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Atur berapa lama data metrik historis CPU, RAM, Network, Disk I/O, dan S.M.A.R.T. disimpan di sistem time-series database.
+                </p>
+              </div>
+
+              {/* CARD 1: SERVER METRICS RETENTION (LONG-TERM) */}
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                      <Server className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Retensi Metrik Server (Host Global)
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Data performa hardware host bare-metal / VPS (CPU per-core, RAM, S.M.A.R.T. disk, NIC bandwidth)
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-100 text-blue-800 font-mono">
+                    {serverMetricsRetentionDays} Hari
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Durasi Penyimpanan Metrik Server
+                    </label>
+                    <select
+                      value={serverMetricsRetentionDays}
+                      onChange={(e) => setServerMetricsRetentionDays(Number(e.target.value))}
+                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-blue-500"
+                    >
+                      <option value={7}>7 Hari (1 Minggu - Storage Minimal)</option>
+                      <option value={14}>14 Hari (2 Minggu)</option>
+                      <option value={30}>30 Hari (1 Bulan)</option>
+                      <option value={60}>60 Hari (2 Bulan)</option>
+                      <option value={90}>90 Hari (3 Bulan - Sangat Disarankan)</option>
+                      <option value={180}>180 Hari (6 Bulan - Audit Semi-Tahunan)</option>
+                      <option value={365}>365 Hari (1 Tahun - Kapasitas Panjang)</option>
+                    </select>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Metrik server yang lebih tua dari batas ini akan di-prune secara otomatis oleh daemon.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Interval Sampling (Frekuensi Probe)
+                    </label>
+                    <select
+                      value={metricsSampleIntervalSecs}
+                      onChange={(e) => setMetricsSampleIntervalSecs(Number(e.target.value))}
+                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-blue-500"
+                    >
+                      <option value={5}>Setiap 5 Detik (Resolusi Tinggi / Realtime)</option>
+                      <option value={15}>Setiap 15 Detik (Standar Rekomendasi)</option>
+                      <option value={60}>Setiap 60 Detik (Hemat I/O Disk)</option>
+                    </select>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Frekuensi penulisan metrik ke time-series buffer disk.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Storage estimation banner */}
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="space-y-0.5">
+                    <span className="text-[11px] font-bold text-slate-700">Estimasi Ruang Disk Database TSDB:</span>
+                    <p className="text-[11px] text-slate-500 font-mono">
+                      ~{(serverMetricsRetentionDays * (metricsSampleIntervalSecs === 5 ? 14 : metricsSampleIntervalSecs === 15 ? 5.2 : 1.4)).toFixed(0)} MB 
+                      (Engine: SQLite-WAL Compressed TSDB di /var/lib/barepod/metrics)
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handlePruneOldMetrics}
+                    disabled={isPruning}
+                    className="px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors flex items-center gap-1.5 shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>{isPruning ? 'Membersihkan...' : 'Prune Metrik Lama Sekarang'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* CARD 2: APP MONITORING POLICY ENFORCEMENT (MAX 30 DAYS) */}
+              <div className="p-5 rounded-2xl border border-purple-200/90 bg-purple-50/20 shadow-2xs space-y-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                      <Activity className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">
+                        Batas Retensi Metrik Aplikasi (Tenant Web Apps)
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Kebijakan isolasi penyimpanan per-aplikasi (Laravel, Node.js, Python, Reverse Proxy)
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-100 text-purple-800 font-mono">
+                    Maksimal 30 Hari
+                  </span>
+                </div>
+
+                <div className="p-3 bg-white rounded-xl border border-purple-200 text-xs space-y-2 text-slate-700">
+                  <div className="flex items-start gap-2">
+                    <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-purple-900">Kebijakan Panel: Batas Maksimal Retensi App = 30 Hari</strong>
+                      <p className="text-[11px] text-slate-600 mt-0.5">
+                        Sesuai arsitektur isolasi BarePod Panel, monitoring level aplikasi dibatasi maksimal <strong>30 hari</strong> agar partisi direktori home tenant (<code className="font-mono text-purple-800">/home/[user]/apps/</code>) tidak mengalami disk exhaustion atau degradasi performa agregasi cgroups v2.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Default Retensi Metrik Aplikasi Baru
+                    </label>
+                    <select
+                      value={appDefaultRetentionDays}
+                      onChange={(e) => setAppDefaultRetentionDays(Number(e.target.value))}
+                      className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl font-medium focus:border-purple-500"
+                    >
+                      <option value={7}>7 Hari (1 Minggu)</option>
+                      <option value={14}>14 Hari (2 Minggu)</option>
+                      <option value={30}>30 Hari (Batas Maksimum Panel)</option>
+                    </select>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Setiap pemilik aplikasi dapat menyesuaikan durasi ini hingga batas maksimal 30 hari di halaman App Detail.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Jadwal Auto-Cleanup Cron Daemon
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={autoPruneSchedule}
+                        onChange={(e) => setAutoPruneSchedule(e.target.value)}
+                        className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl font-mono text-slate-800"
+                        placeholder="0 3 * * *"
+                      />
+                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-1.5 rounded-lg whitespace-nowrap">
+                        03:00 AM Daily
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Cronjob otomatis memangkas metrik kedaluwarsa tanpa menghentikan trafik web.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* SAVE BUTTON */}
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSaveAll}
+                  disabled={isSaving}
+                  className="px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-500/25 transition-all flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Simpan Kebijakan Retensi</span>
+                </button>
               </div>
             </div>
           )}

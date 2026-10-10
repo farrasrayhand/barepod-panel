@@ -57,6 +57,8 @@ export interface WebApp {
   basicAuthPassword?: string;
   basicAuthRealm?: string;
   basicAuthBypassIps?: string;
+  // Metrics & Telemetry Retention (Max 30 days per app)
+  metricsRetentionDays?: number;
 }
 
 export type DatabaseEngine = 'postgres' | 'mysql' | 'mariadb' | 'mongodb' | 'redis';

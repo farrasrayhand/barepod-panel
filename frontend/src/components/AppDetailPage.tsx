@@ -159,6 +159,25 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [isSavingBasicAuth, setIsSavingBasicAuth] = useState(false);
   const [copiedCurl, setCopiedCurl] = useState(false);
 
+  // App Metrics Retention (Policy: Maximum 30 Days)
+  const [appMetricsRetention, setAppMetricsRetention] = useState(Math.min(30, app.metricsRetentionDays || 30));
+  const [selectedMetricsRange, setSelectedMetricsRange] = useState<'1h' | '24h' | '7d' | '14d' | '30d'>('24h');
+
+  const handleUpdateAppMetricsRetention = (days: number) => {
+    const capped = Math.min(30, Math.max(1, days));
+    setAppMetricsRetention(capped);
+    const updated: WebApp = {
+      ...app,
+      metricsRetentionDays: capped,
+    };
+    onUpdateApp?.(updated);
+    onShowToast?.(
+      'Retensi Metrik Disimpan',
+      `Histori telemetri aplikasi ${app.name} disimpan selama ${capped} hari (Batas maksimum 30 hari).`,
+      'success'
+    );
+  };
+
   const handleToggleMaintenance = () => {
     const nextState = !maintenanceMode;
     setMaintenanceMode(nextState);
@@ -720,6 +739,58 @@ QUEUE_CONNECTION=redis`;
         {/* TAB 1: LIVE MONITORING & TELEMETRY */}
         {activeTab === 'monitoring' && (
           <div className="space-y-6">
+            {/* Telemetry Filter Toolbar & App Retention Policy (Max 30 Days) */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Rentang Waktu:</span>
+                </span>
+                <div className="flex items-center bg-white rounded-lg p-0.5 border border-slate-200 text-xs">
+                  {(['1h', '24h', '7d', '14d', '30d'] as const).map(range => (
+                    <button
+                      key={range}
+                      type="button"
+                      onClick={() => {
+                        setSelectedMetricsRange(range);
+                        onShowToast?.('Filter Waktu Diperbarui', `Menampilkan agregasi telemetri ${range === '1h' ? '1 Jam Terakhir' : range === '24h' ? '24 Jam Terakhir' : range === '7d' ? '7 Hari Terakhir' : range === '14d' ? '14 Hari Terakhir' : '30 Hari (Maksimal App)'}.`, 'info');
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                        selectedMetricsRange === range
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {range === '1h' ? '1 Jam' : range === '24h' ? '24 Jam' : range === '7d' ? '7 Hari' : range === '14d' ? '14 Hari' : '30 Hari'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Per-App Retention Selector (Strictly max 30 days) */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 font-medium whitespace-nowrap">
+                  Retensi Metrik App:
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={appMetricsRetention}
+                    onChange={(e) => handleUpdateAppMetricsRetention(Number(e.target.value))}
+                    className="px-2.5 py-1 text-xs font-bold bg-white border border-purple-200 text-purple-900 rounded-lg focus:outline-hidden focus:border-purple-500 shadow-2xs"
+                  >
+                    <option value={1}>1 Hari (24 Jam)</option>
+                    <option value={3}>3 Hari</option>
+                    <option value={7}>7 Hari (1 Minggu)</option>
+                    <option value={14}>14 Hari (2 Minggu)</option>
+                    <option value={30}>30 Hari (Batas Maksimum Panel)</option>
+                  </select>
+                  <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-1 rounded-lg border border-purple-200" title="Batas retensi metrik per-aplikasi di BarePod Panel adalah maksimal 30 hari untuk efisiensi ruang disk tenant.">
+                    Max 30 Hari
+                  </span>
+                </div>
+              </div>
+            </div>
+
             {/* Live Metrics Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
