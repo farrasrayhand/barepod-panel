@@ -42,8 +42,55 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   onShowToast,
   onOpenTerminal,
 }) => {
-  const [activeTab, setActiveTab] = useSubRoute<'general' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'databases' | 'php_defaults'>('general');
+  const [activeTab, setActiveTab] = useSubRoute<'general' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'databases' | 'php_defaults' | 'maintenance'>('general');
   const [isSaving, setIsSaving] = useState(false);
+
+  // System & Docker Cleanup
+  const [autoCleanupEnabled, setAutoCleanupEnabled] = useState(true);
+  const [cleanupCron, setCleanupCron] = useState('0 4 * * *');
+  const [pruneSystemJunk, setPruneSystemJunk] = useState(true);
+  const [systemJunkRetentionDays, setSystemJunkRetentionDays] = useState(7);
+  const [pruneDocker, setPruneDocker] = useState(true);
+  const [dockerPruneDanglingImages, setDockerPruneDanglingImages] = useState(true);
+  const [dockerPruneStoppedContainers, setDockerPruneStoppedContainers] = useState(true);
+  const [dockerPruneUnusedVolumes, setDockerPruneUnusedVolumes] = useState(false);
+  const [dockerPruneBuildCache, setDockerPruneBuildCache] = useState(true);
+  const [isPruningSystem, setIsPruningSystem] = useState(false);
+  const [lastCleanup, setLastCleanup] = useState('Never');
+
+  // Recommended default maintenance jobs (keeps the server healthy out of the box)
+  const [cronJobs, setCronJobs] = useState([
+    { id: 'metrics_prune', label: 'Metrics & log retention prune', desc: 'Trim time-series metrics and rotated logs past retention.', schedule: '0 3 * * *', enabled: true },
+    { id: 'system_junk', label: 'System junk cleanup', desc: 'Clear /tmp, orphan build artifacts, and expired snapshots.', schedule: '0 4 * * *', enabled: true },
+    { id: 'docker_prune', label: 'Docker system prune', desc: 'Dangling images, stopped containers, and build cache.', schedule: '30 4 * * *', enabled: true },
+    { id: 'ssl_renew', label: 'SSL certificate renewal', desc: "Renew Let's Encrypt / Caddy certificates before expiry.", schedule: '0 0,12 * * *', enabled: true },
+    { id: 'security_updates', label: 'Security OS updates', desc: 'Unattended security upgrades (apt unattended-upgrades).', schedule: '0 5 * * *', enabled: true },
+    { id: 'logrotate', label: 'Log rotation', desc: 'Rotate and compress service logs.', schedule: '0 2 * * *', enabled: true },
+    { id: 'db_maintenance', label: 'Database maintenance', desc: 'PostgreSQL VACUUM ANALYZE & MariaDB table optimize.', schedule: '0 3 * * 0', enabled: true },
+    { id: 'fstrim', label: 'SSD TRIM (fstrim)', desc: 'Discard unused blocks to keep NVMe/SSD performance.', schedule: '0 2 * * 0', enabled: true },
+    { id: 'smart_test', label: 'S.M.A.R.T. short self-test', desc: 'Weekly disk health self-test.', schedule: '0 1 * * 0', enabled: true },
+    { id: 'service_watchdog', label: 'Service watchdog', desc: 'Restart nginx/caddy/php-fpm/docker/cloudflared if down.', schedule: '*/5 * * * *', enabled: true },
+    { id: 'disk_alert', label: 'Disk & resource alerts', desc: 'Notify when disk or RAM crosses the threshold.', schedule: '*/15 * * * *', enabled: true },
+  ]);
+
+  const toggleCronJob = (id: string) => {
+    setCronJobs((prev) => prev.map((job) => (job.id === id ? { ...job, enabled: !job.enabled } : job)));
+  };
+
+  const handleRunCleanupNow = () => {
+    setIsPruningSystem(true);
+    setTimeout(() => {
+      setIsPruningSystem(false);
+      const systemMb = pruneSystemJunk ? Math.floor(120 + Math.random() * 400) : 0;
+      const dockerMb = pruneDocker ? Math.floor(200 + Math.random() * 900) : 0;
+      setLastCleanup(new Date().toLocaleString());
+      onShowToast?.(
+        'Cleanup Complete',
+        `Reclaimed ${systemMb} MB system junk${pruneDocker ? ` and ${dockerMb} MB Docker data` : ''}.`,
+        'success'
+      );
+    }, 1400);
+  };
 
   // Global PHP Extensions Blueprint Settings
   const [globalPhpExtensions, setGlobalPhpExtensions] = useState<PhpExtensionItem[]>(MASTER_PHP_EXTENSIONS);
@@ -284,6 +331,18 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           >
             <Cpu className="w-4 h-4" />
             <span>PHP Stack & Default Exts</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('maintenance')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
+              activeTab === 'maintenance'
+                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>System & Cleanup</span>
           </button>
         </div>
 
@@ -906,7 +965,173 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             </div>
           )}
 
-          {/* 5. NOTIFICATIONS */}
+          {/* 5. SYSTEM & DOCKER CLEANUP */}
+          {activeTab === 'maintenance' && (
+            <div className="space-y-6 max-w-3xl">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">System & Docker Cleanup</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Reclaim disk space by pruning junk files and unused Docker resources. Last run: <strong className="text-slate-600">{lastCleanup}</strong>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRunCleanupNow}
+                  disabled={isPruningSystem}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 transition-colors shadow-2xs shrink-0"
+                >
+                  <RotateCw className={`w-3.5 h-3.5 ${isPruningSystem ? 'animate-spin' : ''}`} />
+                  <span>{isPruningSystem ? 'Cleaning...' : 'Run Cleanup Now'}</span>
+                </button>
+              </div>
+
+              {/* Prune sources */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pruneSystemJunk}
+                      onChange={(e) => setPruneSystemJunk(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded text-blue-600 border-slate-300"
+                    />
+                    <div>
+                      <span className="text-sm font-bold text-slate-900 block">System junk</span>
+                      <span className="text-xs text-slate-500">Rotated logs, /tmp, orphan build artifacts, expired snapshots.</span>
+                    </div>
+                  </label>
+                  {pruneSystemJunk && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Keep files newer than</label>
+                      <select
+                        value={systemJunkRetentionDays}
+                        onChange={(e) => setSystemJunkRetentionDays(Number(e.target.value))}
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl"
+                      >
+                        <option value={1}>1 Day</option>
+                        <option value={3}>3 Days</option>
+                        <option value={7}>7 Days</option>
+                        <option value={30}>30 Days</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pruneDocker}
+                      onChange={(e) => setPruneDocker(e.target.checked)}
+                      className="mt-0.5 w-4 h-4 rounded text-blue-600 border-slate-300"
+                    />
+                    <div>
+                      <span className="text-sm font-bold text-slate-900 block">Docker resources</span>
+                      <span className="text-xs text-slate-500">Equivalent to <code className="font-mono">docker system prune</code>.</span>
+                    </div>
+                  </label>
+                  {pruneDocker && (
+                    <div className="grid grid-cols-1 gap-2 text-xs">
+                      {[
+                        { label: 'Dangling images', checked: dockerPruneDanglingImages, set: setDockerPruneDanglingImages },
+                        { label: 'Stopped containers', checked: dockerPruneStoppedContainers, set: setDockerPruneStoppedContainers },
+                        { label: 'Unused volumes', checked: dockerPruneUnusedVolumes, set: setDockerPruneUnusedVolumes },
+                        { label: 'Build cache', checked: dockerPruneBuildCache, set: setDockerPruneBuildCache },
+                      ].map((opt) => (
+                        <label key={opt.label} className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50/60 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={opt.checked}
+                            onChange={(e) => opt.set(e.target.checked)}
+                            className="w-4 h-4 rounded text-blue-600 border-slate-300"
+                          />
+                          <span className="text-slate-700">{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Scheduler */}
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
+                <label className="flex items-center justify-between cursor-pointer">
+                  <div>
+                    <span className="text-sm font-bold text-slate-900 block">Automatic Cleanup</span>
+                    <span className="text-xs text-slate-500">Run the prune sources above on a schedule.</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={autoCleanupEnabled}
+                    onChange={(e) => setAutoCleanupEnabled(e.target.checked)}
+                    className="w-4 h-4 rounded text-purple-600 border-slate-300"
+                  />
+                </label>
+                {autoCleanupEnabled && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Cron Schedule</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={cleanupCron}
+                        onChange={(e) => setCleanupCron(e.target.value)}
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono"
+                      />
+                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-1.5 rounded-lg whitespace-nowrap">04:00 AM Daily</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Recommended default maintenance jobs */}
+              <div className="rounded-2xl border border-slate-200 bg-white shadow-2xs overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-slate-100">
+                  <h3 className="text-sm font-bold text-slate-900">Recommended Default Cron Jobs</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">Enabled by default to keep the host healthy. Toggle any job off if unneeded.</p>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {cronJobs.map((job) => (
+                    <div key={job.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="text-xs font-semibold text-slate-800 block">{job.label}</span>
+                        <span className="text-[11px] text-slate-500 block">{job.desc}</span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <code className={`text-[10px] px-2 py-1 rounded font-mono ${job.enabled ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'}`}>
+                          {job.schedule}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => toggleCronJob(job.id)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors cursor-pointer ${
+                            job.enabled ? 'bg-blue-600' : 'bg-slate-200'
+                          }`}
+                          title={job.enabled ? 'Disable job' : 'Enable job'}
+                        >
+                          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ${job.enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSaveAll}
+                  disabled={isSaving}
+                  className="px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-500/25 transition-all flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Save Cleanup Policy</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 6. NOTIFICATIONS */}
           {activeTab === 'notifications' && (
             <div className="space-y-6 max-w-2xl">
               <div className="flex items-center justify-between">
