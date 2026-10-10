@@ -34,6 +34,8 @@ Changes in Phase 1 (React UI prototype):
 - **Historical Trends**: the charts fill the card they are given (measured width, no letterboxing) and hovering shows the timestamp as well as the value.
 - **Version discipline**: one source — the daemon's version from `/health`, else `frontend/src/version.ts`; the footer no longer invents its own number.
 - **Navigation rules**: menu changes start at the top of the page, the Terminal menu always starts at the session picker, the black "Terminal root" button scrolls the shell into view, and switching tabs does not move the page.
+- **The address bar always matches the screen**: a path that is not a panel route (e.g. `/asdasdasd`) is corrected to the route actually shown and explained with a toast, and `/apps/<unknown>` returns to the website list instead of half-loading it. The daemon answers an unknown `/api/*` route with a JSON `404` (never the SPA), while page paths keep the SPA fallback deep links need.
+- **Monitoring shows the daemon's numbers**: CPU (with real cores and load average), memory, host filesystem, disk/network rates and the trend charts come from `GET /system/metrics` + `GET /system/capabilities`; anything the daemon cannot provide is labelled instead of faked, and without a daemon the page says "Simulation (mock data)".
 
 > **Versioning note:** the panel is still a prototype, so the document stays on
 > **0.1** until the milestone is reached (see the versioning policy at the top):
