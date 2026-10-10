@@ -98,7 +98,8 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   const port = database.port || (
     database.type === 'postgres' ? 5432 :
     database.type === 'mysql' || database.type === 'mariadb' ? 3306 :
-    database.type === 'mongodb' ? 27017 : 6379
+    database.type === 'mongodb' ? 27017 :
+    database.type === 'sqlite' ? 0 : 6379
   );
 
   // Generate Direct Connection URL String
@@ -114,6 +115,8 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
         return `mongodb://${database.username}:${pwd}@${host}:${port}/${database.name}?authSource=admin`;
       case 'redis':
         return `redis://:${pwd}@${host}:${port}/0`;
+      case 'sqlite':
+        return `sqlite:///home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`;
     }
   };
 
@@ -150,6 +153,10 @@ REDIS_URL="redis://:${pwd}@${host}:${port}/0"
 REDIS_HOST=${host}
 REDIS_PORT=${port}
 REDIS_PASSWORD=${pwd}`;
+      case 'sqlite':
+        return `# SQLite (file-based, no daemon)
+DB_CONNECTION=sqlite
+DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`;
     }
   };
 
@@ -182,6 +189,8 @@ REDIS_PASSWORD=${pwd}`;
         return { bg: 'bg-emerald-100 text-emerald-800', label: 'MongoDB', port: 27017 };
       case 'redis':
         return { bg: 'bg-rose-100 text-rose-700', label: 'Redis Cache', port: 6379 };
+      case 'sqlite':
+        return { bg: 'bg-slate-100 text-slate-700', label: 'SQLite', port: 0 };
     }
   };
 

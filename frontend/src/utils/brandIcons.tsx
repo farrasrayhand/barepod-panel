@@ -29,6 +29,7 @@ import {
   SiDocker,
   SiCloudflare,
   SiPhpmyadmin,
+  SiSqlite,
 } from 'react-icons/si';
 
 export const runtimeIcon: Record<string, IconType> = {
@@ -64,6 +65,7 @@ export const dbIcon: Record<string, IconType> = {
   mariadb: SiMariadb,
   mongodb: SiMongodb,
   redis: SiRedis,
+  sqlite: SiSqlite,
 };
 
 export const webServerIcon: Record<string, IconType> = {

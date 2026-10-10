@@ -34,6 +34,9 @@ export const AVAILABLE_ENGINE_VERSIONS: Record<DatabaseEngine, EngineOption[]> =
   redis: [
     { version: 'Redis 7.2.4', port: 6379, label: 'Redis 7.2.4 ACL (Port 6379)', statusText: 'Shared Daemon Active' },
   ],
+  sqlite: [
+    { version: 'SQLite 3.46', port: 0, label: 'SQLite 3.46 (file-based, no daemon)', statusText: 'Embedded — no shared daemon' },
+  ],
 };
 
 export const ENGINE_LABELS: Record<DatabaseEngine, string> = {
@@ -42,4 +45,5 @@ export const ENGINE_LABELS: Record<DatabaseEngine, string> = {
   mariadb: 'MariaDB',
   mongodb: 'MongoDB',
   redis: 'Redis Cache',
+  sqlite: 'SQLite (file)',
 };

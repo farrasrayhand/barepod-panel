@@ -179,6 +179,8 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         return { bg: 'bg-emerald-100 text-emerald-800', label: 'MG', name: 'MongoDB 7' };
       case 'redis':
         return { bg: 'bg-rose-100 text-rose-700', label: 'RD', name: 'Redis Cache' };
+      case 'sqlite':
+        return { bg: 'bg-slate-100 text-slate-700', label: 'SQ', name: 'SQLite 3' };
     }
   };
 
@@ -197,6 +199,9 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         break;
       case 'redis':
         uri = `redis://:••••••••@127.0.0.1:6379/0`;
+        break;
+      case 'sqlite':
+        uri = `sqlite:///home/${db.tenantUser ?? 'user'}/apps/${db.name}.sqlite`;
         break;
     }
     navigator.clipboard?.writeText(uri);

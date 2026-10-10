@@ -1,24 +1,35 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  X, 
-  Layers, 
-  Globe, 
-  Terminal, 
-  CloudRain, 
-  ShieldCheck, 
-  Database, 
-  Check, 
+import React, { useMemo, useState } from 'react';
+import {
+  X,
+  Layers,
+  Globe,
+  Terminal,
+  CloudRain,
+  ShieldCheck,
+  Database,
+  Check,
   Server,
-  Sparkles,
   Zap,
   ArrowRightLeft,
   Wifi,
   Copy,
-  Code2
+  Code2,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  Upload,
+  Download,
+  FolderOpen,
+  Lock,
+  GitBranch,
+  KeyRound,
 } from 'lucide-react';
 import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../types';
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
 import { AVAILABLE_ENGINE_VERSIONS, ENGINE_LABELS } from '../data/databaseEngines';
+import { getProvisionPlan } from '../data/frameworkProvision';
 
 interface AddAppModalProps {
   isOpen: boolean;
@@ -26,128 +37,151 @@ interface AddAppModalProps {
   onAddApp: (newApp: Partial<WebApp>) => void;
 }
 
-export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAddApp }) => {
-  // App Mode: standard app (language runtime) vs pure reverse proxy vs static site
-  const [appMode, setAppMode] = useState<'standard' | 'proxy' | 'static'>('standard');
+type WizardStep = 'basics' | 'engine' | 'source' | 'database' | 'upstream' | 'review';
+type SourceKind = 'scaffold' | 'github' | 'upload' | 'existing';
 
+const stepsForMode = (mode: 'standard' | 'proxy' | 'static'): { id: WizardStep; label: string }[] => {
+  if (mode === 'proxy') {
+    return [
+      { id: 'basics', label: 'Basics' },
+      { id: 'upstream', label: 'Upstream' },
+      { id: 'review', label: 'Review' },
+    ];
+  }
+  if (mode === 'static') {
+    return [
+      { id: 'basics', label: 'Basics' },
+      { id: 'engine', label: 'Engine' },
+      { id: 'source', label: 'Source' },
+      { id: 'review', label: 'Review' },
+    ];
+  }
+  return [
+    { id: 'basics', label: 'Basics' },
+    { id: 'engine', label: 'Engine & Runtime' },
+    { id: 'source', label: 'Source' },
+    { id: 'database', label: 'Database & Cache' },
+    { id: 'review', label: 'Review' },
+  ];
+};
+
+const defaultPortFor = (runtime: RuntimeType): number =>
+  runtime === 'php' ? 8001 : runtime === 'python' ? 5000 : runtime === 'nodejs' ? 3000 : runtime === 'static' ? 80 : 8080;
+
+export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAddApp }) => {
+  const [appMode, setAppMode] = useState<'standard' | 'proxy' | 'static'>('standard');
+  const [stepIndex, setStepIndex] = useState(0);
+
+  // Basics
   const [name, setName] = useState('');
   const [domain, setDomain] = useState('');
-  const [runtime, setRuntime] = useState<RuntimeType>('python');
-  const [framework, setFramework] = useState('Flask');
-  const [version, setVersion] = useState('3.12');
-  const [webServer, setWebServer] = useState<WebServerType>('openlitespeed');
   const [tenantUser, setTenantUser] = useState('farras');
   const [tunnelEnabled, setTunnelEnabled] = useState(true);
+
+  // Engine & runtime
+  const [webServer, setWebServer] = useState<WebServerType>('openlitespeed');
+  const [runtime, setRuntime] = useState<RuntimeType>('php');
+  const [framework, setFramework] = useState('Laravel 12');
+  const [version, setVersion] = useState('8.4');
+
+  // Source
+  const [sourceKind, setSourceKind] = useState<SourceKind>('scaffold');
+  const [gitRepo, setGitRepo] = useState('');
+  const [gitBranch, setGitBranch] = useState('main');
+  const [autoDeploy, setAutoDeploy] = useState(true);
+  const [uploadFile, setUploadFile] = useState<string | null>(null);
+
+  // Database
   const [createDb, setCreateDb] = useState(true);
-  const [dbType, setDbType] = useState<DatabaseEngine>('mongodb');
+  const [dbType, setDbType] = useState<DatabaseEngine>('postgres');
   const [dbVersionIndex, setDbVersionIndex] = useState(0);
+  const [dbName, setDbName] = useState('');
+  const [dbUser, setDbUser] = useState('');
+  const [dbPassword, setDbPassword] = useState('bp_' + Math.random().toString(36).slice(2, 12));
+  const [showDbPassword, setShowDbPassword] = useState(false);
+  const [maxConnections, setMaxConnections] = useState(25);
+  const [autoEnv, setAutoEnv] = useState(true);
 
-  useEffect(() => {
-    setDbVersionIndex(0);
-  }, [dbType]);
-
-  // Reverse Proxy Specific State
+  // Proxy
   const [upstreamUrl, setUpstreamUrl] = useState('http://127.0.0.1:8080');
   const [proxyWebsocket, setProxyWebsocket] = useState(true);
   const [proxyPreserveHost, setProxyPreserveHost] = useState(true);
   const [proxyRealIp, setProxyRealIp] = useState(true);
   const [proxyTimeoutSecs, setProxyTimeoutSecs] = useState(60);
-  const [clientMaxBodyMB, setClientMaxBodyMB] = useState(100);
+  const [clientMaxBodyMB] = useState(100);
+
   const [copiedConfig, setCopiedConfig] = useState(false);
 
-  if (!isOpen) return null;
+  const runtimeConfigs: Record<RuntimeType, { versions: string[]; frameworks: string[] }> = useMemo(
+    () => ({
+      php: {
+        versions: ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4'],
+        frameworks: [
+          'Generic (bring your own code)',
+          'Laravel 13',
+          'Laravel 12',
+          'Symfony 8',
+          'Symfony 7',
+          'CodeIgniter 4',
+          'CakePHP 5',
+          'Slim 4',
+          'Laminas',
+          'Yii 2',
+          'WordPress',
+          'WooCommerce',
+          'Drupal 11',
+          'Drupal 10',
+          'Joomla 6',
+          'Contao 4',
+          'Neos 9',
+          'TYPO3 14',
+          'Nextcloud 34',
+          'OwnCloud 12',
+          'Moodle 5',
+          'Matomo 5',
+          'Mautic 7',
+          'Magento 2',
+          'PrestaShop 1.7',
+          'Shopware 6',
+          'WHMCS',
+        ],
+      },
+      python: {
+        versions: ['3.12', '3.11', '3.10'],
+        frameworks: ['Flask', 'FastAPI', 'Django', 'Generic (bring your own code)'],
+      },
+      nodejs: {
+        versions: ['22 LTS', '20 LTS', '18'],
+        frameworks: ['Next.js', 'Nuxt', 'Astro', 'Express', 'NestJS', 'Generic (bring your own code)'],
+      },
+      go: { versions: ['1.23', '1.22'], frameworks: ['Gin', 'Fiber', 'Standard HTTP'] },
+      rust: { versions: ['1.81', '1.80'], frameworks: ['Axum', 'Actix-web'] },
+      ruby: { versions: ['3.3', '3.2'], frameworks: ['Ruby on Rails', 'Sinatra'] },
+      docker: { versions: ['Latest'], frameworks: ['Custom Containerfile'] },
+      static: { versions: ['HTML5'], frameworks: ['Static Web App', 'Vite Dist', 'Astro Static'] },
+      proxy: { versions: ['v1.0'], frameworks: ['Reverse Proxy Forwarder'] },
+    }),
+    [],
+  );
 
-  const runtimeConfigs: Record<RuntimeType, { versions: string[]; frameworks: string[] }> = {
-    php: {
-      versions: ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4'],
-      frameworks: [
-        'Generic',
-        'CakePHP 5',
-        'CodeIgniter 4',
-        'Contao 4',
-        'Drupal 10',
-        'Drupal 11',
-        'Joomla 6',
-        'Laminas',
-        'Laravel 12',
-        'Laravel 13',
-        'Magento 2',
-        'Matomo 5',
-        'Mautic 7',
-        'Moodle 5',
-        'Neos 9',
-        'Nextcloud 34',
-        'OwnCloud 12',
-        'PrestaShop 1.7',
-        'Shopware 6',
-        'Slim 4',
-        'Symfony 7',
-        'Symfony 8',
-        'TYPO3 14',
-        'WHMCS',
-        'WooCommerce',
-        'WordPress',
-        'Yii 2'
-      ]
-    },
-    python: {
-      versions: ['3.12', '3.11', '3.10'],
-      frameworks: ['Flask', 'FastAPI', 'Django', 'Custom Python']
-    },
-    nodejs: {
-      versions: ['22 LTS', '20 LTS', '18'],
-      frameworks: ['Next.js', 'Express', 'NestJS', 'Astro', 'Custom Node']
-    },
-    go: {
-      versions: ['1.23', '1.22'],
-      frameworks: ['Gin', 'Fiber', 'Standard HTTP']
-    },
-    rust: {
-      versions: ['1.81', '1.80'],
-      frameworks: ['Axum', 'Actix-web']
-    },
-    ruby: {
-      versions: ['3.3', '3.2'],
-      frameworks: ['Ruby on Rails', 'Sinatra']
-    },
-    docker: {
-      versions: ['Latest'],
-      frameworks: ['Custom Containerfile']
-    },
-    static: {
-      versions: ['HTML5'],
-      frameworks: ['Static Web App', 'Vite Dist', 'Astro Static']
-    },
-    proxy: {
-      versions: ['v1.0'],
-      frameworks: ['Reverse Proxy Forwarder']
-    }
-  };
+  const steps = stepsForMode(appMode);
+  const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
+  const currentStepId = currentStep?.id ?? 'basics';
 
-  const handleRuntimeChange = (selectedRuntime: RuntimeType) => {
-    setRuntime(selectedRuntime);
-    const cfg = runtimeConfigs[selectedRuntime];
-    setVersion(cfg.versions[0] || 'latest');
-    setFramework(cfg.frameworks[0] || 'Standard');
-    if (selectedRuntime === 'php') {
-      setDbType('mysql');
-      setWebServer('openlitespeed');
-    } else if (selectedRuntime === 'python') {
-      setDbType('postgres');
-      setWebServer('nginx');
-    } else if (selectedRuntime === 'nodejs') {
-      setDbType('mongodb');
-      setWebServer('caddy');
-    }
-  };
+  const dbVersions = AVAILABLE_ENGINE_VERSIONS[dbType] ?? [];
+  const activeDbVersion = dbVersions[Math.min(dbVersionIndex, dbVersions.length - 1)];
+  const isSqlite = dbType === 'sqlite';
+
+  const plan = getProvisionPlan(runtime, framework, version);
+  const effectiveSource: SourceKind = appMode === 'static' && sourceKind === 'scaffold' ? 'upload' : sourceKind;
 
   const handleModeSwitch = (mode: 'standard' | 'proxy' | 'static') => {
     setAppMode(mode);
+    setStepIndex(0);
     if (mode === 'proxy') {
       setRuntime('proxy');
       setVersion('v1.0');
-      setFramework('Reverse Proxy (Upstream)');
-      setWebServer('nginx'); // default best for reverse proxy
+      setWebServer('nginx');
       setCreateDb(false);
     } else if (mode === 'static') {
       setRuntime('static');
@@ -156,76 +190,47 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
       setWebServer('caddy');
       setCreateDb(false);
     } else {
-      setRuntime('python');
-      setVersion('3.12');
-      setFramework('Flask');
+      setRuntime('php');
+      setVersion('8.4');
+      setFramework('Laravel 12');
       setWebServer('openlitespeed');
       setCreateDb(true);
     }
   };
 
-  // Extract numeric port from upstreamUrl if possible
-  const getPortFromUpstream = (url: string): number => {
-    try {
-      const match = url.match(/:(\d+)/);
-      return match ? parseInt(match[1], 10) : 8080;
-    } catch {
-      return 8080;
-    }
+  const handleRuntimeChange = (next: RuntimeType) => {
+    setRuntime(next);
+    const cfg = runtimeConfigs[next];
+    setVersion(cfg.versions[0] || 'latest');
+    setFramework(cfg.frameworks[0] || 'Generic (bring your own code)');
+    if (next === 'php') setWebServer('openlitespeed');
+    else if (next === 'python') setWebServer('nginx');
+    else if (next === 'nodejs') setWebServer('caddy');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !domain) return;
-
-    if (appMode === 'proxy') {
-      const parsedPort = getPortFromUpstream(upstreamUrl);
-      onAddApp({
-        name,
-        domain,
-        runtime: 'proxy',
-        version: 'v1.0',
-        framework: 'Reverse Proxy (Upstream)',
-        webServer,
-        tenantUser,
-        tunnelEnabled,
-        ssl: true,
-        port: parsedPort,
-        upstreamUrl,
-        proxyWebsocket,
-        proxyPreserveHost,
-        proxyRealIp,
-        proxyTimeoutSecs,
-        memoryUsage: '14 MB',
-        cpuUsage: '0.1%',
-        status: 'running',
-        tunnelRoute: tunnelEnabled ? `${domain} -> ${upstreamUrl.replace(/^https?:\/\//, '')}` : undefined,
-      });
-    } else {
-      onAddApp({
-        name,
-        domain,
-        runtime,
-        version,
-        framework,
-        webServer,
-        tenantUser,
-        tunnelEnabled,
-        ssl: true,
-        port: 8000 + Math.floor(Math.random() * 900),
-        memoryUsage: '36 MB',
-        cpuUsage: '0.1%',
-        status: 'running',
-      });
+  const envPreview = useMemo(() => {
+    if (!createDb) return '';
+    const base = `APP_ENV=production\nAPP_URL=https://${domain || 'example.com'}\n`;
+    if (isSqlite) {
+      return `${base}\n# SQLite (file-based, no daemon)\nDB_CONNECTION=sqlite\nDB_DATABASE=/home/${tenantUser}/apps/${name || 'website'}/${dbName || 'database'}.sqlite`;
     }
+    const host = '127.0.0.1';
+    const port = activeDbVersion?.port ?? 0;
+    if (dbType === 'postgres') {
+      return `${base}\nDB_CONNECTION=pgsql\nDB_HOST=${host}\nDB_PORT=${port}\nDB_DATABASE=${dbName}\nDB_USERNAME=${dbUser}\nDB_PASSWORD=${dbPassword}`;
+    }
+    if (dbType === 'mysql' || dbType === 'mariadb') {
+      return `${base}\nDB_CONNECTION=mysql\nDB_HOST=${host}\nDB_PORT=${port}\nDB_DATABASE=${dbName}\nDB_USERNAME=${dbUser}\nDB_PASSWORD=${dbPassword}`;
+    }
+    if (dbType === 'mongodb') {
+      return `${base}\nMONGODB_URI="mongodb://${dbUser}:${dbPassword}@${host}:${port}/${dbName}?authSource=admin"`;
+    }
+    return `${base}\nREDIS_HOST=${host}\nREDIS_PORT=${port}\nREDIS_PASSWORD=${dbPassword}`;
+  }, [createDb, dbType, dbName, dbUser, dbPassword, domain, name, tenantUser, isSqlite, activeDbVersion]);
 
-    onClose();
-  };
-
-  // Generated config preview string
   const getGeneratedConfig = () => {
     const dName = domain || 'example.com';
-    const upTarget = upstreamUrl || 'http://127.0.0.1:8080';
+    const upTarget = appMode === 'proxy' ? upstreamUrl || 'http://127.0.0.1:8080' : `http://127.0.0.1:${defaultPortFor(runtime)}`;
 
     if (webServer === 'caddy') {
       return `${dName} {
@@ -242,7 +247,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
     }
 
     if (webServer === 'openlitespeed') {
-      return `extprocessor ${name || 'app'}_proxy {
+      return `extprocessor ${name || 'website'}_proxy {
     type proxy
     address ${upTarget.replace(/^https?:\/\//, '')}
     maxConns 200
@@ -252,18 +257,14 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
 
 context / {
     type proxy
-    handler ${name || 'app'}_proxy
+    handler ${name || 'website'}_proxy
     addDefaultCharset off
 }`;
     }
 
     if (webServer === 'apache') {
       const cleanUp = upTarget.replace(/^https?:\/\//, '');
-      return `# ==============================================================================
-# Apache 2.4 VirtualHost Reverse Proxy Configuration
-# Domain: ${dName} | Generated by BarePod Panel Daemon
-# ==============================================================================
-<VirtualHost *:80 *:443>
+      return `<VirtualHost *:80 *:443>
     ServerName ${dName}
     ProxyPreserveHost ${proxyPreserveHost ? 'On' : 'Off'}
     ProxyRequests Off
@@ -274,16 +275,12 @@ ${proxyWebsocket ? `        RewriteEngine On
         RewriteCond %{HTTP:Upgrade} websocket [NC]
         RewriteCond %{HTTP:Connection} upgrade [NC]
         RewriteRule ^/?(.*) "ws://${cleanUp}/$1" [P,L]
-` : ''}${proxyRealIp ? `        RequestHeader set X-Real-IP %{REMOTE_ADDR}s
-        RequestHeader set X-Forwarded-For %{REMOTE_ADDR}s
-        RequestHeader set X-Forwarded-Proto %{REQUEST_SCHEME}s
 ` : ''}        ProxyPass ${upTarget}/
         ProxyPassReverse ${upTarget}/
     </Location>
 </VirtualHost>`;
     }
 
-    // Default Nginx
     return `server {
     listen 80;
     listen 443 ssl http2;
@@ -297,18 +294,78 @@ ${proxyWebsocket ? `        RewriteEngine On
     location / {
         proxy_pass ${upTarget};
         proxy_http_version 1.1;
-${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";\n` : ''}${proxyPreserveHost ? `        proxy_set_header Host $host;\n` : ''}${proxyRealIp ? `        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;\n` : ''}        proxy_read_timeout ${proxyTimeoutSecs}s;
-        proxy_connect_timeout 15s;
+${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n' : ''}${proxyPreserveHost ? '        proxy_set_header Host $host;\n' : ''}${proxyRealIp ? '        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n' : ''}        proxy_read_timeout ${proxyTimeoutSecs}s;
     }
 }`;
   };
 
+  if (!isOpen) return null;
+
+  const canContinue = currentStepId !== 'basics' || (name.trim() !== '' && domain.trim() !== '');
+
+  const next = () => setStepIndex((i) => Math.min(i + 1, steps.length - 1));
+  const back = () => setStepIndex((i) => Math.max(i - 1, 0));
+
+  const handleDeploy = () => {
+    const resolvedPort = appMode === 'proxy'
+      ? Number((upstreamUrl.match(/:(\d+)/) || [])[1] || 8080)
+      : defaultPortFor(runtime);
+
+    const buildScript =
+      effectiveSource === 'github'
+        ? `git pull origin ${gitBranch || 'main'}\n${plan.steps.join('\n')}`
+        : plan.steps.join('\n');
+
+    onAddApp({
+      name,
+      domain,
+      runtime,
+      version,
+      framework,
+      webServer,
+      tenantUser,
+      tunnelEnabled,
+      ssl: true,
+      port: resolvedPort,
+      memoryUsage: '36 MB',
+      cpuUsage: '0.1%',
+      status: 'running',
+      upstreamUrl: appMode === 'proxy' ? upstreamUrl : undefined,
+      proxyWebsocket,
+      proxyPreserveHost,
+      proxyRealIp,
+      proxyTimeoutSecs,
+      dbAutoProvision: createDb,
+      dbEngine: createDb ? dbType : undefined,
+      dbName: createDb ? dbName || `${name}_db` : undefined,
+      dbUser: createDb ? dbUser : undefined,
+      autoEnv,
+      provisionMode: effectiveSource === 'scaffold' ? 'download' : 'generic',
+      automationSteps: plan.steps.length ? plan.steps : undefined,
+      gitRepo: effectiveSource === 'github' ? gitRepo : undefined,
+      gitBranch: effectiveSource === 'github' ? gitBranch : undefined,
+      autoDeploy: effectiveSource === 'github' ? autoDeploy : undefined,
+      buildScript: buildScript || undefined,
+    });
+
+    onClose();
+    resetForm();
+  };
+
+  const resetForm = () => {
+    setStepIndex(0);
+    setName('');
+    setDomain('');
+  };
+
+  const inputClass =
+    'w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500';
+  const cardChoice = (active: boolean) =>
+    active ? 'border-blue-600 bg-blue-50/80 text-blue-900 ring-2 ring-blue-500/15' : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
@@ -317,584 +374,562 @@ ${proxyWebsocket ? `        proxy_set_header Upgrade $http_upgrade;
             </div>
             <div>
               <h2 className="text-base font-semibold text-slate-900">Deploy New Website</h2>
-              <p className="text-xs text-slate-500">Choose web server (OLS/Nginx/Caddy/Apache) & runtime framework</p>
+              <p className="text-xs text-slate-500">Guided setup — engine, runtime, source, database and automation.</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          >
+          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Form Body (Scrollable) */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5">
-          {/* App Mode Switcher */}
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { id: 'standard' as const, label: 'Full Web App', sub: 'PHP · Python · Node', icon: Zap, accent: 'text-blue-600 bg-blue-50' },
-              { id: 'proxy' as const, label: 'Reverse Proxy', sub: 'Forward port / IP', icon: ArrowRightLeft, accent: 'text-purple-600 bg-purple-50' },
-              { id: 'static' as const, label: 'Static / SPA', sub: 'HTML · Vite · Astro', icon: Globe, accent: 'text-emerald-600 bg-emerald-50' },
-            ].map((mode) => {
-              const Icon = mode.icon;
-              const isActive = appMode === mode.id;
-              return (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() => handleModeSwitch(mode.id)}
-                  className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border text-center transition-all ${
-                    isActive
-                      ? 'border-blue-500 bg-blue-50/60 ring-1 ring-blue-500/20'
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}
-                >
-                  <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${mode.accent}`}>
-                    <Icon className="w-3.5 h-3.5" />
-                  </span>
-                  <span className={`text-[11px] font-bold leading-tight ${isActive ? 'text-blue-700' : 'text-slate-700'}`}>
-                    {mode.label}
-                  </span>
-                  <span className="text-[10px] text-slate-400 leading-tight">{mode.sub}</span>
-                </button>
-              );
-            })}
-          </div>
+        {/* Stepper */}
+        <div className="px-6 py-3 border-b border-slate-100 flex items-center gap-1.5 overflow-x-auto shrink-0">
+          {steps.map((s, i) => {
+            const state = i === stepIndex ? 'active' : i < stepIndex ? 'done' : 'todo';
+            return (
+              <button
+                key={s.id}
+                onClick={() => i <= stepIndex && setStepIndex(i)}
+                disabled={i > stepIndex}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  state === 'active'
+                    ? 'bg-blue-600 text-white'
+                    : state === 'done'
+                      ? 'bg-blue-50 text-blue-700 cursor-pointer'
+                      : 'bg-slate-100 text-slate-400'
+                }`}
+              >
+                <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${state === 'active' ? 'bg-white/20' : state === 'done' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                  {state === 'done' ? '✓' : i + 1}
+                </span>
+                <span>{s.label}</span>
+              </button>
+            );
+          })}
+        </div>
 
-          {/* Website Name & Domain */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                {appMode === 'proxy' ? 'Proxy Identifier Name' : 'Website Name'}
-              </label>
-              <input
-                type="text"
-                required
-                placeholder={appMode === 'proxy' ? 'e.g. docker-n8n-proxy' : 'e.g. flask-sentiment-api'}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Domain Name (FQDN)
-              </label>
-              <input
-                type="text"
-                required
-                placeholder={appMode === 'proxy' ? 'api.domain.com' : 'app.sentiment.id'}
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono"
-              />
-            </div>
-          </div>
+        {/* Body */}
+        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+          {/* STEP: BASICS */}
+          {currentStepId === 'basics' && (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'standard' as const, label: 'Full Web App', sub: 'PHP · Python · Node', icon: Zap },
+                  { id: 'proxy' as const, label: 'Reverse Proxy', sub: 'Forward port / IP', icon: ArrowRightLeft },
+                  { id: 'static' as const, label: 'Static / SPA', sub: 'HTML · Vite · Astro', icon: Globe },
+                ].map((mode) => {
+                  const Icon = mode.icon;
+                  const active = appMode === mode.id;
+                  return (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() => handleModeSwitch(mode.id)}
+                      className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border text-center transition-all ${cardChoice(active)}`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span className="text-[11px] font-bold leading-tight">{mode.label}</span>
+                      <span className="text-[10px] text-slate-400 leading-tight">{mode.sub}</span>
+                    </button>
+                  );
+                })}
+              </div>
 
-          {/* ============================================================ */}
-          {/* MODE 1: REVERSE PROXY ONLY CONFIGURATION                     */}
-          {/* ============================================================ */}
-          {appMode === 'proxy' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              {/* Upstream Destination URL */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Target Upstream Destination (Internal Port / IP / UNIX Socket)
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    value={upstreamUrl}
-                    onChange={(e) => setUpstreamUrl(e.target.value)}
-                    placeholder="http://127.0.0.1:8080 or unix:/run/app.sock"
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-purple-200 rounded-lg font-mono text-purple-900 focus:outline-hidden focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
-                  />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Website Name</label>
+                  <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. larastore-commerce" className={inputClass} />
                 </div>
-                
-                {/* Quick Presets */}
-                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                  <span className="text-[10px] text-slate-400 font-medium">Quick Presets:</span>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Domain (FQDN)</label>
+                  <input type="text" value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="app.example.com" className={inputClass} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Isolated Tenant User</label>
+                  <select value={tenantUser} onChange={(e) => setTenantUser(e.target.value)} className={inputClass}>
+                    <option value="farras">farras (Root Tenant)</option>
+                    <option value="tenant_alex">tenant_alex (Isolated Jail)</option>
+                    <option value="tenant_clientB">tenant_clientB (Isolated Jail)</option>
+                  </select>
+                </div>
+                <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
+                  <input type="checkbox" checked={tunnelEnabled} onChange={(e) => setTunnelEnabled(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-blue-600" />
+                  <span className="text-xs">
+                    <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                      <CloudRain className="w-3.5 h-3.5 text-blue-500" /> Cloudflare Tunnel (Zero-NAT)
+                    </span>
+                    <span className="text-slate-500 block mt-0.5">Publish the domain without a public IP or port forwarding.</span>
+                  </span>
+                </label>
+              </div>
+            </>
+          )}
+
+          {/* STEP: ENGINE & RUNTIME */}
+          {currentStepId === 'engine' && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-2">Web Server Engine</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    { id: 'openlitespeed' as WebServerType, label: 'OpenLiteSpeed', desc: 'LSCache + PHP/WP' },
+                    { id: 'nginx' as WebServerType, label: 'Nginx', desc: 'High concurrency' },
+                    { id: 'caddy' as WebServerType, label: 'Caddy', desc: 'Auto HTTPS & HTTP/3' },
+                    { id: 'apache' as WebServerType, label: 'Apache 2.4', desc: '.htaccess compat' },
+                  ].map((ws) => (
+                    <button
+                      key={ws.id}
+                      type="button"
+                      onClick={() => setWebServer(ws.id)}
+                      className={`p-2.5 rounded-xl border text-left transition-all ${cardChoice(webServer === ws.id)}`}
+                    >
+                      <span className="text-xs font-bold block">{ws.label}</span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">{ws.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {appMode === 'standard' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-2">Language & Runtime</label>
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                      {[
+                        { id: 'python' as RuntimeType, label: 'Python' },
+                        { id: 'php' as RuntimeType, label: 'PHP' },
+                        { id: 'nodejs' as RuntimeType, label: 'Node.js' },
+                        { id: 'go' as RuntimeType, label: 'Golang' },
+                        { id: 'rust' as RuntimeType, label: 'Rust' },
+                        { id: 'ruby' as RuntimeType, label: 'Ruby' },
+                      ].map((item) => {
+                        const RuntimeIcon = runtimeIcon[item.id] ?? Code2;
+                        const active = runtime === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => handleRuntimeChange(item.id)}
+                            className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all ${cardChoice(active)}`}
+                          >
+                            <RuntimeIcon className="w-4 h-4" />
+                            <span className="text-[11px]">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Framework / Template</label>
+                      <select value={framework} onChange={(e) => setFramework(e.target.value)} className={inputClass}>
+                        {runtimeConfigs[runtime].frameworks.map((fw) => (
+                          <option key={fw} value={fw}>{fw}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Version</label>
+                      <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass}>
+                        {runtimeConfigs[runtime].versions.map((ver) => (
+                          <option key={ver} value={ver}>{ver}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs space-y-1.5">
+                    <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                      <Download className="w-3.5 h-3.5 text-slate-500" />
+                      {plan.mode === 'download' ? 'This template will be downloaded' : 'No automatic download'}
+                    </span>
+                    {plan.install && <code className="block font-mono text-[11px] text-blue-700 bg-white border border-slate-200 rounded px-2 py-1">{plan.install}</code>}
+                    <p className="text-[11px] text-slate-500">{plan.note}</p>
+                  </div>
+                </>
+              )}
+
+              {appMode === 'static' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Static Template</label>
+                    <select value={framework} onChange={(e) => setFramework(e.target.value)} className={inputClass}>
+                      {runtimeConfigs.static.frameworks.map((fw) => (
+                        <option key={fw} value={fw}>{fw}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Build Tool Version</label>
+                    <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass}>
+                      {runtimeConfigs.static.versions.map((ver) => (
+                        <option key={ver} value={ver}>{ver}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* STEP: SOURCE */}
+          {currentStepId === 'source' && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { id: 'scaffold' as SourceKind, label: plan.mode === 'download' ? 'Scaffold / Download' : 'Scaffold (n/a)', icon: Download },
+                  { id: 'github' as SourceKind, label: 'GitHub Repository', icon: GitBranch },
+                  { id: 'upload' as SourceKind, label: 'Upload Archive', icon: Upload },
+                  { id: 'existing' as SourceKind, label: 'Existing Files', icon: FolderOpen },
+                ].map((opt) => {
+                  const Icon = opt.icon;
+                  const active = effectiveSource === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setSourceKind(opt.id)}
+                      className={`flex flex-col items-start gap-1.5 p-3 rounded-xl border transition-all ${cardChoice(active)}`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span className="text-[11px] font-bold leading-tight">{opt.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {effectiveSource === 'scaffold' && (
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs space-y-1.5">
+                  <p className="text-slate-600">
+                    The panel downloads <strong>{framework}</strong> ({version}) into <code className="font-mono">/home/{tenantUser}/apps/{name || '<website>'}</code>.
+                  </p>
+                  {plan.install ? (
+                    <code className="block font-mono text-[11px] text-blue-700 bg-white border border-slate-200 rounded px-2 py-1">{plan.install}</code>
+                  ) : (
+                    <p className="text-amber-700">No automated download for this template — use GitHub or Upload instead.</p>
+                  )}
+                </div>
+              )}
+
+              {effectiveSource === 'github' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Repository URL</label>
+                    <input type="text" value={gitRepo} onChange={(e) => setGitRepo(e.target.value)} placeholder="https://github.com/user/repo" className={inputClass} />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Branch</label>
+                      <input type="text" value={gitBranch} onChange={(e) => setGitBranch(e.target.value)} className={inputClass} />
+                    </div>
+                    <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer text-xs">
+                      <input type="checkbox" checked={autoDeploy} onChange={(e) => setAutoDeploy(e.target.checked)} className="rounded border-slate-300 text-blue-600" />
+                      <span className="font-semibold text-slate-700">Auto-deploy on push (webhook)</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {effectiveSource === 'upload' && (
+                <div className="p-5 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/60 text-center space-y-2">
+                  <Upload className="w-6 h-6 text-slate-400 mx-auto" />
+                  <p className="text-xs text-slate-600">Drop a <code className="font-mono">.zip</code> / <code className="font-mono">.tar.gz</code> archive (or upload it later in File Manager).</p>
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{uploadFile ? uploadFile : 'Choose archive'}</span>
+                    <input
+                      type="file"
+                      accept=".zip,.tar,.gz,.tgz"
+                      className="hidden"
+                      onChange={(e) => setUploadFile(e.target.files?.[0]?.name ?? null)}
+                    />
+                  </label>
+                  <p className="text-[10px] text-slate-400">The archive is extracted into the website directory on deploy.</p>
+                </div>
+              )}
+
+              {effectiveSource === 'existing' && (
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs text-slate-600 flex items-start gap-2">
+                  <FolderOpen className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                  <span>Your code is already in <code className="font-mono">/home/{tenantUser}/apps/{name || '<website>'}</code>. Only dependencies/build steps run.</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* STEP: DATABASE & CACHE */}
+          {currentStepId === 'database' && (
+            <>
+              <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
+                <input type="checkbox" checked={createDb} onChange={(e) => setCreateDb(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-blue-600" />
+                <span className="text-xs">
+                  <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                    <Database className="w-3.5 h-3.5 text-slate-700" /> Auto-provision database / cache
+                  </span>
+                  <span className="text-slate-500 block mt-0.5">Creates the database, a dedicated user with the password below, and writes it into .env.</span>
+                </span>
+              </label>
+
+              {createDb && (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {(['postgres', 'mysql', 'mariadb', 'mongodb', 'redis', 'sqlite'] as DatabaseEngine[]).map((engineId) => {
+                      const DbIcon = dbIcon[engineId] ?? Database;
+                      return (
+                        <button
+                          key={engineId}
+                          type="button"
+                          onClick={() => { setDbType(engineId); setDbVersionIndex(0); }}
+                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] transition-all ${cardChoice(dbType === engineId)}`}
+                        >
+                          <DbIcon className="w-3.5 h-3.5 shrink-0" />
+                          <span>{ENGINE_LABELS[engineId]}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Version &amp; Port</label>
+                      <select value={dbVersionIndex} onChange={(e) => setDbVersionIndex(Number(e.target.value))} className={`${inputClass} font-mono`}>
+                        {dbVersions.map((opt, i) => (
+                          <option key={opt.version} value={i}>{opt.label} — {opt.statusText}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Database Name</label>
+                      <input type="text" value={dbName} onChange={(e) => setDbName(e.target.value)} placeholder={`${name || 'website'}_db`} className={`${inputClass} font-mono`} />
+                    </div>
+                  </div>
+
+                  {!isSqlite && (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Username</label>
+                        <input type="text" value={dbUser} onChange={(e) => setDbUser(e.target.value)} placeholder={`${tenantUser}_user`} className={`${inputClass} font-mono`} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Password</label>
+                        <div className="relative">
+                          <input
+                            type={showDbPassword ? 'text' : 'password'}
+                            value={dbPassword}
+                            onChange={(e) => setDbPassword(e.target.value)}
+                            className={`${inputClass} pr-14 font-mono`}
+                          />
+                          <div className="absolute right-2 top-1.5 flex items-center gap-1">
+                            <button type="button" onClick={() => setShowDbPassword((v) => !v)} className="p-1 text-slate-400 hover:text-slate-600" title="Show/hide">
+                              {showDbPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                            <button type="button" onClick={() => setDbPassword('bp_' + Math.random().toString(36).slice(2, 14))} className="p-1 text-slate-400 hover:text-blue-600" title="Generate">
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Max Connections</label>
+                        <select value={maxConnections} onChange={(e) => setMaxConnections(Number(e.target.value))} className={inputClass}>
+                          <option value={15}>15</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {isSqlite && (
+                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs text-slate-600 flex items-start gap-2">
+                      <KeyRound className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                      <span>SQLite is file-based (no daemon, no credentials). The database file is created inside the website directory and referenced from .env.</span>
+                    </div>
+                  )}
+
+                  <label className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer">
+                    <input type="checkbox" checked={autoEnv} onChange={(e) => setAutoEnv(e.target.checked)} className="rounded border-slate-300 text-blue-600" />
+                    <span className="font-semibold">Generate <code className="font-mono">.env</code> automatically from this database</span>
+                  </label>
+
+                  {autoEnv && envPreview && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Generated .env preview</label>
+                      <pre className="p-3 bg-slate-950 text-emerald-300 font-mono text-[11px] rounded-xl border border-slate-800 overflow-x-auto leading-relaxed">{envPreview}</pre>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {/* STEP: UPSTREAM (proxy mode) */}
+          {currentStepId === 'upstream' && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Upstream URL / IP</label>
+                <input type="text" value={upstreamUrl} onChange={(e) => setUpstreamUrl(e.target.value)} className={`${inputClass} font-mono`} />
+                <div className="flex flex-wrap gap-1.5 mt-2">
                   {[
                     { label: '3000 (Node/Next)', val: 'http://127.0.0.1:3000' },
                     { label: '8080 (FastAPI/Go)', val: 'http://127.0.0.1:8080' },
                     { label: '5000 (Flask/Py)', val: 'http://127.0.0.1:5000' },
                     { label: '5678 (n8n Pod)', val: 'http://127.0.0.1:5678' },
                     { label: '9000 (Portainer)', val: 'http://127.0.0.1:9000' },
-                    { label: 'Remote LAN (10.0.0.5)', val: 'http://10.0.0.5:8000' },
-                  ].map(p => (
+                  ].map((preset) => (
                     <button
+                      key={preset.val}
                       type="button"
-                      key={p.val}
-                      onClick={() => setUpstreamUrl(p.val)}
-                      className="px-2 py-0.5 text-[10px] font-mono bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-md transition-colors"
+                      onClick={() => setUpstreamUrl(preset.val)}
+                      className="px-2 py-1 text-[10px] font-mono rounded border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
                     >
-                      {p.label}
+                      {preset.label}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Web Server Engine Selection */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-2">
-                  Reverse Proxy Server Engine
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer text-xs">
+                  <input type="checkbox" checked={proxyWebsocket} onChange={(e) => setProxyWebsocket(e.target.checked)} className="rounded border-slate-300 text-blue-600" />
+                  <span className="font-semibold text-slate-700 flex items-center gap-1.5"><Wifi className="w-3.5 h-3.5 text-slate-500" /> WebSocket upgrade</span>
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {[
-                    { id: 'nginx' as WebServerType, label: 'Nginx', desc: 'Top Recommendation (Most Stable)' },
-                    { id: 'caddy' as WebServerType, label: 'Caddy', desc: 'Auto HTTPS & HTTP/3 QUIC' },
-                    { id: 'openlitespeed' as WebServerType, label: 'OpenLiteSpeed', desc: 'LSCache Reverse Proxy' },
-                    { id: 'apache' as WebServerType, label: 'Apache 2.4', desc: 'mod_proxy / ProxyPass' },
-                  ].map((ws) => (
-                    <button
-                      type="button"
-                      key={ws.id}
-                      onClick={() => setWebServer(ws.id)}
-                      className={`p-2.5 rounded-xl border text-left transition-all ${
-                        webServer === ws.id
-                          ? 'border-purple-600 bg-purple-50/80 text-purple-900 ring-2 ring-purple-500/15'
-                          : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                      }`}
-                    >
-                      <span className="text-xs font-bold block">{ws.label}</span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">{ws.desc}</span>
-                    </button>
+                <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer text-xs">
+                  <input type="checkbox" checked={proxyPreserveHost} onChange={(e) => setProxyPreserveHost(e.target.checked)} className="rounded border-slate-300 text-blue-600" />
+                  <span className="font-semibold text-slate-700">Preserve Host header</span>
+                </label>
+                <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer text-xs">
+                  <input type="checkbox" checked={proxyRealIp} onChange={(e) => setProxyRealIp(e.target.checked)} className="rounded border-slate-300 text-blue-600" />
+                  <span className="font-semibold text-slate-700">Forward client IP</span>
+                </label>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Timeout</label>
+                  <select value={proxyTimeoutSecs} onChange={(e) => setProxyTimeoutSecs(Number(e.target.value))} className={inputClass}>
+                    <option value={60}>60s (standard)</option>
+                    <option value={180}>180s (long-polling)</option>
+                    <option value={300}>300s (streaming)</option>
+                    <option value={600}>600s (heavy export)</option>
+                  </select>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* STEP: REVIEW */}
+          {currentStepId === 'review' && (
+            <>
+              <div className="rounded-xl border border-slate-200 divide-y divide-slate-100 text-xs">
+                {[
+                  ['Type', appMode === 'proxy' ? 'Reverse proxy' : appMode === 'static' ? 'Static / SPA' : 'Full web app'],
+                  ['Name', name || '—'],
+                  ['Domain', domain || '—'],
+                  ['Tenant user', tenantUser],
+                  ...(appMode !== 'proxy'
+                    ? ([
+                        ['Web server', webServer.toUpperCase()],
+                        ['Runtime', `${runtime.toUpperCase()} ${version}`],
+                        ['Framework', framework],
+                        ['Source', effectiveSource === 'scaffold' ? 'Scaffold / download' : effectiveSource === 'github' ? `GitHub ${gitRepo || '(repo)'} @ ${gitBranch}` : effectiveSource === 'upload' ? `Upload ${uploadFile ?? '(archive)'}` : 'Existing files'],
+                      ] as [string, string][])
+                    : ([['Upstream', upstreamUrl]] as [string, string][])),
+                  ...(appMode === 'standard'
+                    ? ([['Database', createDb ? `${ENGINE_LABELS[dbType]}${isSqlite ? '' : ` :${activeDbVersion?.port}`} → ${dbName || `${name}_db`}` : 'None']] as [string, string][])
+                    : []),
+                  ['Cloudflare Tunnel', tunnelEnabled ? 'Enabled' : 'Disabled'],
+                ].map(([label, value]) => (
+                  <div key={label} className="px-4 py-2.5 flex items-center justify-between gap-3">
+                    <span className="text-slate-400">{label}</span>
+                    <span className="font-semibold text-slate-800 text-right truncate">{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {appMode === 'standard' && plan.steps.length > 0 && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 text-xs space-y-1.5">
+                  <span className="font-semibold text-slate-800 block">Post-deploy automation</span>
+                  {plan.steps.map((step) => (
+                    <div key={step} className="flex items-center gap-2 text-slate-600">
+                      <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <code className="font-mono text-[11px] truncate">{step}</code>
+                    </div>
                   ))}
                 </div>
-              </div>
+              )}
 
-              {/* Proxy Protocol & Header Features */}
-              <div className="p-3.5 rounded-xl border border-purple-100 bg-purple-50/30 space-y-3">
-                <span className="text-xs font-bold text-slate-800 block">
-                  Ingress & Reverse Proxy Protocol Features
-                </span>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <label className="flex items-start gap-2.5 cursor-pointer bg-white p-2.5 rounded-lg border border-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={proxyWebsocket}
-                      onChange={(e) => setProxyWebsocket(e.target.checked)}
-                      className="mt-0.5 rounded text-purple-600 border-slate-300"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
-                        <Wifi className="w-3.5 h-3.5 text-purple-600" />
-                        WebSocket Upgrade
-                      </span>
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        Supports socket.io, Live Chat, Vite HMR, Streamlit, and SSE.
-                      </p>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-2.5 cursor-pointer bg-white p-2.5 rounded-lg border border-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={proxyPreserveHost}
-                      onChange={(e) => setProxyPreserveHost(e.target.checked)}
-                      className="mt-0.5 rounded text-purple-600 border-slate-300"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-slate-800">
-                        Preserve Host Header ($host)
-                      </span>
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        Forwards the client's original domain to the backend app.
-                      </p>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-2.5 cursor-pointer bg-white p-2.5 rounded-lg border border-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={proxyRealIp}
-                      onChange={(e) => setProxyRealIp(e.target.checked)}
-                      className="mt-0.5 rounded text-purple-600 border-slate-300"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-slate-800">
-                        Forward Real Client IP
-                      </span>
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        X-Real-IP, X-Forwarded-For, & X-Forwarded-Proto.
-                      </p>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-2.5 cursor-pointer bg-white p-2.5 rounded-lg border border-slate-200">
-                    <input
-                      type="checkbox"
-                      checked={tunnelEnabled}
-                      onChange={(e) => setTunnelEnabled(e.target.checked)}
-                      className="mt-0.5 rounded text-purple-600 border-slate-300"
-                    />
-                    <div>
-                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1">
-                        <CloudRain className="w-3.5 h-3.5 text-blue-500" />
-                        Cloudflare Zero-NAT Tunnel
-                      </span>
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        Expose the domain without opening public ports 80/443.
-                      </p>
-                    </div>
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Proxy Read Timeout
-                    </label>
-                    <select
-                      value={proxyTimeoutSecs}
-                      onChange={(e) => setProxyTimeoutSecs(Number(e.target.value))}
-                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
-                    >
-                      <option value={60}>60 seconds (Standard API)</option>
-                      <option value={180}>180 seconds (Long Polling)</option>
-                      <option value={300}>300 seconds (AI Streaming / LLM)</option>
-                      <option value={600}>600 seconds (Heavy Upload / ETL)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Client Max Body Size (Upload Limit)
-                    </label>
-                    <select
-                      value={clientMaxBodyMB}
-                      onChange={(e) => setClientMaxBodyMB(Number(e.target.value))}
-                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
-                    >
-                      <option value={20}>20 MB</option>
-                      <option value={100}>100 MB (Standard)</option>
-                      <option value={250}>250 MB</option>
-                      <option value={1024}>1024 MB (1 GB)</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Live VirtualHost Preview */}
-              <div className="rounded-xl border border-slate-200 bg-slate-950 overflow-hidden">
-                <div className="px-3 py-2 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-slate-400 text-xs font-mono">
-                    <Code2 className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Generated {webServer.toUpperCase()} Vhost Configuration</span>
+              <div className="rounded-2xl border border-slate-200 bg-slate-950 overflow-hidden">
+                <div className="px-4 py-2.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-300 text-xs font-mono">
+                    <Code2 className="w-4 h-4 text-purple-400" />
+                    <span>{webServer.toUpperCase()} VirtualHost preview</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText(getGeneratedConfig());
+                      navigator.clipboard?.writeText(getGeneratedConfig());
                       setCopiedConfig(true);
                       setTimeout(() => setCopiedConfig(false), 2000);
                     }}
-                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] rounded text-slate-300 hover:bg-slate-800"
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg text-slate-300 hover:bg-slate-800"
                   >
-                    {copiedConfig ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    {copiedConfig ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>{copiedConfig ? 'Copied' : 'Copy'}</span>
                   </button>
                 </div>
-                <pre className="p-3 text-[11px] font-mono text-purple-300 overflow-x-auto leading-relaxed max-h-40">
-                  {getGeneratedConfig()}
-                </pre>
+                <pre className="p-4 text-xs font-mono text-purple-300 overflow-x-auto leading-relaxed max-h-48">{getGeneratedConfig()}</pre>
               </div>
-            </div>
+
+              <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                Everything runs inside the <code className="font-mono">{tenantUser}</code> jail with cgroup v2 quotas.
+              </p>
+            </>
           )}
+        </div>
 
-          {/* ============================================================ */}
-          {/* MODE 2: STANDARD WEB APP (PHP / PYTHON / NODE / GO / ETC)    */}
-          {/* ============================================================ */}
-          {appMode === 'standard' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              {/* Web Server Engine Selection */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-2">
-                  Web Server & Reverse Proxy Engine
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {[
-                    { id: 'openlitespeed' as WebServerType, label: 'OpenLiteSpeed', desc: 'LSCache + Ultra PHP/WP' },
-                    { id: 'nginx' as WebServerType, label: 'Nginx', desc: 'Standard High Concurrency' },
-                    { id: 'caddy' as WebServerType, label: 'Caddy', desc: 'Auto HTTPS & HTTP/3' },
-                    { id: 'apache' as WebServerType, label: 'Apache 2.4', desc: '.htaccess Compatibility' },
-                  ].map((ws) => (
-                    <button
-                      type="button"
-                      key={ws.id}
-                      onClick={() => setWebServer(ws.id)}
-                      className={`p-2.5 rounded-xl border text-left transition-all ${
-                        webServer === ws.id
-                          ? 'border-blue-600 bg-blue-50/80 text-blue-900 ring-2 ring-blue-500/15'
-                          : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                      }`}
-                    >
-                      <span className="text-xs font-bold block">{ws.label}</span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">{ws.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+        {/* Footer actions */}
+        <div className="px-6 py-3.5 border-t border-slate-100 flex items-center justify-between gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={back}
+            disabled={stepIndex === 0}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg disabled:opacity-40"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            <span>Back</span>
+          </button>
 
-              {/* Runtime Selection */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-2">
-                  Select Language & Runtime
-                </label>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                  {[
-                    { id: 'python' as RuntimeType, label: 'Python', code: 'PY', accent: 'bg-blue-100 text-blue-700' },
-                    { id: 'php' as RuntimeType, label: 'PHP', code: 'PHP', accent: 'bg-indigo-100 text-indigo-700' },
-                    { id: 'nodejs' as RuntimeType, label: 'Node.js', code: 'JS', accent: 'bg-emerald-100 text-emerald-700' },
-                    { id: 'go' as RuntimeType, label: 'Golang', code: 'GO', accent: 'bg-cyan-100 text-cyan-700' },
-                    { id: 'rust' as RuntimeType, label: 'Rust', code: 'RS', accent: 'bg-orange-100 text-orange-700' },
-                    { id: 'ruby' as RuntimeType, label: 'Ruby', code: 'RB', accent: 'bg-rose-100 text-rose-700' },
-                  ].map((item) => {
-                    const RuntimeIcon = runtimeIcon[item.id] ?? Code2;
-                    return (
-                      <button
-                        type="button"
-                        key={item.id}
-                        onClick={() => handleRuntimeChange(item.id)}
-                        className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all ${
-                          runtime === item.id
-                            ? 'border-blue-500 bg-blue-50/70 text-blue-800 ring-2 ring-blue-500/10'
-                            : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                        }`}
-                      >
-                        <span className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-700">
-                          <RuntimeIcon className="w-4 h-4" />
-                        </span>
-                        <span className={`text-[11px] ${runtime === item.id ? 'font-bold' : ''}`}>{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Framework Template & Version */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Framework / Template
-                  </label>
-                  <select
-                    value={framework}
-                    onChange={(e) => setFramework(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
-                  >
-                    {runtimeConfigs[runtime].frameworks.map((fw) => (
-                      <option key={fw} value={fw}>
-                        {fw}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Version
-                  </label>
-                  <select
-                    value={version}
-                    onChange={(e) => setVersion(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
-                  >
-                    {runtimeConfigs[runtime].versions.map((ver) => (
-                      <option key={ver} value={ver}>
-                        {ver}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Isolated Tenant User
-                  </label>
-                  <select
-                    value={tenantUser}
-                    onChange={(e) => setTenantUser(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
-                  >
-                    <option value="farras">farras (Root Tenant)</option>
-                    <option value="tenant_alex">tenant_alex (Isolated Jail)</option>
-                    <option value="tenant_clientB">tenant_clientB (Isolated Jail)</option>
-                    <option value="new_tenant">+ Create New Tenant...</option>
-                  </select>
-                </div>
-              </div>
-
-
-              {/* Database & Cloudflare Tunnel Checkboxes */}
-              <div className="space-y-3">
-                {/* Database Engine Checkbox */}
-                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/40">
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={createDb}
-                      onChange={(e) => setCreateDb(e.target.checked)}
-                      className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <div className="text-xs">
-                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                        <Database className="w-3.5 h-3.5 text-slate-700" />
-                        Auto-Provision Database / Cache Instance
-                      </span>
-                    </div>
-                  </label>
-
-                  {createDb && (
-                    <div className="mt-3 pl-6 space-y-2.5">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {[
-                          { id: 'mongodb' as DatabaseEngine },
-                          { id: 'redis' as DatabaseEngine },
-                          { id: 'postgres' as DatabaseEngine },
-                          { id: 'mysql' as DatabaseEngine },
-                        ].map((engine) => {
-                          const DbIcon = dbIcon[engine.id] ?? Database;
-                          return (
-                            <button
-                              type="button"
-                              key={engine.id}
-                              onClick={() => setDbType(engine.id)}
-                              className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] text-left transition-all ${
-                                dbType === engine.id
-                                  ? 'border-blue-600 bg-blue-50 font-bold text-blue-900'
-                                  : 'border-slate-200 bg-white text-slate-700'
-                              }`}
-                            >
-                              <DbIcon className="w-3.5 h-3.5 shrink-0" />
-                              <span>{ENGINE_LABELS[engine.id]}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                          Version &amp; Shared Daemon Port
-                        </label>
-                        <select
-                          value={dbVersionIndex}
-                          onChange={(e) => setDbVersionIndex(Number(e.target.value))}
-                          className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:outline-hidden focus:border-blue-500"
-                        >
-                          {(AVAILABLE_ENGINE_VERSIONS[dbType] ?? []).map((option, index) => (
-                            <option key={option.version} value={index}>
-                              {option.label} — {option.statusText}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Cloudflare Tunnel Checkbox */}
-                <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={tunnelEnabled}
-                    onChange={(e) => setTunnelEnabled(e.target.checked)}
-                    className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <div className="text-xs">
-                    <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                      <CloudRain className="w-3.5 h-3.5 text-blue-500" />
-                      Enable Cloudflare Tunnel (Zero-NAT)
-                    </span>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Publish the domain without a public IP or port forwarding.
-                    </p>
-                  </div>
-                </label>
-              </div>
-            </div>
-          )}
-
-          {/* ============================================================ */}
-          {/* MODE 3: STATIC HTML / SPA                                    */}
-          {/* ============================================================ */}
-          {appMode === 'static' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-2">
-                  Web Server Engine
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {[
-                    { id: 'caddy' as WebServerType, label: 'Caddy', desc: 'Auto HTTPS & Zero Config' },
-                    { id: 'nginx' as WebServerType, label: 'Nginx', desc: 'Gzip/Brotli High Speed' },
-                    { id: 'openlitespeed' as WebServerType, label: 'OpenLiteSpeed', desc: 'HTTP/3 Ready' },
-                    { id: 'apache' as WebServerType, label: 'Apache 2.4', desc: '.htaccess Rewrite' },
-                  ].map((ws) => (
-                    <button
-                      type="button"
-                      key={ws.id}
-                      onClick={() => setWebServer(ws.id)}
-                      className={`p-2.5 rounded-xl border text-left transition-all ${
-                        webServer === ws.id
-                          ? 'border-emerald-600 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-500/15'
-                          : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
-                      }`}
-                    >
-                      <span className="text-xs font-bold block">{ws.label}</span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">{ws.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={tunnelEnabled}
-                  onChange={(e) => setTunnelEnabled(e.target.checked)}
-                  className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                />
-                <div className="text-xs">
-                  <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                    <CloudRain className="w-3.5 h-3.5 text-blue-500" />
-                    Enable Cloudflare Tunnel (Zero-NAT)
-                  </span>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Access the static domain globally without a public IP.
-                  </p>
-                </div>
-              </label>
-            </div>
-          )}
-
-          {/* Footer Actions */}
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-            >
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onClose} className="px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">
               Cancel
             </button>
-            <button
-              type="submit"
-              className={`px-5 py-2 text-xs font-bold text-white rounded-lg transition-all shadow-sm ${
-                appMode === 'proxy'
-                  ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/20'
-                  : appMode === 'static'
-                  ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
-                  : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
-              }`}
-            >
-              {appMode === 'proxy' ? 'Deploy Reverse Proxy Gateway' : appMode === 'static' ? 'Deploy Static Site' : 'Deploy App Now'}
-            </button>
+            {currentStepId === 'review' ? (
+              <button
+                type="button"
+                onClick={handleDeploy}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+              >
+                <Server className="w-3.5 h-3.5" />
+                <span>Deploy Website</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={next}
+                disabled={!canContinue}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-40"
+              >
+                <span>Continue</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
-        </form>
-
+        </div>
       </div>
     </div>
   );

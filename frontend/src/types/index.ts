@@ -74,9 +74,17 @@ export interface WebApp {
   deployHookToken?: string;
   lastDeployedAt?: string;
   lastDeployCommit?: string;
+  // Deployment wizard: database provisioning & automation
+  dbAutoProvision?: boolean;
+  dbEngine?: DatabaseEngine;
+  dbName?: string;
+  dbUser?: string;
+  autoEnv?: boolean;
+  provisionMode?: 'download' | 'generic';
+  automationSteps?: string[];
 }
 
-export type DatabaseEngine = 'postgres' | 'mysql' | 'mariadb' | 'mongodb' | 'redis';
+export type DatabaseEngine = 'postgres' | 'mysql' | 'mariadb' | 'mongodb' | 'redis' | 'sqlite';
 
 export interface DatabaseItem {
   id: string;
