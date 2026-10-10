@@ -199,28 +199,23 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Databases & Caches</h1>
-            <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800">
-              Shared Multi-Version Engine Pools
-            </span>
-          </div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Databases & Caches</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            1 daemon per versi engine aktif (hemat RAM) • User & database 100% terisolasi via strict SQL GRANT & connection limits
+            Kelola database PostgreSQL, MySQL, MariaDB, MongoDB, dan Redis terisolasi untuk aplikasi Anda.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button 
             onClick={() => onShowToast?.('Refreshed', 'Database connection pools synchronized.', 'info')}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
           >
             <RefreshCw className="w-4 h-4 text-slate-500" />
             <span>Refresh</span>
           </button>
           <button
             onClick={() => setIsCreateModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Create Database</span>
@@ -228,167 +223,57 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         </div>
       </div>
 
-      {/* Shared Engine Multi-Version Daemons Overview Card */}
-      <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-5 shadow-sm border border-slate-700/60">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-700/70">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                ⚡ SHARED DAEMON POOLS
-              </span>
-              <span className="text-xs text-slate-300 font-medium">
-                Multi-Version Ready (Hemat RAM ~75%)
-              </span>
-            </div>
-            <h2 className="text-sm font-semibold text-white mt-1">
-              Active Shared DBMS Instances on Localhost
-            </h2>
-            <p className="text-xs text-slate-400">
-              Setiap aplikasi dapat memilih versi engine berbeda. BarePod Panel menjalankan 1 daemon bersama per versi (bukan container baru per app), sehingga RAM server tetap ringan.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-right">
-              <span className="text-[10px] text-slate-400 block uppercase font-bold">Total RAM Footprint</span>
-              <span className="text-xs font-mono font-bold text-emerald-400">~786 MB (6 DBs)</span>
-            </div>
-            <div className="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-right">
-              <span className="text-[10px] text-slate-400 block uppercase font-bold">Memory Saved</span>
-              <span className="text-xs font-mono font-bold text-blue-400">~2.4 GB Saved</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Daemons Pills Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-4">
-          {[
-            {
-              name: 'PostgreSQL 16.4',
-              port: 5432,
-              dbs: databases.filter(d => d.type === 'postgres' && (d.port === 5432 || !d.port)).length,
-              memory: '118 MB',
-              status: 'active',
-              icon: '🐘',
-            },
-            {
-              name: 'PostgreSQL 15.8',
-              port: 5433,
-              dbs: databases.filter(d => d.type === 'postgres' && d.port === 5433).length,
-              memory: databases.some(d => d.type === 'postgres' && d.port === 5433) ? '104 MB' : '0 MB (Standby)',
-              status: databases.some(d => d.type === 'postgres' && d.port === 5433) ? 'active' : 'idle',
-              icon: '🐘',
-            },
-            {
-              name: 'MySQL 8.0.36',
-              port: 3307,
-              dbs: databases.filter(d => d.version.includes('8.0')).length,
-              memory: '310 MB',
-              status: 'active',
-              icon: '🐬',
-            },
-            {
-              name: 'MariaDB 11.2',
-              port: 3308,
-              dbs: databases.filter(d => d.version.includes('MariaDB')).length,
-              memory: '140 MB',
-              status: 'active',
-              icon: '🐬',
-            },
-            {
-              name: 'MongoDB 7.0.8',
-              port: 27017,
-              dbs: databases.filter(d => d.type === 'mongodb').length,
-              memory: '180 MB',
-              status: 'active',
-              icon: '🍃',
-            },
-            {
-              name: 'Redis 7.2.4',
-              port: 6379,
-              dbs: databases.filter(d => d.type === 'redis').length,
-              memory: '18 MB',
-              status: 'active',
-              icon: '🔴',
-            },
-          ].map((daemon) => (
-            <div 
-              key={daemon.name} 
-              className={`p-2.5 rounded-xl border text-xs transition-all ${
-                daemon.status === 'active'
-                  ? 'bg-slate-800/90 border-slate-700/90 text-white'
-                  : 'bg-slate-900/40 border-slate-800/80 text-slate-400 opacity-75'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm">{daemon.icon}</span>
-                <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
-                  daemon.status === 'active' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-700 text-slate-400'
-                }`}>
-                  :{daemon.port}
-                </span>
-              </div>
-              <span className="font-semibold block truncate text-[11px] text-slate-200">{daemon.name}</span>
-              <div className="mt-1 flex items-center justify-between text-[10px] text-slate-400">
-                <span>{daemon.dbs} DBs</span>
-                <span className="font-mono text-slate-300">{daemon.memory}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Tabs Filter */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
         <button
           onClick={() => setActiveTab('all')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
             activeTab === 'all'
-              ? 'bg-slate-900 text-white'
-              : 'text-slate-600 hover:bg-slate-100'
+              ? 'bg-blue-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
           All Databases ({databases.length})
         </button>
         <button
           onClick={() => setActiveTab('postgres')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
             activeTab === 'postgres'
-              ? 'bg-blue-600 text-white'
-              : 'text-slate-600 hover:bg-slate-100'
+              ? 'bg-blue-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
-          <span>🐘 PostgreSQL</span>
+          <span>PostgreSQL</span>
         </button>
         <button
           onClick={() => setActiveTab('mysql')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
             activeTab === 'mysql'
-              ? 'bg-amber-600 text-white'
-              : 'text-slate-600 hover:bg-slate-100'
+              ? 'bg-blue-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
-          <span>🐬 MySQL / MariaDB</span>
+          <span>MySQL / MariaDB</span>
         </button>
         <button
           onClick={() => setActiveTab('mongodb')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
             activeTab === 'mongodb'
-              ? 'bg-emerald-600 text-white'
-              : 'text-slate-600 hover:bg-slate-100'
+              ? 'bg-blue-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
-          <span>🍃 MongoDB</span>
+          <span>MongoDB</span>
         </button>
         <button
           onClick={() => setActiveTab('redis')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
             activeTab === 'redis'
-              ? 'bg-rose-600 text-white'
-              : 'text-slate-600 hover:bg-slate-100'
+              ? 'bg-blue-600 text-white shadow-2xs'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
-          <span>🔴 Redis Cache</span>
+          <span>Redis Cache</span>
         </button>
       </div>
 
