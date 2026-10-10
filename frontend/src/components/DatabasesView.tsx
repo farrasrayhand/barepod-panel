@@ -45,66 +45,90 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
       name: 'larastore_production',
       type: 'postgres',
       version: 'PostgreSQL 16.4',
+      port: 5432,
+      host: '127.0.0.1',
       username: 'larastore_user',
       size: '142 MB',
       charset: 'UTF8',
       status: 'active',
       connections: 8,
+      maxConnections: 25,
+      isolationMode: 'shared_daemon',
     },
     {
       id: 'db-2',
       name: 'analytics_warehouse',
       type: 'postgres',
       version: 'PostgreSQL 16.4',
+      port: 5432,
+      host: '127.0.0.1',
       username: 'analytics_admin',
       size: '1.2 GB',
       charset: 'UTF8',
       status: 'active',
       connections: 14,
+      maxConnections: 50,
+      isolationMode: 'shared_daemon',
     },
     {
       id: 'db-3',
       name: 'app_user_documents',
       type: 'mongodb',
       version: 'MongoDB 7.0.8',
+      port: 27017,
+      host: '127.0.0.1',
       username: 'mongo_admin',
       size: '420 MB',
       charset: 'BSON',
       status: 'active',
       connections: 22,
+      maxConnections: 50,
+      isolationMode: 'shared_daemon',
     },
     {
       id: 'db-4',
       name: 'session_cache_store',
       type: 'redis',
       version: 'Redis 7.2.4',
+      port: 6379,
+      host: '127.0.0.1',
       username: 'default (auth key)',
       size: '18 MB (RAM)',
       charset: 'Key-Value (db 0)',
       status: 'active',
       connections: 45,
+      maxConnections: 100,
+      isolationMode: 'shared_daemon',
     },
     {
       id: 'db-5',
       name: 'wordpress_blog',
       type: 'mysql',
       version: 'MariaDB 11.2',
+      port: 3308,
+      host: '127.0.0.1',
       username: 'wp_farras',
       size: '64 MB',
       charset: 'utf8mb4',
       status: 'active',
       connections: 3,
+      maxConnections: 25,
+      isolationMode: 'shared_daemon',
     },
     {
       id: 'db-6',
       name: 'legacy_pos_system',
       type: 'mysql',
       version: 'MySQL 8.0.36',
+      port: 3307,
+      host: '127.0.0.1',
       username: 'pos_svc',
       size: '310 MB',
       charset: 'utf8mb4',
       status: 'active',
       connections: 6,
+      maxConnections: 25,
+      isolationMode: 'shared_daemon',
     },
   ]);
 
@@ -178,11 +202,11 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Databases & Caches</h1>
             <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800">
-              PostgreSQL • MySQL • MongoDB • Redis
+              Shared Multi-Version Engine Pools
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Built-in Single Sign-On Web GUI (DbGate, pgAdmin, phpMyAdmin, Mongo Express, Redis Commander)
+            1 daemon per versi engine aktif (hemat RAM) • User & database 100% terisolasi via strict SQL GRANT & connection limits
           </p>
         </div>
 
@@ -204,6 +228,116 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         </div>
       </div>
 
+      {/* Shared Engine Multi-Version Daemons Overview Card */}
+      <div className="bg-gradient-to-br from-slate-900 to-slate-800 text-white rounded-2xl p-5 shadow-sm border border-slate-700/60">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-700/70">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                ⚡ SHARED DAEMON POOLS
+              </span>
+              <span className="text-xs text-slate-300 font-medium">
+                Multi-Version Ready (Hemat RAM ~75%)
+              </span>
+            </div>
+            <h2 className="text-sm font-semibold text-white mt-1">
+              Active Shared DBMS Instances on Localhost
+            </h2>
+            <p className="text-xs text-slate-400">
+              Setiap aplikasi dapat memilih versi engine berbeda. BarePod Panel menjalankan 1 daemon bersama per versi (bukan container baru per app), sehingga RAM server tetap ringan.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-right">
+              <span className="text-[10px] text-slate-400 block uppercase font-bold">Total RAM Footprint</span>
+              <span className="text-xs font-mono font-bold text-emerald-400">~786 MB (6 DBs)</span>
+            </div>
+            <div className="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700 text-right">
+              <span className="text-[10px] text-slate-400 block uppercase font-bold">Memory Saved</span>
+              <span className="text-xs font-mono font-bold text-blue-400">~2.4 GB Saved</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Daemons Pills Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-4">
+          {[
+            {
+              name: 'PostgreSQL 16.4',
+              port: 5432,
+              dbs: databases.filter(d => d.type === 'postgres' && (d.port === 5432 || !d.port)).length,
+              memory: '118 MB',
+              status: 'active',
+              icon: '🐘',
+            },
+            {
+              name: 'PostgreSQL 15.8',
+              port: 5433,
+              dbs: databases.filter(d => d.type === 'postgres' && d.port === 5433).length,
+              memory: databases.some(d => d.type === 'postgres' && d.port === 5433) ? '104 MB' : '0 MB (Standby)',
+              status: databases.some(d => d.type === 'postgres' && d.port === 5433) ? 'active' : 'idle',
+              icon: '🐘',
+            },
+            {
+              name: 'MySQL 8.0.36',
+              port: 3307,
+              dbs: databases.filter(d => d.version.includes('8.0')).length,
+              memory: '310 MB',
+              status: 'active',
+              icon: '🐬',
+            },
+            {
+              name: 'MariaDB 11.2',
+              port: 3308,
+              dbs: databases.filter(d => d.version.includes('MariaDB')).length,
+              memory: '140 MB',
+              status: 'active',
+              icon: '🐬',
+            },
+            {
+              name: 'MongoDB 7.0.8',
+              port: 27017,
+              dbs: databases.filter(d => d.type === 'mongodb').length,
+              memory: '180 MB',
+              status: 'active',
+              icon: '🍃',
+            },
+            {
+              name: 'Redis 7.2.4',
+              port: 6379,
+              dbs: databases.filter(d => d.type === 'redis').length,
+              memory: '18 MB',
+              status: 'active',
+              icon: '🔴',
+            },
+          ].map((daemon) => (
+            <div 
+              key={daemon.name} 
+              className={`p-2.5 rounded-xl border text-xs transition-all ${
+                daemon.status === 'active'
+                  ? 'bg-slate-800/90 border-slate-700/90 text-white'
+                  : 'bg-slate-900/40 border-slate-800/80 text-slate-400 opacity-75'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm">{daemon.icon}</span>
+                <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                  daemon.status === 'active' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-700 text-slate-400'
+                }`}>
+                  :{daemon.port}
+                </span>
+              </div>
+              <span className="font-semibold block truncate text-[11px] text-slate-200">{daemon.name}</span>
+              <div className="mt-1 flex items-center justify-between text-[10px] text-slate-400">
+                <span>{daemon.dbs} DBs</span>
+                <span className="font-mono text-slate-300">{daemon.memory}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Tabs Filter */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
         <button
@@ -214,7 +348,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
               : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
-          All ({databases.length})
+          All Databases ({databases.length})
         </button>
         <button
           onClick={() => setActiveTab('postgres')}
@@ -264,9 +398,8 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
           <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
             <tr>
               <th className="py-3.5 px-4">Database Name</th>
-              <th className="py-3.5 px-4">Engine / Version</th>
-              <th className="py-3.5 px-4">Host & Port</th>
-              <th className="py-3.5 px-4">Username & Access</th>
+              <th className="py-3.5 px-4">Engine & Shared Daemon</th>
+              <th className="py-3.5 px-4">Tenant User & Isolation Scope</th>
               <th className="py-3.5 px-4">Size & Pool</th>
               <th className="py-3.5 px-4 text-right">Actions</th>
             </tr>
@@ -296,29 +429,36 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                     </div>
                   </td>
 
-                  {/* Engine */}
+                  {/* Engine & Shared Port */}
                   <td className="py-3.5 px-4">
-                    <span className="font-semibold text-slate-800">{db.version}</span>
-                    <span className="block text-[10px] text-slate-400">
-                      {badge.name}
-                    </span>
-                  </td>
-
-                  {/* Host & Port */}
-                  <td className="py-3.5 px-4">
-                    <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-100/80 px-2.5 py-1 rounded-md text-[11px] border border-slate-200/60">
-                      <Server className="w-3 h-3 text-slate-400" />
-                      <span className="font-semibold text-slate-800">{host}</span>
-                      <span className="text-slate-400">:</span>
-                      <span className="text-blue-600 font-bold">{port}</span>
+                    <div className="space-y-1">
+                      <span className="font-semibold text-slate-800 block">{db.version}</span>
+                      <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[10px] border border-slate-200/60">
+                        <Server className="w-3 h-3 text-slate-400" />
+                        <span className="font-semibold text-slate-800">{host}</span>
+                        <span className="text-slate-400">:</span>
+                        <span className="text-blue-600 font-bold">{port}</span>
+                        <span className="text-[9px] text-slate-400">(Shared)</span>
+                      </div>
                     </div>
                   </td>
 
-                  {/* Username */}
+                  {/* Tenant Isolation & Access */}
                   <td className="py-3.5 px-4">
-                    <div className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-[11px]">
-                      <Key className="w-3 h-3 text-slate-400" />
-                      <span>{db.username}</span>
+                    <div className="space-y-1">
+                      <div className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-[11px]">
+                        <Key className="w-3 h-3 text-slate-400" />
+                        <span className="font-semibold">{db.username}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10px]">
+                        <span className="inline-flex items-center gap-0.5 text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 font-semibold">
+                          <ShieldCheck className="w-2.5 h-2.5" />
+                          <span>Isolated GRANT</span>
+                        </span>
+                        <span className="text-slate-400 font-mono">
+                          Max {db.maxConnections || 25} conn
+                        </span>
+                      </div>
                     </div>
                   </td>
 

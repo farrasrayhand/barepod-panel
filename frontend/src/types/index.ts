@@ -76,6 +76,19 @@ export interface DatabaseItem {
   host?: string;
   port?: number;
   tenantUser?: string;
+  maxConnections?: number;
+  isolationMode?: 'shared_daemon' | 'dedicated_pod';
+}
+
+export interface SharedEngineInstance {
+  id: string;
+  engine: DatabaseEngine;
+  version: string;
+  port: number;
+  status: 'running' | 'idle' | 'stopped';
+  databasesCount: number;
+  memoryUsage: string;
+  description: string;
 }
 
 export type PodSourceType = 'image' | 'dockerfile' | 'compose';

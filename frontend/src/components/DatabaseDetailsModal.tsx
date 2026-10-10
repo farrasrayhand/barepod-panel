@@ -428,6 +428,44 @@ REDIS_PASSWORD=${pwd}`;
                 <p className="text-[10px] text-rose-600 mt-1 font-semibold">{errorMsg}</p>
               )}
             </div>
+
+            {/* Tenant Isolation & Security Scope Card */}
+            <div className="mt-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs font-bold text-slate-800">
+                    Tenant Security & Isolation Scope
+                  </span>
+                </div>
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">
+                  Isolated Per-User
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] font-mono">
+                <div className="p-2 bg-white rounded border border-slate-200">
+                  <span className="text-[10px] text-slate-400 font-sans block">Execution Mode</span>
+                  <span className="text-slate-800 font-semibold">Shared Daemon (Port {port})</span>
+                </div>
+                <div className="p-2 bg-white rounded border border-slate-200">
+                  <span className="text-[10px] text-slate-400 font-sans block">SQL Privilege Scope</span>
+                  <span className="text-slate-800 font-semibold truncate block" title={`GRANT ALL ON ${database.name}.*`}>
+                    GRANT ON {database.name}.*
+                  </span>
+                </div>
+                <div className="p-2 bg-white rounded border border-slate-200">
+                  <span className="text-[10px] text-slate-400 font-sans block">Max Connection Pool</span>
+                  <span className="text-slate-800 font-semibold">
+                    {database.maxConnections || 25} connections quota
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-slate-500 italic">
+                * User <code className="text-slate-700 font-semibold">{database.username}</code> hanya memiliki hak akses ke database ini saja. Akses ke database tenant lain diblokir otomatis oleh cgroups jail & internal SQL ACL.
+              </p>
+            </div>
           </div>
 
           {/* Quick .env Code Snippet Tab */}
