@@ -50,6 +50,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
+import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
 
@@ -82,33 +83,14 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
   const [maskSecrets, setMaskSecrets] = useState(true);
 
-  // PHP Extensions & Configuration Studio State
-  const [phpExtensions, setPhpExtensions] = useState<Array<{ name: string; category: string; description: string; enabled: boolean; version?: string }>>([
-    { name: 'redis', category: 'cache', description: 'In-memory Redis cache client & session handler', enabled: true, version: '6.0.2' },
-    { name: 'imagick', category: 'media', description: 'ImageMagick image processing, format conversion & PDF rendering', enabled: true, version: '3.7.0' },
-    { name: 'gd', category: 'media', description: 'GD graphics drawing, thumbnail generation & WebP/PNG resizing', enabled: true, version: '2.3.3' },
-    { name: 'opcache', category: 'cache', description: 'Zend OPcache bytecode acceleration & JIT compiler engine', enabled: true, version: '8.4.2' },
-    { name: 'swoole', category: 'cache', description: 'High-concurrency async coroutine event-driven runtime (Laravel Octane)', enabled: false, version: '5.1.2' },
-    { name: 'pdo_mysql', category: 'database', description: 'MySQL 8 & MariaDB PDO relational database driver', enabled: true, version: '8.4.2' },
-    { name: 'pdo_pgsql', category: 'database', description: 'PostgreSQL 16 PDO relational database driver', enabled: true, version: '8.4.2' },
-    { name: 'pdo_sqlite', category: 'database', description: 'SQLite3 embedded file-based PDO database driver', enabled: true, version: '8.4.2' },
-    { name: 'mongodb', category: 'database', description: 'MongoDB official NoSQL BSON client driver', enabled: true, version: '1.18.1' },
-    { name: 'bcmath', category: 'core', description: 'Arbitrary precision mathematics for financial decimal calculations', enabled: true, version: '8.4.2' },
-    { name: 'zip', category: 'core', description: 'Zip archive compression, packaging & extraction library', enabled: true, version: '1.22.3' },
-    { name: 'intl', category: 'core', description: 'Internationalization & ICU Unicode collation formatting', enabled: true, version: '8.4.2' },
-    { name: 'xml', category: 'core', description: 'DOM, SimpleXML, and XMLReader parsing engines', enabled: true, version: '8.4.2' },
-    { name: 'curl', category: 'core', description: 'libcurl client for external HTTP/REST API outbound requests', enabled: true, version: '8.4.2' },
-    { name: 'pcntl', category: 'core', description: 'Process control & signal handling for queue worker supervisors', enabled: true, version: '8.4.2' },
-    { name: 'exif', category: 'media', description: 'Exchangeable Image File Format header & metadata reader', enabled: true, version: '8.4.2' },
-    { name: 'sodium', category: 'security', description: 'Modern high-security cryptographic functions (libsodium)', enabled: true, version: '8.4.2' },
-    { name: 'soap', category: 'core', description: 'Simple Object Access Protocol client and server provider', enabled: false, version: '8.4.2' },
-    { name: 'ioncube', category: 'security', description: 'IonCube Loader for executing encoded PHP commercial software', enabled: false, version: '13.0.4' },
-  ]);
+  // PHP Extensions & Configuration Studio State (Pre-loaded with Master Extensions Catalog)
+  const [phpExtensions, setPhpExtensions] = useState<PhpExtensionItem[]>(MASTER_PHP_EXTENSIONS);
 
   const [extensionSearch, setExtensionSearch] = useState('');
   const [extensionFilterCat, setExtensionFilterCat] = useState<string>('all');
   const [customExtensionInput, setCustomExtensionInput] = useState('');
   const [isInstallingExtension, setIsInstallingExtension] = useState(false);
+  const [showCustomPeclForm, setShowCustomPeclForm] = useState(false);
 
   // Core php.ini directives
   const [memoryLimit, setMemoryLimit] = useState('512M');
@@ -346,6 +328,15 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
       setCustomExtensionInput('');
       onShowToast?.('Extension Installed', `Extension ${name} berhasil dikompilasi & diaktifkan di PHP ${app.version}.`, 'success');
     }, 900);
+  };
+
+  const handleResetToAdminDefault = () => {
+    setPhpExtensions(MASTER_PHP_EXTENSIONS);
+    onShowToast?.(
+      'Reset ke Blueprint Admin',
+      'Konfigurasi extension aplikasi ini dikembalikan ke default global admin. Pool PHP-FPM di-reload.',
+      'info'
+    );
   };
 
   const handleSavePhpIni = (e: React.FormEvent) => {
@@ -1433,23 +1424,47 @@ QUEUE_CONNECTION=redis`}
               </div>
             </div>
 
-            {/* Extensions Filter & Search + Install PECL form */}
+            {/* Extensions Filter, Tenant Isolation Banner & Catalog */}
             <div className="space-y-4 pt-2">
+              {/* Tenant Isolation Banner with Reset to Admin Default */}
+              <div className="p-3.5 rounded-xl border border-purple-200/80 bg-gradient-to-r from-purple-50/80 to-indigo-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-start gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-purple-950 block">
+                      Konfigurasi Terisolasi per Aplikasi ({app.tenantUser})
+                    </span>
+                    <p className="text-[11px] text-purple-800 leading-relaxed">
+                      Seluruh 28+ extension bawaan dan PECL populer sudah di-index di bawah. Mengubah toggle di sini hanya berlaku untuk aplikasi ini (terisolasi dalam jail). Tidak akan mengubah default admin atau merusak aplikasi user lain.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResetToAdminDefault}
+                  className="px-3 py-1.5 rounded-lg border border-purple-300 bg-white hover:bg-purple-50 text-purple-700 text-xs font-semibold whitespace-nowrap shadow-2xs transition-colors shrink-0 flex items-center gap-1.5"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                  <span>Reset ke Default Admin</span>
+                </button>
+              </div>
+
+              {/* Toolbar: Search, Categories & Toggle Custom PECL Form */}
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="relative">
                     <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="Cari extension (e.g. redis, imagick, swoole)..."
+                      placeholder="Cari extension (e.g. redis, swoole, grpc, imagick)..."
                       value={extensionSearch}
                       onChange={(e) => setExtensionSearch(e.target.value)}
                       className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg w-64 focus:outline-hidden focus:ring-2 focus:ring-purple-500/20"
                     />
                   </div>
 
-                  <div className="flex items-center gap-1 text-xs">
-                    {['all', 'database', 'cache', 'media', 'core', 'security'].map((cat) => (
+                  <div className="flex flex-wrap items-center gap-1 text-xs">
+                    {['all', 'database', 'cache', 'core', 'media', 'rpc', 'security'].map((cat) => (
                       <button
                         key={cat}
                         onClick={() => setExtensionFilterCat(cat)}
@@ -1465,27 +1480,53 @@ QUEUE_CONNECTION=redis`}
                   </div>
                 </div>
 
-                {/* Inline PECL Installer Form */}
-                <form onSubmit={handleInstallCustomExtension} className="flex items-center gap-1.5">
-                  <input
-                    type="text"
-                    placeholder="Nama extension PECL (e.g. grpc)..."
-                    value={customExtensionInput}
-                    onChange={(e) => setCustomExtensionInput(e.target.value)}
-                    className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono focus:outline-hidden focus:ring-2 focus:ring-purple-500/20"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isInstallingExtension || !customExtensionInput.trim()}
-                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors disabled:opacity-50 whitespace-nowrap"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>{isInstallingExtension ? 'Installing...' : 'Install PECL'}</span>
-                  </button>
-                </form>
+                {/* Button to toggle custom unlisted PECL package compilation */}
+                <button
+                  type="button"
+                  onClick={() => setShowCustomPeclForm(!showCustomPeclForm)}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                    showCustomPeclForm 
+                      ? 'bg-purple-100 text-purple-900 border-purple-300' 
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5 text-purple-600" />
+                  <span>{showCustomPeclForm ? 'Tutup Form PECL Kustom' : '+ Install PECL Lainnya'}</span>
+                </button>
               </div>
 
-              {/* Extensions Grid */}
+              {/* Collapsible Custom PECL Compiler Form */}
+              {showCustomPeclForm && (
+                <div className="p-4 rounded-xl border border-purple-200 bg-purple-50/50 space-y-2 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-950">
+                      📦 Compile Paket PECL Kustom / Unlisted
+                    </span>
+                    <span className="text-[10px] text-purple-700 font-medium">
+                      Gunakan ini hanya jika extension yang Anda butuhkan belum ada di daftar di bawah
+                    </span>
+                  </div>
+                  <form onSubmit={handleInstallCustomExtension} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Ketik nama paket PECL (e.g. excimer, uopz, v8js)..."
+                      value={customExtensionInput}
+                      onChange={(e) => setCustomExtensionInput(e.target.value)}
+                      className="flex-1 px-3 py-2 text-xs bg-white border border-purple-300 rounded-lg font-mono focus:outline-hidden focus:ring-2 focus:ring-purple-500/20"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isInstallingExtension || !customExtensionInput.trim()}
+                      className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors disabled:opacity-50 whitespace-nowrap"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>{isInstallingExtension ? 'Mengompilasi PECL...' : 'Kompilasi & Pasang'}</span>
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* Master Extensions Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {phpExtensions
                   .filter(ext => {
@@ -1509,7 +1550,12 @@ QUEUE_CONNECTION=redis`}
                             <span className="font-mono font-bold text-xs text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">
                               {ext.name}
                             </span>
-                            <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200">
+                            {ext.isPecl && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-700 border border-purple-200">
+                                PECL
+                              </span>
+                            )}
+                            <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
                               {ext.category}
                             </span>
                           </div>

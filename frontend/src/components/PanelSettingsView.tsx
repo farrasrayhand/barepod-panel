@@ -30,6 +30,7 @@ import {
   Trash2
 } from 'lucide-react';
 import type { WebServerType } from '../types';
+import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
 
 interface PanelSettingsViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
@@ -40,8 +41,17 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   onShowToast,
   onOpenTerminal,
 }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'databases'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'databases' | 'php_defaults'>('general');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Global PHP Extensions Blueprint Settings
+  const [globalPhpExtensions, setGlobalPhpExtensions] = useState<PhpExtensionItem[]>(MASTER_PHP_EXTENSIONS);
+  const [defaultPhpVersion, setDefaultPhpVersion] = useState('8.4');
+  const [defaultMemoryLimit, setDefaultMemoryLimit] = useState('512M');
+  const [defaultUploadMaxSize, setDefaultUploadMaxSize] = useState('100M');
+  const [defaultMaxExecutionTime, setDefaultMaxExecutionTime] = useState('300');
+  const [extSearchAdmin, setExtSearchAdmin] = useState('');
+  const [extCatAdmin, setExtCatAdmin] = useState('all');
 
   // Monitoring & Telemetry Retention Settings
   const [serverMetricsRetentionDays, setServerMetricsRetentionDays] = useState(90);
@@ -261,6 +271,18 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           >
             <Database className="w-4 h-4" />
             <span>Database Defaults</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('php_defaults')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
+              activeTab === 'php_defaults'
+                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Cpu className="w-4 h-4" />
+            <span>PHP Stack & Default Exts</span>
           </button>
         </div>
 
@@ -1045,6 +1067,170 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 <p className="text-[10px] text-slate-400 mt-1">
                   Otomatis me-logout autologin SSO jika tidak ada aktivitas pengguna.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {/* 7. PHP RUNTIMES & EXTENSIONS BLUEPRINT */}
+          {activeTab === 'php_defaults' && (
+            <div className="space-y-6 max-w-4xl">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold text-slate-900">PHP Stack & Global Extension Blueprint</h2>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
+                    Admin Defaults for All New Apps
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Atur extension bawaan dan resource limit yang otomatis terpasang saat user membuat aplikasi PHP baru.
+                </p>
+              </div>
+
+              {/* Isolation Guarantee Banner */}
+              <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/70 text-blue-900 space-y-1.5 text-xs">
+                <div className="flex items-center gap-2 font-bold text-blue-950">
+                  <ShieldCheck className="w-4 h-4 text-blue-600" />
+                  <span>Jaminan Isolasi Tenant & User</span>
+                </div>
+                <p className="text-[11px] text-blue-800 leading-relaxed">
+                  Pengaturan ini berfungsi sebagai <strong>Blueprint / Default Awal</strong>. Ketika seorang user mengubah, menambah, atau menonaktifkan extension di halaman aplikasi miliknya (App Detail), perubahan tersebut <strong>100% terisolasi</strong> di dalam cgroups jail / FPM pool aplikasi tersebut. Pengaturan global admin ini tidak akan tertimpa dan aplikasi user lain tidak akan terganggu.
+                </p>
+              </div>
+
+              {/* Default PHP Parameters */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-4 shadow-2xs">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Default php.ini Directive Limits
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Default PHP Version</label>
+                    <select
+                      value={defaultPhpVersion}
+                      onChange={(e) => setDefaultPhpVersion(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                    >
+                      <option value="8.4">PHP 8.4 (Recommended)</option>
+                      <option value="8.3">PHP 8.3 LTS</option>
+                      <option value="8.2">PHP 8.2</option>
+                      <option value="8.1">PHP 8.1</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">memory_limit</label>
+                    <input
+                      type="text"
+                      value={defaultMemoryLimit}
+                      onChange={(e) => setDefaultMemoryLimit(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">upload_max_filesize</label>
+                    <input
+                      type="text"
+                      value={defaultUploadMaxSize}
+                      onChange={(e) => setDefaultUploadMaxSize(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">max_execution_time</label>
+                    <input
+                      type="text"
+                      value={defaultMaxExecutionTime}
+                      onChange={(e) => setDefaultMaxExecutionTime(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Master PHP & PECL Extensions Checklist */}
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Master Extension Catalog ({globalPhpExtensions.filter(e => e.enabled).length} Enabled by Default / {globalPhpExtensions.length} Available)
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Toggle extension yang ingin langsung aktif saat user men-deploy aplikasi PHP baru.
+                    </p>
+                  </div>
+
+                  {/* Filter & Search */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Cari extension..."
+                      value={extSearchAdmin}
+                      onChange={(e) => setExtSearchAdmin(e.target.value)}
+                      className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg w-40"
+                    />
+                    <select
+                      value={extCatAdmin}
+                      onChange={(e) => setExtCatAdmin(e.target.value)}
+                      className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg capitalize"
+                    >
+                      {['all', 'database', 'cache', 'core', 'media', 'rpc', 'security'].map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Extensions Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {globalPhpExtensions
+                    .filter(ext => {
+                      const matchCat = extCatAdmin === 'all' || ext.category === extCatAdmin;
+                      const matchSearch = ext.name.toLowerCase().includes(extSearchAdmin.toLowerCase()) ||
+                                          ext.description.toLowerCase().includes(extSearchAdmin.toLowerCase());
+                      return matchCat && matchSearch;
+                    })
+                    .map((ext) => (
+                      <div
+                        key={ext.name}
+                        onClick={() => {
+                          setGlobalPhpExtensions(prev => prev.map(e => e.name === ext.name ? { ...e, enabled: !e.enabled } : e));
+                        }}
+                        className={`p-3 rounded-xl border text-xs cursor-pointer transition-all select-none ${
+                          ext.enabled
+                            ? 'bg-white border-purple-300 ring-1 ring-purple-400/20 shadow-2xs'
+                            : 'bg-slate-50 border-slate-200 opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono font-bold text-slate-900">{ext.name}</span>
+                              {ext.isPecl && (
+                                <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-purple-100 text-purple-700">
+                                  PECL
+                                </span>
+                              )}
+                              <span className="text-[9px] uppercase font-semibold px-1 py-0.2 rounded bg-slate-100 text-slate-500">
+                                {ext.category}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-1 line-clamp-2">
+                              {ext.description}
+                            </p>
+                          </div>
+
+                          <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${
+                            ext.enabled ? 'bg-purple-600 border-purple-600 text-white' : 'border-slate-300 bg-white'
+                          }`}>
+                            {ext.enabled && <Check className="w-3 h-3 stroke-[3]" />}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
               </div>
             </div>
           )}
