@@ -56,6 +56,15 @@ export function App() {
       memoryUsage: '42 MB',
       cpuUsage: '0.3%',
       createdAt: '2026-10-10',
+      gitRepo: 'https://github.com/farras/flask-sentiment-api',
+      gitBranch: 'main',
+      autoDeploy: true,
+      buildScript: `git pull origin main
+source venv/bin/activate
+pip install -r requirements.txt --quiet
+systemctl restart gunicorn-flask`,
+      lastDeployedAt: '2026-10-10 16:40:12',
+      lastDeployCommit: '7fa901a',
     },
     {
       id: 'app-2',
@@ -74,6 +83,17 @@ export function App() {
       memoryUsage: '54 MB',
       cpuUsage: '0.2%',
       createdAt: '2026-10-08',
+      gitRepo: 'https://github.com/farras/larastore-commerce',
+      gitBranch: 'main',
+      autoDeploy: true,
+      buildScript: `git pull origin main
+composer install --no-dev --optimize-autoloader --quiet
+php artisan migrate --force
+php artisan config:cache
+php artisan route:cache
+systemctl reload php8.4-fpm`,
+      lastDeployedAt: '2026-10-10 18:34:12',
+      lastDeployCommit: 'd70a45a',
     },
     {
       id: 'app-3',
@@ -96,6 +116,15 @@ export function App() {
       basicAuthUser: 'admin',
       basicAuthPassword: 'BarePod$ecure2026!',
       basicAuthRealm: 'Billing Staging Environment',
+      gitRepo: 'https://github.com/alex/billing-backend',
+      gitBranch: 'production',
+      autoDeploy: true,
+      buildScript: `git pull origin production
+pnpm install --frozen-lockfile
+pnpm run build
+pm2 reload billing-api --update-env`,
+      lastDeployedAt: '2026-10-09 21:15:00',
+      lastDeployCommit: 'c32981f',
     },
     {
       id: 'app-4',
@@ -114,6 +143,15 @@ export function App() {
       memoryUsage: '118 MB',
       cpuUsage: '1.2%',
       createdAt: '2026-10-09',
+      gitRepo: 'https://github.com/clientB/fastapi-ai-service',
+      gitBranch: 'main',
+      autoDeploy: true,
+      buildScript: `git pull origin main
+source .venv/bin/activate
+pip install -r requirements.txt
+systemctl reload uvicorn-ai`,
+      lastDeployedAt: '2026-10-10 11:20:45',
+      lastDeployCommit: 'e81903b',
     },
     {
       id: 'app-5',

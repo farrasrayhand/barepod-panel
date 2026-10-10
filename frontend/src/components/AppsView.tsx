@@ -112,6 +112,8 @@ export const AppsView: React.FC<AppsViewProps> = ({
           isOpen={!!selectedAppForGit}
           onClose={() => setSelectedAppForGit(null)}
           app={selectedAppForGit}
+          onUpdateApp={handleUpdateAppDetail}
+          onShowToast={onShowToast}
         />
       </>
     );
@@ -402,6 +404,11 @@ export const AppsView: React.FC<AppsViewProps> = ({
         isOpen={!!selectedAppForGit}
         onClose={() => setSelectedAppForGit(null)}
         app={selectedAppForGit}
+        onUpdateApp={(updated) => {
+          onUpdateApp?.(updated);
+          setSelectedAppForGit(updated);
+        }}
+        onShowToast={onShowToast}
       />
     </div>
   );

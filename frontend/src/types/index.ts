@@ -59,6 +59,14 @@ export interface WebApp {
   basicAuthBypassIps?: string;
   // Metrics & Telemetry Retention (Max 30 days per app)
   metricsRetentionDays?: number;
+  // CI/CD, Git Repository & Build Script (Persistent per-app)
+  gitRepo?: string;
+  gitBranch?: string;
+  autoDeploy?: boolean;
+  buildScript?: string;
+  deployHookToken?: string;
+  lastDeployedAt?: string;
+  lastDeployCommit?: string;
 }
 
 export type DatabaseEngine = 'postgres' | 'mysql' | 'mariadb' | 'mongodb' | 'redis';

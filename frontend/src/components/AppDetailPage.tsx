@@ -47,7 +47,10 @@ import {
   Shield,
   AlertTriangle,
   Key,
-  RefreshCw
+  RefreshCw,
+  Save,
+  Radio,
+  Sparkles
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
 import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
@@ -75,7 +78,7 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   onUpdateApp,
   onShowToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'monitoring' | 'overview' | 'logs' | 'routing' | 'env' | 'php' | 'security'>('monitoring');
+  const [activeTab, setActiveTab] = useState<'monitoring' | 'overview' | 'logs' | 'routing' | 'env' | 'php' | 'security' | 'deploy'>('monitoring');
   const [logType, setLogType] = useState<'all' | 'access' | 'error' | 'deploy'>('all');
   const [logSearch, setLogSearch] = useState('');
   const [logFormat, setLogFormat] = useState<'structured' | 'raw'>('structured');
@@ -84,6 +87,51 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [copiedEnv, setCopiedEnv] = useState(false);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
   const [maskSecrets, setMaskSecrets] = useState(true);
+
+  // Persistent Deploy & Build Script per App
+  const getDefaultBuildScript = (runtime?: string) => {
+    if (runtime === 'php') {
+      return `git pull origin main
+composer install --no-dev --optimize-autoloader --quiet
+php artisan migrate --force
+php artisan config:cache
+php artisan route:cache
+systemctl reload php8.4-fpm`;
+    } else if (runtime === 'python') {
+      return `git pull origin main
+source venv/bin/activate
+pip install -r requirements.txt --quiet
+systemctl restart gunicorn`;
+    } else if (runtime === 'nodejs') {
+      return `git pull origin main
+pnpm install --frozen-lockfile
+pnpm run build
+pm2 reload app --update-env`;
+    }
+    return `git pull origin main
+npm install
+npm run build`;
+  };
+
+  const [gitRepo, setGitRepo] = useState(app.gitRepo || `https://github.com/${app.tenantUser}/${app.name}`);
+  const [gitBranch, setGitBranch] = useState(app.gitBranch || 'main');
+  const [autoDeploy, setAutoDeploy] = useState(app.autoDeploy !== false);
+  const [buildScript, setBuildScript] = useState(app.buildScript || getDefaultBuildScript(app.runtime));
+  const [isSavingDeployScript, setIsSavingDeployScript] = useState(false);
+  const [isDeployingNow, setIsDeployingNow] = useState(false);
+  const [copiedDeployWebhook, setCopiedDeployWebhook] = useState(false);
+  const [deployLogs, setDeployLogs] = useState<string[]>([
+    `[SYSTEM] Deployment terakhir: ${app.lastDeployedAt || '2026-10-10 18:34:12'} (Commit: ${app.lastDeployCommit || '7fa901a'})`,
+    `[SYSTEM] Webhook listener aktif pada https://${app.domain}/api/v1/webhook/${app.id}/deploy`,
+    `[SYSTEM] Skrip build disimpan permanen per-aplikasi dan siap dieksekusi saat auto-redeploy.`,
+  ]);
+
+  useEffect(() => {
+    if (app.gitRepo) setGitRepo(app.gitRepo);
+    if (app.gitBranch) setGitBranch(app.gitBranch);
+    if (app.autoDeploy !== undefined) setAutoDeploy(app.autoDeploy);
+    if (app.buildScript) setBuildScript(app.buildScript);
+  }, [app]);
 
   // PHP Extensions & Configuration Studio State (Pre-loaded with Master Extensions Catalog)
   const [phpExtensions, setPhpExtensions] = useState<PhpExtensionItem[]>(MASTER_PHP_EXTENSIONS);
@@ -279,6 +327,103 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
         code: 200,
       });
     }, 600);
+  };
+
+  const handleCopyDeployWebhook = () => {
+    const url = `https://${app.domain}/api/v1/webhook/${app.id}/deploy?token=bp_wh_${app.tenantUser}_99a`;
+    navigator.clipboard.writeText(url);
+    setCopiedDeployWebhook(true);
+    setTimeout(() => setCopiedDeployWebhook(false), 2000);
+    onShowToast?.('Webhook Disalin', 'GitHub webhook URL telah disalin ke clipboard.', 'info');
+  };
+
+  const handleApplyPresetInDetail = (preset: 'laravel' | 'nextjs' | 'fastapi' | 'go' | 'static') => {
+    const targetBranch = gitBranch || 'main';
+    let script = '';
+    if (preset === 'laravel') {
+      script = `git pull origin ${targetBranch}
+composer install --no-dev --optimize-autoloader --quiet
+php artisan migrate --force
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+systemctl reload php8.4-fpm`;
+    } else if (preset === 'nextjs') {
+      script = `git pull origin ${targetBranch}
+pnpm install --frozen-lockfile
+pnpm run build
+pm2 reload ${app.name} --update-env`;
+    } else if (preset === 'fastapi') {
+      script = `git pull origin ${targetBranch}
+source venv/bin/activate
+pip install -r requirements.txt --quiet
+systemctl reload gunicorn-${app.name}`;
+    } else if (preset === 'go') {
+      script = `git pull origin ${targetBranch}
+go build -o bin/server main.go
+systemctl reload ${app.name}`;
+    } else if (preset === 'static') {
+      script = `git pull origin ${targetBranch}`;
+    }
+    setBuildScript(script);
+    onShowToast?.('Preset Diterapkan', `Template script ${preset.toUpperCase()} dimuat ke editor. Klik "Simpan Script" agar permanen.`, 'info');
+  };
+
+  const handleSaveDeployScript = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSavingDeployScript(true);
+    setTimeout(() => {
+      setIsSavingDeployScript(false);
+      const updated: WebApp = {
+        ...app,
+        gitRepo,
+        gitBranch,
+        autoDeploy,
+        buildScript,
+      };
+      onUpdateApp?.(updated);
+      onShowToast?.('Build Script Tersimpan', `Deploy & Build Script untuk '${app.name}' telah disimpan secara permanen. Saat auto-redeploy terpicu, skrip ini yang akan dijalankan.`, 'success');
+    }, 400);
+  };
+
+  const handleTriggerDirectDeploy = () => {
+    setIsDeployingNow(true);
+    const nowStr = new Date().toLocaleTimeString();
+    setDeployLogs([
+      `[${nowStr}] ⚡ Redeploy dipicu untuk '${app.name}'`,
+      `[${nowStr}] 📦 Fetching repo ${gitRepo} (branch: ${gitBranch})...`,
+      `[${nowStr}] 🔒 Validasi isolasi tenant cgroup v2 /home/${app.tenantUser}...`,
+    ]);
+
+    const updated: WebApp = {
+      ...app,
+      gitRepo,
+      gitBranch,
+      autoDeploy,
+      buildScript,
+      lastDeployedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      lastDeployCommit: '8d2a10c',
+    };
+    onUpdateApp?.(updated);
+
+    setTimeout(() => {
+      setDeployLogs(prev => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] 🛠️ Menjalankan build script tersimpan:`,
+        ...buildScript.split('\n').filter(Boolean).map(l => `    $ ${l}`),
+      ]);
+    }, 1000);
+
+    setTimeout(() => {
+      setDeployLogs(prev => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] 🚀 Swap zero-downtime release symlink selesai.`,
+        `[${new Date().toLocaleTimeString()}] 🌐 Ingress Cloudflare status: 200 OK (${app.domain})`,
+        `[${new Date().toLocaleTimeString()}] ✅ Deployment Berhasil dalam 3.4s!`,
+      ]);
+      setIsDeployingNow(false);
+      onShowToast?.('Redeploy Berhasil', `Build & deploy selesai tanpa downtime.`, 'success');
+    }, 2400);
   };
 
   const handleAddCustomRoute = (e: React.FormEvent) => {
@@ -820,6 +965,21 @@ QUEUE_CONNECTION=redis`;
           <span>Streaming Logs</span>
           <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
             {filteredLogs.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('deploy')}
+          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+            activeTab === 'deploy'
+              ? 'border-blue-600 text-blue-700 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <FolderGit2 className="w-4 h-4 text-blue-600" />
+          <span>Deploy & Build Script</span>
+          <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">
+            Tersimpan
           </span>
         </button>
 
@@ -2460,6 +2620,249 @@ auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
 ` : '# HTTP Basic Auth: OFF'}`
 )}
               </pre>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: DEPLOY & BUILD SCRIPT (PERSISTENT PER APP) */}
+        {activeTab === 'deploy' && (
+          <div className="space-y-6">
+            {/* Top Persistence Banner */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-blue-50/70 border border-blue-200 rounded-2xl">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <FolderGit2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Deploy & Build Script Tersimpan per-Aplikasi
+                    </h3>
+                    <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1 font-mono">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      <span>Persistent in DB</span>
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    Skrip ini disimpan secara permanen untuk <strong>{app.name}</strong>. Setiap kali commit di-push ke GitHub atau webhook dipanggil, server otomatis mengeksekusi skrip ini di sandbox <code>{appPath}</code>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleSaveDeployScript}
+                  disabled={isSavingDeployScript}
+                  className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                >
+                  <Save className={`w-3.5 h-3.5 ${isSavingDeployScript ? 'animate-spin' : 'text-blue-600'}`} />
+                  <span>{isSavingDeployScript ? 'Menyimpan...' : 'Simpan Konfigurasi Script'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTriggerDirectDeploy}
+                  disabled={isDeployingNow}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center gap-2 shadow-sm shadow-blue-500/25 disabled:opacity-50 cursor-pointer"
+                >
+                  <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
+                  <span>{isDeployingNow ? 'Sedang Deploy...' : 'Redeploy Sekarang'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Git Repo & Branch Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2 p-4 bg-white rounded-xl border border-slate-200 space-y-2">
+                <label className="block text-xs font-bold text-slate-800">
+                  GitHub Repository URL
+                </label>
+                <input
+                  type="text"
+                  value={gitRepo}
+                  onChange={(e) => setGitRepo(e.target.value)}
+                  placeholder="https://github.com/username/repo"
+                  className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white"
+                />
+                <span className="text-[11px] text-slate-500 block">
+                  Alamat remote git upstream yang digunakan untuk penarikan kode (git pull).
+                </span>
+              </div>
+
+              <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-2">
+                <label className="block text-xs font-bold text-slate-800">
+                  Target Branch
+                </label>
+                <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus-within:border-blue-500 focus-within:bg-white">
+                  <GitBranch className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  <input
+                    type="text"
+                    value={gitBranch}
+                    onChange={(e) => setGitBranch(e.target.value)}
+                    placeholder="main"
+                    className="w-full bg-transparent border-none outline-hidden p-0 text-slate-800 font-mono text-xs font-bold"
+                  />
+                </div>
+                <span className="text-[11px] text-slate-500 block">
+                  Branch yang di-checkout otomatis saat deploy.
+                </span>
+              </div>
+            </div>
+
+            {/* Webhook Push-to-Deploy */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Radio className="w-4 h-4 text-blue-600 animate-pulse" />
+                  <span className="text-xs font-bold text-slate-900">Push-to-Deploy GitHub Webhook URL</span>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={autoDeploy}
+                    onChange={(e) => setAutoDeploy(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="font-semibold">Aktifkan Auto Redeploy saat Git Push</span>
+                </label>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={`https://${app.domain}/api/v1/webhook/${app.id}/deploy?token=bp_wh_${app.tenantUser}_99a`}
+                  className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-lg text-slate-600"
+                />
+                <button
+                  type="button"
+                  onClick={handleCopyDeployWebhook}
+                  className="px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer"
+                >
+                  {copiedDeployWebhook ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedDeployWebhook ? 'Tersalin' : 'Copy'}</span>
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Salin Webhook URL di atas dan masukkan ke <strong>GitHub: Repo Settings → Webhooks → Add Webhook</strong> (Content-Type: <code>application/json</code>). Setiap push commit ke branch <code>{gitBranch}</code> akan otomatis menjalankan build script di bawah!
+              </p>
+            </div>
+
+            {/* Build Script Editor Card */}
+            <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <Code2 className="w-4 h-4 text-slate-600" />
+                    <span>Deploy & Build Script Editor</span>
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Perintah shell bash yang dijalankan berurutan di dalam tenant sandbox saat build/redeploy.
+                  </p>
+                </div>
+
+                {/* Script Presets */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-500" />
+                    <span>Muat Preset:</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPresetInDetail('laravel')}
+                    className="px-2.5 py-1 text-xs font-semibold bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-700 transition-colors"
+                  >
+                    Laravel 11
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPresetInDetail('nextjs')}
+                    className="px-2.5 py-1 text-xs font-semibold bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-700 transition-colors"
+                  >
+                    Node / Next.js
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPresetInDetail('fastapi')}
+                    className="px-2.5 py-1 text-xs font-semibold bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-700 transition-colors"
+                  >
+                    Python
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPresetInDetail('go')}
+                    className="px-2.5 py-1 text-xs font-semibold bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-700 transition-colors"
+                  >
+                    Go
+                  </button>
+                </div>
+              </div>
+
+              {/* Code Terminal Textarea */}
+              <div className="bg-slate-950 rounded-xl p-4 border border-slate-800 font-mono text-xs shadow-inner">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-[11px] text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                    <span>WorkingDirectory: <code>{appPath}</code></span>
+                  </div>
+                  <span className="text-cyan-400">/bin/bash (isolated cgroup jail)</span>
+                </div>
+                <textarea
+                  rows={7}
+                  value={buildScript}
+                  onChange={(e) => setBuildScript(e.target.value)}
+                  placeholder="Contoh:&#10;git pull origin main&#10;composer install --no-dev&#10;php artisan migrate --force&#10;systemctl reload-app"
+                  className="w-full bg-transparent border-none outline-hidden text-emerald-400 resize-y font-mono text-xs focus:ring-0 leading-relaxed min-h-[140px]"
+                />
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-1">
+                <div className="text-[11px] text-slate-400">
+                  Environment variables tersedia: <code>$APP_NAME</code>, <code>$APP_PORT</code>, <code>$APP_DOMAIN</code>, <code>$TENANT_USER</code>.
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveDeployScript}
+                    disabled={isSavingDeployScript}
+                    className="px-4 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Save className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{isSavingDeployScript ? 'Menyimpan...' : 'Simpan Script'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTriggerDirectDeploy}
+                    disabled={isDeployingNow}
+                    className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center gap-2 shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50"
+                  >
+                    <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
+                    <span>{isDeployingNow ? 'Sedang Deploy...' : 'Simpan & Redeploy Sekarang'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Deployment Live Log Terminal */}
+            <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div className="flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-slate-600" />
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    Live Build & Deployment Output
+                  </h4>
+                </div>
+                <span className="text-[11px] text-emerald-600 font-semibold font-mono">
+                  Zero-Downtime Atomic Symlink Active
+                </span>
+              </div>
+              <div className="bg-slate-950 rounded-xl p-4 border border-slate-800 font-mono text-xs text-slate-200 min-h-[140px] max-h-[220px] overflow-y-auto space-y-1.5 shadow-inner">
+                {deployLogs.map((log, idx) => (
+                  <div key={idx} className={log.includes('✅') ? 'text-emerald-400 font-bold' : log.includes('❌') ? 'text-rose-400 font-bold' : 'text-slate-300'}>
+                    {log}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
