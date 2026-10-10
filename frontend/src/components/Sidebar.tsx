@@ -14,7 +14,8 @@ import {
   Activity,
   Server,
   Copy,
-  Check
+  Check,
+  Archive
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { NavItem } from '../types';
@@ -51,6 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
   const infraItems: NavGroupItem[] = [
     { id: 'overview', label: 'Dashboard & VPS', icon: LayoutDashboard },
     { id: 'monitoring', label: 'Server Monitoring', icon: Activity, badge: 'Live Metrics' },
+    { id: 'backup', label: 'Backup & Migration', icon: Archive, badge: 'Plug & Play' },
     { id: 'domains', label: 'Domains & SSL', icon: Globe },
     { id: 'tunnels', label: 'Cloudflare Tunnels', icon: CloudRain, badge: 'Zero-NAT' },
   ];

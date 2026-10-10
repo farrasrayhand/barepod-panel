@@ -8,7 +8,8 @@ export type NavItem =
   | 'tunnels'
   | 'terminal'
   | 'users'
-  | 'settings';
+  | 'settings'
+  | 'backup';
 
 export type RuntimeType = 
   | 'php' 

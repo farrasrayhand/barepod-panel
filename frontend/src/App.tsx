@@ -13,6 +13,7 @@ import { OverviewView } from './components/OverviewView';
 import { ServerMonitoringView } from './components/ServerMonitoringView';
 import { PanelSettingsView } from './components/PanelSettingsView';
 import { DomainsView } from './components/DomainsView';
+import { BackupMigrationView } from './components/BackupMigrationView';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 
@@ -344,6 +345,14 @@ systemctl reload uvicorn-ai`,
             <DomainsView
               apps={apps}
               onShowToast={showToast}
+            />
+          )}
+
+          {currentTab === 'backup' && (
+            <BackupMigrationView
+              apps={apps}
+              onShowToast={showToast}
+              onOpenTerminal={() => setCurrentTab('terminal')}
             />
           )}
 

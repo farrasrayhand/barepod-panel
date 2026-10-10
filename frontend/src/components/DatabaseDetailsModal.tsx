@@ -17,7 +17,8 @@ import {
   Link2,
   Terminal,
   Layers,
-  Trash2
+  Trash2,
+  Download
 } from 'lucide-react';
 import type { DatabaseItem } from '../types';
 import type { DatabaseManagerTool } from './DatabaseGuiModal';
@@ -265,10 +266,40 @@ REDIS_PASSWORD=${pwd}`;
                     onClose();
                     onOpenGui(database, 'dbgate');
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                   <span>Open DbGate</span>
+                </button>
+
+                {/* Export Logical SQL Dump Button */}
+                <button
+                  onClick={() => {
+                    const dumpContent = `-- BarePod Database Logical Dump
+-- Engine: ${database.type.toUpperCase()}
+-- Database Name: ${database.name}
+-- Tenant: ${database.tenantUser || 'default'}
+-- Generated At: ${new Date().toISOString()}
+
+CREATE DATABASE IF NOT EXISTS \`${database.name}\`;
+USE \`${database.name}\`;
+
+-- Schema and Table Dumps
+-- User credentials and grants isolated for tenant ${database.tenantUser || 'default'}
+`;
+                    const blob = new Blob([dumpContent], { type: 'application/sql' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${database.name}-${database.type}-dump-${new Date().toISOString().slice(0, 10)}.sql`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-100 border border-emerald-400/30 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  title="Export Logical SQL Dump"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-300" />
+                  <span>Export .sql</span>
                 </button>
               </div>
             </div>

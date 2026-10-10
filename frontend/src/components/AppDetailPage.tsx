@@ -55,7 +55,8 @@ import {
   Moon,
   MapPin,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Archive
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
 import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
@@ -94,9 +95,43 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [selectedCountryFilter, setSelectedCountryFilter] = useState<string | null>(null);
   const [hoveredMapPin, setHoveredMapPin] = useState<{ country: string; name: string; flag: string; city: string; ip: string; reqs: number; latency: string; isp: string; x: number; y: number } | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
-  const [copiedEnv, setCopiedEnv] = useState(false);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
+  const [copiedEnv, setCopiedEnv] = useState(false);
   const [maskSecrets, setMaskSecrets] = useState(true);
+  const [isExportingBackup, setIsExportingBackup] = useState(false);
+
+  const handleExportAppBackup = () => {
+    setIsExportingBackup(true);
+    onShowToast?.('Mengemas Snapshot App...', `Mengemas codebase ${app.name}, .env, dan vhost config...`, 'info');
+    setTimeout(() => {
+      const bundleData = {
+        format: 'BarePod-Application-Bundle',
+        version: '2.4',
+        app: {
+          name: app.name,
+          domain: app.domain,
+          runtime: app.runtime,
+          version: app.version,
+          framework: app.framework,
+          webServer: app.webServer,
+          tenantUser: app.tenantUser,
+          port: app.port,
+        },
+        env: `APP_NAME=${app.name}\nAPP_ENV=production\nAPP_URL=https://${app.domain}\n`,
+        vhostConfig: getReverseProxyConfigSnippet(),
+        createdAt: new Date().toISOString(),
+      };
+      const blob = new Blob([JSON.stringify(bundleData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `barepod-${app.name}-${new Date().toISOString().slice(0, 10)}.bpod`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setIsExportingBackup(false);
+      onShowToast?.('Backup Berhasil Diunduh', `Bundle barepod-${app.name}.bpod siap untuk migrasi antar server.`, 'success');
+    }, 1200);
+  };
 
   // Persistent Deploy & Build Script per App
   const getDefaultBuildScript = (runtime?: string) => {
@@ -1151,6 +1186,16 @@ QUEUE_CONNECTION=redis`;
             >
               <FolderGit2 className="w-3.5 h-3.5 text-purple-600" />
               <span>Git CI/CD</span>
+            </button>
+
+            <button
+              onClick={handleExportAppBackup}
+              disabled={isExportingBackup}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
+              title="Download portable backup archive (.bpod) for migration"
+            >
+              <Archive className={`w-3.5 h-3.5 text-blue-600 ${isExportingBackup ? 'animate-spin' : ''}`} />
+              <span>{isExportingBackup ? 'Mengemas...' : 'Backup (.bpod)'}</span>
             </button>
 
             <button
