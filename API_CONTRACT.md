@@ -140,17 +140,28 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `GET|PUT /websites/:slug/php/ini` · `POST /websites/:slug/php-fpm/reload`
 
 ### 4.4 File Manager
-- `GET /websites/:slug/files?path=` → `FileEntry[]`
-- `GET /websites/:slug/files/content?path=` · `PUT /websites/:slug/files/content`
-- `POST /websites/:slug/files` (new) · `mkdir` · `rename` · `copy` · `move` · `delete`
-- `POST /websites/:slug/files/upload` · `GET /websites/:slug/files/download?path=`
-- `POST /websites/:slug/files/compress` (batch `.zip`)
+- `GET /websites/:slug/files?path=` → `{ path, site, tenant, items[FileEntry], maxSize }`
+- `GET /websites/:slug/files/content?path=` → `{ path, size, mode, modifiedAt, binary, encoding, content }` (`encoding` is `utf-8` or `base64` for binary files)
+- `PUT /websites/:slug/files/content` `{ path, content, encoding? }` → `{ path, size, modifiedAt }`
+- `POST /websites/:slug/files/create` `{ path }` (refuses to overwrite) · `mkdir` `{ path }`
+- `POST /websites/:slug/files/rename` `{ path, name }` · `copy` `{ path, to? }` · `move` `{ path, to? }`
+- `POST /websites/:slug/files/delete` `{ paths[] }` (max 500 per request)
+- `POST /websites/:slug/files/upload?path=<dir>` (multipart, one or more files)
+- `GET /websites/:slug/files/download?path=` → the file · `POST /websites/:slug/files/compress` `{ paths[] }` → `application/zip`
+- All of it requires the `fileManager` capability **and** ownership of the site.
+- **Everything returned is relative to the site root** — the API never leaks an absolute host path.
 
-> **Path safety:** every `path` parameter is **relative to the site root** (`/home/<tenant>/apps/<site>`). The daemon must resolve it (`filepath.Clean` + `EvalSymlinks`), then reject anything that does not satisfy `strings.HasPrefix(resolved, siteRoot)`. File operations run **as the tenant UID/GID** (fork worker + `setresuid`/`setresgid`), so the kernel enforces ownership on top of the prefix check. Symlinks pointing outside the site root are refused.
+> **Path safety (normative):** the server must treat every request path as relative, reject absolute paths and `..` outright, resolve symlinks (`EvalSymlinks` on the deepest existing ancestor), and then compare with the site root using a **separator-safe** test (`resolved == root || HasPrefix(resolved, root+"/")`) — a plain `HasPrefix` would let `/home/u/apps/site-evil` pass as inside `/home/u/apps/site`. Operations run **as the tenant UID/GID** (helper process with `setuid`/`setgid`), so the kernel enforces ownership too; a symlink resolving outside the root is refused and archives skip symlinks. `content` returns `403 path_not_allowed` for a rejected path.
 
 ### 4.5 Terminal
-- `WS /websites/:slug/pty` — tenant shell (auto runtime switch)
+- `WS /websites/:slug/pty` — tenant shell (runs as the tenant, cwd = the site directory, allow-listed shell)
 - `WS /system/pty` — host root shell (**admin only**)
+- **Auth:** redeem a one-time ticket, never a session token in the URL — `POST /ws/ticket` → `{ ticket, expiresAt }` (30 s TTL, single use) → connect with `?ticket=…`. A replayed ticket is refused.
+- **Frames:** binary = stdin/stdout; text = control JSON:
+  - `{ "type": "resize", "cols": 120, "rows": 40 }` → `pty.Setsize` (so vim/top fit the browser)
+  - `{ "type": "ping" }` → `{ "type": "pong", "ts": … }`
+- The first frame is `{ type: "ready", target, dir, shell, user, mode, note }` so the client can label the tab with the identity the shell runs as.
+- Idle sessions close after 30 minutes; disconnecting kills the whole process group; `terminal.open` / `terminal.close` are audited.
 
 ### 4.6 Databases, Caches & SSO
 - `GET|POST /databases` · `GET|PATCH|DELETE /databases/:id`

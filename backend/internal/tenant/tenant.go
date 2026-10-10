@@ -175,6 +175,44 @@ func (m *Manager) setQuota(ctx context.Context, res *Result, opts Options, log f
 	return nil
 }
 
+// Account is the resolved OS identity of a tenant.
+type Account struct {
+	Name string `json:"name"`
+	UID  int    `json:"uid"`
+	GID  int    `json:"gid"`
+	Home string `json:"home"`
+}
+
+// Lookup resolves the OS identity of a tenant account. It reports ok=false in
+// dry-run (nothing was created) or when the account does not exist, so callers
+// can fall back to running as the daemon's own user.
+func (m *Manager) Lookup(ctx context.Context, user string) (Account, bool) {
+	if !m.real() || !validate.TenantUser(user) {
+		return Account{}, false
+	}
+	uid, err := m.lookupID(ctx, "-u", user)
+	if err != nil {
+		return Account{}, false
+	}
+	gid, err := m.lookupID(ctx, "-g", user)
+	if err != nil {
+		return Account{}, false
+	}
+	return Account{Name: user, UID: uid, GID: gid, Home: m.Home(user)}, true
+}
+
+func (m *Manager) lookupID(ctx context.Context, flag, user string) (int, error) {
+	out, err := m.runner.Run(ctx, "", "id", flag, user)
+	if err != nil {
+		return 0, err
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, err
+	}
+	return value, nil
+}
+
 // Lock disables the account (used when a panel user is suspended).
 func (m *Manager) Lock(ctx context.Context, user string) error {
 	if !validate.TenantUser(user) {

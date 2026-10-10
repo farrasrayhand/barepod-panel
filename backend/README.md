@@ -11,15 +11,16 @@ The panel has **no built-in account**: you create your own root admin with the
 CLI during installation, and the daemon refuses to start until one exists.
 
 ```bash
-# 1. build (or use the binary the installer put in /usr/local/bin)
+# 1. build and put `barepod` on your PATH
 cd backend
-go build -o ./barepod ./cmd/barepod
+make install                 # -> /usr/local/bin/barepod (sudo if needed)
+#    …or without root:  go install ./cmd/barepod   (needs $GOPATH/bin on PATH)
 
 # 2. create your root admin — the generated password is printed once
-./barepod admin create --username <you>
+barepod admin create --username <you>
 
 # 3. start the panel
-./barepod serve -listen 127.0.0.1:8080 -db ./data/barepod.db -key ./data/secret.key
+barepod serve -listen 127.0.0.1:8080 -db ./data/barepod.db -key ./data/secret.key
 ```
 
 ## CLI
@@ -49,6 +50,7 @@ Use `--db <path>` on any command to point at a non-default database.
 | `-sites-root` | `BAREPOD_SITES_ROOT` | `/home` (Linux) | Directory holding tenant homes |
 | `-units-dir` | `BAREPOD_UNITS_DIR` | `/etc/systemd/system` (Linux) | systemd unit output |
 | `-dry-run` | `BAREPOD_DRY_RUN` | `false` | Record privileged commands instead of running them |
+| `-max-upload-mb` | `BAREPOD_MAX_UPLOAD_MB` | `64` | File manager upload/edit ceiling |
 | `-log-level` | `BAREPOD_LOG_LEVEL` | `info` | Log verbosity |
 
 `BAREPOD_ADMIN_PASSWORD` is read by `admin create` / `admin passwd` when
@@ -73,7 +75,13 @@ Everywhere else (macOS, containers without systemd, `-dry-run`) the daemon runs 
 | `GET` | `/api/v1/groups` | Permission groups + package limits (needs `users`) |
 | `PATCH` | `/api/v1/groups/{name}` | Edit a package (capabilities, limits) — capacity-guarded |
 | `GET` | `/api/v1/system/capacity` | Host capacity, current allocation, live re-check |
-| `GET` | `/api/v1/system/capabilities` | systemd / LXC / Docker / S.M.A.R.T. / fstrim |
+| `GET` | `/api/v1/system/capabilities` | systemd / LXC / Docker / S.M.A.R.T. / fstrim **+ `limitations[]`** |
+| `GET` | `/api/v1/websites/{slug}/files?path=` | Directory listing (relative paths only) |
+| `GET` `PUT` | `/api/v1/websites/{slug}/files/content?path=` | Read / save a file for the editor |
+| `GET` | `/api/v1/websites/{slug}/files/download?path=` | Download a file |
+| `POST` | `/api/v1/websites/{slug}/files/{create,mkdir,rename,copy,move,delete,upload,compress}` | File operations |
+| `GET` | `/api/v1/websites/{slug}/pty?ticket=` | **WebSocket** terminal as the tenant |
+| `GET` | `/api/v1/system/pty?ticket=` | **WebSocket** host shell (admin only) |
 | `GET` | `/api/v1/websites` | Website list |
 | `POST` | `/api/v1/websites` | Deploy wizard payload → `202` + `deployId` |
 | `POST` | `/api/v1/websites/prepare-directory` | Create `/home/<tenant>/apps/<slug>` for "Existing Files" |
@@ -149,6 +157,60 @@ max databases. Zero means unlimited.
 - Existing systemd units keep the limits they were deployed with; a package
   change applies to the next deploy/restart of that website.
 
+## File manager & the path jail
+
+Two independent layers, because one is never enough:
+
+1. **Path jail** (`internal/files`): every path from the client is relative,
+   run through `filepath.IsLocal`, then `EvalSymlinks` on its *deepest existing
+   ancestor* (a path that does not exist yet cannot be a symlink), and finally
+   compared with the site root using a **separator-safe** test — so
+   `/home/u/apps/site-evil` can never pass as inside `/home/u/apps/site`. A
+   symlink that resolves outside the site is refused, and archives skip
+   symlinks instead of following them.
+2. **Ownership**: on Linux the daemon is root, so file operations are executed
+   through a helper process started with the tenant's UID/GID
+   (`barepod fs-exec`, see `files.HelperOps`): the kernel applies the tenant's
+   own permissions and new files belong to the tenant, not root. Off Linux (or
+   when the account does not exist) the daemon falls back to in-process
+   operations.
+
+Uploads use the multipart base name only, batch operations are capped at 500
+items, and `create`/`copy`/`move` refuse to overwrite an existing file.
+
+## Terminal (PTY)
+
+- `GET /websites/{slug}/pty` runs a shell **as the tenant** in the site
+  directory; `GET /system/pty` is a host shell and is **admin only**. Both
+  re-check the capability and the ownership of the site.
+- Authentication uses the one-time ticket from `POST /ws/ticket` (30 s TTL,
+  single use) — a session token never appears in a URL, and the test suite
+  asserts a ticket cannot be replayed.
+- Protocol: binary frames are stdin/stdout, text frames are control messages —
+  `{"type":"resize","cols":120,"rows":40}` calls `pty.Setsize` (so vim/top fill
+  the browser window correctly) and `{"type":"ping"}` answers with `pong`.
+- The first frame is a `ready` message describing the shell, the identity it
+  runs as and the execution mode, so the UI can label the tab honestly.
+- Idle sessions close after 30 minutes; closing kills the whole process group
+  (no orphan shells), and every open/close is audited.
+
+## On LXC / unprivileged containers
+
+A container is a supported target — it just owns fewer things than the host.
+`GET /system/capabilities` therefore returns a **`limitations[]`** list with the
+reason and the advice for each unavailable feature, so the UI shows guidance
+instead of a red error:
+
+| Feature | Why it is unavailable | What to use instead |
+|---|---|---|
+| `smart` | No access to the host's block device | Run `smartctl` on the LXC host; the panel still reports filesystem/inode usage and disk I/O latency |
+| `fstrim` | A container cannot issue a discard | `fstrim.timer` on the host, or continuous trim on the pool (`discard=on` for LVM-thin, `autotrim=on` for ZFS) |
+| `quota` | `setquota` needs host quota support + quotactl | Host-side quotas (XFS project quotas, a ZFS dataset per tenant); the package's cgroup v2 limits still apply |
+| `useradd` | Account utilities missing | Install the shadow/passwd utilities, or create tenants on the host |
+
+CPU and memory capacity *are* container-aware (`cpu.max`, `/proc/meminfo`), so
+the package limits and the capacity guard keep working inside LXC.
+
 ## Layout
 
 ```
@@ -158,6 +220,8 @@ internal/store/       SQLite (WAL), migrations, queries, groups, job retention
 internal/rbac/        capability set + built-in permission groups
 internal/resources/   Limits/Capacity model, live detection, overcommit guard
 internal/tenant/      Linux account lifecycle (useradd, quota, lock/unlock)
+internal/files/       File manager: hardened path jail, ops, zip
+internal/terminal/    PTY sessions (allow-listed shells, resize, process group)
 internal/deploy/      async provisioning pipeline + job log
 internal/host/        privileged operations (real vs dry-run runner)
 internal/supervisor/  systemd template + per-site drop-in rendering
@@ -191,7 +255,7 @@ login response).
 ## Tests
 
 ```bash
-go test ./...        # 48 tests: validate, secrets, auth, rbac, resources, tenant, store, supervisor, pipeline
+go test ./...        # 78 tests: validate, secrets, auth, rbac, resources, tenant, files, terminal, store, supervisor, pipeline, HTTP/WS end-to-end
 go test -race ./internal/deploy/ ./internal/resources/
 ```
 

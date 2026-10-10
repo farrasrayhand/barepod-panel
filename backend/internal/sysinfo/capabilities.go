@@ -23,6 +23,7 @@ type Capabilities struct {
 	Useradd      bool   `json:"useradd"`   // can create Linux tenant accounts
 	Quota        bool   `json:"quota"`     // setquota/quota tools available
 	RunAsUser    bool   `json:"runAsUser"` // can drop to a tenant UID/GID (Linux)
+	DiskStats    bool   `json:"diskStats"` // /proc/diskstats is readable
 	SystemdState string `json:"systemdState"`
 }
 
@@ -32,12 +33,14 @@ func has(bin string) bool {
 }
 
 func readTrim(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := readFile(path)
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
 }
+
+func readFile(path string) ([]byte, error) { return os.ReadFile(path) }
 
 func detectDistro() string {
 	data, err := os.ReadFile("/etc/os-release")
@@ -86,6 +89,7 @@ func Detect() Capabilities {
 		Useradd:      runtime.GOOS == "linux" && has("useradd"),
 		Quota:        runtime.GOOS == "linux" && has("setquota"),
 		RunAsUser:    runtime.GOOS == "linux",
+		DiskStats:    DetectDiskStats(),
 		SystemdState: state,
 	}
 }

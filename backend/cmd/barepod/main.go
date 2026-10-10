@@ -61,6 +61,9 @@ func main() {
 		err = runGroup(os.Args[2:])
 	case "tenant":
 		err = runTenant(os.Args[2:])
+	case "fs-exec":
+		// Hidden helper: one file operation, run as the tenant (see internal/files).
+		err = runFSExec()
 	case "version", "-v", "--version":
 		fmt.Println("barepod " + version)
 	case "help", "-h", "--help":

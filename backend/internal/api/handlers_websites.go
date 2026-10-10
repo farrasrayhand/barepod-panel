@@ -8,10 +8,15 @@ import (
 )
 
 // handleCapabilities reports what this host can actually do (systemd, LXC,
-// Docker, S.M.A.R.T., fstrim) so the UI can degrade gracefully.
+// Docker, S.M.A.R.T., fstrim, tenant accounts, quotas) so the UI can degrade
+// gracefully — with guidance instead of an error — on an unprivileged container.
 func (s *Server) handleCapabilities(w http.ResponseWriter, _ *http.Request, _ *store.User, _ *store.Session) {
 	caps := sysinfo.Detect()
-	writeJSON(w, http.StatusOK, map[string]any{"capabilities": caps})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"capabilities": caps,
+		"limitations":  caps.Limitations(),
+		"mode":         s.host.Mode(),
+	})
 }
 
 // handleListWebsites returns the websites the caller may see: an admin sees all,

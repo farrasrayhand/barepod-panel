@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bufio"
+	"errors"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -70,6 +73,17 @@ func (r *statusRecorder) Flush() {
 
 // Unwrap lets http.ResponseController reach the real writer.
 func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
+// Hijack forwards to the underlying writer so a protocol upgrade (WebSocket)
+// still works: a plain wrapper would hide http.Hijacker and the upgrade would
+// fail with a 500 — the same trap as hiding http.Flusher for SSE.
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("api: the underlying ResponseWriter cannot be hijacked")
+	}
+	return hijacker.Hijack()
+}
 
 func clientIP(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {

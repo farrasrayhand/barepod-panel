@@ -6,23 +6,34 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 )
 
 // Config is the resolved daemon configuration.
 type Config struct {
-	Listen    string
-	DBPath    string
-	KeyPath   string
-	StaticDir string
-	SitesRoot string
-	UnitsDir  string
-	LogLevel  string
-	DryRun    bool
+	Listen      string
+	DBPath      string
+	KeyPath     string
+	StaticDir   string
+	SitesRoot   string
+	UnitsDir    string
+	LogLevel    string
+	DryRun      bool
+	MaxUploadMB int
 }
 
 func env(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func envInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil {
+			return parsed
+		}
 	}
 	return fallback
 }
@@ -75,19 +86,21 @@ func Load(args []string) (Config, error) {
 	unitsDir := fs.String("units-dir", env("BAREPOD_UNITS_DIR", defaultUnitsDir()), "directory for systemd unit files")
 	logLevel := fs.String("log-level", env("BAREPOD_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	dryRun := fs.Bool("dry-run", envBool("BAREPOD_DRY_RUN", false), "never execute privileged commands (forced on non-Linux hosts)")
+	maxUpload := fs.Int("max-upload-mb", envInt("BAREPOD_MAX_UPLOAD_MB", 64), "upload/edit ceiling for the file manager, in MiB")
 
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
 
 	return Config{
-		Listen:    *listen,
-		DBPath:    filepath.Clean(*dbPath),
-		KeyPath:   filepath.Clean(*keyPath),
-		StaticDir: filepath.Clean(*staticDir),
-		SitesRoot: filepath.Clean(*sitesRoot),
-		UnitsDir:  filepath.Clean(*unitsDir),
-		LogLevel:  *logLevel,
-		DryRun:    *dryRun,
+		Listen:      *listen,
+		DBPath:      filepath.Clean(*dbPath),
+		KeyPath:     filepath.Clean(*keyPath),
+		StaticDir:   filepath.Clean(*staticDir),
+		SitesRoot:   filepath.Clean(*sitesRoot),
+		UnitsDir:    filepath.Clean(*unitsDir),
+		LogLevel:    *logLevel,
+		DryRun:      *dryRun,
+		MaxUploadMB: *maxUpload,
 	}, nil
 }

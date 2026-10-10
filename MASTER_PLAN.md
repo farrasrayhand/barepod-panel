@@ -304,7 +304,10 @@ graph TD
   - ✅ **Resource packages & the capacity guard**: a group is also the tenant package (CPU / RAM / tasks / disk quota / inodes / max sites / max databases). Limits are applied to the systemd drop-in (cgroup v2 `MemoryMax`, `CPUQuota`, `TasksMax`) and to the tenant's disk quota; `PATCH /groups/:name` refuses a plan larger than the server with the numbers (`409 insufficient_capacity`); `GET /system/capacity` re-measures the host **live** (cgroup `cpu.max`, `cpu/online`, `/proc/meminfo`, `statfs`) so a scale up/down is detected without a daemon restart and a plan that stops fitting is reported + audited once. Pods will reuse the same `Limits` model for their Docker spec.
   - ✅ **`internal/tenant`**: Linux account lifecycle (`useradd --create-home`, `chmod 0750`/`chown`, `setquota`, `usermod --lock/--unlock`) behind the same real/dry-run runner, wired to `user create` / `user suspend|activate` and to `barepod tenant provision`; unsafe account names are rejected before the OS is touched.
   - ✅ **Bounded job history**: deploy jobs + logs are pruned to the newest 10 per website, so a site that redeploys often cannot grow the database without limit.
-  - ⏳ Next: metrics collection (`/system/metrics`, per-website), files & terminal APIs, the databases module, and wiring the React UI to this API.
+  - ✅ **File manager** (`internal/files`): listing, read/save for the editor (text or base64), create, mkdir, rename, copy, move, delete, multipart upload, download and batch `.zip`. Two-layer safety: a **separator-safe path jail** (`IsLocal` + `EvalSymlinks` on the deepest existing ancestor + `root+"/"` prefix test, so `/apps/site-evil` can never pass as `/apps/site`) and operations executed **as the tenant UID/GID** through a helper process (`barepod fs-exec`), so new files belong to the tenant instead of root.
+  - ✅ **Terminal (PTY)** (`internal/terminal`): `WS /websites/:slug/pty` spawns an allow-listed shell **as the tenant** in the site directory, `WS /system/pty` is an admin-only host shell. One-time ticket auth (never a token in the URL), `{"type":"resize"}` → `pty.Setsize`, binary stdin/stdout, 30-minute idle timeout, process-group cleanup and audit on open/close.
+  - ✅ **LXC-aware degradation**: `GET /system/capabilities` also returns a **`limitations[]`** list (reason + advice) for what an unprivileged container cannot do — S.M.A.R.T. (no block device), fstrim (no discard; use host `fstrim.timer` or pool `discard`/`autotrim`), `setquota` (use host-side quotas) — instead of showing an error. CPU/RAM capacity stays container-aware.
+  - ⏳ Next: metrics collection (`/system/metrics`, per-website), the databases module, and wiring the React UI to this API.
 * **Phase 3: Host OS & Container Integration (SCHEDULED 📋)**:
   - Docker Engine SDK (`docker/moby`) integration for container pod management.
   - File Manager backend API (reading/writing real Linux directories with isolated tenant user privileges).
@@ -363,6 +366,10 @@ BarePod-Panel/
 │   │   ├── rbac/                 # Capability set + built-in permission groups
 │   │   ├── config/               # Flags + environment configuration
 │   │   ├── store/                # SQLite (WAL), migrations, queries, groups
+│   │   ├── resources/            # Limits/Capacity model, live detection, overcommit guard
+│   │   ├── tenant/               # Linux account lifecycle (useradd, quota, lock/unlock)
+│   │   ├── files/                # File manager: path jail, ops, zip
+│   │   ├── terminal/             # PTY sessions (tenant credentials, resize)
 │   │   ├── deploy/               # Async provisioning pipeline + persisted job log
 │   │   ├── host/                 # Privileged operations (real vs dry-run runner)
 │   │   ├── supervisor/           # systemd template unit + per-site drop-in

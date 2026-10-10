@@ -14,6 +14,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/rbac"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/tenant"
 )
 
 // Version is the panel/daemon version (prototype line, see MASTER_PLAN §0).
@@ -21,32 +22,42 @@ const Version = "0.1.0-prototype"
 
 // Deps are the dependencies the HTTP layer needs.
 type Deps struct {
-	Config config.Config
-	Store  *store.Store
-	Key    []byte
-	Host   *host.Host
-	Deploy *deploy.Manager
+	Config         config.Config
+	Store          *store.Store
+	Key            []byte
+	Host           *host.Host
+	Deploy         *deploy.Manager
+	Tenants        *tenant.Manager
+	MaxUploadBytes int64
 }
 
 // Server holds the handler dependencies.
 type Server struct {
-	cfg     config.Config
-	store   *store.Store
-	key     []byte
-	host    *host.Host
-	deploy  *deploy.Manager
-	tickets *ticketStore
+	cfg            config.Config
+	store          *store.Store
+	key            []byte
+	host           *host.Host
+	deploy         *deploy.Manager
+	tenants        *tenant.Manager
+	tickets        *ticketStore
+	maxUploadBytes int64
 }
 
 // New builds the daemon HTTP handler.
 func New(d Deps) http.Handler {
+	maxUpload := d.MaxUploadBytes
+	if maxUpload <= 0 {
+		maxUpload = 64 << 20 // 64 MiB default
+	}
 	s := &Server{
-		cfg:     d.Config,
-		store:   d.Store,
-		key:     d.Key,
-		host:    d.Host,
-		deploy:  d.Deploy,
-		tickets: newTicketStore(),
+		cfg:            d.Config,
+		store:          d.Store,
+		key:            d.Key,
+		host:           d.Host,
+		deploy:         d.Deploy,
+		tenants:        d.Tenants,
+		tickets:        newTicketStore(),
+		maxUploadBytes: maxUpload,
 	}
 
 	mux := http.NewServeMux()
@@ -71,6 +82,11 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/system/capabilities", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleCapabilities)))
 	mux.HandleFunc("POST /api/v1/ws/ticket", s.requireAuth(s.handleWSTicket))
 
+	// Interactive terminals. Auth uses the one-time ticket (never a long-lived
+	// token in the URL); the handlers re-check capability and ownership.
+	mux.HandleFunc("GET /api/v1/websites/{slug}/pty", s.handleWebsitePTY)
+	mux.HandleFunc("GET /api/v1/system/pty", s.handleHostPTY)
+
 	// Websites — "deployApps" capability, scoped to the caller's own websites
 	// (admins see every tenant).
 	deploy := func(h authedHandler) http.HandlerFunc {
@@ -92,6 +108,23 @@ func New(d Deps) http.Handler {
 				s.handleWebsiteAction(w, r, user, sess, action)
 			}))
 	}
+
+	// File manager — "fileManager" capability, scoped to the caller's own site.
+	files := func(h authedHandler) http.HandlerFunc {
+		return s.requireAuth(s.requireCapability(rbac.CapFileManager, h))
+	}
+	mux.HandleFunc("GET /api/v1/websites/{slug}/files", files(s.handleListFiles))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/files/content", files(s.handleReadFile))
+	mux.HandleFunc("PUT /api/v1/websites/{slug}/files/content", files(s.handleWriteFile))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/files/download", files(s.handleDownloadFile))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/files/upload", files(s.handleUploadFiles))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/files/create", files(s.handleCreateFile))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/files/mkdir", files(s.handleMkdir))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/files/rename", files(s.handleRenameFiles))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/files/copy", files(s.handleCopyFiles))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/files/move", files(s.handleMoveFiles))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/files/delete", files(s.handleDeleteFiles))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/files/compress", files(s.handleCompressFiles))
 
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)

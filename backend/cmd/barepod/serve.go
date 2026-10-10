@@ -19,6 +19,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/sysinfo"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/tenant"
 )
 
 // runServe starts the daemon.
@@ -68,6 +69,7 @@ func runServe(args []string) error {
 	}
 	h := &host.Host{Runner: runner, SitesRoot: cfg.SitesRoot, UnitsDir: cfg.UnitsDir}
 	deploys := deploy.NewManager(st, h, key)
+	tenants := tenant.New(runner, cfg.SitesRoot, caps)
 
 	log.Printf("host: %s/%s %q systemd=%v lxc=%v docker=%v smart=%v fstrim=%v",
 		caps.OS, caps.Arch, caps.Distro, caps.Systemd, caps.LXC, caps.Docker, caps.Smart, caps.Fstrim)
@@ -79,11 +81,13 @@ func runServe(args []string) error {
 	srv := &http.Server{
 		Addr: cfg.Listen,
 		Handler: api.New(api.Deps{
-			Config: cfg,
-			Store:  st,
-			Key:    key,
-			Host:   h,
-			Deploy: deploys,
+			Config:         cfg,
+			Store:          st,
+			Key:            key,
+			Host:           h,
+			Deploy:         deploys,
+			Tenants:        tenants,
+			MaxUploadBytes: int64(cfg.MaxUploadMB) << 20,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
