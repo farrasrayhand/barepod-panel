@@ -79,24 +79,20 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, activeTab]);
 
-  // Switching tabs replaces the content below the tab bar, so bring that
-  // content into view with a smooth scroll (this is what "click Terminal, land
-  // on the terminal" means). The default tab is skipped on a fresh visit so
-  // /monitoring still opens at the top, KPIs first.
-  const scrollRootRef = useRef<HTMLDivElement>(null);
-  const didMount = useRef(false);
-  useEffect(() => {
-    const isFirstRender = !didMount.current;
-    didMount.current = true;
-    if (isFirstRender && activeTab === 'metrics') return;
+  // The black "Terminal root" button scrolls the shell into view; the Terminal
+  // *tab* does not (switching tabs must not move the page).
+  const consoleRef = useRef<HTMLDivElement>(null);
+  const scrollToConsole = () => {
+    // Wait for the console to be rendered before measuring its position.
+    requestAnimationFrame(() => {
+      const root = document.querySelector('[data-scroll-root]') as HTMLElement | null;
+      const anchor = consoleRef.current;
+      if (!root || !anchor) return;
 
-    const root = document.querySelector('[data-scroll-root]') as HTMLElement | null;
-    const bar = scrollRootRef.current;
-    if (!root || !bar) return;
-
-    const offset = bar.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop;
-    root.scrollTo({ top: Math.max(0, offset - 12), behavior: 'smooth' });
-  }, [activeTab]);
+      const offset = anchor.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop;
+      root.scrollTo({ top: Math.max(0, offset - 12), behavior: 'smooth' });
+    });
+  };
 
   // Live Metrics State
   const [cpuUsage, setCpuUsage] = useState(14.2);
@@ -364,7 +360,10 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
           {isAdmin && (
             <button
-              onClick={() => setActiveTab('console')}
+              onClick={() => {
+                setActiveTab('console');
+                scrollToConsole();
+              }}
               title="Host root shell — admin only"
               className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors"
             >
@@ -543,7 +542,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
       </div>
 
       {/* Main Tabs Navigation */}
-      <div ref={scrollRootRef} className="flex items-center gap-1 border-b border-slate-200 bg-white px-2 rounded-t-xl overflow-x-auto text-xs font-semibold">
+      <div className="flex items-center gap-1 border-b border-slate-200 bg-white px-2 rounded-t-xl overflow-x-auto text-xs font-semibold">
         <button
           onClick={() => setActiveTab('metrics')}
           className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
@@ -1653,10 +1652,13 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           </div>
         )}
 
-        {/* TAB 6: HOST CONSOLE (root shell, admin only) */}
-        {activeTab === 'console' && isAdmin && (
-          <HostConsole hostname="vps-barepod-edge-01" />
-        )}
+        {/* TAB 6: HOST CONSOLE (root shell, admin only) — the anchor the
+            black Terminal button scrolls to */}
+        <div ref={consoleRef}>
+          {activeTab === 'console' && isAdmin && (
+            <HostConsole hostname="vps-barepod-edge-01" />
+          )}
+        </div>
 
       </div>
 
