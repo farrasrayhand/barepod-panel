@@ -104,37 +104,6 @@ a1b2c3d4e5f6   n8n:latest         Up 6 days      0.0.0.0:5678->5678/tcp   n8n-wo
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-[11px] text-slate-400">
-            <span>LOAD AVERAGE</span>
-            <Activity className="w-3.5 h-3.5 text-blue-500" />
-          </div>
-          <div className="mt-1.5 text-sm font-bold text-slate-900 font-mono">0.42 · 0.38 · 0.35</div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-[11px] text-slate-400">
-            <span>TASKS</span>
-            <Cpu className="w-3.5 h-3.5 text-emerald-500" />
-          </div>
-          <div className="mt-1.5 text-sm font-bold text-slate-900 font-mono">142 (2 running)</div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-[11px] text-slate-400">
-            <span>MEMORY</span>
-            <Activity className="w-3.5 h-3.5 text-purple-500" />
-          </div>
-          <div className="mt-1.5 text-sm font-bold text-slate-900 font-mono">2.1 / 8.0 GB</div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="flex items-center justify-between text-[11px] text-slate-400">
-            <span>DISK (/)</span>
-            <HardDrive className="w-3.5 h-3.5 text-slate-500" />
-          </div>
-          <div className="mt-1.5 text-sm font-bold text-slate-900 font-mono">28.4 / 160 GB</div>
-        </div>
-      </div>
-
       <div
         className="bg-slate-950 rounded-2xl border border-slate-800 shadow-2xs overflow-hidden font-mono text-xs text-slate-200 flex flex-col"
         style={{ height: termHeight }}

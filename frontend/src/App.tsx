@@ -455,7 +455,7 @@ systemctl reload uvicorn-ai`,
         />
 
         {/* Dynamic Views */}
-        <main ref={mainRef} className="flex-1 overflow-y-auto">
+        <main ref={mainRef} data-scroll-root className="flex-1 overflow-y-auto">
           {currentTab === 'overview' && (
             <OverviewView
               apps={apps}

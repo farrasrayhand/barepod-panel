@@ -79,6 +79,14 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, activeTab]);
 
+  // Switching tabs replaces the content below the tab bar, so start at the top
+  // of the page: otherwise the old scroll position is kept and the new tab
+  // looks like it opened in the middle (and the browser clamps the scroll,
+  // which reads as a slide).
+  useEffect(() => {
+    document.querySelector('[data-scroll-root]')?.scrollTo({ top: 0 });
+  }, [activeTab]);
+
   // Live Metrics State
   const [cpuUsage, setCpuUsage] = useState(14.2);
   const [cpuHistory, setCpuHistory] = useState<number[]>([12, 14, 18, 15, 13, 16, 22, 19, 14, 15, 17, 14]);
@@ -1634,6 +1642,11 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           </div>
         )}
 
+        {/* TAB 6: HOST CONSOLE (root shell, admin only) */}
+        {activeTab === 'console' && isAdmin && (
+          <HostConsole hostname="vps-barepod-edge-01" />
+        )}
+
       </div>
 
       {/* KILL PROCESS CONFIRMATION MODAL */}
@@ -1718,11 +1731,6 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           </div>
         </div>
       )}
-
-        {/* TAB 6: HOST CONSOLE (root shell, admin only) */}
-        {activeTab === 'console' && isAdmin && (
-          <HostConsole hostname="vps-barepod-edge-01" />
-        )}
 
     </div>
   );
