@@ -89,7 +89,7 @@ func Open(path string) (*Store, error) {
 // Close closes the underlying database.
 func (s *Store) Close() error { return s.DB.Close() }
 
-const schema = `
+const schemaV1 = `
 CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
   username      TEXT NOT NULL UNIQUE,
@@ -155,15 +155,28 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 `
 
 func (s *Store) migrate() error {
-	if _, err := s.DB.Exec(schema); err != nil {
-		return fmt.Errorf("store: migrate: %w", err)
+	if _, err := s.DB.Exec(
+		`CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`,
+	); err != nil {
+		return fmt.Errorf("store: prepare migrations: %w", err)
 	}
-	_, err := s.DB.Exec(
-		`INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)`,
-		time.Now().UTC().Format(time.RFC3339),
-	)
-	if err != nil {
-		return fmt.Errorf("store: record migration: %w", err)
+	for _, m := range migrations {
+		var applied int
+		if err := s.DB.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, m.version).Scan(&applied); err != nil {
+			return fmt.Errorf("store: read migration state: %w", err)
+		}
+		if applied > 0 {
+			continue
+		}
+		if _, err := s.DB.Exec(m.statements); err != nil {
+			return fmt.Errorf("store: apply migration %d: %w", m.version, err)
+		}
+		if _, err := s.DB.Exec(
+			`INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)`,
+			m.version, time.Now().UTC().Format(time.RFC3339),
+		); err != nil {
+			return fmt.Errorf("store: record migration %d: %w", m.version, err)
+		}
 	}
 	return nil
 }

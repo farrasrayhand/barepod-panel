@@ -4,7 +4,7 @@
 
 > **Hobby project — 100% free.** BarePod Panel is a personal hobby project and is completely free to use, modify, and self-host. No paid tiers, no subscriptions, no feature gating, no telemetry. Released under the [MIT License](./LICENSE).
 
-> **Status:** Phase 1 frontend is feature-complete, and **Phase 2 has started** — a Go daemon skeleton lives in [`backend/`](./backend) (SQLite/WAL, Argon2id + session-cookie auth with CSRF, `/system/capabilities`, and the pilot Websites API). Every other interaction still runs client-side against mock data; see [MASTER_PLAN.md](./MASTER_PLAN.md).
+> **Status:** Phase 1 frontend is feature-complete (still on mock data), and **Phase 2 has started** — a Go daemon in [`backend/`](./backend) implements SQLite/WAL, Argon2id + session-cookie auth with CSRF, per-account RBAC, a `barepod` CLI for account setup, and an asynchronous website provisioning pipeline with systemd unit rendering and SSE job logs. See [MASTER_PLAN.md](./MASTER_PLAN.md).
 
 ---
 
@@ -101,9 +101,14 @@ npm run lint      # oxlint
 
 Requires Go 1.23+. Pure-Go SQLite driver — no cgo, so the same build runs on **amd64, arm64 and inside LXC**.
 
+The panel ships with **no account**: you create your own root admin with the CLI, and the daemon refuses to start until one exists.
+
 ```bash
 cd backend
-go run ./cmd/barepod-daemon -listen 127.0.0.1:8080 -db ./data/barepod.db -key ./data/secret.key
+go build -o ./barepod ./cmd/barepod
+
+./barepod admin create --username <you>     # prints a generated password once
+./barepod serve -listen 127.0.0.1:8080 -db ./data/barepod.db -key ./data/secret.key
 ```
 
-On first start it creates the root admin and prints the password once (set `BAREPOD_ADMIN_PASSWORD` to choose it yourself). See [`backend/README.md`](./backend/README.md) for the flags, the implemented endpoints and a smoke test.
+Also available: `barepod user create --username <name> --group Developer`, `user list`, `user suspend|activate`, `admin passwd`. Privileged work only runs for real on **Linux with systemd** — elsewhere the daemon runs in **dry-run** and reports `mode: "dry-run"` instead of pretending. The only built-in data is three permission groups. See [`backend/README.md`](./backend/README.md) for flags, endpoints, permissions and a smoke test.

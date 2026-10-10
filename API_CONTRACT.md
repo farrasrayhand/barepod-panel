@@ -21,6 +21,8 @@
 - **Metrics:** send **raw numbers** (`memoryBytes`, `cpuPercent`), never formatted strings. Formatting (`"42 MB"`, `"0.3%"`) happens in the frontend.
 - **IDs:** internal primary keys are **ULID** (time-sortable and immutable) — never the user-visible name. Websites are addressable by **slug** (URL-friendly) *or* `id`; if a website is renamed, the slug changes and the old slug is kept as a redirect alias so bookmarks and webhooks keep working. Other resources (`/databases/:id`, `/pods/:id`, …) use `id`.
 - **Webhook (public):** `POST /api/v1/webhook/:slug/deploy?token=<deployHookToken>` (no JWT).
+- **Errors:** `{ "error": { "code": "...", "message": "..." } }`, plus a `fields` map on validation failures. Codes: `bad_request`, `validation_error` (+`fields`), `unauthenticated`, `invalid_credentials`, `suspended`, `csrf`, `elevation_required` (reveal/rotate needs the 5-minute sudo mode), `capability_required` (group lacks the permission), `forbidden`, `not_found`, `slug_taken`, `directory_missing`, `service_error`, `internal`.
+- **Tenant scoping:** collection endpoints return only the caller's own resources; `GET /:id` on someone else's resource is `404`, not `403` (it must not confirm existence). Only role `admin` sees every tenant.
 
 ---
 
@@ -68,7 +70,7 @@ This is the main rework risk — the UI currently stores some values as presenta
 **Entities that need a canonical backend schema** (currently local mock state inside components):
 `Website`, `DatabaseItem`, `PodItem`, `UserGroup`, `TenantUser`, `UserTunnel`, `DomainRecord`, `FileEntry`, `ProcessItem`, `ServiceItem`, `LogEntry`, `BackupSnapshot`, `PanelSettings`, `LiveMetrics`, `ApiToken`.
 
-**Hardcoded values that must move to the API:** tenant identity (`farras`), public IP, path `/home/<tenant>/apps/<site>`, systemd unit names (`php8.4-fpm`, `gunicorn-*`, …), per-version DB ports.
+**Hardcoded values that must move to the API:** tenant identity (the signed-in account, never a name baked into the UI), public IP, path `/home/<tenant>/apps/<site>`, systemd unit names (`php8.4-fpm`, `gunicorn-*`, …), per-version DB ports.
 
 > **Terminology:** the UI calls these entities **"Websites"** (previously "Apps"). The API path is `/websites`; `WebApp` in the frontend types is the same entity.
 
@@ -91,23 +93,25 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `POST /websites` — deploy payload from the wizard:
   ```json
   {
-    "name": "larastore-commerce",
-    "domain": "larastore.id",
-    "tenantUser": "farras",
+    "name": "example-shop",
+    "domain": "shop.example.com",
+    "tenantUser": "admin",
     "webServer": "openlitespeed",
     "runtime": "php", "version": "8.4", "framework": "Laravel 12",
     "source": { "kind": "scaffold" },
     "git": { "repo": null, "branch": null, "autoDeploy": false },
     "database": { "provision": true, "engine": "postgres", "version": "PostgreSQL 16.4",
-                  "name": "larastore_db", "user": "farras_user", "password": "…",
+                  "name": "shop_db", "user": "admin_shop_db", "password": "…",
                   "maxConnections": 25 },
     "cache": { "provision": true, "engine": "redis", "version": "Redis 7.2.4", "password": "…" },
     "autoEnv": true,
     "automationSteps": ["composer install …", "php artisan migrate --force"]
   }
   ```
-  `source.kind` ∈ `scaffold | github | upload | existing`. For `upload` the archive is sent to `POST /websites/:slug/files/upload`; for `existing` the target directory must already exist (the daemon returns `409` otherwise).
-- **`POST /websites` returns `202 Accepted`** with `{ slug, deployId }` — provisioning runs asynchronously (scaffold → database → cache → `.env` → automation steps). The UI then subscribes to `GET /websites/:slug/deploy/stream` (SSE) or the `deploy-log` channel.
+  `source.kind` ∈ `scaffold | github | upload | existing`. For `upload` the archive is sent to `POST /websites/:slug/files/upload`; for `existing` the directory must exist **and not be empty** (the daemon returns `409` otherwise, and the job fails with an actionable message).
+- **`POST /websites/prepare-directory`** `{ slug, tenantUser }` → `201 { slug, tenantUser, path, created, existed, mode }`. **Tenants have no shell on the server**, so this is how "Existing Files" is reachable from the panel: create the folder here → upload the code with the File Manager → deploy. Idempotent; also gated on `deployApps` and restricted to the caller's own tenant.
+- **`POST /websites` returns `202 Accepted`** with `{ slug, deployId, mode, status, totalSteps, stream }` — provisioning runs asynchronously. `mode` is `real` on Linux+systemd and `dry-run` everywhere else; **in dry-run nothing is started and the website stays `stopped`** (units and `.env` are still written, and the recorded commands are logged).
+- **`GET /websites/:slug/deploy`** → the latest job · **`GET /websites/:slug/deploy/:id?after=<logId>`** → `{ job, log[] }` (safe polling) · **`GET /websites/:slug/deploy/stream?id=`** → **SSE** `event: log` frames, closed by `event: done` with the final job. Every line is persisted, so a reconnect loses nothing.
 - The website model carries **`deployStatus`**: `pending | building | ready | failed`.
 - **Failure & rollback:** if a step fails, the deploy stops, `deployStatus` becomes `failed`, and the failure is reported on the stream. Partial resources are **kept** (so the log can be inspected and the deploy retried) but are marked as unlinked: a failed database/cache is created in the Recycle Bin rather than dropped, and `POST /websites/:slug/redeploy` retries from the failed step. A website that never reached `ready` can be deleted without leaving orphans.
 - `POST /websites/:slug/start|stop|restart`
@@ -116,6 +120,14 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `GET|POST|DELETE /websites/:slug/routes` (multi-engine path routing)
 - `GET|PUT /websites/:slug/env`
 - `POST /websites/:slug/backup` (export per-website `.bpod`)
+
+### 4.2.1 Accounts, Groups & Permissions (per account)
+- **No built-in account.** The operator creates the root admin during installation with the CLI: `barepod admin create` (generated password shown once). The daemon refuses to start while no account exists.
+- **The only built-in data is three permission groups**, created on first run: `Superadmin (Root)`, `Developer`, `Read Only`. `users.group_name` is the membership.
+- `GET /groups` → `{ items: [{ id, name, description, permissions{10 capabilities}, members, isDefault, isSystem }], capabilities: [...] }` (requires the `users` capability). `POST|PATCH|DELETE /groups` and member management land with the users module; system groups cannot be deleted.
+- Capabilities: `deployApps`, `fileManager`, `terminal`, `databases`, `backups`, `domains`, `cloudflareTunnels`, `monitoring`, `users`, `apiTokens`. `GET /auth/me` returns the caller's **effective permissions**, resolved from the group.
+- **Enforcement is per account, never global:** a route whose capability is missing returns `403 { code: "capability_required" }`, and resource routes are scoped to the caller's own resources (another tenant's object returns `404`, even when the capability is granted). **Admins are the single exception** — they see and manage every tenant.
+- **Backup, migration and every future module follow the same rule:** capability from the group + ownership of the resource; `Read Only` may view dashboards/metrics/logs and start nothing.
 
 ### 4.3 Runtime, VHost & PHP
 - `GET|PUT /websites/:slug/runtime` (engine: openlitespeed/nginx/caddy/apache, version)

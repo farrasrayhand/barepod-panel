@@ -178,6 +178,30 @@ func (s *Store) ListWebsites() ([]Website, error) {
 	return out, rows.Err()
 }
 
+// ListWebsitesByTenant returns the websites owned by one tenant account.
+func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
+	rows, err := s.DB.Query(
+		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
+		        status, deploy_status, ssl, tunnel_enabled, port, created_at
+		 FROM websites WHERE tenant_user = ? ORDER BY created_at DESC, slug ASC`, tenant)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []Website{}
+	for rows.Next() {
+		var w Website
+		if err := rows.Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version,
+			&w.Framework, &w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable,
+			&w.Port, &w.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
 // WebsiteBySlug looks a website up by its slug.
 func (s *Store) WebsiteBySlug(slug string) (*Website, error) {
 	var w Website

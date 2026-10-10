@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 // Config is the resolved daemon configuration.
@@ -13,7 +14,10 @@ type Config struct {
 	DBPath    string
 	KeyPath   string
 	StaticDir string
+	SitesRoot string
+	UnitsDir  string
 	LogLevel  string
+	DryRun    bool
 }
 
 func env(key, fallback string) string {
@@ -23,20 +27,67 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-// Load resolves configuration from flags first, then environment, then defaults.
-func Load() Config {
-	listen := flag.String("listen", env("BAREPOD_LISTEN", "127.0.0.1:8080"), "address to listen on")
-	dbPath := flag.String("db", env("BAREPOD_DB", "/var/lib/barepod/barepod.db"), "path to the panel SQLite database")
-	keyPath := flag.String("key", env("BAREPOD_KEY", "/etc/barepod/secret.key"), "path to the secrets encryption key")
-	staticDir := flag.String("static", env("BAREPOD_STATIC", "./dist"), "path to the built frontend (SPA)")
-	logLevel := flag.String("log-level", env("BAREPOD_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
-	flag.Parse()
+func envBool(key string, fallback bool) bool {
+	switch os.Getenv(key) {
+	case "1", "true", "TRUE", "yes":
+		return true
+	case "0", "false", "FALSE", "no":
+		return false
+	}
+	return fallback
+}
+
+func onLinux() bool { return runtime.GOOS == "linux" }
+
+func defaultSitesRoot() string {
+	if onLinux() {
+		return "/home"
+	}
+	return "./data/sites"
+}
+
+func defaultUnitsDir() string {
+	if onLinux() {
+		return "/etc/systemd/system"
+	}
+	return "./data/units"
+}
+
+// DefaultDBPath is the panel database location.
+func DefaultDBPath() string {
+	return env("BAREPOD_DB", "/var/lib/barepod/barepod.db")
+}
+
+// DefaultKeyPath is the secrets key location.
+func DefaultKeyPath() string {
+	return env("BAREPOD_KEY", "/etc/barepod/secret.key")
+}
+
+// Load parses the flags of the `serve` subcommand (args excludes the program
+// name and the subcommand itself).
+func Load(args []string) (Config, error) {
+	fs := flag.NewFlagSet("barepod serve", flag.ContinueOnError)
+	listen := fs.String("listen", env("BAREPOD_LISTEN", "127.0.0.1:8080"), "address to listen on")
+	dbPath := fs.String("db", DefaultDBPath(), "path to the panel SQLite database")
+	keyPath := fs.String("key", DefaultKeyPath(), "path to the secrets encryption key")
+	staticDir := fs.String("static", env("BAREPOD_STATIC", "./dist"), "path to the built frontend (SPA)")
+	sitesRoot := fs.String("sites-root", env("BAREPOD_SITES_ROOT", defaultSitesRoot()), "directory that holds tenant home directories")
+	unitsDir := fs.String("units-dir", env("BAREPOD_UNITS_DIR", defaultUnitsDir()), "directory for systemd unit files")
+	logLevel := fs.String("log-level", env("BAREPOD_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
+	dryRun := fs.Bool("dry-run", envBool("BAREPOD_DRY_RUN", false), "never execute privileged commands (forced on non-Linux hosts)")
+
+	if err := fs.Parse(args); err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		Listen:    *listen,
 		DBPath:    filepath.Clean(*dbPath),
 		KeyPath:   filepath.Clean(*keyPath),
 		StaticDir: filepath.Clean(*staticDir),
+		SitesRoot: filepath.Clean(*sitesRoot),
+		UnitsDir:  filepath.Clean(*unitsDir),
 		LogLevel:  *logLevel,
-	}
+		DryRun:    *dryRun,
+	}, nil
 }

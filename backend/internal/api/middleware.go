@@ -10,6 +10,34 @@ import (
 
 const sessionCookie = "barepod_session"
 
+// sessionElevated reports whether the session holds a valid elevated (sudo) grant.
+func sessionElevated(sess *store.Session) bool {
+	if sess == nil || sess.ElevatedUntil == "" {
+		return false
+	}
+	until, err := time.Parse(time.RFC3339, sess.ElevatedUntil)
+	return err == nil && until.After(time.Now())
+}
+
+// requireCapability wraps a handler so the caller's group must grant capability.
+// Permissions are per account (via its group), never global.
+func (s *Server) requireCapability(capability string, next authedHandler) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {
+		if !s.effectivePermissions(user)[capability] {
+			writeError(w, http.StatusForbidden, "capability_required",
+				"Your account does not have the \""+capability+"\" permission")
+			return
+		}
+		next(w, r, user, sess)
+	}
+}
+
+// canManageSite reports whether the caller owns the website (or is an admin).
+// Tenant isolation is enforced on every website endpoint, not only in the UI.
+func canManageSite(user *store.User, site *store.Website) bool {
+	return user.Role == "admin" || site.TenantUser == user.Username
+}
+
 // authedHandler is a handler that requires a session.
 type authedHandler func(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session)
 
@@ -31,6 +59,17 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
 }
+
+// Flush forwards to the underlying writer so SSE streams are not broken by the
+// logging wrapper (a plain wrapper would hide http.Flusher).
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap lets http.ResponseController reach the real writer.
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
 func clientIP(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {

@@ -10,23 +10,44 @@ import (
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/rbac"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
 
 // Version is the panel/daemon version (prototype line, see MASTER_PLAN §0).
 const Version = "0.1.0-prototype"
 
+// Deps are the dependencies the HTTP layer needs.
+type Deps struct {
+	Config config.Config
+	Store  *store.Store
+	Key    []byte
+	Host   *host.Host
+	Deploy *deploy.Manager
+}
+
 // Server holds the handler dependencies.
 type Server struct {
 	cfg     config.Config
 	store   *store.Store
 	key     []byte
+	host    *host.Host
+	deploy  *deploy.Manager
 	tickets *ticketStore
 }
 
 // New builds the daemon HTTP handler.
-func New(cfg config.Config, st *store.Store, key []byte) http.Handler {
-	s := &Server{cfg: cfg, store: st, key: key, tickets: newTicketStore()}
+func New(d Deps) http.Handler {
+	s := &Server{
+		cfg:     d.Config,
+		store:   d.Store,
+		key:     d.Key,
+		host:    d.Host,
+		deploy:  d.Deploy,
+		tickets: newTicketStore(),
+	}
 
 	mux := http.NewServeMux()
 
@@ -34,19 +55,41 @@ func New(cfg config.Config, st *store.Store, key []byte) http.Handler {
 	mux.HandleFunc("GET /api/v1/health", s.handleHealth)
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 
-	// Authenticated
+	// Session & account
 	mux.HandleFunc("POST /api/v1/auth/logout", s.requireAuth(s.handleLogout))
 	mux.HandleFunc("GET /api/v1/auth/me", s.requireAuth(s.handleMe))
 	mux.HandleFunc("POST /api/v1/auth/verify", s.requireAuth(s.handleVerify))
-	mux.HandleFunc("GET /api/v1/system/capabilities", s.requireAuth(s.handleCapabilities))
-
 	mux.HandleFunc("GET /api/v1/sessions", s.requireAuth(s.handleListSessions))
 	mux.HandleFunc("DELETE /api/v1/sessions/{id}", s.requireAuth(s.handleRevokeSession))
 
-	mux.HandleFunc("GET /api/v1/websites", s.requireAuth(s.handleListWebsites))
-	mux.HandleFunc("GET /api/v1/websites/{slug}", s.requireAuth(s.handleGetWebsite))
+	// Permission groups (the only built-in data) — "users" capability
+	mux.HandleFunc("GET /api/v1/groups", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleListGroups)))
 
+	// System — "monitoring" capability
+	mux.HandleFunc("GET /api/v1/system/capabilities", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleCapabilities)))
 	mux.HandleFunc("POST /api/v1/ws/ticket", s.requireAuth(s.handleWSTicket))
+
+	// Websites — "deployApps" capability, scoped to the caller's own websites
+	// (admins see every tenant).
+	deploy := func(h authedHandler) http.HandlerFunc {
+		return s.requireAuth(s.requireCapability(rbac.CapDeployApps, h))
+	}
+	mux.HandleFunc("GET /api/v1/websites", deploy(s.handleListWebsites))
+	mux.HandleFunc("POST /api/v1/websites", deploy(s.handleCreateWebsite))
+	mux.HandleFunc("POST /api/v1/websites/prepare-directory", deploy(s.handlePrepareDirectory))
+	mux.HandleFunc("GET /api/v1/websites/{slug}", deploy(s.handleGetWebsite))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy", deploy(s.handleLatestDeploy))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/stream", deploy(s.handleDeployStream))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/{id}", deploy(s.handleDeployJob))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/secrets", deploy(s.handleListSecrets))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/secrets/{name}/reveal", deploy(s.handleRevealSecret))
+
+	for _, action := range []string{"start", "stop", "restart"} {
+		mux.HandleFunc("POST /api/v1/websites/{slug}/"+action, deploy(
+			func(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {
+				s.handleWebsiteAction(w, r, user, sess, action)
+			}))
+	}
 
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)
@@ -81,9 +124,6 @@ func decodeJSON(r *http.Request, dst any) error {
 	return dec.Decode(dst)
 }
 
-// Key returns the loaded secrets key (parity helper for future modules).
-func (s *Server) Key() []byte { return s.key }
-
 // handleSPA serves the built frontend, falling back to index.html so that
 // deep links such as /websites/<name>/logs keep working on refresh.
 func (s *Server) handleSPA(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +149,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
 		"version": Version,
+		"mode":    s.host.Mode(),
 		"time":    time.Now().UTC().Format(time.RFC3339),
 	})
 }

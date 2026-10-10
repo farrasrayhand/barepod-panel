@@ -105,10 +105,10 @@ graph TD
     end
     
     subgraph "Tenant Isolation Layer (Linux cgroups v2 + Namespaces)"
-        TenantA[Tenant User: farras]
+        TenantA[Tenant User: <tenant>]
         TenantB[Tenant User: clientA]
         
-        TenantA --> PathA["/home/farras/apps/larastore (PHP 8.4)"]
+        TenantA --> PathA["/home/<tenant>/apps/<site> (PHP 8.4)"]
         TenantB --> PathB["/home/clientA/apps/sentiment (Python 3.12 Flask)"]
         
         BarePodCore -->|WebSocket PTY Bridge| TerminalA[Terminal Session: auto PHP 8.4]
@@ -249,14 +249,16 @@ graph TD
 - **API & MCP**: menu with API tokens, webhooks and the MCP tool catalog; API tokens are a new RBAC capability (10 total).
 - **Profile & Account**: dedicated page (identity, password, 2FA, sessions, permissions) plus an app footer.
 - **Recycle Bin**: soft delete for databases — suspend (apps cannot connect), restore, permanent delete, empty bin, 30-day retention.
+- **Accounts, Groups & Permissions (per account, not global)**: the panel has **no built-in account** — the operator creates the root admin with `barepod admin create` at install time. The only built-in data is **three permission groups** (Superadmin (Root) / Developer / Read Only). Every endpoint is gated on a capability from the caller's group (`deployApps`, `fileManager`, `terminal`, `databases`, `backups`, `domains`, `cloudflareTunnels`, `monitoring`, `users`, `apiTokens`) and every resource endpoint is scoped to the caller's own resources — **admins are the single exception** and see all tenants. Backup, migration and every future module follow the same rule.
 
 ## 4. Implementation Status & Development Roadmap
 
 > [!IMPORTANT]
 > **Current Real Condition:**
-> All features visible in the panel today are at **Phase 1: Frontend UI & Interactive Simulation (React 19 + Vite 8 + TypeScript)**.
-> Button interactions, wizard forms, the file manager, and process simulations currently run on **client-side state (mock data)**.
-> The **Backend Core Daemon (Go / Linux OS Engine)** that will execute real commands on the server (such as systemd daemons, real Docker containers, real database engines, real rsync streams, and a vhost generator that writes to Linux system files) is **NOT YET IMPLEMENTED** and is the next technical milestone.
+> **Phase 1 (frontend)** is feature-complete: every screen, wizard and simulation runs on **client-side mock data** (React 19 + Vite + TypeScript) and is not yet wired to the API.
+> **Phase 2 (Go daemon)** has started: `backend/` implements SQLite/WAL + migrations, Argon2id + opaque session cookies with CSRF, RBAC enforced per account, the `barepod` CLI, host capability detection, systemd unit rendering and an **8-step asynchronous website provisioning pipeline** with a persisted job log streamed over SSE.
+> **Execution mode is honest:** on Linux with systemd the daemon performs real work; everywhere else (including this dev machine, and LXC without systemd) it runs in **dry-run** — it writes units and `.env`, records the commands it would run, reports `mode: "dry-run"` and leaves the site `stopped`.
+> **Still to build:** metrics collection, files & terminal APIs, real tenant `useradd`/quota (`internal/tenant`), the databases module, pods/Docker, TLS & Cloudflare Tunnel, and connecting the React UI to this API.
 
 ### 4.1. Component Status Table: Simulated Frontend vs Real Backend
 
@@ -290,13 +292,16 @@ graph TD
   Designing the entire user interface, user interactions, typed data architecture (TypeScript), and navigation flows so that the developer experience (DX) is perfectly validated before the backend is built.
 * **Phase 2: Go Backend Core Daemon (IN PROGRESS 🚧)**:
   Initialize the daemon service in Go (Golang). **Skeleton landed in `backend/` and verified end-to-end**:
-  - ✅ Local SQLite (WAL mode, `busy_timeout`, foreign keys) + schema migrations + seed (root admin + demo websites).
+  - ✅ Local SQLite (WAL mode, `busy_timeout`, foreign keys) + schema migrations. **No seed data**: the panel starts empty and the operator creates their own account with `barepod admin create`.
   - ✅ HTTP router (`net/http` `ServeMux` patterns) with request logging and **SPA fallback** so the path-based UI routes survive a refresh.
   - ✅ Auth: **Argon2id** password hashing, opaque **session cookie + CSRF** (decision #4, *not* JWT), instant session revoke, **5-minute elevated (sudo) mode**, one-time WebSocket tickets, audit log.
   - ✅ `internal/secrets`: **AES-256-GCM** with an auto-generated `0600` key file.
   - ✅ `GET /system/capabilities` (systemd / LXC / Docker / S.M.A.R.T. / fstrim detection).
-  - ✅ Pilot module **Websites**: `GET /websites` and `GET /websites/:slug` served from real SQLite rows.
-  - ⏳ Next: `POST /websites` (`202` + `deployId`), systemd `barepod-app@<site>` unit rendering, metrics collection, files & terminal, then the remaining modules.
+  - ✅ Pilot module **Websites**: list/detail from real rows, plus `POST /websites` → `202 Accepted` + `deployId`, an **8-step async provisioning pipeline** with a persisted job log, `GET .../deploy/{id}` polling and an **SSE stream** (`GET .../deploy/stream`) that ends with `event: done`.
+  - ✅ **`barepod` CLI**: `admin create` (the operator creates their own root account — the panel refuses to start without one and has **no default user/password**), `admin passwd`, `user create --group`, `user list`, `user suspend|activate`.
+  - ✅ **RBAC that is per account**: the only built-in data is **three permission groups** (Superadmin (Root) / Developer / Read Only). Every endpoint is gated on a capability resolved from the caller's group, and website endpoints are scoped to the caller's own resources — **admins are the exception** and see all tenants.
+  - ✅ **Honest execution modes**: privileged commands run for real only on Linux+systemd; elsewhere the daemon is in **dry-run**, writes units/`.env`, reports `mode: "dry-run"` and leaves the website `stopped` instead of faking success. `POST /websites/prepare-directory` exists because tenants have no shell access.
+  - ⏳ Next: metrics collection (`/system/metrics`, per-website), files & terminal APIs, `internal/tenant` (real `useradd`/quota), the databases module, and wiring the React UI to this API.
 * **Phase 3: Host OS & Container Integration (SCHEDULED 📋)**:
   - Docker Engine SDK (`docker/moby`) integration for container pod management.
   - File Manager backend API (reading/writing real Linux directories with isolated tenant user privileges).
@@ -347,20 +352,26 @@ BarePod-Panel/
 │   │   ├── index.css             # Tailwind Design System & Custom Utilities
 │   │   └── main.tsx              # React Entrypoint
 │   └── package.json
-├── backend/                      # Core Daemon (Go / Golang) — skeleton implemented
+├── backend/                      # Core Daemon (Go / Golang) — Phase 2 skeleton
 │   ├── cmd/
-│   │   └── barepod-daemon/       # Entrypoint binary daemon
+│   │   └── barepod/              # Single binary: `serve`, `admin`, `user`
 │   ├── internal/
-│   │   ├── api/                  # HTTP router, middleware & handlers (health, auth, sessions, websites, WS ticket)
+│   │   ├── api/                  # Router, middleware (logging, auth+CSRF, capability), handlers
+│   │   ├── rbac/                 # Capability set + built-in permission groups
 │   │   ├── config/               # Flags + environment configuration
-│   │   ├── store/                # SQLite (WAL), migrations, queries, seed data
+│   │   ├── store/                # SQLite (WAL), migrations, queries, groups
+│   │   ├── deploy/               # Async provisioning pipeline + persisted job log
+│   │   ├── host/                 # Privileged operations (real vs dry-run runner)
+│   │   ├── supervisor/           # systemd template unit + per-site drop-in
+│   │   ├── provision/            # Runtime/framework package & start commands
 │   │   ├── auth/                 # Argon2id password hashing
 │   │   ├── secrets/              # AES-256-GCM for stored credentials (0600 key file)
 │   │   ├── sysinfo/              # Host capability detection (systemd / LXC / Docker / SMART / fstrim)
+│   │   ├── validate/             # Input rules (FQDN, slug, tenant, runtime, engine)
 │   │   └── id/                   # ULID & token generation
 │   ├── go.mod
 │   └── .gitignore
-│   # planned modules: docker/ tenant/ proxy/ database/ backup/ git/ pty/
+│   # planned modules: tenant/ proxy/ database/ backup/ git/ pty/ metrics/
 ├── scripts/
 │   └── install.sh                # 1-line installation script for Ubuntu/Debian VPS
 ├── MASTER_PLAN.md                # Master Plan & Main Architecture Document

@@ -78,22 +78,12 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request, user *stor
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {
-	elevated := false
-	if sess.ElevatedUntil != "" {
-		if t, err := time.Parse(time.RFC3339, sess.ElevatedUntil); err == nil && t.After(time.Now()) {
-			elevated = true
-		}
-	}
+	elevated := sessionElevated(sess)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":      user,
-		"csrfToken": sess.CSRFToken,
-		"elevated":  elevated,
-		"permissions": map[string]bool{
-			// Prototype: admins get everything; group permissions land with the groups module.
-			"deployApps": true, "fileManager": true, "terminal": true, "databases": true,
-			"backups": true, "domains": true, "cloudflareTunnels": true, "monitoring": true,
-			"users": user.Role == "admin", "apiTokens": user.Role == "admin",
-		},
+		"user":        user,
+		"csrfToken":   sess.CSRFToken,
+		"elevated":    elevated,
+		"permissions": s.effectivePermissions(user),
 	})
 }
 

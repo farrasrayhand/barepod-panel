@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 #
 # BarePod Panel — installer / environment check
-# Phase 1: frontend prototype (Go backend daemon not implemented yet)
+# Phase 2: frontend prototype + Go daemon skeleton
+#
+# The panel ships without any account: the operator creates their own root admin
+# with `barepod admin create` (no default username, no default password).
 #
 # Supported targets:
 #   - linux/amd64 (x86_64)  — bare metal, VPS
@@ -70,6 +73,35 @@ else
   warn "Docker not found — required for container pods at runtime (Phase 3)."
 fi
 
+# --- BarePod daemon (Go) ---
+INSTALL_DIR="${BAREPOD_INSTALL_DIR:-/usr/local/bin}"
+DATA_DIR="${BAREPOD_DATA_DIR:-/var/lib/barepod}"
+CONF_DIR="${BAREPOD_CONF_DIR:-/etc/barepod}"
+DB_PATH="${BAREPOD_DB:-$DATA_DIR/barepod.db}"
+
+DAEMON_BUILT=0
+if command -v go >/dev/null 2>&1; then
+  if [ -f backend/go.mod ]; then
+    log "Building the BarePod daemon..."
+    ( cd backend && go build -o "$INSTALL_DIR/barepod" ./cmd/barepod )
+    install -d -m 0700 "$DATA_DIR" "$CONF_DIR"
+    DAEMON_BUILT=1
+    log "Installed: $INSTALL_DIR/barepod"
+  else
+    warn "backend/ not found — run this script from the repository root to build the daemon."
+  fi
+else
+  warn "Go 1.23+ not found — the daemon was not built (apt install golang-go, or use a release binary)."
+fi
+[ "$DAEMON_BUILT" -eq 1 ] || warn "You can still finish the steps below once a 'barepod' binary is on PATH."
+
 log "Environment OK: linux/${ARCH}$([ "$IS_LXC" -eq 1 ] && echo ' (LXC)')"
-log "Note: the Go backend daemon is not implemented yet (Phase 2)."
-log "      To try the UI now:  cd frontend && npm install && npm run dev"
+log "Next steps:"
+log "  1. barepod admin create --username <you> --db $DB_PATH"
+log "     (creates your own root admin; the password is generated and shown once)"
+log "  2. barepod serve -listen 127.0.0.1:8080 -db $DB_PATH -static ./frontend/dist"
+log "There is no default account and no default password by design."
+if [ "$IS_LXC" -eq 1 ] || ! command -v systemctl >/dev/null 2>&1; then
+  log "Note: without systemd the daemon runs in dry-run mode — sites are prepared but not started."
+fi
+log "Not implemented yet: systemd service installation, TLS/Cloudflare Tunnel, metrics."

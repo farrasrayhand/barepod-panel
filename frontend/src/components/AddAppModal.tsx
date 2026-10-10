@@ -22,6 +22,7 @@ import {
   Upload,
   Download,
   FolderOpen,
+  FolderPlus,
   Lock,
   GitBranch,
   KeyRound,
@@ -30,6 +31,7 @@ import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../type
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
 import { AVAILABLE_ENGINE_VERSIONS, ENGINE_LABELS } from '../data/databaseEngines';
 import { getProvisionPlan } from '../data/frameworkProvision';
+import { api, apiReachable, ApiError } from '../api/client';
 
 interface AddAppModalProps {
   isOpen: boolean;
@@ -94,12 +96,35 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const [gitBranch, setGitBranch] = useState('main');
   const [autoDeploy, setAutoDeploy] = useState(true);
   const [uploadFile, setUploadFile] = useState<string | null>(null);
-  const [dirCheck, setDirCheck] = useState<'idle' | 'checking' | 'ok' | 'missing'>('idle');
+  const [dirCheck, setDirCheck] = useState<'idle' | 'checking' | 'ok' | 'created' | 'error'>('idle');
+  const [dirPath, setDirPath] = useState<string | null>(null);
+  const [dirError, setDirError] = useState('');
   const KNOWN_EXISTING_APPS = ['flask-sentiment-api', 'larastore-commerce', 'billing-backend-api', 'fastapi-ai-service', 'legacy-news-portal', 'internal-n8n-proxy'];
   const existingPath = `/home/${tenantUser}/apps/${name || '<website>'}`;
-  const checkExistingDir = () => {
+
+  /**
+   * Tenants have no shell on the server, so the panel creates the directory.
+   * When the daemon is not running the prototype simulates the result.
+   */
+  const ensureDirectory = async () => {
+    const slug = name.trim();
+    if (!slug) return;
     setDirCheck('checking');
-    setTimeout(() => setDirCheck(KNOWN_EXISTING_APPS.includes(name.trim()) ? 'ok' : 'missing'), 600);
+    setDirError('');
+    try {
+      if (!(await apiReachable())) {
+        setDirPath(existingPath);
+        setDirCheck(KNOWN_EXISTING_APPS.includes(slug) ? 'ok' : 'created');
+        return;
+      }
+      const result = await api.prepareDirectory({ slug, tenantUser });
+      setDirPath(result.path);
+      setDirCheck(result.existed ? 'ok' : 'created');
+    } catch (err) {
+      const message = err instanceof ApiError ? (err.fields?.slug ?? err.message) : 'Could not reach the daemon';
+      setDirError(message);
+      setDirCheck('error');
+    }
   };
 
   // Database
@@ -763,39 +788,51 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               {effectiveSource === 'existing' && (
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Existing directory</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Site directory</label>
                     <div className="flex items-center gap-2">
-                      <input type="text" value={existingPath} readOnly className={`${inputClass} font-mono text-slate-500`} />
+                      <input type="text" value={dirPath ?? existingPath} readOnly className={`${inputClass} font-mono text-slate-500`} />
                       <button
                         type="button"
-                        onClick={checkExistingDir}
+                        onClick={ensureDirectory}
                         disabled={dirCheck === 'checking' || !name.trim()}
-                        className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg whitespace-nowrap disabled:opacity-40"
+                        className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg whitespace-nowrap disabled:opacity-40"
                       >
-                        <RefreshCw className={`w-3.5 h-3.5 ${dirCheck === 'checking' ? 'animate-spin' : ''}`} />
-                        <span>Check</span>
+                        {dirCheck === 'checking'
+                          ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          : <FolderPlus className="w-3.5 h-3.5" />}
+                        <span>{dirCheck === 'checking' ? 'Working…' : 'Create directory'}</span>
                       </button>
                     </div>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      There is no shell access on the server — the panel creates the folder with the correct ownership.
+                    </p>
                   </div>
 
                   {dirCheck === 'ok' && (
                     <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50 text-xs text-emerald-800 flex items-start gap-2">
                       <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                      <span>Directory found. Only dependencies and build steps will run.</span>
+                      <span>Directory already exists. Upload your code with the File Manager, then deploy.</span>
                     </div>
                   )}
 
-                  {dirCheck === 'missing' && (
+                  {dirCheck === 'created' && (
+                    <div className="p-3 rounded-xl border border-sky-200 bg-sky-50 text-xs text-sky-800 flex items-start gap-2">
+                      <Check className="w-4 h-4 text-sky-600 shrink-0 mt-0.5" />
+                      <span>Directory created. Next: upload your code with the File Manager, then continue.</span>
+                    </div>
+                  )}
+
+                  {dirCheck === 'error' && (
                     <div className="p-3 rounded-xl border border-rose-200 bg-rose-50 text-xs text-rose-800 flex items-start gap-2">
                       <X className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                      <span>
-                        Directory not found at <code className="font-mono">{existingPath}</code>. Deploy cannot continue — upload your code, use a GitHub repository, or scaffold a template instead.
-                      </span>
+                      <span>{dirError || 'Could not create the directory.'}</span>
                     </div>
                   )}
 
                   {dirCheck === 'idle' && (
-                    <p className="text-[11px] text-slate-400">Run the check to confirm the directory exists before continuing.</p>
+                    <p className="text-[11px] text-slate-400">
+                      Create the directory first — the deploy cannot continue while it is missing or empty.
+                    </p>
                   )}
                 </div>
               )}
