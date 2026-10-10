@@ -9,6 +9,7 @@ export type NavItem =
   | 'terminal'
   | 'users'
   | 'settings'
+  | 'api'
   | 'backup';
 
 export type RuntimeType = 

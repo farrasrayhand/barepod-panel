@@ -99,11 +99,11 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             <button
-              onClick={() => go('/settings/security')}
+              onClick={() => go('/api')}
               className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
             >
               <KeyRound className="w-3.5 h-3.5 text-slate-400" />
-              <span>API Tokens &amp; Automation</span>
+              <span>API Tokens &amp; MCP</span>
             </button>
 
             <button

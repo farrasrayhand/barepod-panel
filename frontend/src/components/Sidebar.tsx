@@ -15,7 +15,8 @@ import {
   Server,
   Copy,
   Check,
-  Archive
+  Archive,
+  Webhook
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { NavItem } from '../types';
@@ -57,6 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
 
   const devItems: NavGroupItem[] = [
     { id: 'terminal', label: 'Isolated Web Terminal', icon: Terminal },
+    { id: 'api', label: 'API & MCP', icon: Webhook },
     { id: 'users', label: 'Tenants & Multi-User', icon: Users },
     { id: 'settings', label: 'Panel Settings', icon: Settings },
   ];

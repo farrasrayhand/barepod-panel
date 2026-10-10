@@ -1,84 +1,84 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Versi Dokumen:** 0.6 (Status: Frontend UI Prototype Selesai — Backend Go Daemon & Engine OS Belum Dikerjakan)  
-> **Terakhir Diperbarui:** 10 Oktober 2026  
+> **Document Version:** 0.6 (Status: Frontend UI Prototype Complete — Go Backend Daemon & OS Engine Not Yet Implemented)  
+> **Last Updated:** October 10, 2026  
 > **Status:** Active & Maintained
 
-Dokumen ini merupakan cetak biru (blueprint) arsitektur teknis, spesifikasi modul, dan roadmap pengembangan lengkap untuk **BarePod Panel**, platform manajemen web hosting, reverse proxy gateway, dan container hosting hybrid generasi baru yang aman, terisolasi, dan mudah digunakan.
+This document is the complete technical architecture blueprint, module specification, and development roadmap for **BarePod Panel**, a new-generation web hosting management, reverse proxy gateway, and hybrid container hosting platform that is secure, isolated, and easy to use.
 
 ---
 
-## 0. Riwayat Perubahan Frontend (v0.6 — 10 Okt 2026)
+## 0. Frontend Changelog (v0.6 — Oct 10, 2026)
 
-Perubahan pada Fase 1 (React UI prototype):
+Changes in Phase 1 (React UI prototype):
 
-> **Catatan penomoran:** karena ini masih prototipe/simulasi (belum ada backend),
-> versi dimulai dari **0.x**. Versi mayor 1.0 baru dipakai saat backend Go + engine
-> OS sudah berjalan.
+> **Versioning note:** because this is still a prototype/simulation (no backend yet),
+> versioning starts at **0.x**. Major version 1.0 is only used once the Go backend + OS
+> engine are running.
 
 ### v0.6
-- **Istilah "App" → "Website"** pada seluruh UI (sidebar, daftar, detail, modal deploy, overview).
-- **RBAC granular**: tipe `GroupPermissions` (9 kapabilitas) pada grup tenant, editor matriks di Create Group Modal, dan kolom "Access Permissions" di tabel grup (`src/data/permissions.ts`).
-- **Ikon brand**: emoji diganti **lucide-react** (ikon UI) + **react-icons / Simple Icons** (logo brand: Python, PHP, Node.js, Go, Rust, Ruby, Flask, FastAPI, Django, Laravel, Symfony, WordPress, Next.js, Express, React, PostgreSQL, MySQL, MariaDB, MongoDB, Redis, phpMyAdmin) via `src/utils/brandIcons.tsx`.
-- **Server Monitoring**: filter rentang waktu jadi state nyata + grafik **Historical Trends** (CPU, Memory, Network I/O, Disk I/O); tab **Terminal** (host root shell) bersifat **admin-only**.
-- **App detail**: **World Traffic Map** dipromosikan jadi tab sendiri; **File Manager** jadi tab (`/apps/<app>/files`, bukan modal); editor memakai **highlight.js** (syntax highlighting).
-- **Ukuran panel**: preset **S/M/L** (`PanelSizeControl`) untuk File Manager, Host Terminal, dan Isolated Web Terminal (menggantikan free-drag agar tidak bisa ditarik ekstrem).
-- **File Manager**: batch download **.zip** nyata (store-only ZIP writer), auto-lock vault 60 detik, generator vhost Apache lengkap.
-- **Terminal tenant**: menu Isolated Web Terminal menampilkan pemilih sesi dulu sebelum membuka PTY.
-- **README**: ditulis ulang dalam bahasa Inggris + catatan *hobby project 100% free (MIT)*.
+- **Term "App" → "Website"** across the entire UI (sidebar, list, detail, deploy modal, overview).
+- **Granular RBAC**: `GroupPermissions` type (9 capabilities) on tenant groups, matrix editor in the Create Group Modal, and an "Access Permissions" column in the group table (`src/data/permissions.ts`).
+- **Brand icons**: emoji replaced with **lucide-react** (UI icons) + **react-icons / Simple Icons** (brand logos: Python, PHP, Node.js, Go, Rust, Ruby, Flask, FastAPI, Django, Laravel, Symfony, WordPress, Next.js, Express, React, PostgreSQL, MySQL, MariaDB, MongoDB, Redis, phpMyAdmin) via `src/utils/brandIcons.tsx`.
+- **Server Monitoring**: time range filter is now real state + **Historical Trends** charts (CPU, Memory, Network I/O, Disk I/O); the **Terminal** tab (host root shell) is **admin-only**.
+- **App detail**: **World Traffic Map** promoted to its own tab; **File Manager** is now a tab (`/apps/<app>/files`, not a modal); the editor uses **highlight.js** (syntax highlighting).
+- **Panel size**: **S/M/L** presets (`PanelSizeControl`) for File Manager, Host Terminal, and Isolated Web Terminal (replacing free-drag so it cannot be stretched to extremes).
+- **File Manager**: real **.zip** batch download (store-only ZIP writer), 60-second vault auto-lock, complete Apache vhost generator.
+- **Tenant terminal**: the Isolated Web Terminal menu shows a session picker first before opening a PTY.
+- **README**: rewritten in English + a note that this is a *100% free hobby project (MIT)*.
 
 ### v0.5
-- **Client-side URL routing per menu**: setiap menu punya endpoint sendiri (`/apps`, `/databases`, `/backup`, `/terminal`, dst). Refresh & tombol back/forward mengembalikan menu yang benar.
-- **Deep-link App Detail**: `/apps/<nama-app>` beserta sub-tab ikut di URL (`/apps/<app>/logs`, `/routing`, `/deploy`, dst) sehingga refresh tidak kehilangan posisi.
-- **Session picker Terminal**: membuka menu Terminal menampilkan pilihan sesi lebih dulu; PTY baru dibuka setelah memilih. Tombol Terminal dari halaman App tetap membuka sesi app tersebut langsung.
-- **Users — Edit**: fungsionalitas edit user (role, paket/grup, status, email) via `AddUserModal` mode edit. Username Linux di-lock saat edit; kolom status mengikuti data.
-- **Database vault**: auto-lock 60 detik (countdown) saat reveal password; `CredentialRevealModal` kini benar-benar terpakai lewat tombol Reveal di tabel.
-- **Vhost generator**: engine **Apache** kini digenerate benar di `AddAppModal` (sebelumnya fallback ke Nginx) — 4 engine lengkap (OLS/Nginx/Caddy/Apache).
-- **File Manager**: batch Cut/Copy/Paste multi-select (Select All) diperbaiki; batch download menghasilkan arsip **.zip** nyata (store-only ZIP writer di `src/utils/zip.ts`).
-- **Security per app**: tambah **Anti-Brute Force Protection** (on/off, max failed attempts, durasi IP ban) di tab Security.
-- **World Traffic Map**: diganti world map asli (Natural Earth 110m, equirectangular, `src/data/worldMapPath.ts`) agar bentuk benua benar dan pin presisi (proyeksi sama); perbaikan animasi pulse (`transform-box: fill-box`); penanda threat (WAF) konsisten di pin & badge filter.
-- **Branding**: badge "PRO" dan badge per-menu di sidebar dihapus; favicon disamakan dengan logo BarePod.
-- **Overview**: konten diperkaya (metrik sekunder, daftar status app, aktivitas terbaru) dan dipindah ke paling atas sidebar.
-- **Panel Settings**: badge versi palsu ("v1.0.4 Release") diganti "Prototype UI • Simulasi"; tab di-rename "Monitoring Policy (Retensi)" & "Backup Policy (Jadwal)" untuk membedakan dari menu operasional Server Monitoring & Backup & Migration.
-- **Live Migration Stream**: dari hardcoded dark menjadi tema light agar konsisten.
+- **Client-side URL routing per menu**: each menu has its own endpoint (`/apps`, `/databases`, `/backup`, `/terminal`, etc.). Refresh & back/forward buttons restore the correct menu.
+- **Deep-link App Detail**: `/apps/<app-name>` along with its sub-tabs are part of the URL (`/apps/<app>/logs`, `/routing`, `/deploy`, etc.) so refreshing does not lose position.
+- **Terminal session picker**: opening the Terminal menu shows session choices first; the PTY is only opened after selecting one. The Terminal button on the App page still opens that app's session directly.
+- **Users — Edit**: user edit functionality (role, plan/group, status, email) via `AddUserModal` in edit mode. The Linux username is locked while editing; the status column follows the data.
+- **Database vault**: 60-second auto-lock (countdown) when revealing a password; `CredentialRevealModal` is now actually used via the Reveal button in the table.
+- **Vhost generator**: the **Apache** engine is now generated correctly in `AddAppModal` (previously it fell back to Nginx) — all 4 engines complete (OLS/Nginx/Caddy/Apache).
+- **File Manager**: multi-select (Select All) batch Cut/Copy/Paste fixed; batch download produces a real **.zip** archive (store-only ZIP writer in `src/utils/zip.ts`).
+- **Per-app security**: added **Anti-Brute Force Protection** (on/off, max failed attempts, IP ban duration) in the Security tab.
+- **World Traffic Map**: replaced with a real world map (Natural Earth 110m, equirectangular, `src/data/worldMapPath.ts`) so continent shapes are correct and pins precise (same projection); pulse animation fix (`transform-box: fill-box`); threat (WAF) marker consistent across pins & filter badges.
+- **Branding**: "PRO" badge and per-menu badges in the sidebar removed; favicon aligned with the BarePod logo.
+- **Overview**: content enriched (secondary metrics, app status list, recent activity) and moved to the very top of the sidebar.
+- **Panel Settings**: fake version badge ("v1.0.4 Release") replaced with "Prototype UI • Simulation"; tabs renamed to "Monitoring Policy (Retention)" & "Backup Policy (Schedule)" to distinguish them from the operational Server Monitoring & Backup & Migration menus.
+- **Live Migration Stream**: changed from hardcoded dark to the light theme for consistency.
 
-> **Catatan untuk Backend Go (Fase 2):** karena URL kini path-based, server produksi WAJIB menerapkan SPA fallback (semua path tak dikenal di-serve `index.html`). Kontrak REST/WS yang diharapkan UI tetap seperti pada §4.
+> **Note for the Go Backend (Phase 2):** since URLs are now path-based, the production server MUST implement SPA fallback (all unknown paths serve `index.html`). The REST/WS contract expected by the UI remains as described in §4.
 
 ---
 
-## 1. Visi & Konsep Produk
+## 1. Product Vision & Concept
 
-**BarePod Panel** dirancang untuk memecahkan dilema panel server tradisional (seperti cPanel, Plesk, AaPanel, CyberPanel, Coolify, dan EasyPanel):
-1. **User Experience Bersih, Modern & Intuitif**: Antarmuka responsif dan estetis berbasis palet warna modern, tata letak rapi tanpa hierarki menu bertumpuk yang membingungkan.
-2. **Isolasi Multi-Tenant Total (Linux cgroups v2 + Namespaces)**: Setiap tenant user memiliki user system Linux sendiri, direktori terisolasi (`/home/<tenant>/apps/<app>`), dan kuota resource yang aman.
-3. **Automasi CLI Cerdas (Auto-Switch Runtime)**: Ketika user membuka web terminal pada suatu website, perintah CLI seperti `php -v`, `node -v`, atau `python -v` secara otomatis menyesuaikan versi runtime yang terkonfigurasi pada situs tersebut tanpa saling bertabrakan antar-tenant.
-4. **Fleksibilitas 4 Engine Web Server**: Mendukung OpenLiteSpeed (OLS + LSCache), Nginx, Caddy (Auto-HTTPS & HTTP/3), dan Apache 2.4 sesuai kebutuhan arsitektur aplikasi pengguna.
-5. **Dukungan Database & In-Memory Lengkap**: PostgreSQL 16, MariaDB 11/MySQL 8, MongoDB 7.0, dan Redis 7.2 langsung siap pakai dari satu panel dengan opsi *Shared Daemon* atau *Dedicated Pod*.
-6. **Built-in Database Web GUI (SSO)**: Akses GUI (DbGate, phpMyAdmin, pgAdmin, Mongo Express) terlindungi di balik proxy internal dan otomatis login tanpa perlu menginput kredensial database berulang kali.
-7. **Proteksi Password Kredensial**: Password database terenkripsi dan disembunyikan. Untuk menampilkan password dalam bentuk teks, pengguna wajib memasukkan password akun panel terlebih dahulu.
+**BarePod Panel** is designed to solve the dilemma of traditional server panels (such as cPanel, Plesk, AaPanel, CyberPanel, Coolify, and EasyPanel):
+1. **Clean, Modern & Intuitive User Experience**: A responsive and aesthetic interface based on a modern color palette, with a tidy layout free of confusing stacked menu hierarchies.
+2. **Total Multi-Tenant Isolation (Linux cgroups v2 + Namespaces)**: Each tenant user has its own Linux system user, isolated directory (`/home/<tenant>/apps/<app>`), and safe resource quotas.
+3. **Smart CLI Automation (Auto-Switch Runtime)**: When a user opens a web terminal on a website, CLI commands such as `php -v`, `node -v`, or `python -v` automatically match the runtime version configured for that site without conflicting between tenants.
+4. **Flexibility of 4 Web Server Engines**: Supports OpenLiteSpeed (OLS + LSCache), Nginx, Caddy (Auto-HTTPS & HTTP/3), and Apache 2.4 according to the user's application architecture needs.
+5. **Complete Database & In-Memory Support**: PostgreSQL 16, MariaDB 11/MySQL 8, MongoDB 7.0, and Redis 7.2 ready to use from a single panel with a *Shared Daemon* or *Dedicated Pod* option.
+6. **Built-in Database Web GUI (SSO)**: GUI access (DbGate, phpMyAdmin, pgAdmin, Mongo Express) is protected behind an internal proxy and logs in automatically without requiring you to enter database credentials repeatedly.
+7. **Credential Password Protection**: Database passwords are encrypted and hidden. To display a password as plain text, the user must first enter their panel account password.
 8. **File Manager Pro (cPanel / VS Code Grade)**:
-   - Checkbox di setiap file/folder dengan master checkbox *Select All*.
-   - Multi-file batch actions: Download terpilih, Hapus terpilih, Copy/Cut terpilih.
-   - Menu klik kanan (Context menu) lengkap (Open/Preview, Copy, Cut, Paste, Duplicate, Rename, Download, Delete).
-   - In-browser Visual Previewers (SVG / Vector graphics, Image viewer, PDF viewer dengan zoom control).
-   - In-browser Code Editor dengan persistent volume sync & syntax styling.
-9. **GitHub Push-to-Deploy & 1-Click Redeploy**: Webhook otomatis saat push commit ke GitHub serta tombol redeploy manual dengan streaming build logs secara *zero-downtime*.
-10. **Multi-Tenant Cloudflare Tunnel Isolation**: Ekspos domain dan container ke internet publik cukup dengan memasukkan Tunnel Token pribadi per tenant tanpa perlu IP publik statis atau port forwarding.
-11. **Dedicated Reverse Proxy Mode & Multi-Engine Path Routing**: Kemudahan membuat gateway proxy murni untuk mem-forward traffic domain ke internal port lengkap dengan WebSocket pass-through, real IP preservation, auto-SSL, upstream ping connectivity test, dan live vhost preview (OpenLiteSpeed, Nginx, Caddy).
+   - Checkbox on every file/folder with a master *Select All* checkbox.
+   - Multi-file batch actions: Download selected, Delete selected, Copy/Cut selected.
+   - Complete right-click (context) menu (Open/Preview, Copy, Cut, Paste, Duplicate, Rename, Download, Delete).
+   - In-browser Visual Previewers (SVG / Vector graphics, Image viewer, PDF viewer with zoom control).
+   - In-browser Code Editor with persistent volume sync & syntax styling.
+9. **GitHub Push-to-Deploy & 1-Click Redeploy**: Automatic webhook on pushing a commit to GitHub plus a manual redeploy button with streaming build logs and *zero-downtime*.
+10. **Multi-Tenant Cloudflare Tunnel Isolation**: Expose domains and containers to the public internet simply by entering a private Tunnel Token per tenant, with no need for a static public IP or port forwarding.
+11. **Dedicated Reverse Proxy Mode & Multi-Engine Path Routing**: The ease of creating a pure proxy gateway to forward domain traffic to internal ports, complete with WebSocket pass-through, real IP preservation, auto-SSL, upstream ping connectivity test, and live vhost preview (OpenLiteSpeed, Nginx, Caddy).
 12. **World Traffic Map & Streaming Telemetry**:
-    - Peta dunia interaktif dengan visual pulsing radar pins (ID, US, SG, DE, JP, AU, dll).
-    - Filter lalu lintas per negara dengan info latency dan ISP.
-    - Console log dengan Light/Dark toggle, log text wrap toggle, dan expandable request detail inspector.
+    - Interactive world map with visual pulsing radar pins (ID, US, SG, DE, JP, AU, etc.).
+    - Traffic filter per country with latency and ISP info.
+    - Console log with Light/Dark toggle, log text wrap toggle, and expandable request detail inspector.
 13. **Backup & 1-Click Server-to-Server Live Migration Hub**:
     - 1-Click Server-to-Server Live Migration Wizard (Pull from Old VPS via IP & Secret Token, live rsync & DB dump streaming).
     - Source VPS Token Generator (2-hour TTL).
-    - Instant Portable Snapshot (`.bpod` / `.tar.gz`) dengan SHA-256 checksum & AES-256 encryption.
+    - Instant Portable Snapshot (`.bpod` / `.tar.gz`) with SHA-256 checksum & AES-256 encryption.
     - Restore from File (Drag-and-drop bundle restore + manifest inspector).
-    - Remote Cloud Storage Sync & Scheduled Cron (Cloudflare R2, AWS S3, Google Cloud Storage, Wasabi / MinIO) dengan retensi 7-90 hari.
-    - Per-App Export (`barepod-<app>.bpod`) di App Detail Page dan Per-Database Export (`.sql`) di Database Details Modal.
+    - Remote Cloud Storage Sync & Scheduled Cron (Cloudflare R2, AWS S3, Google Cloud Storage, Wasabi / MinIO) with 7-90 day retention.
+    - Per-App Export (`barepod-<app>.bpod`) on the App Detail Page and Per-Database Export (`.sql`) in the Database Details Modal.
 
 ---
 
-## 2. Arsitektur Sistem (High-Level Architecture)
+## 2. System Architecture (High-Level Architecture)
 
 ```mermaid
 graph TD
@@ -125,182 +125,182 @@ graph TD
 
 ---
 
-## 3. Rincian Modul & Fitur Teknis
+## 3. Module Details & Technical Features
 
 ### 3.1. Web Server & Reverse Proxy Switching
 - **OpenLiteSpeed (OLS)**:
-  - Modul LSCache terintegrasi untuk performa PHP & WordPress ultra-cepat.
-  - Vhost syntax generator yang benar (`context / { type proxy; handler backend-primary; }`, `extprocessor`).
+  - Integrated LSCache module for ultra-fast PHP & WordPress performance.
+  - Correct vhost syntax generator (`context / { type proxy; handler backend-primary; }`, `extprocessor`).
 - **Nginx**:
-  - Konfigurasi virtual host dinamis untuk reverse proxy (Next.js, FastAPI, Flask, Go, Rust).
+  - Dynamic virtual host configuration for reverse proxying (Next.js, FastAPI, Flask, Go, Rust).
 - **Caddy**:
-  - Engine otomatis Let's Encrypt / ZeroSSL dan HTTP/3 tanpa konfigurasi sertifikat manual.
+  - Automatic Let's Encrypt / ZeroSSL and HTTP/3 engine without manual certificate configuration.
 - **Apache 2.4**:
-  - Kompatibilitas file `.htaccess` dan `mod_rewrite` untuk aplikasi PHP konvensional.
+  - `.htaccess` file and `mod_rewrite` compatibility for conventional PHP applications.
 
-### 3.2. Bahasa, Framework, & Otomatisasi CLI
-- **Bahasa & Framework Didukung**:
-  - **Python**: Flask, FastAPI, Django, script mandiri (Python 3.10, 3.11, 3.12).
+### 3.2. Languages, Frameworks, & CLI Automation
+- **Supported Languages & Frameworks**:
+  - **Python**: Flask, FastAPI, Django, standalone scripts (Python 3.10, 3.11, 3.12).
   - **PHP (27 Frameworks & CMS Templates)**:
     - *Modern*: Laravel 12, Laravel 13, Symfony 7, Symfony 8, CodeIgniter 4, CakePHP 5, Slim 4, Laminas, Yii 2, Generic PHP.
     - *E-Commerce*: WooCommerce, Magento 2, PrestaShop 1.7, Shopware 6.
     - *CMS*: WordPress, Drupal 10, Drupal 11, Joomla 6, Contao 4, Neos 9, TYPO3 14.
     - *Cloud & Portals*: Nextcloud 34, OwnCloud 12, Moodle 5 (LMS), Matomo 5 (Analytics), Mautic 7 (CRM), WHMCS.
-    - *Versi*: PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4.
+    - *Versions*: PHP 7.4, 8.0, 8.1, 8.2, 8.3, 8.4.
   - **Node.js**: Next.js, Express, NestJS, Astro, Nuxt (Node 18, 20, 22 LTS).
-  - **Lainnya**: Go (Gin/Fiber), Rust (Axum/Actix), Ruby on Rails, Static HTML.
+  - **Others**: Go (Gin/Fiber), Rust (Axum/Actix), Ruby on Rails, Static HTML.
 - **Polyglot Hybrid Monorepo Sandbox**:
-  - Sandbox tenant mendukung eksekusi backend PHP (versi pilihan), build tool Node.js 22 LTS (Vite & npm), dan task Python 3.12 secara harmonis dalam satu terminal session.
+  - The tenant sandbox supports running a PHP backend (chosen version), Node.js 22 LTS build tools (Vite & npm), and Python 3.12 tasks harmoniously within a single terminal session.
 - **PHP Extensions & Configuration Studio**:
   - 1-Click Extension Toggle (`redis`, `imagick`, `gd`, `intl`, `bcmath`, `zip`, `pdo_mysql`, `pdo_pgsql`, `pdo_sqlite`, `mongodb`, `swoole`, `opcache`, `pcntl`, `exif`, `sodium`, `soap`, `ioncube`).
-  - PECL package installer & form `php.ini` directives.
+  - PECL package installer & `php.ini` directives form.
 
 ### 3.3. Database Suite & SSO Web GUI
-- **4 Engine Terintegrasi**: PostgreSQL 16, MariaDB 11 / MySQL 8, MongoDB 7.0, Redis 7.2.
-- **Mode Isolasi**:
-  - *Shared Engine Daemon*: Berbagi daemon server yang dioptimasi untuk menghemat RAM (cocok untuk database kecil/menengah).
-  - *Dedicated Pod Container*: Container mandiri dengan resource CPU/RAM terisolasi (cocok untuk database heavy workload).
+- **4 Integrated Engines**: PostgreSQL 16, MariaDB 11 / MySQL 8, MongoDB 7.0, Redis 7.2.
+- **Isolation Modes**:
+  - *Shared Engine Daemon*: Shares an optimized server daemon to save RAM (suitable for small/medium databases).
+  - *Dedicated Pod Container*: A standalone container with isolated CPU/RAM resources (suitable for heavy workload databases).
 - **Max Connections Controller**:
-  - Pengaturan batas koneksi maksimum (`max_connections`) per database agar database tidak membebani kapasitas RAM server.
+  - Configures the maximum connection limit (`max_connections`) per database so that the database does not overload the server's RAM capacity.
 - **Zero-Login Web GUI (SSO)**:
-  - Akses DbGate, phpMyAdmin, pgAdmin, Mongo Express tanpa perlu memasukkan password berulang kali.
+  - Access DbGate, phpMyAdmin, pgAdmin, Mongo Express without needing to enter a password repeatedly.
 - **Password Vault Challenge & Connection String**:
-  - Password disembunyikan di balik proteksi akun panel.
+  - Passwords are hidden behind panel account protection.
   - Direct connection string URL (`postgresql://...`, `mysql://...`, `mongodb://...`, `redis://...`).
-  - Export Logical SQL Dump instan per database.
+  - Instant Logical SQL Dump export per database.
 
 ### 3.4. File Manager Pro (Visual & Multi-Selection)
 - **Checkbox & Batch Actions**:
-  - Checkbox per file/folder dan master *Select All*.
-  - Batch download (`.zip`) dan batch delete.
+  - Checkbox per file/folder and master *Select All*.
+  - Batch download (`.zip`) and batch delete.
 - **Right-Click Context Menu**:
   - Preview, Copy, Cut, Paste, Duplicate, Rename/Move, Download, Delete.
 - **Visual Previewers**:
-  - SVG previewer dengan rendering langsung.
-  - Image viewer (PNG, JPG, WebP, GIF, ICO) dengan zoom control.
-  - PDF viewer interaktif.
+  - SVG previewer with direct rendering.
+  - Image viewer (PNG, JPG, WebP, GIF, ICO) with zoom control.
+  - Interactive PDF viewer.
 - **Code Editor**:
-  - Live editing file `.env`, PHP, JS, Python, JSON langsung di browser dengan persistent volume sync.
+  - Live editing of `.env`, PHP, JS, Python, JSON files directly in the browser with persistent volume sync.
 
 ### 3.5. World Traffic Map & Streaming Telemetry
-- **Peta Pengunjung Interaktif**:
-  - Vector world map dengan live pulsing radar pins.
-  - Tooltip negara, kota, IP, jumlah request, latency (ms), dan nama ISP.
-  - Filter log instan berdasarkan negara yang diklik di peta.
+- **Interactive Visitor Map**:
+  - Vector world map with live pulsing radar pins.
+  - Tooltip with country, city, IP, request count, latency (ms), and ISP name.
+  - Instant log filter based on the country clicked on the map.
 - **Console Log Studio**:
-  - Default Light Mode (`bg-white`) dengan toggle Dark Mode (`bg-slate-950`).
-  - Toggle Log Text Wrapping (mencegah teks terpotong).
-  - Expandable Request Detail Inspector (`ChevronRight`/`ChevronDown`) untuk melihat headers, cookies, dan user-agent lengkap.
+  - Default Light Mode (`bg-white`) with a Dark Mode toggle (`bg-slate-950`).
+  - Log Text Wrapping toggle (prevents text from being cut off).
+  - Expandable Request Detail Inspector (`ChevronRight`/`ChevronDown`) for viewing complete headers, cookies, and user-agent.
 
 ### 3.6. Backup & Migration Hub (Plug and Play)
 - **1-Click Server-to-Server Live Migration**:
-  - Mode *Pull from Old Server*: Masukkan IP server lama dan Migration Token.
-  - Transfer terenkripsi via rsync stream berkecepatan tinggi tanpa perlu download ke laptop.
-  - Mode *Source VPS Node*: Generator token migrasi sementara (berlaku 2 jam).
+  - *Pull from Old Server* mode: Enter the old server's IP and Migration Token.
+  - Encrypted transfer via high-speed rsync stream without needing to download to a laptop.
+  - *Source VPS Node* mode: Temporary migration token generator (valid for 2 hours).
 - **Portable Snapshot (`.bpod` / `.tar.gz`)**:
-  - Paket bundle menyimpan codebase (`/var/www/apps/<app>`), `.env`, vhost routing config, logical database dump, dan volume data.
-  - Enkripsi AES-256 opsional dan validasi SHA-256 checksum.
+  - The bundle package stores the codebase (`/var/www/apps/<app>`), `.env`, vhost routing config, logical database dump, and data volumes.
+  - Optional AES-256 encryption and SHA-256 checksum validation.
 - **Restore from File**:
-  - Drag-and-drop file `.bpod` dengan manifest inspector.
+  - Drag-and-drop a `.bpod` file with a manifest inspector.
 - **Remote Cloud Storage Sync**:
-  - Otomatis sinkronisasi ke Cloudflare R2, AWS S3, Google Cloud Storage, atau Wasabi/MinIO dengan jadwal cron berkala dan kebijakan retensi 7-90 hari.
+  - Automatic sync to Cloudflare R2, AWS S3, Google Cloud Storage, or Wasabi/MinIO with a periodic cron schedule and a 7-90 day retention policy.
 
 ### 3.7. Hardware Health & Real-time Network Telemetry
 - **S.M.A.R.T. Physical Disk Health Diagnostics**:
-  - Status NVMe (`/dev/nvme0n1`) dan SATA SSD (`/dev/sda`).
-  - Wear index / persentase umur drive %, TBW, TBR, Power-on hours, unsafe shutdowns, temperatur (°C).
-  - Fitur S.M.A.R.T. Self-Test interaktif (`smartctl -t short`).
+  - NVMe (`/dev/nvme0n1`) and SATA SSD (`/dev/sda`) status.
+  - Wear index / drive age percentage %, TBW, TBR, Power-on hours, unsafe shutdowns, temperature (°C).
+  - Interactive S.M.A.R.T. Self-Test feature (`smartctl -t short`).
 - **Network Telemetry**:
-  - Live sparklines Ingress (Rx Mbps) dan Egress (Tx Mbps).
-  - Monitoring per-interface (`eth0`, `docker0`, `cloudflared0`, `lo`).
-  - ICMP Edge Latency prober ke Cloudflare (1.1.1.1), Google DNS (8.8.8.8), dan gateway.
-  - TCP socket states counter dan open listening ports inspector (`ss -tulpn`).
+  - Live Ingress (Rx Mbps) and Egress (Tx Mbps) sparklines.
+  - Per-interface monitoring (`eth0`, `docker0`, `cloudflared0`, `lo`).
+  - ICMP Edge Latency prober to Cloudflare (1.1.1.1), Google DNS (8.8.8.8), and the gateway.
+  - TCP socket states counter and open listening ports inspector (`ss -tulpn`).
 
 ---
 
-### 3.8. Modul UI Tambahan (di luar §3.1–§3.7)
+### 3.8. Additional UI Modules (outside §3.1–§3.7)
 
-- **Docker Pods & Container Hosting**: deploy dari image / Dockerfile / docker-compose, env vars, volume mounts, port mapping, web-domain routing, restart policy.
-- **Per-App Access Control**: HTTP 503 Maintenance Mode (dengan preview + IP bypass) dan HTTP Basic Auth (`.htpasswd` + simulator login), plus **Anti-Brute Force** (max attempts + durasi ban IP).
-- **System & Docker Cleanup**: prune sampah sistem + resource Docker (dangling image, stopped container, unused volume, build cache) dengan jadwal cron; daftar cronjob default yang direkomendasikan (retensi metrik, SSL renewal, security update, logrotate, DB maintenance, fstrim, S.M.A.R.T., service watchdog, disk alert).
-- **RBAC & Group**: grup tenant punya matriks 9 kapabilitas (deploy apps, file manager, terminal, databases, backups, domains, cloudflare tunnels, monitoring, user management).
-- **Panel Settings**: 9 tab (general, monitoring policy, security, reverse proxy & SSL, backup policy, notifications, database defaults, PHP defaults, system & cleanup).
-- **Domains & SSL** serta **Overview/Dashboard VPS**.
-- **URL routing per menu & deep-link**: seluruh menu serta sub-tab app dibookmark/refresh-safe; server produksi wajib SPA fallback.
+- **Docker Pods & Container Hosting**: deploy from an image / Dockerfile / docker-compose, env vars, volume mounts, port mapping, web-domain routing, restart policy.
+- **Per-App Access Control**: HTTP 503 Maintenance Mode (with preview + IP bypass) and HTTP Basic Auth (`.htpasswd` + login simulator), plus **Anti-Brute Force** (max attempts + IP ban duration).
+- **System & Docker Cleanup**: prune system and Docker resource waste (dangling images, stopped containers, unused volumes, build cache) on a cron schedule; list of recommended default cronjobs (metric retention, SSL renewal, security updates, logrotate, DB maintenance, fstrim, S.M.A.R.T., service watchdog, disk alert).
+- **RBAC & Groups**: tenant groups have a 9-capability matrix (deploy apps, file manager, terminal, databases, backups, domains, cloudflare tunnels, monitoring, user management).
+- **Panel Settings**: 9 tabs (general, monitoring policy, security, reverse proxy & SSL, backup policy, notifications, database defaults, PHP defaults, system & cleanup).
+- **Domains & SSL** as well as **Overview/VPS Dashboard**.
+- **URL routing per menu & deep-linking**: all menus and app sub-tabs are bookmark/refresh-safe; the production server must implement SPA fallback.
 
-## 4. Status Implementasi & Roadmap Pengembangan
+## 4. Implementation Status & Development Roadmap
 
 > [!IMPORTANT]
-> **Kondisi Riil Saat Ini:**
-> Seluruh fitur yang tampak pada panel saat ini berada pada **Fase 1: Frontend UI & Interactive Simulation (React 19 + Vite 8 + TypeScript)**.
-> Interaksi tombol, form wizard, file manager, dan simulasi proses saat ini berjalan pada **client-side state (mock data)**.
-> **Backend Core Daemon (Go / Linux OS Engine)** yang akan mengeksekusi perintah asli di server (seperti daemon systemd, container Docker asli, engine database riil, rsync stream asli, dan vhost generator ke file sistem Linux) **BELUM DIKERJAKAN** dan merupakan milestone teknis selanjutnya.
+> **Current Real Condition:**
+> All features visible in the panel today are at **Phase 1: Frontend UI & Interactive Simulation (React 19 + Vite 8 + TypeScript)**.
+> Button interactions, wizard forms, the file manager, and process simulations currently run on **client-side state (mock data)**.
+> The **Backend Core Daemon (Go / Linux OS Engine)** that will execute real commands on the server (such as systemd daemons, real Docker containers, real database engines, real rsync streams, and a vhost generator that writes to Linux system files) is **NOT YET IMPLEMENTED** and is the next technical milestone.
 
-### 4.1. Tabel Status Komponen: Frontend Simulasi vs Backend Riil
+### 4.1. Component Status Table: Simulated Frontend vs Real Backend
 
-| Fitur / Modul | Frontend UI & Simulasi (React) | Backend Riil & OS Engine (Go / Linux) | Status Riil Keseluruhan |
+| Feature / Module | Frontend UI & Simulation (React) | Real Backend & OS Engine (Go / Linux) | Overall Real Status |
 |---|---|---|---|
-| **Design System & Layout Panel** | ✅ Selesai (Responsive, Modern UI) | N/A (Frontend Only) | **Selesai (Frontend)** |
-| **Apps & Runtime Selector** | ✅ Selesai (27 Template PHP, Node, Python) | ⏳ Belum (Chroot / Docker Runtime Engine) | **Simulasi UI Selesai** |
-| **Hybrid Upstream Routing** | ✅ Selesai (Form, Ping mock, vhost preview) | ⏳ Belum (Write config ke `/usr/local/lsws/conf/`) | **Simulasi UI Selesai** |
-| **Database Suite & SSO** | ✅ Selesai (Detail modal, vault mask, export dump) | ⏳ Belum (Provisioner DB asli & SSO proxy token) | **Simulasi UI Selesai** |
-| **File Manager Pro** | ✅ Selesai (Checklist, batch action, previewer, edit) | ⏳ Belum (API Host FS `/home/<user>/apps/`) | **Simulasi UI Selesai** |
-| **World Traffic Map & Logs** | ✅ Selesai (Vector map, pulsing pin, log viewer) | ⏳ Belum (Real-time daemon log streamer / WSS) | **Simulasi UI Selesai** |
-| **Backup & Migration Hub** | ✅ Selesai (Wizard UI, Token gen, .bpod download) | ⏳ Belum (Rsync daemon stream & S3 backend upload) | **Simulasi UI Selesai** |
-| **Hardware S.M.A.R.T. & Network** | ✅ Selesai (Diagnostic visual, mock self-test, ping) | ⏳ Belum (CLI `smartctl` & `/proc/net/dev` parser) | **Simulasi UI Selesai** |
-| **Web Terminal PTY** | ✅ Selesai (Mock terminal & CLI shim command) | ⏳ Belum (Go `creack/pty` bridge via WebSocket) | **Simulasi UI Selesai** |
-| **Docker Pods & Container Hosting** | ✅ Selesai (`PodsView`, `DeployPodModal`, `PodConfigModal`) | ⏳ Belum (Docker Engine SDK) | **Simulasi UI Selesai** |
-| **Per-App Access Control** (503 Maintenance, Basic Auth, Anti-Brute Force) | ✅ Selesai (toggle + simulator) | ⏳ Belum (vhost snippet, `.htpasswd`, fail2ban) | **Simulasi UI Selesai** |
-| **System & Docker Cleanup + Cron** | ✅ Selesai (Panel Settings → System & Cleanup) | ⏳ Belum (systemd timer / cron writer, `docker system prune`) | **Simulasi UI Selesai** |
-| **RBAC & Multi-Tenant Groups** | ✅ Selesai (matriks 9 kapabilitas per grup) | ⏳ Belum (JWT + policy enforcement) | **Simulasi UI Selesai** |
-| **URL Routing & Deep-link** | ✅ Selesai (`/apps/<name>/<tab>`, `/settings/<tab>`, `/monitoring/<tab>`, dst) | N/A (Frontend Only) | **Selesai (Frontend)** |
+| **Design System & Panel Layout** | ✅ Complete (Responsive, Modern UI) | N/A (Frontend Only) | **Complete (Frontend)** |
+| **Apps & Runtime Selector** | ✅ Complete (27 PHP, Node, Python templates) | ⏳ Not yet (Chroot / Docker Runtime Engine) | **UI Simulation Complete** |
+| **Hybrid Upstream Routing** | ✅ Complete (Form, mock ping, vhost preview) | ⏳ Not yet (Write config to `/usr/local/lsws/conf/`) | **UI Simulation Complete** |
+| **Database Suite & SSO** | ✅ Complete (Detail modal, vault mask, export dump) | ⏳ Not yet (Real DB provisioner & SSO proxy token) | **UI Simulation Complete** |
+| **File Manager Pro** | ✅ Complete (Checklist, batch action, previewer, edit) | ⏳ Not yet (Host FS `/home/<user>/apps/` API) | **UI Simulation Complete** |
+| **World Traffic Map & Logs** | ✅ Complete (Vector map, pulsing pin, log viewer) | ⏳ Not yet (Real-time daemon log streamer / WSS) | **UI Simulation Complete** |
+| **Backup & Migration Hub** | ✅ Complete (Wizard UI, Token gen, .bpod download) | ⏳ Not yet (Rsync daemon stream & S3 backend upload) | **UI Simulation Complete** |
+| **Hardware S.M.A.R.T. & Network** | ✅ Complete (Visual diagnostics, mock self-test, ping) | ⏳ Not yet (`smartctl` CLI & `/proc/net/dev` parser) | **UI Simulation Complete** |
+| **Web Terminal PTY** | ✅ Complete (Mock terminal & CLI shim commands) | ⏳ Not yet (Go `creack/pty` bridge via WebSocket) | **UI Simulation Complete** |
+| **Docker Pods & Container Hosting** | ✅ Complete (`PodsView`, `DeployPodModal`, `PodConfigModal`) | ⏳ Not yet (Docker Engine SDK) | **UI Simulation Complete** |
+| **Per-App Access Control** (503 Maintenance, Basic Auth, Anti-Brute Force) | ✅ Complete (toggle + simulator) | ⏳ Not yet (vhost snippet, `.htpasswd`, fail2ban) | **UI Simulation Complete** |
+| **System & Docker Cleanup + Cron** | ✅ Complete (Panel Settings → System & Cleanup) | ⏳ Not yet (systemd timer / cron writer, `docker system prune`) | **UI Simulation Complete** |
+| **RBAC & Multi-Tenant Groups** | ✅ Complete (9-capability matrix per group) | ⏳ Not yet (JWT + policy enforcement) | **UI Simulation Complete** |
+| **URL Routing & Deep-link** | ✅ Complete (`/apps/<name>/<tab>`, `/settings/<tab>`, `/monitoring/<tab>`, etc.) | N/A (Frontend Only) | **Complete (Frontend)** |
 
 ---
 
-### 4.2. Rencana Tahapan Eksekusi Nyata (Roadmap):
+### 4.2. Real Execution Phase Plan (Roadmap):
 
-* **Fase 1: Frontend UI Prototyping (SELESAI ✅)**:
-  Merancang seluruh user interface, interaksi pengguna, arsitektur data tipe (TypeScript), dan alur navigasi agar developer experience (DX) teruji sempurna sebelum backend dibangun.
-* **Fase 2: Backend Core Daemon Go (MILESTONE BERIKUTNYA 🚀)**:
-  Inisialisasi service daemon di Go (Golang):
-  - Setup SQLite lokal (WAL mode) untuk database internal panel.
-  - REST API & WebSocket router (menggantikan mock data di React).
+* **Phase 1: Frontend UI Prototyping (DONE ✅)**:
+  Designing the entire user interface, user interactions, typed data architecture (TypeScript), and navigation flows so that the developer experience (DX) is perfectly validated before the backend is built.
+* **Phase 2: Go Backend Core Daemon (NEXT MILESTONE 🚀)**:
+  Initialize the daemon service in Go (Golang):
+  - Local SQLite setup (WAL mode) for the panel's internal database.
+  - REST API & WebSocket router (replacing the mock data in React).
   - JWT Authentication & RBAC (Multi-tenant user manager).
-* **Fase 3: Host OS & Container Integration (TERJADWAL 📋)**:
-  - Integrasi Docker Engine SDK (`docker/moby`) untuk manajemen container pod.
-  - File Manager backend API (membaca/menulis direktori Linux asli dengan hak akses tenant user terisolasi).
+* **Phase 3: Host OS & Container Integration (SCHEDULED 📋)**:
+  - Docker Engine SDK (`docker/moby`) integration for container pod management.
+  - File Manager backend API (reading/writing real Linux directories with isolated tenant user privileges).
   - WebSocket PTY terminal bridge (`creack/pty` + Xterm.js).
-* **Fase 4: Web Server & Network Automations (TERJADWAL 📋)**:
-  - Generator konfigurasi vhost asli (OpenLiteSpeed, Nginx, Caddy).
+* **Phase 4: Web Server & Network Automations (SCHEDULED 📋)**:
+  - Real vhost configuration generator (OpenLiteSpeed, Nginx, Caddy).
   - Automated Let's Encrypt / ZeroSSL.
-  - Daemon `cloudflared` controller.
-* **Fase 5: Engine Database & SSO Gateway (TERJADWAL 📋)**:
-  - Automated database user creation & grant schema di PostgreSQL, MySQL, Mongo, Redis.
-  - Internal reverse proxy gateway untuk autologin DbGate / phpMyAdmin.
-* **Fase 6: Live Migration Daemon & Installer (TERJADWAL 📋)**:
+  - `cloudflared` daemon controller.
+* **Phase 5: Database Engine & SSO Gateway (SCHEDULED 📋)**:
+  - Automated database user creation & schema grants in PostgreSQL, MySQL, Mongo, Redis.
+  - Internal reverse proxy gateway for autologin to DbGate / phpMyAdmin.
+* **Phase 6: Live Migration Daemon & Installer (SCHEDULED 📋)**:
   - Daemon-to-daemon encrypted stream transfer via rsync.
-  - Snapshot packager `.bpod` (tar.gz + metadata + dump sql).
-  - Skrip instalasi 1-baris untuk VPS Ubuntu/Debian (`curl -fsSL https://get.barepod.com | bash`).
+  - `.bpod` snapshot packager (tar.gz + metadata + sql dump).
+  - 1-line installation script for Ubuntu/Debian VPS (`curl -fsSL https://get.barepod.com | bash`).
 
 ---
 
-## 5. Dukungan Instalasi (AMD64 / ARM64 / LXC)
+## 5. Installation Support (AMD64 / ARM64 / LXC)
 
-BarePod Panel dirancang untuk **Linux 64-bit** dan dipastikan berjalan di **AMD64 maupun ARM64**, baik di bare metal, VPS, maupun container **LXC/LXD**.
+BarePod Panel is designed for **64-bit Linux** and is verified to run on **both AMD64 and ARM64**, whether on bare metal, a VPS, or an **LXC/LXD** container.
 
-- **Arsitektur**: `linux/amd64` (x86_64) dan `linux/arm64` (aarch64). ARM 32-bit tidak didukung.
-  - Semua komponen (Node.js/Vite frontend, Go daemon, highlight.js/react-icons) memiliki build resmi untuk arm64.
-  - `scripts/install.sh` mendeteksi arsitektur otomatis (`uname -m` → `amd64` / `arm64`).
-- **Container LXC/LXD** — catatan penting:
-  - cgroups **v2 (unified)** wajib untuk isolasi tenant.
-  - Docker-in-LXC (container pods) butuh `security.nesting=true` (+ `keyctl=1`).
-  - Cloudflare Tunnel butuh `/dev/net/tun` (`lxc.cgroup2.devices.allow: c 10:200 rwm`).
-  - S.M.A.R.T. disk diagnostics dan `fstrim` umumnya tidak tersedia di container unprivileged — UI harus menampilkan status "tidak tersedia" (bukan error) saat backend mendeteksinya.
-- **Script instalasi**: `scripts/install.sh` melakukan pemeriksaan environment (OS, arch, virtualisasi, cgroups v2, Node.js, Docker) dan sudah menolak platform yang tidak didukung dengan pesan jelas.
+- **Architecture**: `linux/amd64` (x86_64) and `linux/arm64` (aarch64). 32-bit ARM is not supported.
+  - All components (Node.js/Vite frontend, Go daemon, highlight.js/react-icons) have official arm64 builds.
+  - `scripts/install.sh` detects the architecture automatically (`uname -m` → `amd64` / `arm64`).
+- **LXC/LXD Containers** — important notes:
+  - cgroups **v2 (unified)** is required for tenant isolation.
+  - Docker-in-LXC (container pods) requires `security.nesting=true` (+ `keyctl=1`).
+  - Cloudflare Tunnel requires `/dev/net/tun` (`lxc.cgroup2.devices.allow: c 10:200 rwm`).
+  - S.M.A.R.T. disk diagnostics and `fstrim` are generally unavailable in unprivileged containers — the UI must display a "not available" status (not an error) when the backend detects this.
+- **Install script**: `scripts/install.sh` performs environment checks (OS, arch, virtualization, cgroups v2, Node.js, Docker) and already rejects unsupported platforms with a clear message.
 
 ---
 
-## 6. Struktur Repositori Terpadu
+## 6. Unified Repository Structure
 
 ```
 BarePod-Panel/
@@ -329,26 +329,26 @@ BarePod-Panel/
 │   │   └── pty/                  # Pseudo-terminal WebSocket bridge
 │   └── go.mod
 ├── scripts/
-│   └── install.sh                # Script instalasi 1-baris untuk VPS Ubuntu/Debian
-├── MASTER_PLAN.md                # Dokumen Master Plan & Arsitektur Utama
+│   └── install.sh                # 1-line installation script for Ubuntu/Debian VPS
+├── MASTER_PLAN.md                # Master Plan & Main Architecture Document
 ├── README.md
 └── LICENSE
 ```
 
 ---
 
-## 7. Otomasi & Integrasi Agen (REST API · Webhook · MCP Server)
+## 7. Agent Automation & Integration (REST API · Webhook · MCP Server)
 
-Panel harus bisa diotomasi tanpa UI — untuk pengguna, CI/CD, dan **agen AI**.
+The panel must be automatable without the UI — for users, CI/CD, and **AI agents**.
 
-- **API Token per-user**: `bp_live_<random>` (hanya hash yang disimpan), scope terbatas = irisan dengan permission grup pemiliknya, ada expiry/revoke/IP allowlist, rate limit, dan **audit log** tiap request. Kapabilitas baru: `apiTokens` pada `GroupPermissions`.
-- **Spesifikasi terbuka**: `GET /openapi.json` (OpenAPI 3) dari seluruh endpoint §4.
-- **Webhook keluar**: event `website.deployed`, `backup.completed`, `migration.completed`, `cleanup.completed`, `cert.expiring`, `disk.threshold` (HMAC-SHA256 `X-BarePod-Signature`). **Webhook masuk**: `POST /hooks/:token/run?action=…`.
-- **MCP Server (Model Context Protocol)**: server MCP **standalone** yang membungkus REST API (berjalan di mesin agen/CI, auth pakai API token) sehingga Claude/Command Code/Cursor bisa memanggil tool seperti `list_websites`, `create_website`, `redeploy_website`, `create_backup`, `run_cleanup`, `list_users`.
-  - Default **read-only**; tulis/hapus butuh scope eksplisit; aksi destruktif 2-langkah (`preview_*` → `apply_*`).
-  - Resource: `barepod://websites`, `barepod://system/capabilities`. Prompt: `deploy-website`, `migrate-server`.
-- **Prinsip keamanan**: MCP tidak pernah menerima password panel (hanya token); semua aksi agen tetap dibatasi cgroup/kapabilitas tenant; server panel bisa menonaktifkan otomasi per grup (`apiTokens=false`).
+- **Per-user API Token**: `bp_live_<random>` (only the hash is stored), limited scope = the intersection with the owner's group permissions, with expiry/revoke/IP allowlist, rate limit, and an **audit log** for every request. New capability: `apiTokens` in `GroupPermissions`.
+- **Open specification**: `GET /openapi.json` (OpenAPI 3) covering all §4 endpoints.
+- **Outgoing webhooks**: events `website.deployed`, `backup.completed`, `migration.completed`, `cleanup.completed`, `cert.expiring`, `disk.threshold` (HMAC-SHA256 `X-BarePod-Signature`). **Incoming webhooks**: `POST /hooks/:token/run?action=…`.
+- **MCP Server (Model Context Protocol)**: a **standalone** MCP server that wraps the REST API (runs on the agent/CI machine, authenticates with an API token) so that Claude/Command Code/Cursor can call tools such as `list_websites`, `create_website`, `redeploy_website`, `create_backup`, `run_cleanup`, `list_users`.
+  - **Read-only** by default; write/delete requires an explicit scope; destructive actions are 2-step (`preview_*` → `apply_*`).
+  - Resources: `barepod://websites`, `barepod://system/capabilities`. Prompts: `deploy-website`, `migrate-server`.
+- **Security principles**: MCP never receives the panel password (only tokens); all agent actions remain constrained by tenant cgroup/capabilities; the panel server can disable automation per group (`apiTokens=false`).
 
-> Detail kontrak (endpoint token/webhook, daftar tool MCP, contoh konfigurasi klien) ada di [`API_CONTRACT.md`](./API_CONTRACT.md) §7.
+> Contract details (token/webhook endpoints, MCP tool list, client configuration examples) are in [`API_CONTRACT.md`](./API_CONTRACT.md) §7.
 
 ---

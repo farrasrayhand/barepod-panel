@@ -1,53 +1,53 @@
-# BarePod Panel — API Contract (Draft v0.1)
+# BarePod Panel — API Contract (Draft v0.2)
 
-> Blueprint kontrak antara **frontend (React, Fase 1)** dan **backend Go daemon (Fase 2)**.
-> Tujuannya: backend tinggal mengikuti bentuk respons di sini, tanpa mengubah UI.
-> Status: **draft** — belum ada implementasi backend.
+> Blueprint for the contract between the **frontend (React, Phase 1)** and the **Go backend daemon (Phase 2)**.
+> Goal: the backend can follow the response shapes defined here without requiring UI changes.
+> Status: **draft** — no backend implementation yet.
 
 ---
 
-## 1. Konvensi Umum
+## 1. Conventions
 
 - **Base path:** `/api/v1`
 - **Format:** JSON (`application/json`), UTF-8.
-- **Auth:** `Authorization: Bearer <JWT>` (kecuali `POST /auth/login` dan webhook GitHub).
-- **Tenant scope:** endpoint yang diawali `/websites/:slug/...` otomatis dibatasi ke tenant pemilik.
-- **Error format:**
+- **Auth:** `Authorization: Bearer <JWT>` (except `POST /auth/login` and GitHub webhooks).
+- **Tenant scope:** endpoints under `/websites/:slug/...` are automatically restricted to the owning tenant.
+- **Error shape:**
   ```json
   { "error": { "code": "not_found", "message": "Website not found" } }
   ```
 - **Pagination:** `?page=1&per_page=50` → `{ "items": [...], "page": 1, "per_page": 50, "total": 123 }`.
-- **Waktu:** semua timestamp **RFC3339 UTC** (mis. `2026-10-10T16:40:12Z`).
-- **Metrik:** kirim **angka mentah** (`memoryBytes`, `cpuPercent`), bukan string berformat. Formatting (`"42 MB"`, `"0.3%"`) dilakukan di frontend.
-- **Webhook (publik):** `POST /api/v1/webhook/:siteId/deploy?token=<deployHookToken>` (tanpa JWT).
+- **Time:** all timestamps are **RFC3339 UTC** (e.g. `2026-10-10T16:40:12Z`).
+- **Metrics:** send **raw numbers** (`memoryBytes`, `cpuPercent`), never formatted strings. Formatting (`"42 MB"`, `"0.3%"`) happens in the frontend.
+- **Webhook (public):** `POST /api/v1/webhook/:siteId/deploy?token=<deployHookToken>` (no JWT).
 
 ---
 
-## 2. Kanal WebSocket
+## 2. WebSocket Channels
 
-Satu endpoint, banyak channel: `wss://<host>/api/v1/ws` (auth via query `?token=<JWT>` atau header `Sec-WebSocket-Protocol`).
+Single endpoint, multiple channels: `wss://<host>/api/v1/ws` (auth via `?token=<JWT>` or the `Sec-WebSocket-Protocol` header).
 
-| Channel | Arah | Payload |
+| Channel | Direction | Payload |
 |---|---|---|
 | `deploy-log` | server→client | `{ siteId, line, stream: "stdout"\|"stderr", ts }` |
 | `migration-progress` | server→client | `{ jobId, step, totalSteps, line, ts }` |
 | `restore-progress` | server→client | `{ jobId, percent, line }` |
-| `pty` | duplex | stdin/stdout terminal (binary frames) |
+| `pty` | duplex | terminal stdin/stdout (binary frames) |
 | `system-metrics` | server→client | `{ ts, cpuPercent, memUsedBytes, memTotalBytes, netRxBps, netTxBps, diskReadBps, diskWriteBps }` |
 | `smart-test` | server→client | `{ device, percent, done }` |
 | `pod-logs` | server→client | `{ podId, line }` |
-| `site-log-stream` | server→client | access/error log line (untuk Traffic Map & console) |
+| `site-log-stream` | server→client | access/error log line (Traffic Map & console) |
 
 ---
 
-## 3. Perubahan Model Data yang Harus Dipenuhi Backend
+## 3. Data Model Changes the Backend Must Satisfy
 
-Ini titik rawan rework — UI saat ini menyimpan beberapa nilai sebagai string presentasional.
+This is the main rework risk — the UI currently stores some values as presentational strings.
 
-| Field UI sekarang | Target kontrak |
+| Current UI field | Target contract |
 |---|---|
-| `WebApp.memoryUsage: "42 MB"` | `metrics: { rssBytes: number, limitBytes: number }` |
-| `WebApp.cpuUsage: "0.3%"` | `cpuPercent: number` |
+| `Website.memoryUsage: "42 MB"` | `metrics: { rssBytes: number, limitBytes: number }` |
+| `Website.cpuUsage: "0.3%"` | `cpuPercent: number` |
 | `createdAt: "Just now"` / `"2026-10-10"` | `createdAt: string (RFC3339)` |
 | `lastDeployedAt: "2026-10-10 16:40:12"` | `lastDeployedAt: string (RFC3339)` |
 | `DatabaseItem.size: "142 MB"` | `sizeBytes: number` |
@@ -58,32 +58,34 @@ Ini titik rawan rework — UI saat ini menyimpan beberapa nilai sebagai string p
 | `Domain.sslExpiry: "2026-12-10 (60 days left)"` | `sslExpiresAt: string (RFC3339)` |
 | `FileEntry.size: "420 B"` | `sizeBytes: number` |
 | `log.latency: "14ms"` | `latencyMs: number` |
-| Logs deploy/migrasi (textarea) | stream WS `deploy-log` / `migration-progress` |
+| Deploy/migration logs (textarea) | `deploy-log` / `migration-progress` WS stream |
 
-**Entitas yang perlu interface kanonik di backend** (saat ini mock lokal di komponen):
-`Website` (= WebApp), `DatabaseItem`, `PodItem`, `UserGroup`, `TenantUser`, `UserTunnel`, `DomainRecord`, `FileEntry`, `ProcessItem`, `ServiceItem`, `LogEntry`, `BackupSnapshot`, `PanelSettings`, `LiveMetrics`.
+**Entities that need a canonical backend schema** (currently local mock state inside components):
+`Website`, `DatabaseItem`, `PodItem`, `UserGroup`, `TenantUser`, `UserTunnel`, `DomainRecord`, `FileEntry`, `ProcessItem`, `ServiceItem`, `LogEntry`, `BackupSnapshot`, `PanelSettings`, `LiveMetrics`, `ApiToken`.
 
-**Hardcode yang harus pindah ke API:** identitas tenant (`farras`), IP publik, path `/home/<tenant>/apps/<site>`, nama unit systemd (`php8.4-fpm`, `gunicorn-*`, …), port DB per versi.
+**Hardcoded values that must move to the API:** tenant identity (`farras`), public IP, path `/home/<tenant>/apps/<site>`, systemd unit names (`php8.4-fpm`, `gunicorn-*`, …), per-version DB ports.
+
+> **Terminology:** the UI calls these entities **"Websites"** (previously "Apps"). The API path is `/websites`; `WebApp` in the frontend types is the same entity.
 
 ---
 
-## 4. Endpoint per Modul
+## 4. Endpoints by Module
 
-### 4.1 Auth & Sesi
+### 4.1 Auth & Session
 - `POST /auth/login` → `{ token, user }`
 - `POST /auth/logout`
 - `GET /auth/me` → `{ user, role, group, permissions }`
-- `POST /auth/verify` (re-auth untuk reveal password DB / aksi sensitif)
+- `POST /auth/verify` (re-auth for revealing DB passwords / sensitive actions)
 - `POST /auth/2fa/enable` · `POST /auth/2fa/verify`
 
-### 4.2 Websites (Apps)
+### 4.2 Websites
 - `GET /websites` · `POST /websites` · `GET|PATCH|DELETE /websites/:slug`
 - `POST /websites/:slug/start|stop|restart`
 - `GET /websites/:slug/metrics?range=` · `GET /websites/:slug/logs?range=`
 - `PUT /websites/:slug/maintenance` · `PUT /websites/:slug/basic-auth` · `PUT /websites/:slug/anti-bruteforce`
 - `GET|POST|DELETE /websites/:slug/routes` (multi-engine path routing)
 - `GET|PUT /websites/:slug/env`
-- `POST /websites/:slug/backup` (export `.bpod` per website)
+- `POST /websites/:slug/backup` (export per-website `.bpod`)
 
 ### 4.3 Runtime, VHost & PHP
 - `GET|PUT /websites/:slug/runtime` (engine: openlitespeed/nginx/caddy/apache, version)
@@ -99,7 +101,7 @@ Ini titik rawan rework — UI saat ini menyimpan beberapa nilai sebagai string p
 - `POST /websites/:slug/files/compress` (batch `.zip`)
 
 ### 4.5 Terminal
-- `WS /websites/:slug/pty` — shell tenant (auto runtime switch)
+- `WS /websites/:slug/pty` — tenant shell (auto runtime switch)
 - `WS /system/pty` — host root shell (**admin only**)
 
 ### 4.6 Databases & SSO
@@ -109,7 +111,7 @@ Ini titik rawan rework — UI saat ini menyimpan beberapa nilai sebagai string p
 - `GET /databases/:id/tables` · `POST /databases/:id/query`
 - `POST /databases/:id/export` (`.sql`)
 - `GET /databases/:id/gui?tool=pgadmin|phpmyadmin|dbgate|mongoexpress|rediscommander` → `{ ssoUrl }`
-- `GET /db-engines` (versi + port shared daemon)
+- `GET /db-engines` (versions + shared-daemon ports)
 
 ### 4.7 Cloudflare Tunnels
 - `GET|POST /tunnels` · `DELETE /tunnels/:id` · `POST /tunnels/:id/token` · `POST /tunnels/:id/restart`
@@ -120,7 +122,9 @@ Ini titik rawan rework — UI saat ini menyimpan beberapa nilai sebagai string p
 
 ### 4.9 Users, Groups & RBAC
 - `GET|POST /users` · `PATCH|DELETE /users/:id`
-- `GET|POST /groups` · `PATCH|DELETE /groups/:id` (`permissions: GroupPermissions`)
+- `GET|POST /groups` · `PATCH|DELETE /groups/:id`
+- `GroupPermissions` (10 capabilities): `deployApps`, `fileManager`, `terminal`, `databases`, `backups`, `domains`, `cloudflareTunnels`, `monitoring`, `users`, `apiTokens`.
+- `GET /permissions` → capability catalog (key, label, description) for UI rendering.
 
 ### 4.10 System Monitoring
 - `GET /system/metrics?range=` + `WS: system-metrics`
@@ -128,19 +132,19 @@ Ini titik rawan rework — UI saat ini menyimpan beberapa nilai sebagai string p
 - `GET /system/services` · `POST /system/services/:unit/{start,stop,restart,reload}` · `GET /system/services/:unit/logs` (journald)
 - `GET /system/disks` · `POST /system/disks/:dev/smart-test` (+ `WS: smart-test`)
 - `GET /system/network/interfaces` · `POST /system/network/ping` · `GET /system/sockets` (`ss -tulpn`)
-- `GET /system/capabilities` → `{ smart: bool, fstrim: bool, docker: bool, lxc: bool }` (**penting untuk LXC**: UI menampilkan "tidak tersedia", bukan error)
+- `GET /system/capabilities` → `{ smart: bool, fstrim: bool, docker: bool, lxc: bool }` (**important for LXC**: the UI shows "unavailable" instead of an error)
 
 ### 4.11 Backup & Migration
 - `GET|POST /backups` · `GET /backups/:id/download` · `POST /backups/:id/restore`
 - `POST /backups/restore-upload` (drag & drop `.bpod`)
 - `POST /migrations/handshake` · `POST /migrations/start` (+ `WS: migration-progress`)
-- `GET /migrations/source-token` (TTL 2 jam)
-- `GET|PUT /backups/cloud-sync` (R2/S3/GCS/Wasabi, cron, retensi) · `POST /backups/cloud-sync/test`
+- `GET /migrations/source-token` (2-hour TTL)
+- `GET|PUT /backups/cloud-sync` (R2/S3/GCS/Wasabi, cron, retention) · `POST /backups/cloud-sync/test`
 
 ### 4.12 System Cleanup & Panel Settings
 - `GET|PUT /settings/:tab` (general, monitoring, security, proxy, backups, notifications, databases, php_defaults, maintenance)
-- `POST /settings/prune` (system junk + docker, per opsi) → `{ reclaimedBytes }`
-- `GET|PUT /settings/cron-jobs` (daftar cronjob default + enable/disable)
+- `POST /settings/prune` (system junk + docker, per option) → `{ reclaimedBytes }`
+- `GET|PUT /settings/cron-jobs` (recommended default cron jobs + enable/disable)
 - `POST /settings/backup-now` · `POST /system/daemon/restart`
 
 ### 4.13 Docker Pods
@@ -149,12 +153,12 @@ Ini titik rawan rework — UI saat ini menyimpan beberapa nilai sebagai string p
 
 ---
 
-## 5. Pemetaan Layar → Endpoint (contoh kunci)
+## 5. Screen → Endpoint Mapping (key examples)
 
-| Layar UI (route) | Endpoint utama |
+| UI screen (route) | Primary endpoints |
 |---|---|
 | `/websites` | `GET /websites` |
-| `/websites/<name>` + tab monitoring | `GET /websites/:slug`, `GET .../metrics?range=` |
+| `/websites/<name>` + monitoring tab | `GET /websites/:slug`, `GET .../metrics?range=` |
 | `/websites/<name>/logs` & `/map` | `GET .../logs`, `WS: site-log-stream` |
 | `/websites/<name>/routing` | `GET|POST .../routes`, `GET .../vhost/preview` |
 | `/websites/<name>/files` | file manager endpoints |
@@ -169,59 +173,59 @@ Ini titik rawan rework — UI saat ini menyimpan beberapa nilai sebagai string p
 
 ---
 
-## 6. Urutan Implementasi Backend (disarankan)
+## 6. Recommended Backend Implementation Order
 
-1. **Fondasi**: SQLite (WAL) + migrasi skema, router HTTP + WS, JWT/RBAC middleware, `/system/capabilities`.
-2. **Pilot: Websites** — `GET/POST/PATCH/DELETE /websites`, start/stop/restart, metrics. Sambungkan UI sampai benar-benar hidup dari API.
+1. **Foundation:** SQLite (WAL) + schema migrations, HTTP + WS router, JWT/RBAC middleware, `/system/capabilities`.
+2. **Pilot: Websites** — `GET/POST/PATCH/DELETE /websites`, start/stop/restart, metrics. Wire the UI to real data end-to-end.
 3. **Files + Deploy** (file manager API + git runner + `WS: deploy-log`).
-4. **Terminal** (`pty` bridge: tenant + host, host gated admin).
-5. **Databases + SSO gateway**, lalu **Domains/SSL**, **Tunnels**.
-6. **Monitoring** (baca `/proc`, `smartctl`, `ss`) + **Backup/Migration** (rsync stream + `.bpod` + S3/R2).
-7. **Cleanup & Cron** (systemd timer), **Pods** (Docker SDK).
+4. **Terminal** (`pty` bridge: tenant + host, host gated to admins).
+5. **Databases + SSO gateway**, then **Domains/SSL**, **Tunnels**.
+6. **Monitoring** (read `/proc`, `smartctl`, `ss`) + **Backup/Migration** (rsync stream + `.bpod` + S3/R2).
+7. **Cleanup & Cron** (systemd timers), **Pods** (Docker SDK).
 
-> Catatan platform: semua di atas harus jalan di **linux/amd64 & linux/arm64** (lihat MASTER_PLAN §5). Deteksi LXC → matikan fitur yang tidak tersedia (S.M.A.R.T./fstrim) dan tampilkan status, bukan error.
+> Platform note: everything above must run on **linux/amd64 & linux/arm64** (see MASTER_PLAN §5). On LXC, disable unavailable features (S.M.A.R.T./fstrim) and surface a status instead of an error.
 
 ---
 
-## 7. Otomasi: API Token, Webhook & MCP Server
+## 7. Automation: API Tokens, Webhooks & MCP Server
 
-Tujuan: pengguna (dan **agen AI**) bisa mengotomasi panel tanpa membuka UI.
+Goal: let users (and **AI agents**) automate the panel without opening the UI.
 
-### 7.1 API Token (untuk REST API)
+### 7.1 API Tokens (for the REST API)
 
-- Dibuat per-user: `GET|POST|DELETE /api-tokens` (butuh permission grup `apiTokens`).
-- Format: `bp_live_<base62>` (mis. `bp_live_9f8a20bc…`); hanya **prefix + hash** yang disimpan server. Nilai penuh ditampilkan sekali saat dibuat.
-- **Scope** (subset `GroupPermissions` + tingkat akses):
+- Created per user: `GET|POST|DELETE /api-tokens` (requires the `apiTokens` group permission).
+- Format: `bp_live_<base62>` (e.g. `bp_live_9f8a20bc…`); the server stores only the **prefix + hash**. The full value is shown once at creation.
+- **Scopes** (subset of `GroupPermissions` plus access level):
   `websites:read`, `websites:write`, `files:read`, `files:write`, `databases:read`, `databases:write`, `backup:run`, `system:read`, `cleanup:run`, `users:write`, `tokens:manage`.
-- Token **tidak boleh melebihi** permission grup pemiliknya (efektif = irisan).
-- Atribut: `expiresAt`, `lastUsedAt`, `ipAllowlist`, `revoked`.
-- Audit log setiap request: `{ tokenId, userId, method, path, status, ip, ts }`.
-- Rate limit per token (mis. 120 req/min burst).
-- `GET /openapi.json` menyediakan spesifikasi OpenAPI 3 dari seluruh endpoint §4.
+- A token **may never exceed** its owner's group permissions (effective scope = intersection).
+- Attributes: `expiresAt`, `lastUsedAt`, `ipAllowlist`, `revoked`.
+- Audit log per request: `{ tokenId, userId, method, path, status, ip, ts }`.
+- Rate limit per token (e.g. 120 req/min burst).
+- `GET /openapi.json` exposes an OpenAPI 3 spec for every endpoint in §4.
 
-Contoh:
+Example:
 ```bash
 curl -H "Authorization: Bearer bp_live_9f8a20bc…" \
      https://panel.example.com/api/v1/websites
 ```
 
-### 7.2 Webhook (event keluar & masuk)
+### 7.2 Webhooks (outbound & inbound)
 
-- **Keluar**: `GET|POST|DELETE /webhooks` → `{ url, secret, events[] }`.
-  Event: `website.deployed`, `website.status_changed`, `backup.completed`, `migration.completed`, `cleanup.completed`, `cert.expiring`, `disk.threshold`. Payload ditandatangani HMAC-SHA256 di header `X-BarePod-Signature`.
-- **Masuk** (trigger otomasi): `POST /hooks/:token/run?action=deploy|cleanup|backup&target=<slug>` — tanpa JWT, token one-shot/berulang sesuai konfigurasi.
-- GitHub push-to-deploy sudah memakai pola ini (`POST /webhook/:siteId/deploy?token=…`).
+- **Outbound:** `GET|POST|DELETE /webhooks` → `{ url, secret, events[] }`.
+  Events: `website.deployed`, `website.status_changed`, `backup.completed`, `migration.completed`, `cleanup.completed`, `cert.expiring`, `disk.threshold`. Payloads are signed with HMAC-SHA256 in the `X-BarePod-Signature` header.
+- **Inbound** (trigger automation): `POST /hooks/:token/run?action=deploy|cleanup|backup&target=<slug>` — no JWT; the token is one-shot/reusable per configuration.
+- GitHub push-to-deploy already follows this pattern (`POST /webhook/:siteId/deploy?token=…`).
 
 ### 7.3 MCP Server (Model Context Protocol)
 
-Supaya agen (Claude / Command Code / Cursor / dsb.) bisa memanggil panel sebagai *tools*.
+So agents (Claude / Command Code / Cursor / etc.) can call the panel as *tools*.
 
-**Arsitektur (disarankan): MCP standalone yang membungkus REST API.**
-- Server MCP kecil (Node/Go) berjalan di mesin agen/CI, **bukan** di server panel.
-- Auth: **API token** (scoped), bukan password panel → tidak menambah attack surface di server.
-- Alternatif: subcommand bawaan `barepod mcp` (stdio) yang memanggil API internal via Unix socket.
+**Architecture (recommended): a standalone MCP server wrapping the REST API.**
+- A small MCP server (Node/Go) runs on the agent/CI machine, **not** on the panel server.
+- Auth: **API token** (scoped), never the panel password → no extra attack surface on the server.
+- Alternative: a built-in `barepod mcp` subcommand (stdio) calling the internal API over a Unix socket.
 
-Konfigurasi klien:
+Client configuration:
 ```json
 {
   "mcpServers": {
@@ -237,35 +241,35 @@ Konfigurasi klien:
 }
 ```
 
-**Tools (contoh surface):**
+**Tools (example surface):**
 
-| Tool | Scope | Aksi |
+| Tool | Scope | Action |
 |---|---|---|
-| `list_websites` / `get_website` | `websites:read` | daftar/detail website |
-| `create_website` / `delete_website` | `websites:write` | buat/hapus website |
-| `start_website` / `stop_website` / `restart_website` | `websites:write` | kontrol lifecycle |
-| `redeploy_website` | `websites:write` | trigger deploy (stream via events) |
-| `get_website_metrics` / `tail_website_logs` | `websites:read` | metrik & log |
+| `list_websites` / `get_website` | `websites:read` | list / inspect websites |
+| `create_website` / `delete_website` | `websites:write` | create / delete a website |
+| `start_website` / `stop_website` / `restart_website` | `websites:write` | lifecycle control |
+| `redeploy_website` | `websites:write` | trigger a deploy (streamed via events) |
+| `get_website_metrics` / `tail_website_logs` | `websites:read` | metrics & logs |
 | `list_files` / `read_file` / `write_file` | `files:read` / `files:write` | file manager |
-| `list_databases` / `create_database` / `rotate_db_password` | `databases:*` | DB suite |
-| `create_backup` / `list_backups` / `restore_backup` / `start_migration` | `backup:run` | backup & migrasi |
+| `list_databases` / `create_database` / `rotate_db_password` | `databases:*` | database suite |
+| `create_backup` / `list_backups` / `restore_backup` / `start_migration` | `backup:run` | backup & migration |
 | `create_tunnel` / `add_tunnel_route` | `websites:write` | Cloudflare Tunnel |
-| `list_users` / `create_user` / `update_user` / `assign_group` | `users:write` | user & grup |
-| `system_metrics` / `list_services` / `restart_service` | `system:read` | monitoring host |
+| `list_users` / `create_user` / `update_user` / `assign_group` | `users:write` | users & groups |
+| `system_metrics` / `list_services` / `restart_service` | `system:read` | host monitoring |
 | `run_cleanup` / `list_cron_jobs` | `cleanup:run` | system & Docker cleanup |
 
-**Resources** (konteks read-only): `barepod://websites`, `barepod://system/capabilities`, `barepod://settings`.
-**Prompts**: `deploy-website`, `migrate-server` (panduan langkah untuk agen).
+**Resources** (read-only context): `barepod://websites`, `barepod://system/capabilities`, `barepod://settings`.
+**Prompts**: `deploy-website`, `migrate-server` (step-by-step guidance for agents).
 
-**Aturan keamanan:**
-1. Default token **read-only**; write/delete butuh scope eksplisit.
-2. Aksi destruktif (`delete_website`, `restore_backup`) wajib scope khusus + konfirmasi dua-langkah (tool `preview_*` → `apply_*`).
-3. Semua aksi terekam di audit log dengan `tokenId`.
-4. MCP tidak pernah menyimpan password panel; hanya token.
-5. Server panel bisa mematikan otomasi per grup (permission `apiTokens = false`).
+**Security rules:**
+1. Tokens default to **read-only**; write/delete require explicit scopes.
+2. Destructive actions (`delete_website`, `restore_backup`) require a dedicated scope plus a two-step flow (a `preview_*` tool → an `apply_*` tool).
+3. Every action is recorded in the audit log with its `tokenId`.
+4. The MCP server never stores the panel password — only tokens.
+5. The panel can disable automation per group (`apiTokens = false`).
 
-### 7.4 Otomasi per Pengguna
+### 7.4 Per-User Automation
 
-- Setiap pengguna bisa membuat token **sendiri** dengan scope ≤ permission grupnya. Contoh: tenant `alex` membuat token `websites:read` + `files:write` untuk pipeline CI-nya.
-- Kuota token & webhook per grup (mis. Starter: 1 token, Agency: 10 token).
-- Aktivitas yang dipicu agen tetap tunduk pada **cgroup/cpu/disk quota** tenant seperti aksi manual.
+- Each user can create **their own** tokens with scopes ≤ their group permissions. Example: tenant `alex` issues a `websites:read` + `files:write` token for their CI pipeline.
+- Token/webhook quotas per group (e.g. Starter: 1 token, Agency: 10 tokens).
+- Actions triggered by agents are still bounded by the tenant's **cgroup/CPU/disk quotas**, exactly like manual actions.

@@ -209,7 +209,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Each user manages their own Cloudflare Tunnel with a personal Cloudflare Zero Trust account.
+            Each tenant uses their own Cloudflare Zero Trust tunnel.
           </p>
         </div>
 
@@ -229,33 +229,25 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
         </div>
       </div>
 
-      {/* Info Banner: Self-Service Independence */}
-      <div className="bg-gradient-to-r from-blue-900 to-indigo-950 rounded-2xl p-5 text-white shadow-md relative overflow-hidden">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1 max-w-2xl">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/20 border border-blue-400/30 text-blue-200 text-xs font-semibold">
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-              <span>Personal Tunnel Sandbox for @{activeUser}</span>
-            </div>
-            <h2 className="text-base font-bold text-white">
-              Your Private Tunnel: Isolated from Other Users
-            </h2>
-            <p className="text-xs text-blue-100/80 leading-relaxed">
-              Paste your tunnel token and point your domains straight to your app ports.
-            </p>
-          </div>
+      {/* Tunnel summary */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs text-slate-600 min-w-0">
+          <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0" />
+          <span className="font-semibold text-slate-800">Personal tunnel</span>
+          <span className="font-mono text-slate-500 truncate">@{activeUser}</span>
+          <span className="text-slate-400 hidden sm:inline">· isolated from other tenants</span>
+        </div>
 
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="bg-white/10 backdrop-blur-md rounded-xl px-4 py-2.5 border border-white/10 text-center">
-              <span className="text-lg font-bold block">{currentTunnel.routes.length}</span>
-              <span className="text-[10px] text-blue-200 uppercase font-semibold">Active Domains</span>
-            </div>
-            <div className="bg-white/10 backdrop-blur-md rounded-xl px-4 py-2.5 border border-white/10 text-center">
-              <span className="text-lg font-bold block text-emerald-400">
-                {currentTunnel.status === 'connected' ? 'Live' : 'Off'}
-              </span>
-              <span className="text-[10px] text-blue-200 uppercase font-semibold">Tunnel Status</span>
-            </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+            <span className="text-sm font-bold block text-slate-900 font-mono">{currentTunnel.routes.length}</span>
+            <span className="text-[10px] text-slate-500 uppercase font-semibold">Active Domains</span>
+          </div>
+          <div className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
+            <span className={`text-sm font-bold block font-mono ${currentTunnel.status === 'connected' ? 'text-emerald-600' : 'text-slate-500'}`}>
+              {currentTunnel.status === 'connected' ? 'Live' : 'Off'}
+            </span>
+            <span className="text-[10px] text-slate-500 uppercase font-semibold">Tunnel Status</span>
           </div>
         </div>
       </div>

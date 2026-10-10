@@ -13,6 +13,7 @@ import { UsersView } from './components/UsersView';
 import { OverviewView } from './components/OverviewView';
 import { ServerMonitoringView } from './components/ServerMonitoringView';
 import { PanelSettingsView } from './components/PanelSettingsView';
+import { ApiMcpView } from './components/ApiMcpView';
 import { DomainsView } from './components/DomainsView';
 import { BackupMigrationView } from './components/BackupMigrationView';
 import { ToastContainer } from './components/Toast';
@@ -33,6 +34,7 @@ const TAB_PATHS: Record<NavItem, string> = {
   terminal: '/terminal',
   users: '/users',
   settings: '/settings',
+  api: '/api',
   backup: '/backup',
 };
 
@@ -452,6 +454,10 @@ systemctl reload uvicorn-ai`,
               apps={apps}
               onShowToast={showToast}
             />
+          )}
+
+          {currentTab === 'api' && (
+            <ApiMcpView onShowToast={showToast} />
           )}
 
           {currentTab === 'backup' && (
