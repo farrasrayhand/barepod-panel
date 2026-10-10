@@ -15,11 +15,13 @@ import {
   Layers,
   Server,
   Folder,
-  FolderGit2
+  FolderGit2,
+  Activity
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
 import { FileManagerModal } from './FileManagerModal';
 import { GitDeploymentModal } from './GitDeploymentModal';
+import { AppDetailModal } from './AppDetailModal';
 
 interface AppsViewProps {
   apps: WebApp[];
@@ -41,6 +43,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
   // Modals
   const [selectedAppForFiles, setSelectedAppForFiles] = useState<WebApp | null>(null);
   const [selectedAppForGit, setSelectedAppForGit] = useState<WebApp | null>(null);
+  const [selectedAppForDetails, setSelectedAppForDetails] = useState<WebApp | null>(null);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -174,12 +177,17 @@ export const AppsView: React.FC<AppsViewProps> = ({
                       {/* Name & Domain */}
                       <td className="py-3.5 px-4">
                         <div className="flex flex-col">
-                          <span className="font-semibold text-slate-900 text-sm">{app.name}</span>
+                          <button 
+                            onClick={() => setSelectedAppForDetails(app)}
+                            className="text-left font-semibold text-slate-900 text-sm hover:text-blue-600 transition-colors cursor-pointer"
+                          >
+                            {app.name}
+                          </button>
                           <a 
                             href={`https://${app.domain}`} 
                             target="_blank" 
                             rel="noreferrer" 
-                            className="text-slate-500 hover:text-blue-600 inline-flex items-center gap-1 mt-0.5"
+                            className="text-slate-500 hover:text-blue-600 inline-flex items-center gap-1 mt-0.5 text-xs"
                           >
                             <span>{app.domain}</span>
                             <ExternalLink className="w-3 h-3 text-slate-400" />
@@ -250,6 +258,15 @@ export const AppsView: React.FC<AppsViewProps> = ({
                       {/* App Tools & Actions */}
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {/* Live Monitoring & Logs Button */}
+                          <button
+                            onClick={() => setSelectedAppForDetails(app)}
+                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                            title="Live Monitoring & Streaming Logs"
+                          >
+                            <Activity className="w-4 h-4" />
+                          </button>
+
                           {/* File Manager Button (cPanel Style) */}
                           <button
                             onClick={() => setSelectedAppForFiles(app)}
@@ -289,14 +306,6 @@ export const AppsView: React.FC<AppsViewProps> = ({
                           >
                             {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                           </button>
-
-                          {/* Configuration */}
-                          <button
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                            title="Configuration"
-                          >
-                            <Settings className="w-4 h-4" />
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -320,6 +329,23 @@ export const AppsView: React.FC<AppsViewProps> = ({
         isOpen={!!selectedAppForGit}
         onClose={() => setSelectedAppForGit(null)}
         app={selectedAppForGit}
+      />
+
+      {/* App Detail, Live Monitoring & Streaming Logs Modal */}
+      <AppDetailModal
+        isOpen={!!selectedAppForDetails}
+        onClose={() => setSelectedAppForDetails(null)}
+        app={selectedAppForDetails}
+        onToggleStatus={onToggleAppStatus}
+        onOpenTerminal={onOpenAppTerminal}
+        onOpenFiles={(a) => {
+          setSelectedAppForDetails(null);
+          setSelectedAppForFiles(a);
+        }}
+        onOpenGit={(a) => {
+          setSelectedAppForDetails(null);
+          setSelectedAppForGit(a);
+        }}
       />
     </div>
   );
