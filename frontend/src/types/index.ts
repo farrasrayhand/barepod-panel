@@ -66,14 +66,31 @@ export interface PodItem {
   restartPolicy: string;
 }
 
+export interface UserGroup {
+  id: string;
+  name: string;
+  description: string;
+  maxSites: number | 'Unlimited';
+  diskLimit: string;
+  maxDatabases: number | 'Unlimited';
+  ramLimit: string;
+  cpuLimit: string;
+  allowTerminal: boolean;
+  userCount: number;
+}
+
 export interface TenantUser {
   id: string;
   username: string;
   email: string;
-  role: 'admin' | 'developer' | 'client';
+  role: 'admin' | 'user';
+  groupName: string;
   sitesCount: number;
+  maxSites: number | 'Unlimited';
   diskUsage: string;
   diskLimit: string;
+  dbCount: number;
+  maxDatabases: number | 'Unlimited';
   status: 'active' | 'suspended';
 }
 

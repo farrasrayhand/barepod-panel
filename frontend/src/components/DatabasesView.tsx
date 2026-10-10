@@ -11,11 +11,14 @@ import {
   Lock,
   Eye,
   ShieldCheck,
-  Trash2
+  Trash2,
+  Zap,
+  Globe
 } from 'lucide-react';
 import type { DatabaseItem, DatabaseEngine } from '../types';
 import { CredentialRevealModal } from './CredentialRevealModal';
 import { DatabaseGuiModal } from './DatabaseGuiModal';
+import type { DatabaseManagerTool } from './DatabaseGuiModal';
 import { CreateDatabaseModal } from './CreateDatabaseModal';
 
 interface DatabasesViewProps {
@@ -30,6 +33,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedDbForCredentials, setSelectedDbForCredentials] = useState<DatabaseItem | null>(null);
   const [selectedDbForGui, setSelectedDbForGui] = useState<DatabaseItem | null>(null);
+  const [selectedToolForGui, setSelectedToolForGui] = useState<DatabaseManagerTool>('dbgate');
 
   const [databases, setDatabases] = useState<DatabaseItem[]>([
     {
@@ -114,6 +118,11 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
     }
   };
 
+  const openManagerWithTool = (db: DatabaseItem, tool: DatabaseManagerTool) => {
+    setSelectedDbForGui(db);
+    setSelectedToolForGui(tool);
+  };
+
   const filtered = databases.filter(
     (db) => activeTab === 'all' || db.type === activeTab
   );
@@ -169,7 +178,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Built-in Single Sign-On Web GUI (DbGate/pgAdmin/phpMyAdmin) & Protected Password Credentials
+            Built-in Single Sign-On Web GUI (DbGate, pgAdmin, phpMyAdmin, Mongo Express, Redis Commander)
           </p>
         </div>
 
@@ -191,26 +200,89 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         </div>
       </div>
 
-      {/* Security Features Highlight Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="p-4 bg-emerald-50/70 border border-emerald-200/70 rounded-xl flex items-start gap-3 text-xs text-emerald-900">
-          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-          <div>
-            <span className="font-semibold">Zero-Login Database Web GUI (SSO):</span>
-            <p className="text-emerald-700 mt-0.5">
-              Akses Web GUI (DbGate / phpMyAdmin / pgAdmin) terlindungi dan hanya bisa dibuka setelah login ke Panel. Saat dibuka, sesi otomatis login ke database tanpa perlu input user/password lagi!
-            </p>
-          </div>
+      {/* Prominent Built-in Database Managers Quick Launch Bar */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-2.5">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+            <Zap className="w-3.5 h-3.5 text-blue-600" />
+            Built-in Database Managers (One-Click SSO Autologin)
+          </span>
+          <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-medium">
+            Protected behind internal proxy
+          </span>
         </div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
+          {/* phpMyAdmin */}
+          <button
+            onClick={() => {
+              const myDb = databases.find(d => d.type === 'mysql' || d.type === 'mariadb') || databases[0];
+              openManagerWithTool(myDb, 'phpmyadmin');
+            }}
+            className="flex items-center gap-2 p-2.5 rounded-xl border border-amber-200/80 bg-amber-50/50 hover:bg-amber-100/70 transition-all text-left group"
+          >
+            <span className="text-xl">🐬</span>
+            <div className="truncate">
+              <span className="font-bold text-xs text-amber-950 block">phpMyAdmin</span>
+              <span className="text-[10px] text-amber-700 truncate block">MySQL / MariaDB</span>
+            </div>
+          </button>
 
-        <div className="p-4 bg-amber-50/70 border border-amber-200/70 rounded-xl flex items-start gap-3 text-xs text-amber-900">
-          <Lock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <span className="font-semibold">Protected Password Decryption:</span>
-            <p className="text-amber-800 mt-0.5">
-              Semua password database terenkripsi & di-masking. Untuk melihat password plain text, pengguna wajib memasukkan password akun panel terlebih dahulu.
-            </p>
-          </div>
+          {/* pgAdmin 4 */}
+          <button
+            onClick={() => {
+              const pgDb = databases.find(d => d.type === 'postgres') || databases[0];
+              openManagerWithTool(pgDb, 'pgadmin');
+            }}
+            className="flex items-center gap-2 p-2.5 rounded-xl border border-blue-200/80 bg-blue-50/50 hover:bg-blue-100/70 transition-all text-left group"
+          >
+            <span className="text-xl">🐘</span>
+            <div className="truncate">
+              <span className="font-bold text-xs text-blue-950 block">pgAdmin 4</span>
+              <span className="text-[10px] text-blue-700 truncate block">PostgreSQL</span>
+            </div>
+          </button>
+
+          {/* DbGate Studio */}
+          <button
+            onClick={() => openManagerWithTool(databases[0], 'dbgate')}
+            className="flex items-center gap-2 p-2.5 rounded-xl border border-indigo-200/80 bg-indigo-50/50 hover:bg-indigo-100/70 transition-all text-left group"
+          >
+            <span className="text-xl">⚡</span>
+            <div className="truncate">
+              <span className="font-bold text-xs text-indigo-950 block">DbGate Studio</span>
+              <span className="text-[10px] text-indigo-700 truncate block">Universal SQL & NoSQL</span>
+            </div>
+          </button>
+
+          {/* Mongo Express */}
+          <button
+            onClick={() => {
+              const mgDb = databases.find(d => d.type === 'mongodb') || databases[0];
+              openManagerWithTool(mgDb, 'mongoexpress');
+            }}
+            className="flex items-center gap-2 p-2.5 rounded-xl border border-emerald-200/80 bg-emerald-50/50 hover:bg-emerald-100/70 transition-all text-left group"
+          >
+            <span className="text-xl">🍃</span>
+            <div className="truncate">
+              <span className="font-bold text-xs text-emerald-950 block">Mongo Express</span>
+              <span className="text-[10px] text-emerald-700 truncate block">MongoDB Document</span>
+            </div>
+          </button>
+
+          {/* Redis Commander */}
+          <button
+            onClick={() => {
+              const rdDb = databases.find(d => d.type === 'redis') || databases[0];
+              openManagerWithTool(rdDb, 'rediscommander');
+            }}
+            className="flex items-center gap-2 p-2.5 rounded-xl border border-rose-200/80 bg-rose-50/50 hover:bg-rose-100/70 transition-all text-left group"
+          >
+            <span className="text-xl">🔴</span>
+            <div className="truncate">
+              <span className="font-bold text-xs text-rose-950 block">Redis Commander</span>
+              <span className="text-[10px] text-rose-700 truncate block">Redis Key-Value</span>
+            </div>
+          </button>
         </div>
       </div>
 
@@ -278,7 +350,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
               <th className="py-3.5 px-4">Username & Access</th>
               <th className="py-3.5 px-4">Size & Pool</th>
               <th className="py-3.5 px-4">Password Protection</th>
-              <th className="py-3.5 px-4 text-right">Web GUI & Actions</th>
+              <th className="py-3.5 px-4 text-right">Built-in Manager & Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -334,9 +406,9 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                     </button>
                   </td>
 
-                  {/* Actions & Launch Builtin GUI */}
+                  {/* Dedicated Launch Buttons per DB type */}
                   <td className="py-3.5 px-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
+                    <div className="flex items-center justify-end gap-1.5">
                       {/* Copy URI */}
                       <button
                         onClick={() => handleCopyUri(db)}
@@ -346,14 +418,54 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                         {copiedId === db.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                       </button>
 
-                      {/* Launch Builtin Web GUI with SSO */}
+                      {/* Engine Specific Tool Launch Button */}
+                      {db.type === 'postgres' && (
+                        <button
+                          onClick={() => openManagerWithTool(db, 'pgadmin')}
+                          className="px-2 py-1 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-colors text-[11px] font-semibold border border-blue-200 flex items-center gap-1"
+                          title="Launch pgAdmin 4 with SSO"
+                        >
+                          <span>🐘 pgAdmin</span>
+                        </button>
+                      )}
+
+                      {(db.type === 'mysql' || db.type === 'mariadb') && (
+                        <button
+                          onClick={() => openManagerWithTool(db, 'phpmyadmin')}
+                          className="px-2 py-1 rounded-md bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white transition-colors text-[11px] font-semibold border border-amber-200 flex items-center gap-1"
+                          title="Launch phpMyAdmin with SSO"
+                        >
+                          <span>🐬 phpMyAdmin</span>
+                        </button>
+                      )}
+
+                      {db.type === 'mongodb' && (
+                        <button
+                          onClick={() => openManagerWithTool(db, 'mongoexpress')}
+                          className="px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-colors text-[11px] font-semibold border border-emerald-200 flex items-center gap-1"
+                          title="Launch Mongo Express with SSO"
+                        >
+                          <span>🍃 Mongo Express</span>
+                        </button>
+                      )}
+
+                      {db.type === 'redis' && (
+                        <button
+                          onClick={() => openManagerWithTool(db, 'rediscommander')}
+                          className="px-2 py-1 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white transition-colors text-[11px] font-semibold border border-rose-200 flex items-center gap-1"
+                          title="Launch Redis Commander with SSO"
+                        >
+                          <span>🔴 Commander</span>
+                        </button>
+                      )}
+
+                      {/* Universal DbGate Button */}
                       <button
-                        onClick={() => setSelectedDbForGui(db)}
-                        className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-colors inline-flex items-center gap-1.5 text-[11px] font-semibold border border-blue-200"
-                        title="Launch Web GUI without re-login (SSO)"
+                        onClick={() => openManagerWithTool(db, 'dbgate')}
+                        className="px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white transition-colors text-[11px] font-semibold border border-indigo-200 flex items-center gap-1"
+                        title="Launch DbGate Studio with SSO"
                       >
-                        <ExternalLink className="w-3 h-3" />
-                        <span>Open GUI (SSO)</span>
+                        <span>⚡ DbGate</span>
                       </button>
 
                       {/* Delete */}
@@ -392,6 +504,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         isOpen={!!selectedDbForGui}
         onClose={() => setSelectedDbForGui(null)}
         database={selectedDbForGui}
+        initialTool={selectedToolForGui}
       />
     </div>
   );
