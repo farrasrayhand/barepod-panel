@@ -1,24 +1,15 @@
 import React from 'react';
-import { 
-  Menu, 
-  Sun, 
-  User as UserIcon, 
-  Activity, 
-  Search, 
-  Terminal,
-  ExternalLink
-} from 'lucide-react';
+import { Menu } from 'lucide-react';
 import type { NavItem } from '../types';
 
 interface HeaderProps {
   onToggleSidebar: () => void;
-  onOpenTerminal: () => void;
+  onOpenTerminal?: () => void;
   activeTab: NavItem;
 }
 
 export const Header: React.FC<HeaderProps> = ({ 
   onToggleSidebar, 
-  onOpenTerminal,
   activeTab
 }) => {
   return (
@@ -27,7 +18,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center gap-4">
         <button
           onClick={onToggleSidebar}
-          className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+          className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
           title="Toggle Navigation"
         >
           <Menu className="w-5 h-5" />
@@ -42,30 +33,9 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Middle section: Server Metrics Summary */}
-      <div className="hidden lg:flex items-center gap-3">
-        {/* Server Metrics Summary */}
-        <div className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200/80 text-xs text-slate-600">
-          <Activity className="w-3.5 h-3.5 text-slate-400" />
-          <span>RAM: <strong className="text-slate-800">2.1 / 8 GB</strong></span>
-          <span className="text-slate-300">•</span>
-          <span>CPU: <strong className="text-slate-800">8%</strong></span>
-        </div>
-      </div>
-
-      {/* Right section: Quick Terminal, Theme, User */}
+      {/* Right section: User Profile */}
       <div className="flex items-center gap-3">
-        {/* Quick Launch Isolated Terminal */}
-        <button
-          onClick={onOpenTerminal}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white hover:bg-slate-800 text-xs font-medium transition-colors shadow-xs"
-        >
-          <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Web Terminal</span>
-        </button>
-
-        {/* User Profile Pill */}
-        <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+        <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-semibold text-xs border border-blue-200">
             FR
           </div>
