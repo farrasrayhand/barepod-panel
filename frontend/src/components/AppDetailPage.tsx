@@ -78,6 +78,8 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [activeTab, setActiveTab] = useState<'monitoring' | 'overview' | 'logs' | 'routing' | 'env' | 'php' | 'security'>('monitoring');
   const [logType, setLogType] = useState<'all' | 'access' | 'error' | 'deploy'>('all');
   const [logSearch, setLogSearch] = useState('');
+  const [logFormat, setLogFormat] = useState<'structured' | 'raw'>('structured');
+  const [selectedIpFilter, setSelectedIpFilter] = useState<string>('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const [copiedEnv, setCopiedEnv] = useState(false);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
@@ -383,48 +385,223 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const isRunning = app.status === 'running';
   const appPath = app.path || `/home/${app.tenantUser}/apps/${app.name}`;
 
-  // Realistic Logs Generator based on app runtime
-  const getMockLogs = () => {
-    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-    const commonLogs = [
-      { time: `${timestamp} [INFO]`, type: 'access', msg: `GET / 200 OK - 14ms (Mozilla/5.0 Chrome/128) - 1.4 KB` },
-      { time: `${timestamp} [INFO]`, type: 'access', msg: `GET /assets/app.css 304 Not Modified - 2ms - 0 B` },
-      { time: `${timestamp} [INFO]`, type: 'access', msg: `POST /api/v1/telemetry 201 Created - 22ms - 340 B` },
-      { time: `${timestamp} [WARN]`, type: 'access', msg: `GET /wp-login.php 404 Not Found - 3ms - [Blocked by WAF Rule #104]` },
-      { time: `${timestamp} [INFO]`, type: 'deploy', msg: `[Deploy Runner] git pull origin main - HEAD is at commit 7fa901` },
-      { time: `${timestamp} [INFO]`, type: 'deploy', msg: `[Deploy Runner] Zero-downtime symlink swapped to release_20261010_1834` },
+  // Realistic Logs Generator with Visitor Client IP
+  interface LogItem {
+    time: string;
+    type: 'access' | 'error' | 'deploy';
+    ip?: string;
+    country?: string;
+    isp?: string;
+    method?: string;
+    path?: string;
+    status?: number;
+    latency?: string;
+    size?: string;
+    userAgent?: string;
+    msg: string;
+    rawLine?: string;
+  }
+
+  const getMockLogs = (): LogItem[] => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    const dateFormatted = `${pad(now.getDate())}/Oct/${now.getFullYear()}:${timeStr} +0700`;
+
+    const commonLogs: LogItem[] = [
+      { 
+        time: timeStr, 
+        type: 'access', 
+        ip: '114.124.180.52', 
+        country: 'ID', 
+        isp: 'Telkomsel',
+        method: 'GET', 
+        path: '/', 
+        status: 200, 
+        latency: '14ms', 
+        size: '2.4 KB',
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128.0',
+        msg: 'GET / 200 OK - 14ms (Chrome/128 MacOS)',
+        rawLine: `114.124.180.52 - - [${dateFormatted}] "GET / HTTP/2.0" 200 2410 "https://${app.domain}/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/128.0" (CF-Ray: 8d2b91f-CGK, Latency: 14ms)`
+      },
+      { 
+        time: timeStr, 
+        type: 'access', 
+        ip: '114.124.180.52', 
+        country: 'ID', 
+        isp: 'Telkomsel',
+        method: 'GET', 
+        path: '/assets/app.css', 
+        status: 304, 
+        latency: '2ms', 
+        size: '0 B',
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/128.0',
+        msg: 'GET /assets/app.css 304 Not Modified - 2ms',
+        rawLine: `114.124.180.52 - - [${dateFormatted}] "GET /assets/app.css HTTP/2.0" 304 0 "https://${app.domain}/" "Mozilla/5.0 Chrome/128.0" (CF-Ray: 8d2b921-CGK, Latency: 2ms)`
+      },
+      { 
+        time: timeStr, 
+        type: 'access', 
+        ip: '180.252.164.22', 
+        country: 'ID', 
+        isp: 'Biznet Surabaya',
+        method: 'POST', 
+        path: '/api/v1/telemetry', 
+        status: 201, 
+        latency: '22ms', 
+        size: '340 B',
+        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6) Mobile/15E148',
+        msg: 'POST /api/v1/telemetry 201 Created - 22ms',
+        rawLine: `180.252.164.22 - - [${dateFormatted}] "POST /api/v1/telemetry HTTP/2.0" 201 340 "https://${app.domain}/cart" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6)" (CF-Ray: 8d2b924-SUB, Latency: 22ms)`
+      },
+      { 
+        time: timeStr, 
+        type: 'access', 
+        ip: '36.72.215.19', 
+        country: 'ID', 
+        isp: 'Indihome Bandung',
+        method: 'GET', 
+        path: '/api/v1/products', 
+        status: 200, 
+        latency: '18ms', 
+        size: '12.8 KB',
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/130.0',
+        msg: 'GET /api/v1/products 200 OK - 18ms',
+        rawLine: `36.72.215.19 - - [${dateFormatted}] "GET /api/v1/products HTTP/2.0" 200 12840 "https://${app.domain}/catalog" "Firefox/130.0" (CF-Ray: 8d2b928-BDO, Latency: 18ms)`
+      },
+      { 
+        time: timeStr, 
+        type: 'error', 
+        ip: '198.51.100.41', 
+        country: 'US', 
+        isp: 'Scanner / Crawler',
+        method: 'GET', 
+        path: '/wp-login.php', 
+        status: 404, 
+        latency: '3ms', 
+        size: '140 B',
+        userAgent: 'Mozilla/5.0 (compatible; Shodan; +https://shodan.io)',
+        msg: 'GET /wp-login.php 404 Not Found - [Blocked by WAF Rule #104]',
+        rawLine: `198.51.100.41 - - [${dateFormatted}] "GET /wp-login.php HTTP/1.1" 404 140 "-" "Shodan/Bot" [CF-Blocked: WAF-Rule-104, Latency: 3ms]`
+      },
+      { 
+        time: timeStr, 
+        type: 'access', 
+        ip: '103.147.154.82', 
+        country: 'SG', 
+        isp: 'MyRepublic Singapore',
+        method: 'GET', 
+        path: '/healthz', 
+        status: 200, 
+        latency: '1ms', 
+        size: '18 B',
+        userAgent: 'BarePod-Uptime-Monitor/2.4 (cgroup-probe)',
+        msg: 'GET /healthz 200 OK - 1ms (Uptime Probe)',
+        rawLine: `103.147.154.82 - - [${dateFormatted}] "GET /healthz HTTP/2.0" 200 18 "-" "BarePod-Uptime-Monitor/2.4" (CF-Ray: 8d2b930-SIN, Latency: 1ms)`
+      },
+      { 
+        time: timeStr, 
+        type: 'deploy', 
+        msg: '[Deploy Runner] git pull origin main - HEAD is at commit 7fa901',
+        rawLine: `[${dateFormatted}] [system:deploy-runner] git pull origin main - HEAD is at commit 7fa901`
+      },
+      { 
+        time: timeStr, 
+        type: 'deploy', 
+        msg: '[Deploy Runner] Zero-downtime symlink swapped to release_20261010_1834',
+        rawLine: `[${dateFormatted}] [system:deploy-runner] Zero-downtime symlink swapped to release_20261010_1834`
+      },
     ];
 
     if (app.runtime === 'php') {
       return [
-        { time: `${timestamp} [NOTICE]`, type: 'access', msg: `[php-fpm: pool ${app.tenantUser}] child 3914 ready to handle requests` },
+        { time: timeStr, type: 'access', msg: `[php-fpm: pool ${app.tenantUser}] child 3914 ready to handle requests`, rawLine: `[${dateFormatted}] [php-fpm:pool-${app.tenantUser}] child 3914 ready to handle requests` },
+        { 
+          time: timeStr, 
+          type: 'access', 
+          ip: '203.190.242.11', 
+          country: 'ID', 
+          isp: 'FirstMedia Medan',
+          method: 'GET', 
+          path: '/dashboard', 
+          status: 200, 
+          latency: '24ms', 
+          size: '5.1 KB', 
+          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) Safari/605.1.15',
+          msg: 'GET /dashboard 200 OK - 24ms',
+          rawLine: `203.190.242.11 - - [${dateFormatted}] "GET /dashboard HTTP/2.0" 200 5210 "https://${app.domain}/" "Safari/605.1.15" (CF-Ray: 8d2b932-MES, Latency: 24ms)`
+        },
         ...commonLogs,
-        { time: `${timestamp} [DEBUG]`, type: 'access', msg: `PHP 8.4 JIT Compiler enabled (opcache.jit_buffer_size=64M)` },
-        { time: `${timestamp} [WARN]`, type: 'error', msg: `PHP Deprecated: Creation of dynamic property in /vendor/legacy/class.php on line 42` },
+        { time: timeStr, type: 'access', msg: 'PHP 8.4 JIT Compiler enabled (opcache.jit_buffer_size=64M)', rawLine: `[${dateFormatted}] [php-zend-engine] OPcache JIT Compiler enabled (opcache.jit_buffer_size=64M)` },
+        { 
+          time: timeStr, 
+          type: 'error', 
+          ip: '45.155.205.8', 
+          country: 'RU', 
+          isp: 'Suspicious IP Scanner',
+          method: 'POST', 
+          path: '/xmlrpc.php', 
+          status: 403, 
+          latency: '2ms', 
+          size: '42 B', 
+          userAgent: 'python-requests/2.31.0',
+          msg: 'POST /xmlrpc.php 403 Forbidden - [WAF Blocked brute-force attempt]',
+          rawLine: `45.155.205.8 - - [${dateFormatted}] "POST /xmlrpc.php HTTP/1.1" 403 42 "-" "python-requests/2.31.0" [CF-Blocked: WAF-Bot-Shield, Latency: 2ms]`
+        },
       ];
     } else if (app.runtime === 'nodejs') {
       return [
-        { time: `${timestamp} [INFO]`, type: 'access', msg: `[NestJS] Application initialized listening on unix:/run/node/${app.name}.sock` },
+        { time: timeStr, type: 'access', msg: `[NestJS] Application initialized listening on unix:/run/node/${app.name}.sock`, rawLine: `[${dateFormatted}] [system:node-supervisor] NestJS app listening on unix:/run/node/${app.name}.sock` },
         ...commonLogs,
-        { time: `${timestamp} [INFO]`, type: 'access', msg: `Prisma ORM connected to PostgreSQL pool (min: 2, max: 10)` },
-        { time: `${timestamp} [WARN]`, type: 'error', msg: `Rate limiter: 429 Too Many Requests from IP 198.51.100.41 on /api/auth/login` },
+        { 
+          time: timeStr, 
+          type: 'error', 
+          ip: '198.51.100.41', 
+          country: 'US', 
+          isp: 'Scanner / Crawler',
+          method: 'POST', 
+          path: '/api/auth/login', 
+          status: 429, 
+          latency: '4ms', 
+          size: '64 B', 
+          userAgent: 'curl/8.4.0',
+          msg: 'Rate limiter: 429 Too Many Requests on /api/auth/login',
+          rawLine: `198.51.100.41 - - [${dateFormatted}] "POST /api/auth/login HTTP/1.1" 429 64 "-" "curl/8.4.0" (Rate-Limit-Exceeded: 30req/min)`
+        },
       ];
     } else if (app.runtime === 'python') {
       return [
-        { time: `${timestamp} [INFO]`, type: 'access', msg: `[Gunicorn 22.0] Starting gunicorn workers (gevent async worker_class)` },
+        { time: timeStr, type: 'access', msg: `[Gunicorn 22.0] Starting gunicorn workers (gevent async worker_class)`, rawLine: `[${dateFormatted}] [system:gunicorn] Starting gunicorn workers (gevent async worker_class)` },
+        { 
+          time: timeStr, 
+          type: 'access', 
+          ip: '103.147.154.82', 
+          country: 'SG', 
+          isp: 'MyRepublic SG',
+          method: 'GET', 
+          path: '/docs', 
+          status: 200, 
+          latency: '8ms', 
+          size: '14.2 KB', 
+          userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/127.0',
+          msg: 'FastAPI OpenAPI documentation mounted at /docs',
+          rawLine: `103.147.154.82 - - [${dateFormatted}] "GET /docs HTTP/2.0" 200 14500 "-" "Chrome/127.0" (CF-Ray: 8d2b938-SIN, Latency: 8ms)`
+        },
         ...commonLogs,
-        { time: `${timestamp} [INFO]`, type: 'access', msg: `FastAPI OpenAPI documentation mounted at /docs` },
-        { time: `${timestamp} [DEBUG]`, type: 'access', msg: `PyTorch model cached in GPU memory: 182 MB allocated` },
       ];
     }
     return commonLogs;
   };
 
   const logs = getMockLogs();
+  const uniqueVisitorIps = Array.from(new Set(logs.filter(l => l.ip).map(l => l.ip as string)));
+
   const filteredLogs = logs.filter(log => {
     const matchesType = logType === 'all' || log.type === logType;
-    const matchesSearch = log.msg.toLowerCase().includes(logSearch.toLowerCase()) || log.time.toLowerCase().includes(logSearch.toLowerCase());
-    return matchesType && matchesSearch;
+    const matchesIp = selectedIpFilter === 'all' || log.ip === selectedIpFilter;
+    const searchTarget = `${log.msg} ${log.time} ${log.ip || ''} ${log.country || ''} ${log.isp || ''} ${log.path || ''} ${log.method || ''} ${log.status || ''} ${log.rawLine || ''}`.toLowerCase();
+    const matchesSearch = !logSearch || searchTarget.includes(logSearch.toLowerCase());
+    return matchesType && matchesIp && matchesSearch;
   });
 
   const handleCopyEnv = () => {
@@ -901,84 +1078,278 @@ QUEUE_CONNECTION=redis`;
         {/* TAB 2: STREAMING LOGS CONSOLE */}
         {activeTab === 'logs' && (
           <div className="space-y-3">
-            {/* Filter Toolbar */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+            {/* Real-IP Ingress Banner */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-900">
+              <div className="flex items-center gap-2 font-mono">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="font-bold">Real-IP Ingress Aktif:</span>
+                <span className="text-emerald-700">
+                  IP asli pengunjung direstorasi langsung dari header <code>CF-Connecting-IP</code> & <code>X-Forwarded-For</code> (Zero-NAT bypass, bukan IP Docker/Proxy 127.0.0.1).
+                </span>
+              </div>
               <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Search logs..."
-                    value={logSearch}
-                    onChange={(e) => setLogSearch(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 w-56 font-mono"
-                  />
+                <span className="text-[11px] bg-emerald-100/80 text-emerald-800 px-2 py-0.5 rounded font-mono font-bold">
+                  {uniqueVisitorIps.length} Unique Visitor IPs
+                </span>
+              </div>
+            </div>
+
+            {/* Filter Toolbar */}
+            <div className="flex flex-col gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Cari IP (misal: 114.124), path, status..."
+                      value={logSearch}
+                      onChange={(e) => setLogSearch(e.target.value)}
+                      className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 w-64 font-mono shadow-2xs"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    {(['all', 'access', 'error', 'deploy'] as const).map(type => (
+                      <button
+                        key={type}
+                        onClick={() => setLogType(type)}
+                        className={`px-2.5 py-1 text-xs rounded-lg font-medium capitalize transition-colors ${
+                          logType === type
+                            ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {type === 'all' ? 'Semua Log' : type === 'access' ? 'Access Logs' : type === 'error' ? 'Errors / WAF' : 'Deploy Logs'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-1">
-                  {(['all', 'access', 'error', 'deploy'] as const).map(type => (
+                <div className="flex items-center gap-2">
+                  {/* View Mode Switch */}
+                  <div className="flex items-center bg-slate-200/80 p-0.5 rounded-lg text-xs font-medium">
                     <button
-                      key={type}
-                      onClick={() => setLogType(type)}
-                      className={`px-2.5 py-1 text-xs rounded-lg font-medium capitalize transition-colors ${
-                        logType === type
-                          ? 'bg-blue-600 text-white font-bold'
-                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                      onClick={() => setLogFormat('structured')}
+                      className={`px-2.5 py-1 rounded-md transition-all ${
+                        logFormat === 'structured'
+                          ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                          : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      {type}
+                      Tabel Kolom (IP Badge)
                     </button>
-                  ))}
+                    <button
+                      onClick={() => setLogFormat('raw')}
+                      className={`px-2.5 py-1 rounded-md transition-all ${
+                        logFormat === 'raw'
+                          ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Raw Nginx / OLS
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setIsRefreshingLogs(true);
+                      setTimeout(() => setIsRefreshingLogs(false), 500);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-100 shadow-2xs cursor-pointer"
+                  >
+                    <RotateCw className={`w-3 h-3 ${isRefreshingLogs ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+
+                  <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={autoScroll}
+                      onChange={(e) => setAutoScroll(e.target.checked)}
+                      className="rounded text-blue-600 border-slate-300"
+                    />
+                    <span>Auto-scroll</span>
+                  </label>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              {/* Quick Filter by Visitor IP Chips */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pt-1 border-t border-slate-200/60 text-xs">
+                <span className="text-slate-500 font-semibold text-[11px] shrink-0 flex items-center gap-1">
+                  <Globe className="w-3 h-3 text-slate-400" />
+                  <span>Filter IP Visitor:</span>
+                </span>
                 <button
-                  onClick={() => {
-                    setIsRefreshingLogs(true);
-                    setTimeout(() => setIsRefreshingLogs(false), 500);
-                  }}
-                  className="flex items-center gap-1 px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-100"
+                  onClick={() => setSelectedIpFilter('all')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-colors shrink-0 ${
+                    selectedIpFilter === 'all'
+                      ? 'bg-blue-600 text-white font-bold'
+                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                  }`}
                 >
-                  <RotateCw className={`w-3 h-3 ${isRefreshingLogs ? 'animate-spin' : ''}`} />
-                  <span>Refresh</span>
+                  Semua ({logs.filter(l => l.ip).length})
                 </button>
-                <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={autoScroll}
-                    onChange={(e) => setAutoScroll(e.target.checked)}
-                    className="rounded text-blue-600 border-slate-300"
-                  />
-                  <span>Auto-scroll</span>
-                </label>
+                {uniqueVisitorIps.map(ip => {
+                  const ipLogs = logs.filter(l => l.ip === ip);
+                  const country = ipLogs[0]?.country || 'Global';
+                  const isSelected = selectedIpFilter === ip;
+                  return (
+                    <button
+                      key={ip}
+                      onClick={() => setSelectedIpFilter(isSelected ? 'all' : ip)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-mono font-medium transition-colors shrink-0 flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-amber-600 text-white font-bold ring-2 ring-amber-400/50'
+                          : 'bg-white text-slate-700 border border-slate-200 hover:bg-amber-50 hover:border-amber-300'
+                      }`}
+                    >
+                      <span className="font-bold">{ip}</span>
+                      <span className={`text-[9px] px-1 rounded uppercase font-semibold ${
+                        isSelected ? 'bg-amber-800 text-amber-100' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {country}
+                      </span>
+                      <span className="text-[10px] opacity-75">({ipLogs.length})</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             {/* Terminal Window */}
-            <div className="bg-slate-950 text-slate-100 font-mono text-xs rounded-xl p-4 min-h-[380px] max-h-[500px] overflow-y-auto space-y-1.5 border border-slate-800 shadow-inner">
-              {filteredLogs.map((log, idx) => (
-                <div key={idx} className="flex items-start gap-2 leading-relaxed hover:bg-slate-900/60 p-0.5 rounded">
-                  <span className="text-slate-500 shrink-0 text-[11px]">{log.time}</span>
-                  <span className={`shrink-0 text-[10px] px-1 rounded uppercase font-bold ${
-                    log.type === 'error' ? 'bg-rose-950 text-rose-300' :
-                    log.type === 'deploy' ? 'bg-purple-950 text-purple-300' :
-                    'bg-slate-800 text-slate-300'
-                  }`}>
-                    {log.type}
-                  </span>
-                  <span className={`text-[11px] ${
-                    log.type === 'error' ? 'text-rose-400' :
-                    log.type === 'deploy' ? 'text-purple-300' :
-                    'text-slate-200'
-                  }`}>
-                    {log.msg}
-                  </span>
+            <div className="bg-slate-950 text-slate-100 font-mono text-xs rounded-xl p-4 min-h-[380px] max-h-[520px] overflow-y-auto space-y-1.5 border border-slate-800 shadow-inner">
+              {/* Terminal Table Header for Structured View */}
+              {logFormat === 'structured' && (
+                <div className="grid grid-cols-12 gap-2 pb-2 mb-2 border-b border-slate-800 text-[10px] text-slate-400 font-bold uppercase tracking-wider select-none">
+                  <div className="col-span-1">WAKTU</div>
+                  <div className="col-span-3">IP PENGUNJUNG (VISITOR IP)</div>
+                  <div className="col-span-2">METODE & STATUS</div>
+                  <div className="col-span-3">PATH REQUEST</div>
+                  <div className="col-span-3">LATENSI & CLIENT INFO</div>
                 </div>
+              )}
+
+              {filteredLogs.map((log, idx) => (
+                logFormat === 'structured' ? (
+                  <div 
+                    key={idx} 
+                    className="grid grid-cols-12 gap-2 items-center py-1 px-1.5 rounded hover:bg-slate-900/80 border border-transparent hover:border-slate-800/80 transition-colors leading-relaxed"
+                  >
+                    {/* Waktu */}
+                    <div className="col-span-1 text-slate-500 text-[11px] font-mono shrink-0">
+                      [{log.time}]
+                    </div>
+
+                    {/* Visitor Client IP Badge */}
+                    <div className="col-span-3 flex items-center gap-1.5 overflow-hidden">
+                      {log.ip ? (
+                        <span 
+                          className="inline-flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/40 text-amber-300 font-mono font-bold text-[11px] px-2 py-0.5 rounded shadow-2xs"
+                          title={`Visitor IP: ${log.ip} | ISP: ${log.isp || 'Unknown'} | Country: ${log.country || 'Global'}`}
+                        >
+                          <Globe className="w-3 h-3 text-amber-400 shrink-0" />
+                          <span className="tracking-tight">{log.ip}</span>
+                          <span className="bg-amber-950/80 text-amber-200 text-[9px] px-1 rounded uppercase font-semibold border border-amber-800/40">
+                            {log.country || 'ID'}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-slate-600 font-mono text-[10px] px-1">
+                          [system daemon]
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Method & Status */}
+                    <div className="col-span-2 flex items-center gap-1.5">
+                      {log.method ? (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                          log.method === 'GET' ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/50' :
+                          log.method === 'POST' ? 'bg-indigo-950 text-indigo-300 border border-indigo-800/50' :
+                          'bg-slate-800 text-slate-300'
+                        }`}>
+                          {log.method}
+                        </span>
+                      ) : (
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                          log.type === 'error' ? 'bg-rose-950 text-rose-300' :
+                          log.type === 'deploy' ? 'bg-purple-950 text-purple-300' :
+                          'bg-slate-800 text-slate-400'
+                        }`}>
+                          {log.type}
+                        </span>
+                      )}
+
+                      {log.status && (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded font-mono ${
+                          log.status < 300 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50' :
+                          log.status < 400 ? 'bg-blue-950 text-blue-300 border border-blue-800/50' :
+                          log.status < 500 ? 'bg-amber-950 text-amber-300 border border-amber-800/50' :
+                          'bg-rose-950 text-rose-300 border border-rose-800/50'
+                        }`}>
+                          {log.status}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Path */}
+                    <div className="col-span-3 truncate">
+                      <span className="text-slate-100 font-semibold text-[11px] font-mono">
+                        {log.path || log.msg}
+                      </span>
+                    </div>
+
+                    {/* Latency & Client Info */}
+                    <div className="col-span-3 flex items-center justify-between text-[11px] text-slate-400 overflow-hidden">
+                      <span className="font-mono text-cyan-300 shrink-0 font-medium">
+                        {log.latency ? `${log.latency} • ${log.size}` : ''}
+                      </span>
+                      <span 
+                        className="text-slate-500 truncate max-w-[140px] text-[10px]" 
+                        title={log.userAgent || log.msg}
+                      >
+                        {log.userAgent || log.msg}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  /* Raw Combined Log View (Nginx / OLS Format) */
+                  <div 
+                    key={idx} 
+                    className="font-mono text-[11px] text-slate-300 hover:bg-slate-900/80 p-1 rounded transition-colors break-all flex flex-wrap items-baseline gap-1.5"
+                  >
+                    {log.ip ? (
+                      <span className="text-amber-300 font-bold bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-800/50">
+                        {log.ip}
+                      </span>
+                    ) : (
+                      <span className="text-slate-600">127.0.0.1</span>
+                    )}
+                    <span className="text-slate-500">- - [{log.time}]</span>
+                    {log.method && (
+                      <span className="text-cyan-300 font-bold">"{log.method} {log.path || '/'} HTTP/2.0"</span>
+                    )}
+                    {log.status && (
+                      <span className={`font-bold ${log.status < 400 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {log.status}
+                      </span>
+                    )}
+                    {log.size && <span className="text-slate-400">{log.size}</span>}
+                    {log.userAgent && <span className="text-slate-500">"{log.userAgent}"</span>}
+                    {log.ip && (
+                      <span className="text-emerald-400 text-[10px]">
+                        (CF-Connecting-IP: {log.ip}, Country: {log.country}, {log.latency})
+                      </span>
+                    )}
+                    {!log.ip && <span className="text-purple-300">{log.msg}</span>}
+                  </div>
+                )
               ))}
+
               {filteredLogs.length === 0 && (
                 <div className="text-center py-12 text-slate-500">
-                  Tidak ada baris log yang sesuai dengan filter pencarian.
+                  Tidak ada baris log yang sesuai dengan filter pencarian atau IP yang dipilih.
                 </div>
               )}
             </div>

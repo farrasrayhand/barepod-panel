@@ -89,50 +89,113 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
   const isRunning = app.status === 'running';
 
-  // Realistic Logs Generator based on app runtime
-  const getMockLogs = () => {
+  // Realistic Logs Generator based on app runtime with Visitor Client IP
+  interface LogItem {
+    time: string;
+    type: 'access' | 'error' | 'deploy';
+    ip?: string;
+    country?: string;
+    method?: string;
+    path?: string;
+    status?: number;
+    latency?: string;
+    size?: string;
+    msg: string;
+  }
+
+  const getMockLogs = (): LogItem[] => {
     const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
-    const commonLogs = [
-      { time: `${timestamp} [INFO]`, type: 'access', msg: `GET / 200 OK - 14ms (Mozilla/5.0 Chrome/128) - 1.4 KB` },
-      { time: `${timestamp} [INFO]`, type: 'access', msg: `GET /assets/app.css 304 Not Modified - 2ms - 0 B` },
-      { time: `${timestamp} [INFO]`, type: 'access', msg: `POST /api/v1/telemetry 201 Created - 22ms - 340 B` },
-      { time: `${timestamp} [WARN]`, type: 'access', msg: `GET /wp-login.php 404 Not Found - 3ms - [Blocked by WAF Rule #104]` },
-      { time: `${timestamp} [INFO]`, type: 'deploy', msg: `[Deploy Runner] git pull origin main - HEAD is at commit 7fa901` },
-      { time: `${timestamp} [INFO]`, type: 'deploy', msg: `[Process Supervisor] Worker process PID 41289 healthy. Memory: ${app.memoryUsage}` },
+    const commonLogs: LogItem[] = [
+      { 
+        time: `${timestamp} [ACCESS]`, 
+        type: 'access', 
+        ip: '114.124.180.52', 
+        country: 'ID', 
+        method: 'GET', 
+        path: '/', 
+        status: 200, 
+        latency: '14ms', 
+        size: '1.4 KB',
+        msg: `GET / 200 OK - 14ms (Chrome/128 MacOS)` 
+      },
+      { 
+        time: `${timestamp} [ACCESS]`, 
+        type: 'access', 
+        ip: '114.124.180.52', 
+        country: 'ID', 
+        method: 'GET', 
+        path: '/assets/app.css', 
+        status: 304, 
+        latency: '2ms', 
+        size: '0 B',
+        msg: `GET /assets/app.css 304 Not Modified - 2ms` 
+      },
+      { 
+        time: `${timestamp} [ACCESS]`, 
+        type: 'access', 
+        ip: '180.252.164.22', 
+        country: 'ID', 
+        method: 'POST', 
+        path: '/api/v1/telemetry', 
+        status: 201, 
+        latency: '22ms', 
+        size: '340 B',
+        msg: `POST /api/v1/telemetry 201 Created - 22ms` 
+      },
+      { 
+        time: `${timestamp} [WAF]`, 
+        type: 'error', 
+        ip: '198.51.100.41', 
+        country: 'US', 
+        method: 'GET', 
+        path: '/wp-login.php', 
+        status: 404, 
+        latency: '3ms', 
+        size: '140 B',
+        msg: `GET /wp-login.php 404 Not Found - [Blocked by WAF Rule #104]` 
+      },
+      { 
+        time: `${timestamp} [INFO]`, 
+        type: 'deploy', 
+        msg: `[Deploy Runner] git pull origin main - HEAD is at commit 7fa901` 
+      },
+      { 
+        time: `${timestamp} [INFO]`, 
+        type: 'deploy', 
+        msg: `[Process Supervisor] Worker process PID 41289 healthy. Memory: ${app.memoryUsage}` 
+      },
     ];
 
     if (app.runtime === 'php') {
       return [
-        { time: `${timestamp} [OLS/PHP]`, type: 'access', msg: `[OLS 2.1.2] VirtualHost ${app.domain} configured with PHP ${app.version} (lsphp${app.version.replace('.', '')})` },
-        { time: `${timestamp} [LSCache]`, type: 'access', msg: `LSCache HIT: uri=/shop/products/shoes - TTL remaining: 2340s` },
+        { time: `${timestamp} [OLS/PHP]`, type: 'access', msg: `[OLS 2.1.2] VirtualHost ${app.domain} configured with PHP ${app.version}` },
+        { time: `${timestamp} [LSCache]`, type: 'access', ip: '36.72.215.19', country: 'ID', method: 'GET', path: '/shop/products', status: 200, latency: '18ms', size: '12.8 KB', msg: `LSCache HIT: uri=/shop/products - 18ms` },
         ...commonLogs,
-        { time: `${timestamp} [NOTICE]`, type: 'error', msg: `PHP Notice: Constant WP_CACHE already defined in wp-config.php on line 12` },
+        { time: `${timestamp} [WAF]`, type: 'error', ip: '45.155.205.8', country: 'RU', method: 'POST', path: '/xmlrpc.php', status: 403, latency: '2ms', size: '42 B', msg: `POST /xmlrpc.php 403 Forbidden - [WAF Blocked exploit]` },
       ];
     }
 
     if (app.runtime === 'python') {
       return [
-        { time: `${timestamp} [Gunicorn/Uvicorn]`, type: 'access', msg: `Application startup complete on http://127.0.0.1:${app.port}` },
-        { time: `${timestamp} [FastAPI]`, type: 'access', msg: `INFO: 127.0.0.1:48201 - "GET /ai/predict" 200 OK (latency: 18.2ms)` },
+        { time: `${timestamp} [Gunicorn]`, type: 'access', msg: `Application startup complete on http://127.0.0.1:${app.port}` },
+        { time: `${timestamp} [FastAPI]`, type: 'access', ip: '103.147.154.82', country: 'SG', method: 'GET', path: '/ai/predict', status: 200, latency: '18.2ms', size: '1.2 KB', msg: `INFO: "GET /ai/predict" 200 OK (latency: 18.2ms)` },
         ...commonLogs,
-        { time: `${timestamp} [PyWorker]`, type: 'error', msg: `Worker heartbeating on cgroup v2 sandbox /home/${app.tenantUser}` },
       ];
     }
 
     // Node.js / Default
     return [
       { time: `${timestamp} [Next.js]`, type: 'access', msg: `ready - started server on 0.0.0.0:${app.port}, url: http://localhost:${app.port}` },
-      { time: `${timestamp} [Next.js]`, type: 'access', msg: `event - compiled client and server successfully in 420 ms` },
       ...commonLogs,
-      { time: `${timestamp} [Worker]`, type: 'access', msg: `HTTP request handled with status 200 via Cloudflare Ingress` },
+      { time: `${timestamp} [ACCESS]`, type: 'access', ip: '203.190.242.11', country: 'ID', method: 'GET', path: '/dashboard', status: 200, latency: '24ms', size: '5.1 KB', msg: `GET /dashboard 200 OK - 24ms` },
     ];
   };
 
   const logs = getMockLogs();
   const filteredLogs = logs.filter(log => {
     const matchesType = logType === 'all' || log.type === logType;
-    const matchesSearch = !logSearch || log.msg.toLowerCase().includes(logSearch.toLowerCase());
-    return matchesType && matchesSearch;
+    const searchTarget = `${log.msg} ${log.time} ${log.ip || ''} ${log.path || ''} ${log.method || ''} ${log.status || ''}`.toLowerCase();
+    return matchesType && searchTarget.includes(logSearch.toLowerCase());
   });
 
   return (
@@ -428,13 +491,51 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   {filteredLogs.map((item, idx) => (
                     <div 
                       key={idx} 
-                      className={`py-0.5 px-2 rounded hover:bg-slate-900 transition-colors ${
-                        item.type === 'error' ? 'text-rose-400 bg-rose-950/20' :
-                        item.type === 'deploy' ? 'text-indigo-300' : 'text-slate-300'
+                      className={`py-1 px-2 rounded hover:bg-slate-900 transition-colors flex flex-wrap items-baseline gap-2 ${
+                        item.type === 'error' ? 'bg-rose-950/20 text-rose-300' :
+                        item.type === 'deploy' ? 'bg-purple-950/20 text-indigo-300' : 'text-slate-300'
                       }`}
                     >
-                      <span className="text-slate-500 mr-2 select-none">{item.time}</span>
-                      <span>{item.msg}</span>
+                      <span className="text-slate-500 text-[10px] select-none shrink-0 font-mono">[{item.time.split(' ')[0]}]</span>
+
+                      {/* Visitor Client IP Badge */}
+                      {item.ip ? (
+                        <span 
+                          className="shrink-0 text-[10px] font-mono font-bold text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/50 flex items-center gap-1"
+                          title={`Visitor IP: ${item.ip} (${item.country || 'Global'})`}
+                        >
+                          <Globe className="w-2.5 h-2.5 text-amber-400" />
+                          <span>{item.ip}</span>
+                          {item.country && <span className="text-amber-500 font-normal">[{item.country}]</span>}
+                        </span>
+                      ) : (
+                        <span className="text-slate-600 font-mono text-[10px]">system</span>
+                      )}
+
+                      {/* Method & Status */}
+                      {item.method && item.status && (
+                        <div className="shrink-0 flex items-center gap-1 text-[10px]">
+                          <span className="font-bold text-cyan-300">{item.method}</span>
+                          <span className={`px-1 py-0.2 rounded font-bold ${
+                            item.status < 300 ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50' :
+                            item.status < 400 ? 'bg-blue-950 text-blue-300 border border-blue-800/50' :
+                            'bg-rose-950 text-rose-300 border border-rose-800/50'
+                          }`}>
+                            {item.status}
+                          </span>
+                        </div>
+                      )}
+
+                      <span className="flex-1 break-all">
+                        {item.path ? (
+                          <>
+                            <span className="text-slate-100 font-semibold">{item.path}</span>
+                            {item.latency && <span className="text-slate-400 ml-2 font-mono">({item.latency} • {item.size})</span>}
+                          </>
+                        ) : (
+                          item.msg
+                        )}
+                      </span>
                     </div>
                   ))}
                 </div>
