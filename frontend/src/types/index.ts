@@ -94,6 +94,24 @@ export interface TenantUser {
   status: 'active' | 'suspended';
 }
 
+export interface IngressRoute {
+  hostname: string;
+  service: string;
+  appName: string;
+  status: 'Healthy' | 'Degraded';
+}
+
+export interface UserTunnel {
+  id: string;
+  tenantUser: string;
+  tunnelName: string;
+  token: string;
+  status: 'connected' | 'disconnected' | 'configuring';
+  connectorVersion: string;
+  uptime: string;
+  routes: IngressRoute[];
+}
+
 export interface CloudflareTunnelConfig {
   status: 'connected' | 'disconnected' | 'configuring';
   tunnelName: string;

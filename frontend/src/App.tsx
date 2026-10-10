@@ -222,7 +222,9 @@ export function App() {
             <DatabasesView onShowToast={showToast} />
           )}
 
-          {currentTab === 'tunnels' && <CloudflareTunnelView />}
+          {currentTab === 'tunnels' && (
+            <CloudflareTunnelView onShowToast={showToast} />
+          )}
 
           {currentTab === 'terminal' && (
             <WebTerminalView
