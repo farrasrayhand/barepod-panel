@@ -318,7 +318,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-sm transition-colors"
           >
             <Terminal className="w-3.5 h-3.5" />
-            <span>htop / bash CLI</span>
+            <span>Terminal</span>
           </button>
         </div>
       </div>
@@ -527,7 +527,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           }`}
         >
           <Terminal className="w-4 h-4" />
-          <span>Host Console (htop / bash)</span>
+          <span>Terminal</span>
         </button>
 
         <button
