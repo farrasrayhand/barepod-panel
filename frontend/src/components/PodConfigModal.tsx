@@ -37,7 +37,7 @@ interface PodConfigModalProps {
   pod: PodItem | null;
   onSaveConfig: (updatedPod: PodItem) => void;
   onToggleStatus: (podId: string) => void;
-  onOpenTerminal?: () => void;
+  onOpenTerminal?: (podId: string) => void;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -392,7 +392,7 @@ ${isWebApp ? `    labels:
                   <button
                     onClick={() => {
                       onClose();
-                      onOpenTerminal?.();
+                      onOpenTerminal?.(pod.id);
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800 rounded-lg"
                   >

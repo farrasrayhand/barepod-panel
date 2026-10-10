@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { siteSupportsShell, siteSupportsFiles, siteShellNote, siteFilesNote } from '../utils/siteRuntime';
 import { 
   ArrowLeft, 
   Activity, 
@@ -1209,18 +1210,29 @@ QUEUE_CONNECTION=redis`;
 
             <button
               onClick={() => onOpenTerminal(app)}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs"
-              title="Open Web Terminal in isolated runtime"
+              disabled={!siteSupportsShell(app)}
+              title={siteShellNote(app)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-colors shadow-2xs ${
+                siteSupportsShell(app)
+                  ? 'text-slate-700 bg-white border-slate-200 hover:bg-slate-50'
+                  : 'text-slate-400 bg-slate-50 border-slate-200 cursor-not-allowed'
+              }`}
             >
-              <Terminal className="w-3.5 h-3.5 text-blue-600" />
+              <Terminal className={`w-3.5 h-3.5 ${siteSupportsShell(app) ? 'text-blue-600' : 'text-slate-400'}`} />
               <span>Terminal CLI</span>
             </button>
 
             <button
               onClick={() => setActiveTab('files')}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs"
+              disabled={!siteSupportsFiles(app)}
+              title={siteFilesNote(app)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl border transition-colors shadow-2xs ${
+                siteSupportsFiles(app)
+                  ? 'text-slate-700 bg-white border-slate-200 hover:bg-slate-50'
+                  : 'text-slate-400 bg-slate-50 border-slate-200 cursor-not-allowed'
+              }`}
             >
-              <Folder className="w-3.5 h-3.5 text-amber-600" />
+              <Folder className={`w-3.5 h-3.5 ${siteSupportsFiles(app) ? 'text-amber-600' : 'text-slate-400'}`} />
               <span>File Manager</span>
             </button>
 
