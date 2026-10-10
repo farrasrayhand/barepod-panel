@@ -13,8 +13,9 @@
 - **Four web server engines**: OpenLiteSpeed (LSCache + PHP), Nginx (high concurrency reverse proxy), Caddy (automatic HTTPS / Let's Encrypt + HTTP/3), and Apache 2.4 (`.htaccess` compatibility) — with a real vhost config generator per engine.
 - **Multi-runtime & frameworks**: Python (Flask, FastAPI, Django), PHP (Laravel, WordPress, Symfony — 27 framework/CMS templates), Node.js (Next.js, Express, NestJS, Astro), Go, Rust, Ruby on Rails, and static sites.
 - **Isolated multi-tenant terminal**: each tenant has its own web terminal in `/home/<tenant>/apps/<app>` with automatic runtime switching — `php -v`, `node -v`, `python -v` resolve to the site's configured version without colliding across tenants.
-- **Database suite & SSO web GUI**: PostgreSQL 16, MariaDB 11 / MySQL 8, MongoDB 7.0, and Redis 7.2. Web GUIs (DbGate, phpMyAdmin, pgAdmin, Mongo Express, Redis Commander) sit behind an internal proxy with automatic login.
+- **Database suite & SSO web GUI**: PostgreSQL 16, MariaDB 11 / MySQL 8, MongoDB 7.0, Redis 7.2, and file-based SQLite. Databases and caches are provisioned separately; web GUIs (DbGate, phpMyAdmin, pgAdmin, Mongo Express, Redis Commander) sit behind an internal proxy with automatic login.
 - **Password vault**: database passwords are masked; revealing them requires the panel account password with a 60-second auto-lock.
+- **Recycle bin for databases**: deleting a database suspends it and moves it to a recycle bin — apps can no longer connect, but the data is kept. Restore it, delete it permanently, or let it auto-purge after 30 days.
 - **File Manager Pro**: per-file checkboxes with select-all, multi-file batch actions (download as `.zip`, delete, copy/cut/paste), right-click context menu, in-browser previewers (image / SVG / PDF), and a code editor with syntax highlighting.
 - **GitHub push-to-deploy & one-click redeploy**: webhook-triggered `git pull` + build + zero-downtime reload, plus manual redeploy with streaming build logs.
 - **Zero-NAT Cloudflare Tunnel**: per-tenant tunnel tokens expose domains and containers to the internet without a static public IP or port forwarding.

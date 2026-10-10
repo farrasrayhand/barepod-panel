@@ -138,6 +138,14 @@ This is the main rework risk — the UI currently stores some values as presenta
 - **Caches (Redis) are a separate resource:** `GET|POST /caches` · `GET|PATCH|DELETE /caches/:id` · `POST /caches/:id/rotate-password`
 - `GET /db-engines` (versions + shared-daemon ports; SQLite reports `fileBased: true`, `port: null`)
 - **SQLite is file-based:** `host`/`port`/`username`/`password`/`maxConnections` are `null`; the record carries a `path` (e.g. `/home/<tenant>/apps/<site>/<name>.sqlite`) and has no SSO web GUI.
+- **Recycle Bin (soft delete) — `DELETE` never drops immediately:**
+  - `DELETE /databases/:id` → sets `deletedAt` and **suspends** the database: existing connections are refused, grants are revoked and the app route is withdrawn. The data is retained.
+  - `GET /databases/recycle-bin` (or `GET /databases?bin=true`) → binned items with `deletedAt`.
+  - `POST /databases/:id/restore` → clears `deletedAt`, re-enables connections and re-grants access.
+  - `POST /databases/:id/purge` (or `DELETE /databases/:id?permanent=true`) → drops the database and its data permanently.
+  - `DELETE /databases/recycle-bin` → empties the bin (purges all binned items).
+  - Retention: `retentionDays` (default **30**) lives in settings; a daily cron purges expired items.
+  - Implementation note: for daemon engines "suspend" means refuse connections (e.g. PostgreSQL `ALLOW_CONNECTIONS false` after renaming; MySQL/MariaDB revoke + rename); for SQLite the file is moved/renamed. MongoDB/Redis use a suspended namespace. Restore reverses the same operation; purge is the only destructive step.
 
 ### 4.7 Cloudflare Tunnels
 - `GET|POST /tunnels` · `DELETE /tunnels/:id` · `POST /tunnels/:id/token` · `POST /tunnels/:id/restart`
@@ -194,6 +202,7 @@ This is the main rework risk — the UI currently stores some values as presenta
 | `/monitoring/*` | system monitoring endpoints (+ `WS`) |
 | `/databases` | `GET /databases`, `GET /db-engines` |
 | `/databases/caches` | `GET /caches` |
+| `/databases/trash` | `GET /databases/recycle-bin`, `POST /databases/:id/restore`, `POST /databases/:id/purge` |
 | `/api` | `GET|POST|DELETE /api-tokens`, `GET|POST|DELETE /webhooks` |
 | `/profile` | `GET /profile`, `POST /profile/password`, `GET|DELETE /sessions` |
 | `/backup/*` | backup & migration endpoints |

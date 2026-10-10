@@ -178,6 +178,11 @@ graph TD
   - Direct connection string URL (`postgresql://...`, `mysql://...`, `mongodb://...`, `redis://...`, `sqlite:///...`).
   - **Rotate password** per database: confirm with the panel password, then generate a random password or type a custom one (min. 12 chars).
   - Instant Logical SQL Dump export per database.
+- **Recycle Bin (soft delete)**:
+  - Deleting a database suspends it and moves it to a Recycle Bin instead of dropping it: apps lose access (connections refused, grants/route withdrawn) while the data is retained.
+  - Restore clears the suspension; items can also be purged manually or via "Empty Recycle Bin".
+  - Automatic purge after a **30-day** retention window.
+  - SQLite files are moved/renamed the same way (file kept until purge).
 
 ### 3.4. File Manager Pro (Visual & Multi-Selection)
 - **Checkbox & Batch Actions**:
@@ -241,6 +246,7 @@ graph TD
 - **Database, Cache & SQLite semantics**: databases and caches are separate resources; SQLite is a file database (path, no credentials) rather than a shared daemon.
 - **API & MCP**: menu with API tokens, webhooks and the MCP tool catalog; API tokens are a new RBAC capability (10 total).
 - **Profile & Account**: dedicated page (identity, password, 2FA, sessions, permissions) plus an app footer.
+- **Recycle Bin**: soft delete for databases — suspend (apps cannot connect), restore, permanent delete, empty bin, 30-day retention.
 
 ## 4. Implementation Status & Development Roadmap
 
@@ -270,6 +276,7 @@ graph TD
 | **URL Routing & Deep-link** | ✅ Complete (`/apps/<name>/<tab>`, `/settings/<tab>`, `/monitoring/<tab>`, etc.) | N/A (Frontend Only) | **Complete (Frontend)** |
 | **Guided Deploy Wizard** | ✅ Complete (5 steps, source choice, provision presets, .env/vhost preview) | ⏳ Not yet (scaffold runner, archive extractor, .env writer) | **UI Simulation Complete** |
 | **Caches (Redis) & SQLite** | ✅ Complete (Caches tab, file-based SQLite modeling, rotate password) | ⏳ Not yet (Redis ACL provisioning, SQLite file provisioning) | **UI Simulation Complete** |
+| **Recycle Bin (Databases)** | ✅ Complete (soft delete, suspended state, restore / purge / empty bin, 30-day notice) | ⏳ Not yet (suspend DB, retention job, purge) | **UI Simulation Complete** |
 | **API & MCP** | ✅ Complete (token / webhook / MCP blueprint screens) | ⏳ Not yet (token store, webhook sender, MCP server) | **UI Simulation Complete** |
 | **Profile & Account** | ✅ Complete (identity, 2FA, sessions, permissions, footer) | ⏳ Not yet (session store, password change, TOTP) | **UI Simulation Complete** |
 
