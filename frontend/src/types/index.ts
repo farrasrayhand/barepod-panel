@@ -1,0 +1,88 @@
+export type NavItem = 
+  | 'overview'
+  | 'apps'
+  | 'pods'
+  | 'databases'
+  | 'domains'
+  | 'tunnels'
+  | 'terminal'
+  | 'users'
+  | 'settings';
+
+export type RuntimeType = 
+  | 'php' 
+  | 'nodejs' 
+  | 'python' 
+  | 'go' 
+  | 'rust' 
+  | 'ruby' 
+  | 'docker' 
+  | 'static' 
+  | 'proxy';
+
+export type WebServerType = 'caddy' | 'nginx' | 'openlitespeed' | 'apache';
+
+export interface WebApp {
+  id: string;
+  name: string;
+  domain: string;
+  runtime: RuntimeType;
+  version: string;
+  framework?: string;
+  webServer: WebServerType;
+  tenantUser: string;
+  status: 'running' | 'stopped' | 'building' | 'error';
+  ssl: boolean;
+  tunnelEnabled: boolean;
+  tunnelRoute?: string;
+  port: number;
+  memoryUsage: string;
+  cpuUsage: string;
+  createdAt: string;
+}
+
+export type DatabaseEngine = 'postgres' | 'mysql' | 'mariadb' | 'mongodb' | 'redis';
+
+export interface DatabaseItem {
+  id: string;
+  name: string;
+  type: DatabaseEngine;
+  version: string;
+  username: string;
+  size: string;
+  charset: string;
+  status: 'active' | 'inactive';
+  connections: number;
+}
+
+export interface PodItem {
+  id: string;
+  name: string;
+  image: string;
+  status: 'running' | 'stopped' | 'restarting';
+  ports: string;
+  cpu: string;
+  memory: string;
+  restartPolicy: string;
+}
+
+export interface TenantUser {
+  id: string;
+  username: string;
+  email: string;
+  role: 'admin' | 'developer' | 'client';
+  sitesCount: number;
+  diskUsage: string;
+  diskLimit: string;
+  status: 'active' | 'suspended';
+}
+
+export interface CloudflareTunnelConfig {
+  status: 'connected' | 'disconnected' | 'configuring';
+  tunnelName: string;
+  tunnelId: string;
+  tokenConfigured: boolean;
+  connectorVersion: string;
+  routesCount: number;
+  uptime: string;
+}

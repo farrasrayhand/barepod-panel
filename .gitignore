@@ -1,0 +1,18 @@
+# Dependencies
+node_modules
+dist
+dist-ssr
+*.local
+
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# OS & IDE
+.DS_Store
+.vscode/
+.idea/
+*.log

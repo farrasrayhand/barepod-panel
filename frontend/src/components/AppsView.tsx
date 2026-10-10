@@ -1,0 +1,283 @@
+import React, { useState } from 'react';
+import { 
+  RefreshCw, 
+  Plus, 
+  Globe, 
+  Terminal, 
+  Settings, 
+  Play, 
+  Square, 
+  ExternalLink, 
+  CloudRain, 
+  ShieldCheck, 
+  Search,
+  CheckCircle2,
+  Layers,
+  Server
+} from 'lucide-react';
+import type { WebApp, WebServerType } from '../types';
+
+interface AppsViewProps {
+  apps: WebApp[];
+  onOpenAddModal: () => void;
+  onOpenAppTerminal: (app: WebApp) => void;
+  onToggleAppStatus: (appId: string) => void;
+}
+
+export const AppsView: React.FC<AppsViewProps> = ({
+  apps,
+  onOpenAddModal,
+  onOpenAppTerminal,
+  onToggleAppStatus,
+}) => {
+  const [filterType, setFilterType] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    setTimeout(() => setIsRefreshing(false), 600);
+  };
+
+  const filteredApps = apps.filter((app) => {
+    const matchesFilter = filterType === 'all' || app.runtime === filterType || app.webServer === filterType;
+    const matchesSearch = app.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          app.domain.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          app.tenantUser.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (app.framework && app.framework.toLowerCase().includes(searchQuery.toLowerCase()));
+    return matchesFilter && matchesSearch;
+  });
+
+  const getWebServerBadge = (ws: WebServerType) => {
+    switch (ws) {
+      case 'openlitespeed':
+        return { label: 'OLS', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+      case 'nginx':
+        return { label: 'Nginx', color: 'bg-green-100 text-green-800 border-green-300' };
+      case 'caddy':
+        return { label: 'Caddy', color: 'bg-blue-100 text-blue-800 border-blue-300' };
+      case 'apache':
+        return { label: 'Apache', color: 'bg-rose-100 text-rose-800 border-rose-300' };
+    }
+  };
+
+  return (
+    <div className="p-8 max-w-7xl mx-auto space-y-6">
+      {/* Top Header Row (SumoPod Style) */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Apps & Services</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Manage your websites with OpenLiteSpeed, Nginx, Caddy, or Apache & auto-isolated CLI runtimes
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRefresh}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
+          >
+            <RefreshCw className={`w-4 h-4 text-slate-500 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+
+          <button
+            onClick={onOpenAddModal}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add App</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Filter & Search Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+        {/* Runtime Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          {[
+            { id: 'all', label: 'All Apps' },
+            { id: 'python', label: 'Python (Flask/FastAPI)' },
+            { id: 'php', label: 'PHP (WP/Laravel)' },
+            { id: 'nodejs', label: 'Node.js (Next/Express)' },
+            { id: 'openlitespeed', label: 'OpenLiteSpeed' },
+            { id: 'nginx', label: 'Nginx' },
+            { id: 'caddy', label: 'Caddy' },
+            { id: 'apache', label: 'Apache' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setFilterType(tab.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                filterType === tab.id
+                  ? 'bg-blue-50 text-blue-700 font-semibold'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Search Input */}
+        <div className="relative min-w-[240px]">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search app, framework, domain..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+          />
+        </div>
+      </div>
+
+      {/* Table Section */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
+              <tr>
+                <th className="py-3.5 px-4">Name / Domain</th>
+                <th className="py-3.5 px-4">Framework & Runtime</th>
+                <th className="py-3.5 px-4">Web Server</th>
+                <th className="py-3.5 px-4">Tenant User</th>
+                <th className="py-3.5 px-4">Status</th>
+                <th className="py-3.5 px-4">Tunnel / Routing</th>
+                <th className="py-3.5 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredApps.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-16 text-center text-slate-400">
+                    <Layers className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                    <p className="text-sm font-medium text-slate-600">No apps found</p>
+                    <p className="text-xs text-slate-400 mt-1">Click "Add App" to deploy a Flask, Laravel, WordPress, or Next.js app.</p>
+                  </td>
+                </tr>
+              ) : (
+                filteredApps.map((app) => {
+                  const isRunning = app.status === 'running';
+                  const wsBadge = getWebServerBadge(app.webServer);
+
+                  return (
+                    <tr key={app.id} className="hover:bg-slate-50/70 transition-colors group">
+                      {/* Name & Domain */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-slate-900 text-sm">{app.name}</span>
+                          <a 
+                            href={`https://${app.domain}`} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            className="text-slate-500 hover:text-blue-600 inline-flex items-center gap-1 mt-0.5"
+                          >
+                            <span>{app.domain}</span>
+                            <ExternalLink className="w-3 h-3 text-slate-400" />
+                          </a>
+                        </div>
+                      </td>
+
+                      {/* Framework & Runtime */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex flex-col items-start gap-1">
+                          <span className="font-semibold text-slate-800 text-xs flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-blue-500" />
+                            {app.framework || app.runtime.toUpperCase()}
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-mono bg-slate-100 px-1.5 py-0.5 rounded">
+                            {app.runtime.toUpperCase()} {app.version}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Web Server */}
+                      <td className="py-3.5 px-4">
+                        <span className={`px-2 py-0.5 rounded-md border text-[11px] font-bold ${wsBadge.color}`}>
+                          {wsBadge.label}
+                        </span>
+                      </td>
+
+                      {/* Tenant User */}
+                      <td className="py-3.5 px-4">
+                        <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-slate-100 text-slate-700 font-mono text-[11px]">
+                          <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                          <span>{app.tenantUser}</span>
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td className="py-3.5 px-4">
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className={`h-2 w-2 rounded-full ${
+                            isRunning ? 'bg-emerald-500 shadow-xs shadow-emerald-400' : 'bg-slate-300'
+                          }`} />
+                          <span className={`font-medium ${isRunning ? 'text-emerald-700' : 'text-slate-500'}`}>
+                            {isRunning ? 'Active' : 'Stopped'}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Routing / Tunnel */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex flex-col gap-1">
+                          {app.tunnelEnabled ? (
+                            <div className="inline-flex items-center gap-1 text-[11px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                              <CloudRain className="w-3 h-3 text-blue-600" />
+                              <span>CF Zero-NAT</span>
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center gap-1 text-[11px] text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                              <Globe className="w-3 h-3 text-slate-400" />
+                              <span>Port {app.port}</span>
+                            </div>
+                          )}
+                          <span className="text-[10px] text-emerald-600 flex items-center gap-0.5">
+                            <CheckCircle2 className="w-2.5 h-2.5" /> Auto SSL
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => onOpenAppTerminal(app)}
+                            className="p-1.5 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                            title={`Open Terminal (auto ${app.runtime} ${app.version})`}
+                          >
+                            <Terminal className="w-4 h-4" />
+                          </button>
+
+                          <button
+                            onClick={() => onToggleAppStatus(app.id)}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              isRunning 
+                                ? 'text-amber-600 hover:bg-amber-50' 
+                                : 'text-emerald-600 hover:bg-emerald-50'
+                            }`}
+                            title={isRunning ? 'Stop App' : 'Start App'}
+                          >
+                            {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                          </button>
+
+                          <button
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                            title="Configuration"
+                          >
+                            <Settings className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
