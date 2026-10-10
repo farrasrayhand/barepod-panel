@@ -18,7 +18,9 @@ import {
   FolderGit2,
   Activity,
   Sliders,
-  ArrowRightLeft
+  ArrowRightLeft,
+  AlertTriangle,
+  Lock
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
 import { FileManagerModal } from './FileManagerModal';
@@ -30,6 +32,7 @@ interface AppsViewProps {
   onOpenAddModal: () => void;
   onOpenAppTerminal: (app: WebApp) => void;
   onToggleAppStatus: (appId: string) => void;
+  onUpdateApp?: (updated: WebApp) => void;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -38,6 +41,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
   onOpenAddModal,
   onOpenAppTerminal,
   onToggleAppStatus,
+  onUpdateApp,
   onShowToast,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
@@ -76,6 +80,11 @@ export const AppsView: React.FC<AppsViewProps> = ({
     }
   };
 
+  const handleUpdateAppDetail = (updated: WebApp) => {
+    setSelectedAppForDetails(updated);
+    onUpdateApp?.(updated);
+  };
+
   // Dedicated Full-Page View for Selected App
   if (selectedAppForDetails) {
     return (
@@ -87,6 +96,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
           onOpenTerminal={onOpenAppTerminal}
           onOpenFiles={(a) => setSelectedAppForFiles(a)}
           onOpenGit={(a) => setSelectedAppForGit(a)}
+          onUpdateApp={handleUpdateAppDetail}
           onShowToast={onShowToast}
         />
 
@@ -219,15 +229,29 @@ export const AppsView: React.FC<AppsViewProps> = ({
                           >
                             {app.name}
                           </button>
-                          <a 
-                            href={`https://${app.domain}`} 
-                            target="_blank" 
-                            rel="noreferrer" 
-                            className="text-slate-500 hover:text-blue-600 inline-flex items-center gap-1 mt-0.5 text-xs"
-                          >
-                            <span>{app.domain}</span>
-                            <ExternalLink className="w-3 h-3 text-slate-400" />
-                          </a>
+                          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                            <a 
+                              href={`https://${app.domain}`} 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="text-slate-500 hover:text-blue-600 inline-flex items-center gap-1 text-xs"
+                            >
+                              <span>{app.domain}</span>
+                              <ExternalLink className="w-3 h-3 text-slate-400" />
+                            </a>
+                            {app.maintenanceMode && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300" title="HTTP 503 Maintenance Mode Active">
+                                <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                                503 Maint
+                              </span>
+                            )}
+                            {app.basicAuthEnabled && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300" title="HTTP Basic Auth Protected">
+                                <Lock className="w-2.5 h-2.5 text-purple-600" />
+                                Auth
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
 

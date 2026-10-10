@@ -92,6 +92,10 @@ export function App() {
       memoryUsage: '92 MB',
       cpuUsage: '0.8%',
       createdAt: '2026-10-09',
+      basicAuthEnabled: true,
+      basicAuthUser: 'admin',
+      basicAuthPassword: 'BarePod$ecure2026!',
+      basicAuthRealm: 'Billing Staging Environment',
     },
     {
       id: 'app-4',
@@ -127,6 +131,9 @@ export function App() {
       memoryUsage: '0 MB',
       cpuUsage: '0%',
       createdAt: '2026-10-10',
+      maintenanceMode: true,
+      maintenanceMessage: 'Portal berita sedang dalam pemeliharaan berkala upgrade sistem server.',
+      maintenanceBypassIps: '127.0.0.1, 103.147.154.82',
     },
     {
       id: 'app-6',
@@ -209,6 +216,10 @@ export function App() {
     showToast('Terminal Session Loaded', `Switched environment context to ${app.name} (${app.runtime.toUpperCase()} ${app.version}).`, 'info');
   };
 
+  const handleUpdateApp = (updated: WebApp) => {
+    setApps(apps.map(a => a.id === updated.id ? updated : a));
+  };
+
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
       {/* Sidebar Navigation */}
@@ -250,6 +261,7 @@ export function App() {
               onOpenAddModal={() => setIsAddModalOpen(true)}
               onOpenAppTerminal={handleOpenAppTerminal}
               onToggleAppStatus={handleToggleAppStatus}
+              onUpdateApp={handleUpdateApp}
               onShowToast={showToast}
             />
           )}

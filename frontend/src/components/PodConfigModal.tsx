@@ -21,9 +21,15 @@ import {
   FileText, 
   Layers, 
   FileCode,
-  Cloud
+  Cloud,
+  Lock,
+  AlertTriangle,
+  Key,
+  Shield
 } from 'lucide-react';
 import type { PodItem, PodEnvVar, PodVolumeMount } from '../types';
+import { MaintenancePreviewModal } from './MaintenancePreviewModal';
+import { BasicAuthPromptModal } from './BasicAuthPromptModal';
 
 interface PodConfigModalProps {
   isOpen: boolean;
@@ -59,6 +65,39 @@ export const PodConfigModal: React.FC<PodConfigModalProps> = ({
   const [restartPolicy, setRestartPolicy] = useState(pod.restartPolicy);
   const [memoryLimit, setMemoryLimit] = useState(pod.memoryLimit || '512 MB');
   const [cpuLimit, setCpuLimit] = useState(pod.cpuLimit || '1.0 core');
+
+  // Maintenance & Basic Auth State for Web Container
+  const [maintenanceMode, setMaintenanceMode] = useState(pod.maintenanceMode ?? false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState(
+    pod.maintenanceMessage || 'Container ini sedang dalam pemeliharaan berkala. Silakan coba beberapa saat lagi.'
+  );
+  const [maintenanceBypassIps, setMaintenanceBypassIps] = useState(pod.maintenanceBypassIps || '127.0.0.1, 103.147.154.82');
+  const [basicAuthEnabled, setBasicAuthEnabled] = useState(pod.basicAuthEnabled ?? false);
+  const [basicAuthUser, setBasicAuthUser] = useState(pod.basicAuthUser || 'admin');
+  const [basicAuthPassword, setBasicAuthPassword] = useState(pod.basicAuthPassword || 'Pod$ecure2026!');
+  const [basicAuthRealm, setBasicAuthRealm] = useState(pod.basicAuthRealm || `${pod.name} - Protected Container`);
+  const [basicAuthBypassIps, setBasicAuthBypassIps] = useState(pod.basicAuthBypassIps || '');
+  const [showBasicAuthPassword, setShowBasicAuthPassword] = useState(false);
+  const [isPreviewMaintenanceOpen, setIsPreviewMaintenanceOpen] = useState(false);
+  const [isTestBasicAuthOpen, setIsTestBasicAuthOpen] = useState(false);
+  const [copiedCurl, setCopiedCurl] = useState(false);
+
+  const handleGeneratePassword = () => {
+    const charset = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
+    let pass = '';
+    for (let i = 0; i < 16; i++) {
+      pass += charset.charAt(Math.floor(Math.random() * charset.length));
+    }
+    setBasicAuthPassword(pass);
+    onShowToast?.('Password Baru Dibuat', 'Kombinasi 16-karakter acak berhasil dibuat.', 'info');
+  };
+
+  const handleCopyCurl = (cmd: string) => {
+    navigator.clipboard.writeText(cmd);
+    setCopiedCurl(true);
+    setTimeout(() => setCopiedCurl(false), 2000);
+    onShowToast?.('Perintah Copied', 'cURL command disalin ke clipboard.', 'info');
+  };
 
   // Envs
   const [envVars, setEnvVars] = useState<PodEnvVar[]>(pod.envVars || [
@@ -118,6 +157,14 @@ export const PodConfigModal: React.FC<PodConfigModalProps> = ({
       webPort: isWebApp ? webPort : undefined,
       sslEnabled: isWebApp ? sslEnabled : undefined,
       useCloudflareTunnel: isWebApp ? useCloudflareTunnel : undefined,
+      maintenanceMode: isWebApp ? maintenanceMode : undefined,
+      maintenanceMessage: isWebApp ? maintenanceMessage : undefined,
+      maintenanceBypassIps: isWebApp ? maintenanceBypassIps : undefined,
+      basicAuthEnabled: isWebApp ? basicAuthEnabled : undefined,
+      basicAuthUser: isWebApp ? basicAuthUser : undefined,
+      basicAuthPassword: isWebApp ? basicAuthPassword : undefined,
+      basicAuthRealm: isWebApp ? basicAuthRealm : undefined,
+      basicAuthBypassIps: isWebApp ? basicAuthBypassIps : undefined,
       ports,
       restartPolicy,
       memoryLimit,
@@ -502,6 +549,203 @@ ${isWebApp ? `    labels:
                       </p>
                     </div>
                   </div>
+
+                  {/* ACCESS CONTROL: MAINTENANCE & BASIC AUTH FOR WEB POD */}
+                  <div className="pt-4 border-t border-purple-200/80 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Shield className="w-4 h-4 text-purple-700" />
+                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                          Edge Access Control & Traffic Protection
+                        </h4>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px]">
+                        {maintenanceMode && (
+                          <span className="px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                            503 Maintenance
+                          </span>
+                        )}
+                        {basicAuthEnabled && (
+                          <span className="px-2 py-0.5 rounded-full font-bold bg-purple-100 text-purple-800 border border-purple-300">
+                            🔒 Basic Auth
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* SECTION A: MAINTENANCE MODE */}
+                    <div className="p-3.5 bg-white rounded-xl border border-slate-200 space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className={`w-4 h-4 ${maintenanceMode ? 'text-amber-600' : 'text-slate-400'}`} />
+                          <div>
+                            <span className="text-xs font-bold text-slate-800 block">
+                              Maintenance Mode (HTTP 503)
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              Kirim respons HTTP 503 Service Unavailable ke pengunjung
+                            </span>
+                          </div>
+                        </div>
+
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={maintenanceMode}
+                            onChange={(e) => setMaintenanceMode(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500" />
+                        </label>
+                      </div>
+
+                      {maintenanceMode && (
+                        <div className="space-y-2.5 pt-2 border-t border-slate-100 animate-in fade-in duration-150">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                              Pesan Downtime Pemeliharaan
+                            </label>
+                            <input
+                              type="text"
+                              value={maintenanceMessage}
+                              onChange={(e) => setMaintenanceMessage(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                              placeholder="Container ini sedang dalam pemeliharaan berkala."
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                              IP Whitelist Bypass (Developer / Admin)
+                            </label>
+                            <input
+                              type="text"
+                              value={maintenanceBypassIps}
+                              onChange={(e) => setMaintenanceBypassIps(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                              placeholder="127.0.0.1, 103.147.154.82"
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setIsPreviewMaintenanceOpen(true)}
+                            className="text-xs font-bold text-amber-700 hover:text-amber-900 flex items-center gap-1 pt-0.5"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Preview Halaman 503 Container</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* SECTION B: HTTP BASIC AUTH */}
+                    <div className="p-3.5 bg-white rounded-xl border border-slate-200 space-y-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          <Lock className={`w-4 h-4 ${basicAuthEnabled ? 'text-purple-600' : 'text-slate-400'}`} />
+                          <div>
+                            <span className="text-xs font-bold text-slate-800 block">
+                              HTTP Basic Authentication (.htpasswd)
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              Kunci akses web container dengan user & password
+                            </span>
+                          </div>
+                        </div>
+
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={basicAuthEnabled}
+                            onChange={(e) => setBasicAuthEnabled(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600" />
+                        </label>
+                      </div>
+
+                      {basicAuthEnabled && (
+                        <div className="space-y-2.5 pt-2 border-t border-slate-100 animate-in fade-in duration-150">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                                Username
+                              </label>
+                              <input
+                                type="text"
+                                value={basicAuthUser}
+                                onChange={(e) => setBasicAuthUser(e.target.value)}
+                                className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                              />
+                            </div>
+
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[11px] font-bold text-slate-700">
+                                  Password
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={handleGeneratePassword}
+                                  className="text-[10px] font-bold text-purple-600 hover:text-purple-800"
+                                >
+                                  ⚡ Generate
+                                </button>
+                              </div>
+                              <div className="relative">
+                                <input
+                                  type={showBasicAuthPassword ? 'text' : 'password'}
+                                  value={basicAuthPassword}
+                                  onChange={(e) => setBasicAuthPassword(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 pr-8 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowBasicAuthPassword(!showBasicAuthPassword)}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                >
+                                  {showBasicAuthPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                              Realm Title (Pesan Dialog Browser)
+                            </label>
+                            <input
+                              type="text"
+                              value={basicAuthRealm}
+                              onChange={(e) => setBasicAuthRealm(e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setIsTestBasicAuthOpen(true)}
+                              className="text-xs font-bold text-purple-700 hover:text-purple-900 flex items-center gap-1"
+                            >
+                              <Key className="w-3.5 h-3.5" />
+                              <span>Uji Dialog Otentikasi (Simulator)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleCopyCurl(`curl -i -u "${basicAuthUser}:${basicAuthPassword}" https://${webDomain}`)}
+                              className="text-[10px] font-bold text-slate-600 hover:text-slate-900 flex items-center gap-1 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded"
+                            >
+                              {copiedCurl ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                              <span>{copiedCurl ? 'Copied' : 'Copy cURL'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="p-6 text-center bg-slate-50 border border-dashed border-slate-200 rounded-xl text-xs text-slate-500">
@@ -720,6 +964,27 @@ ${isWebApp ? `    labels:
         </div>
 
       </div>
+
+      {/* Maintenance Preview Simulator Modal for Container */}
+      <MaintenancePreviewModal
+        isOpen={isPreviewMaintenanceOpen}
+        onClose={() => setIsPreviewMaintenanceOpen(false)}
+        domain={webDomain}
+        appName={name}
+        message={maintenanceMessage}
+        bypassIps={maintenanceBypassIps}
+      />
+
+      {/* HTTP Basic Auth Simulator Modal for Container */}
+      <BasicAuthPromptModal
+        isOpen={isTestBasicAuthOpen}
+        onClose={() => setIsTestBasicAuthOpen(false)}
+        domain={webDomain}
+        expectedUser={basicAuthUser}
+        expectedPass={basicAuthPassword}
+        realm={basicAuthRealm}
+      />
+
     </div>
   );
 };

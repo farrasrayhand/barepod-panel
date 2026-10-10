@@ -43,9 +43,15 @@ import {
   FileCode,
   ToggleLeft,
   ToggleRight,
-  Package
+  Package,
+  Shield,
+  AlertTriangle,
+  Key,
+  RefreshCw
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
+import { MaintenancePreviewModal } from './MaintenancePreviewModal';
+import { BasicAuthPromptModal } from './BasicAuthPromptModal';
 
 interface AppDetailPageProps {
   app: WebApp;
@@ -54,6 +60,7 @@ interface AppDetailPageProps {
   onOpenTerminal: (app: WebApp) => void;
   onOpenFiles: (app: WebApp) => void;
   onOpenGit: (app: WebApp) => void;
+  onUpdateApp?: (updated: WebApp) => void;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -64,9 +71,10 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   onOpenTerminal,
   onOpenFiles,
   onOpenGit,
+  onUpdateApp,
   onShowToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'monitoring' | 'overview' | 'logs' | 'routing' | 'env' | 'php'>('monitoring');
+  const [activeTab, setActiveTab] = useState<'monitoring' | 'overview' | 'logs' | 'routing' | 'env' | 'php' | 'security'>('monitoring');
   const [logType, setLogType] = useState<'all' | 'access' | 'error' | 'deploy'>('all');
   const [logSearch, setLogSearch] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
@@ -131,6 +139,132 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [newRoutePath, setNewRoutePath] = useState('');
   const [newRouteUpstream, setNewRouteUpstream] = useState('');
   const [newRouteTarget, setNewRouteTarget] = useState('');
+
+  // Maintenance Mode & HTTP Basic Auth State
+  const [maintenanceMode, setMaintenanceMode] = useState(app.maintenanceMode ?? false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState(
+    app.maintenanceMessage || 'Kami sedang melakukan pemeliharaan infrastruktur dan pembaruan sistem secara berkala. Layanan akan segera kembali online.'
+  );
+  const [maintenanceBypassIps, setMaintenanceBypassIps] = useState(app.maintenanceBypassIps || '127.0.0.1, 103.147.154.82');
+  const [isPreviewMaintenanceOpen, setIsPreviewMaintenanceOpen] = useState(false);
+  const [isSavingMaintenance, setIsSavingMaintenance] = useState(false);
+
+  const [basicAuthEnabled, setBasicAuthEnabled] = useState(app.basicAuthEnabled ?? false);
+  const [basicAuthUser, setBasicAuthUser] = useState(app.basicAuthUser || 'admin');
+  const [basicAuthPassword, setBasicAuthPassword] = useState(app.basicAuthPassword || 'BarePod$ecure2026!');
+  const [basicAuthRealm, setBasicAuthRealm] = useState(app.basicAuthRealm || 'Restricted Area - BarePod Protected');
+  const [basicAuthBypassIps, setBasicAuthBypassIps] = useState(app.basicAuthBypassIps || '');
+  const [showBasicAuthPassword, setShowBasicAuthPassword] = useState(false);
+  const [isTestBasicAuthOpen, setIsTestBasicAuthOpen] = useState(false);
+  const [isSavingBasicAuth, setIsSavingBasicAuth] = useState(false);
+  const [copiedCurl, setCopiedCurl] = useState(false);
+
+  const handleToggleMaintenance = () => {
+    const nextState = !maintenanceMode;
+    setMaintenanceMode(nextState);
+    const updated: WebApp = {
+      ...app,
+      maintenanceMode: nextState,
+      maintenanceMessage,
+      maintenanceBypassIps,
+      basicAuthEnabled,
+      basicAuthUser,
+      basicAuthPassword,
+      basicAuthRealm,
+      basicAuthBypassIps,
+    };
+    onUpdateApp?.(updated);
+    onShowToast?.(
+      nextState ? 'Maintenance Mode Aktif (503)' : 'Maintenance Mode Dinonaktifkan',
+      nextState 
+        ? `Pengunjung akan menerima HTTP 503. IP Whitelist [${maintenanceBypassIps || 'None'}] tetap dapat mengakses.`
+        : `Aplikasi ${app.name} kini kembali melayani trafik normal secara penuh.`,
+      nextState ? 'info' : 'success'
+    );
+  };
+
+  const handleSaveMaintenanceConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingMaintenance(true);
+    setTimeout(() => {
+      setIsSavingMaintenance(false);
+      const updated: WebApp = {
+        ...app,
+        maintenanceMode,
+        maintenanceMessage,
+        maintenanceBypassIps,
+        basicAuthEnabled,
+        basicAuthUser,
+        basicAuthPassword,
+        basicAuthRealm,
+        basicAuthBypassIps,
+      };
+      onUpdateApp?.(updated);
+      onShowToast?.('Konfigurasi Maintenance Tersimpan', `Template vhost HTTP 503 dan IP bypass diperbarui di ${app.webServer.toUpperCase()}.`, 'success');
+    }, 500);
+  };
+
+  const handleToggleBasicAuth = () => {
+    const nextState = !basicAuthEnabled;
+    setBasicAuthEnabled(nextState);
+    const updated: WebApp = {
+      ...app,
+      maintenanceMode,
+      maintenanceMessage,
+      maintenanceBypassIps,
+      basicAuthEnabled: nextState,
+      basicAuthUser,
+      basicAuthPassword,
+      basicAuthRealm,
+      basicAuthBypassIps,
+    };
+    onUpdateApp?.(updated);
+    onShowToast?.(
+      nextState ? 'HTTP Basic Auth Aktif' : 'HTTP Basic Auth Dinonaktifkan',
+      nextState
+        ? `Akses ke https://${app.domain} kini diproteksi password (user: ${basicAuthUser}).`
+        : `Proteksi password untuk ${app.domain} telah dicabut.`,
+      nextState ? 'info' : 'success'
+    );
+  };
+
+  const handleGeneratePassword = () => {
+    const charset = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
+    let pass = '';
+    for (let i = 0; i < 16; i++) {
+      pass += charset.charAt(Math.floor(Math.random() * charset.length));
+    }
+    setBasicAuthPassword(pass);
+    onShowToast?.('Password Baru Dibuat', 'Kombinasi 16-karakter acak berhasil dibuat.', 'info');
+  };
+
+  const handleSaveBasicAuthConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingBasicAuth(true);
+    setTimeout(() => {
+      setIsSavingBasicAuth(false);
+      const updated: WebApp = {
+        ...app,
+        maintenanceMode,
+        maintenanceMessage,
+        maintenanceBypassIps,
+        basicAuthEnabled,
+        basicAuthUser,
+        basicAuthPassword,
+        basicAuthRealm,
+        basicAuthBypassIps,
+      };
+      onUpdateApp?.(updated);
+      onShowToast?.('.htpasswd & VHost Disimpan', `File otentikasi /etc/nginx/.htpasswd_${app.name} berhasil disinkronkan.`, 'success');
+    }, 500);
+  };
+
+  const handleCopyCurl = (cmd: string) => {
+    navigator.clipboard.writeText(cmd);
+    setCopiedCurl(true);
+    setTimeout(() => setCopiedCurl(false), 2000);
+    onShowToast?.('Perintah Copied', 'cURL command disalin ke clipboard.', 'info');
+  };
 
   const handlePingUpstream = () => {
     setIsPingingUpstream(true);
@@ -388,6 +522,34 @@ QUEUE_CONNECTION=redis`;
                 ) : (
                   <span>Path: <strong className="text-slate-700 font-mono">{appPath}</strong></span>
                 )}
+                <span>•</span>
+                <button
+                  type="button"
+                  onClick={handleToggleMaintenance}
+                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer shadow-2xs ${
+                    maintenanceMode 
+                      ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200' 
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                  title="Klik untuk Toggle HTTP 503 Maintenance Mode"
+                >
+                  <AlertTriangle className={`w-3 h-3 ${maintenanceMode ? 'text-amber-600' : 'text-slate-400'}`} />
+                  <span>503 Maintenance: {maintenanceMode ? 'ON' : 'OFF'}</span>
+                </button>
+                <span>•</span>
+                <button
+                  type="button"
+                  onClick={handleToggleBasicAuth}
+                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer shadow-2xs ${
+                    basicAuthEnabled
+                      ? 'bg-purple-100 text-purple-800 border border-purple-300 hover:bg-purple-200'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                  title="Klik untuk Toggle HTTP Basic Auth Protection"
+                >
+                  <Lock className={`w-3 h-3 ${basicAuthEnabled ? 'text-purple-600' : 'text-slate-400'}`} />
+                  <span>Basic Auth: {basicAuthEnabled ? 'ON' : 'OFF'}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -511,6 +673,32 @@ QUEUE_CONNECTION=redis`;
           <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
             {app.runtime === 'php' ? `PHP ${app.version}` : 'PHP 8.4'}
           </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('security')}
+          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+            activeTab === 'security'
+              ? 'border-purple-600 text-purple-700 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Shield className="w-4 h-4 text-purple-600" />
+          <span>Access & Security</span>
+          {(maintenanceMode || basicAuthEnabled) && (
+            <span className="flex items-center gap-1">
+              {maintenanceMode && (
+                <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold">
+                  503
+                </span>
+              )}
+              {basicAuthEnabled && (
+                <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 text-[9px] font-bold">
+                  Auth
+                </span>
+              )}
+            </span>
+          )}
         </button>
 
         <button
@@ -1434,7 +1622,361 @@ QUEUE_CONNECTION=redis`}
           </div>
         )}
 
-        {/* TAB 5: OVERVIEW & SERVER RUNTIME */}
+        {/* TAB 5: ACCESS CONTROL & SECURITY (MAINTENANCE & BASIC AUTH) */}
+        {activeTab === 'security' && (
+          <div className="space-y-6">
+            {/* Top Banner */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 via-indigo-50/40 to-blue-50 border border-purple-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-sm">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Edge Access Control & Traffic Protection
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    Diterapkan langsung pada layer web server ({app.webServer.toUpperCase()}) tanpa membebani runtime {app.runtime.toUpperCase()}.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5 ${
+                  maintenanceMode 
+                    ? 'bg-amber-100 text-amber-900 border-amber-300' 
+                    : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}>
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>Maintenance: {maintenanceMode ? '503 ACTIVE' : 'OFF'}</span>
+                </span>
+                <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5 ${
+                  basicAuthEnabled 
+                    ? 'bg-purple-100 text-purple-900 border-purple-300' 
+                    : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}>
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Basic Auth: {basicAuthEnabled ? 'PROTECTED' : 'OFF'}</span>
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              
+              {/* CARD 1: MAINTENANCE MODE */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col justify-between">
+                <div className="p-5 space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center">
+                        <AlertTriangle className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">
+                          Maintenance Mode (HTTP 503)
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Alihkan pengunjung ke layar downtime pemeliharaan berkala
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleToggleMaintenance}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                        maintenanceMode ? 'bg-amber-500' : 'bg-slate-200'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          maintenanceMode ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border text-xs ${
+                    maintenanceMode 
+                      ? 'bg-amber-50/80 border-amber-200 text-amber-900' 
+                      : 'bg-slate-50 border-slate-200 text-slate-600'
+                  }`}>
+                    {maintenanceMode ? (
+                      <div className="flex items-start gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping mt-1 shrink-0" />
+                        <div>
+                          <strong>Mode Pemeliharaan Sedang Aktif!</strong>
+                          <p className="mt-0.5 text-[11px] text-amber-800">
+                            Pengunjung umum menerima HTTP 503 Service Unavailable. IP terdaftar di Whitelist tetap memiliki akses penuh ke aplikasi.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px]">
+                        Website sedang beroperasi normal. Aktifkan toggle di atas jika Anda ingin melakukan migrasi database, upgrade framework, atau maintenance darurat.
+                      </p>
+                    )}
+                  </div>
+
+                  <form onSubmit={handleSaveMaintenanceConfig} className="space-y-3.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Pesan Pemeliharaan Kustom (Ditampilkan ke Pengunjung)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={maintenanceMessage}
+                        onChange={(e) => setMaintenanceMessage(e.target.value)}
+                        placeholder="Tulis pesan alasan maintenance untuk pengunjung..."
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-amber-500 focus:outline-hidden resize-none font-medium"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        IP Whitelist Bypass (Developer / Admin)
+                      </label>
+                      <input
+                        type="text"
+                        value={maintenanceBypassIps}
+                        onChange={(e) => setMaintenanceBypassIps(e.target.value)}
+                        placeholder="Contoh: 127.0.0.1, 103.147.154.82, 192.168.1.100"
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono focus:bg-white focus:border-amber-500 focus:outline-hidden"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Pisahkan dengan koma. IP di atas tidak akan terkena HTTP 503 sehingga Anda tetap bisa testing.
+                      </p>
+                    </div>
+
+                    <div className="pt-2 flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsPreviewMaintenanceOpen(true)}
+                        className="px-3 py-2 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-colors flex items-center gap-1.5"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Preview Halaman 503</span>
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={isSavingMaintenance}
+                        className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-colors shadow-2xs"
+                      >
+                        {isSavingMaintenance ? 'Menerapkan...' : 'Simpan Pengaturan 503'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+
+              {/* CARD 2: HTTP BASIC AUTHENTICATION */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col justify-between">
+                <div className="p-5 space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 border border-purple-200 flex items-center justify-center">
+                        <Lock className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">
+                          HTTP Basic Authentication
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Wajibkan kredensial login via dialog bawaan browser (.htpasswd)
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleToggleBasicAuth}
+                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                        basicAuthEnabled ? 'bg-purple-600' : 'bg-slate-200'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          basicAuthEnabled ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border text-xs ${
+                    basicAuthEnabled 
+                      ? 'bg-purple-50/80 border-purple-200 text-purple-900' 
+                      : 'bg-slate-50 border-slate-200 text-slate-600'
+                  }`}>
+                    {basicAuthEnabled ? (
+                      <div className="flex items-start gap-2">
+                        <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Proteksi Password Aktif</strong>
+                          <p className="mt-0.5 text-[11px] text-purple-800">
+                            Setiap request ke <code className="font-mono">{app.domain}</code> akan ditantang dengan HTTP 401 Unauthorized sampai pengunjung memasukkan user & password yang sesuai.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px]">
+                        Akses publik terbuka tanpa password. Sangat cocok diaktifkan untuk situs staging, API internal, atau dashboard sebelum rilis publik.
+                      </p>
+                    )}
+                  </div>
+
+                  <form onSubmit={handleSaveBasicAuthConfig} className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Auth Username
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={basicAuthUser}
+                          onChange={(e) => setBasicAuthUser(e.target.value)}
+                          placeholder="e.g. admin"
+                          className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-purple-500 focus:outline-hidden"
+                        />
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-xs font-bold text-slate-700">
+                            Auth Password
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleGeneratePassword}
+                            className="text-[10px] font-bold text-purple-600 hover:text-purple-800"
+                          >
+                            ⚡ Generate
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <input
+                            type={showBasicAuthPassword ? 'text' : 'password'}
+                            required
+                            value={basicAuthPassword}
+                            onChange={(e) => setBasicAuthPassword(e.target.value)}
+                            placeholder="Ketik password"
+                            className="w-full px-3 py-2 pr-9 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono focus:bg-white focus:border-purple-500 focus:outline-hidden"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowBasicAuthPassword(!showBasicAuthPassword)}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                          >
+                            {showBasicAuthPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Realm Title (Pesan Dialog Browser)
+                      </label>
+                      <input
+                        type="text"
+                        value={basicAuthRealm}
+                        onChange={(e) => setBasicAuthRealm(e.target.value)}
+                        placeholder="Contoh: Protected Staging Area"
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-purple-500 focus:outline-hidden"
+                      />
+                    </div>
+
+                    {/* Quick cURL Test Snippet */}
+                    <div className="p-2.5 bg-slate-900 rounded-xl text-slate-200 font-mono text-[11px] flex items-center justify-between gap-2 overflow-hidden">
+                      <div className="truncate text-slate-300">
+                        <span className="text-purple-400 font-bold">curl</span> -i -u "{basicAuthUser}:{basicAuthPassword ? '***' : ''}" https://{app.domain}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyCurl(`curl -i -u "${basicAuthUser}:${basicAuthPassword}" https://${app.domain}`)}
+                        className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px] font-sans font-bold flex items-center gap-1 shrink-0"
+                      >
+                        {copiedCurl ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedCurl ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    </div>
+
+                    <div className="pt-2 flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsTestBasicAuthOpen(true)}
+                        className="px-3 py-2 text-xs font-bold text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-colors flex items-center gap-1.5"
+                      >
+                        <Key className="w-3.5 h-3.5 text-purple-600" />
+                        <span>Uji Prompt Dialog (Simulator)</span>
+                      </button>
+
+                      <button
+                        type="submit"
+                        disabled={isSavingBasicAuth}
+                        className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-sm shadow-purple-500/25"
+                      >
+                        {isSavingBasicAuth ? 'Menyimpan...' : 'Simpan .htpasswd'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+
+            </div>
+
+            {/* CARD 3: GENERATED VHOST DIRECTIVES INSPECTOR */}
+            <div className="p-5 bg-slate-900 rounded-2xl text-slate-100 space-y-3 border border-slate-800 shadow-md">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  <span className="text-xs font-bold font-mono text-slate-200">
+                    Auto-Generated VHost Rules ({app.webServer.toUpperCase()})
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  /etc/{app.webServer}/conf.d/{app.domain}.conf
+                </span>
+              </div>
+
+              <pre className="font-mono text-xs bg-slate-950 p-4 rounded-xl overflow-x-auto text-emerald-400 leading-relaxed border border-slate-800">
+{app.webServer === 'caddy' ? (
+`# --- BarePod Panel Edge Access Directives ---
+${maintenanceMode ? `# Maintenance 503 Active
+@maintenance not remote_ip ${maintenanceBypassIps.replace(/,/g, '') || '127.0.0.1'}
+respond @maintenance 503 {
+    body "<h1>503 Service Unavailable</h1><p>${maintenanceMessage}</p>"
+}
+` : '# Maintenance Mode: OFF'}
+${basicAuthEnabled ? `# HTTP Basic Authentication Active
+basicauth {
+    ${basicAuthUser} $2a$14$JkE0... (bcrypt hash of password)
+}
+` : '# HTTP Basic Auth: OFF'}`
+) : (
+`# --- BarePod Panel Edge Access Directives ---
+${maintenanceMode ? `# Maintenance 503 Active
+error_page 503 @maintenance_page;
+if ($remote_addr !~ "^(${maintenanceBypassIps.replace(/\s+/g, '').replace(/,/g, '|') || '127.0.0.1'})$") {
+    return 503;
+}
+location @maintenance_page {
+    default_type text/html;
+    return 503 '<html><body><h2>Under Maintenance</h2><p>${maintenanceMessage}</p></body></html>';
+}
+` : '# Maintenance Mode: OFF'}
+${basicAuthEnabled ? `# HTTP Basic Authentication Active
+auth_basic "${basicAuthRealm}";
+auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
+` : '# HTTP Basic Auth: OFF'}`
+)}
+              </pre>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: OVERVIEW & SERVER RUNTIME */}
         {activeTab === 'overview' && (
           <div className="space-y-4">
             <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
@@ -1464,6 +2006,28 @@ QUEUE_CONNECTION=redis`}
         )}
 
       </div>
+
+      {/* Maintenance Preview Simulator Modal */}
+      <MaintenancePreviewModal
+        isOpen={isPreviewMaintenanceOpen}
+        onClose={() => setIsPreviewMaintenanceOpen(false)}
+        domain={app.domain}
+        appName={app.name}
+        message={maintenanceMessage}
+        bypassIps={maintenanceBypassIps}
+      />
+
+      {/* HTTP Basic Auth Prompt Simulator Modal */}
+      <BasicAuthPromptModal
+        isOpen={isTestBasicAuthOpen}
+        onClose={() => setIsTestBasicAuthOpen(false)}
+        domain={app.domain}
+        expectedUser={basicAuthUser}
+        expectedPass={basicAuthPassword}
+        realm={basicAuthRealm}
+      />
+
     </div>
   );
 };
+

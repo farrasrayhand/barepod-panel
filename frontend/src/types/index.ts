@@ -48,6 +48,15 @@ export interface WebApp {
   proxyTimeoutSecs?: number;
   customHeaders?: { key: string; value: string }[];
   routes?: { path: string; upstream: string; target: string; cache: string; websocket?: boolean }[];
+  // Maintenance & Access Control
+  maintenanceMode?: boolean;
+  maintenanceMessage?: string;
+  maintenanceBypassIps?: string;
+  basicAuthEnabled?: boolean;
+  basicAuthUser?: string;
+  basicAuthPassword?: string;
+  basicAuthRealm?: string;
+  basicAuthBypassIps?: string;
 }
 
 export type DatabaseEngine = 'postgres' | 'mysql' | 'mariadb' | 'mongodb' | 'redis';
@@ -99,6 +108,15 @@ export interface PodItem {
   webPort?: number;
   sslEnabled?: boolean;
   useCloudflareTunnel?: boolean;
+  // Maintenance & Access Control (for web containers)
+  maintenanceMode?: boolean;
+  maintenanceMessage?: string;
+  maintenanceBypassIps?: string;
+  basicAuthEnabled?: boolean;
+  basicAuthUser?: string;
+  basicAuthPassword?: string;
+  basicAuthRealm?: string;
+  basicAuthBypassIps?: string;
   // Env & Storage
   envVars?: PodEnvVar[];
   volumes?: PodVolumeMount[];

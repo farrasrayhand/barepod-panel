@@ -13,7 +13,9 @@ import {
   Layers,
   FileCode,
   HardDrive,
-  Cloud
+  Cloud,
+  AlertTriangle,
+  Lock
 } from 'lucide-react';
 import type { PodItem } from '../types';
 import { DeployPodModal } from './DeployPodModal';
@@ -102,6 +104,10 @@ export const PodsView: React.FC<PodsViewProps> = ({ onShowToast, onOpenTerminal 
       ],
       memoryLimit: '2 GB',
       cpuLimit: '2.0 cores',
+      basicAuthEnabled: true,
+      basicAuthUser: 'admin',
+      basicAuthPassword: 'N8nSecurePass2026!',
+      basicAuthRealm: 'n8n Automation Engine',
     },
   ]);
 
@@ -236,23 +242,42 @@ export const PodsView: React.FC<PodsViewProps> = ({ onShowToast, onOpenTerminal 
 
                 {/* Web Domain Badge if Web App */}
                 {isWeb && (
-                  <div className="mt-3 p-2 rounded-lg bg-blue-50/70 border border-blue-200/80 flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 truncate">
-                      <Globe className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                      <a
-                        href={`https://${pod.webDomain}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs font-mono font-bold text-blue-900 hover:underline truncate"
-                        title={pod.webDomain}
-                      >
-                        {pod.webDomain}
-                      </a>
+                  <div className="mt-3 space-y-1.5">
+                    <div className="p-2 rounded-lg bg-blue-50/70 border border-blue-200/80 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <Globe className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <a
+                          href={`https://${pod.webDomain}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-mono font-bold text-blue-900 hover:underline truncate"
+                          title={pod.webDomain}
+                        >
+                          {pod.webDomain}
+                        </a>
+                      </div>
+                      {pod.useCloudflareTunnel && (
+                        <span className="shrink-0 text-[9px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.2 rounded flex items-center gap-0.5" title="Routed via Cloudflare Tunnel">
+                          <Cloud className="w-2.5 h-2.5" /> Tunnel
+                        </span>
+                      )}
                     </div>
-                    {pod.useCloudflareTunnel && (
-                      <span className="shrink-0 text-[9px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.2 rounded flex items-center gap-0.5" title="Routed via Cloudflare Tunnel">
-                        <Cloud className="w-2.5 h-2.5" /> Tunnel
-                      </span>
+
+                    {(pod.maintenanceMode || pod.basicAuthEnabled) && (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {pod.maintenanceMode && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-300 px-1.5 py-0.2 rounded" title="HTTP 503 Maintenance Mode Active">
+                            <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                            503 Maint
+                          </span>
+                        )}
+                        {pod.basicAuthEnabled && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-800 bg-purple-50 border border-purple-300 px-1.5 py-0.2 rounded" title="HTTP Basic Auth Protected">
+                            <Lock className="w-2.5 h-2.5 text-purple-600" />
+                            Auth ({pod.basicAuthUser || 'admin'})
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
