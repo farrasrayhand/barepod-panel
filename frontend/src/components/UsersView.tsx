@@ -52,7 +52,7 @@ export const UsersView: React.FC = () => {
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Tenants & Multi-User</h1>
             <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" /> Virtualmin-grade Jail
+              <ShieldCheck className="w-3.5 h-3.5" /> Secure Tenant Jail
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">

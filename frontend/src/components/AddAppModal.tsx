@@ -274,7 +274,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
           <div className="p-3.5 rounded-xl bg-blue-50/60 border border-blue-200/60 flex items-start gap-2.5">
             <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
             <div className="text-[11px] text-blue-800 leading-relaxed">
-              <strong>Isolated Virtualmin-grade Sandbox:</strong> Tenant <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold">{tenantUser}</code> akan memiliki terminal tersendiri. Menjalankan framework <strong>{framework}</strong> dengan web server <strong>{webServer.toUpperCase()}</strong> dan CLI langsung auto-linked ke <strong>{runtime.toUpperCase()} {version}</strong>.
+              <strong>Isolated Multi-Tenant Sandbox:</strong> Tenant <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold">{tenantUser}</code> akan memiliki terminal tersendiri. Menjalankan framework <strong>{framework}</strong> dengan web server <strong>{webServer.toUpperCase()}</strong> dan CLI langsung auto-linked ke <strong>{runtime.toUpperCase()} {version}</strong>.
             </div>
           </div>
 

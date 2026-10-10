@@ -71,7 +71,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
-      {/* Top Header Row (SumoPod Style) */}
+      {/* Top Header Row */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Apps & Services</h1>

@@ -59,7 +59,7 @@ export const PodsView: React.FC = () => {
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Lightweight container hosting without Easypanel's complexity
+            Lightweight container hosting with intuitive pod management
           </p>
         </div>
 

@@ -190,7 +190,7 @@ SHELL=/bin/bash`;
       <div className="p-4 bg-indigo-50/70 border border-indigo-200/60 rounded-xl flex items-start gap-3 text-xs text-indigo-900">
         <Sparkles className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
         <div>
-          <span className="font-semibold">Solusi Masalah Virtualmin vs CloudPanel:</span>
+          <span className="font-semibold">Sistem Otomatisasi CLI Multi-Tenant:</span>
           <p className="text-indigo-700 mt-0.5">
             Di BarePod, setiap user/site memiliki sandbox isolasi mandiri. Saat Anda memilih <strong>{currentApp.name}</strong>, perintah <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-indigo-900">php -v</code> atau <code className="bg-white/80 px-1 py-0.5 rounded font-mono font-bold text-indigo-900">node -v</code> otomatis menggunakan versi yang dipilih pada website tersebut tanpa mengganggu user lain di server.
           </p>

@@ -76,7 +76,7 @@ export const Header: React.FC<HeaderProps> = ({
           <span>Web Terminal</span>
         </button>
 
-        {/* User Pill (SumoPod Style) */}
+        {/* User Profile Pill */}
         <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
           <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-semibold text-xs border border-blue-200">
             FR

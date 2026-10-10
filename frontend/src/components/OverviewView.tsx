@@ -92,28 +92,28 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
             <div className="font-bold text-slate-800 flex items-center gap-2 mb-1">
-              <ShieldCheck className="w-4 h-4 text-blue-600" /> Virtualmin Separation
+              <ShieldCheck className="w-4 h-4 text-blue-600" /> Multi-Tenant Isolation
             </div>
             <p className="text-slate-500 leading-relaxed">
-              Multi-tenant Linux jails with dedicated cgroups quotas, restricted home paths, and automatic version switcher for CLI.
+              Multi-tenant Linux jails dengan cgroups quotas, restricted home paths, dan automatic version switcher untuk CLI.
             </p>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
             <div className="font-bold text-slate-800 flex items-center gap-2 mb-1">
-              <Database className="w-4 h-4 text-emerald-600" /> CloudPanel Ease + PostgreSQL
+              <Database className="w-4 h-4 text-emerald-600" /> Complete Database Suite
             </div>
             <p className="text-slate-500 leading-relaxed">
-              No PostgreSQL limitation! Seamless support for PostgreSQL 16+, MySQL 8, MariaDB, and ultra-fast Caddy SSL reverse proxy.
+              Dukungan native lengkap untuk PostgreSQL 16+, MariaDB, MySQL 8, MongoDB, Redis, dan Web GUI SSO.
             </p>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
             <div className="font-bold text-slate-800 flex items-center gap-2 mb-1">
-              <CloudRain className="w-4 h-4 text-purple-600" /> Easypanel Power + Zero-NAT
+              <CloudRain className="w-4 h-4 text-purple-600" /> Zero-NAT Cloud Ingress
             </div>
             <p className="text-slate-500 leading-relaxed">
-              Container pods + 1-click Cloudflare Tunnel without port-forwarding or public IP headaches, wrapped in SumoPod minimal aesthetics.
+              Container pods dan 1-click Cloudflare Tunnel tanpa perlu konfigurasi port router atau IP publik statis.
             </p>
           </div>
         </div>
