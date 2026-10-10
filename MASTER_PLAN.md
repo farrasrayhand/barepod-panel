@@ -1,5 +1,5 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Versi Dokumen:** 2.4 (Status: Production Ready Frontend Architecture & Next Daemon Milestone)  
+> **Versi Dokumen:** 2.4 (Status: Frontend UI Prototype Selesai — Backend Go Daemon & Engine OS Belum Dikerjakan)  
 > **Terakhir Diperbarui:** 10 Oktober 2026  
 > **Status:** Active & Maintained
 
@@ -182,21 +182,52 @@ graph TD
 
 ## 4. Status Implementasi & Roadmap Pengembangan
 
-| Modul / Komponen | Cakupan Pekerjaan | Status |
-|---|---|---|
-| **Frontend UI Core** | React 19 + Vite 8 + TypeScript + Tailwind CSS UI. Desain bersih, modern, dan konsisten. | **SELESAI (100%)** |
-| **Apps & Runtime Studio** | Web server selector (OLS, Nginx, Caddy, Apache), 27 template PHP, Node.js, Python, Reverse Proxy. | **SELESAI (100%)** |
-| **Hybrid Upstream Routing** | OpenLiteSpeed proxy context syntax, Ping test, WebSocket 101, forward headers. | **SELESAI (100%)** |
-| **Database Suite & SSO** | PG, MariaDB, Mongo, Redis, Shared vs Dedicated Pod, Max Connections, Vault challenge, Export .sql. | **SELESAI (100%)** |
-| **File Manager Pro** | Checkbox multi-select, batch actions, context menu, visual image/PDF previewer, code editor. | **SELESAI (100%)** |
-| **Telemetry & World Map** | Vector world map dengan pulsing pins, filter negara, light/dark console, log inspector tanpa truncate. | **SELESAI (100%)** |
-| **Backup & Migration Hub** | 1-Click Server-to-Server Migration, `.bpod` snapshot, Cloudflare R2/S3 sync, App/DB export. | **SELESAI (100%)** |
-| **Hardware & Network Health** | S.M.A.R.T. NVMe/SSD diagnostic, self-test runner, network sparklines, ICMP latency prober. | **SELESAI (100%)** |
-| **Backend Daemon (Go)** | Setup project Go (`cmd/barepod-daemon/`), SQLite internal storage (WAL mode), REST API router, JWT auth. | **Milestone Berikutnya** |
-| **Container & Runtime Manager** | Integrasi Docker SDK resmi Go (`docker/moby`), base images runner, persistent volume binder. | Terjadwal |
-| **WebSocket PTY Bridge** | Integrasi Go PTY (`creack/pty`) dengan Xterm.js via WebSocket untuk streaming terminal real-time. | Terjadwal |
-| **Reverse Proxy Controllers** | Dynamic Caddy / Nginx / OLS config generator & Let's Encrypt automated SSL on Linux host. | Terjadwal |
-| **Git Runner & Installer Script** | Webhook listener endpoint & 1-line bash install script (`curl -fsSL https://get.barepod.com | bash`). | Terjadwal |
+> [!IMPORTANT]
+> **Kondisi Riil Saat Ini:**
+> Seluruh fitur yang tampak pada panel saat ini berada pada **Fase 1: Frontend UI & Interactive Simulation (React 19 + Vite 8 + TypeScript)**.
+> Interaksi tombol, form wizard, file manager, dan simulasi proses saat ini berjalan pada **client-side state (mock data)**.
+> **Backend Core Daemon (Go / Linux OS Engine)** yang akan mengeksekusi perintah asli di server (seperti daemon systemd, container Docker asli, engine database riil, rsync stream asli, dan vhost generator ke file sistem Linux) **BELUM DIKERJAKAN** dan merupakan milestone teknis selanjutnya.
+
+### 4.1. Tabel Status Komponen: Frontend Simulasi vs Backend Riil
+
+| Fitur / Modul | Frontend UI & Simulasi (React) | Backend Riil & OS Engine (Go / Linux) | Status Riil Keseluruhan |
+|---|---|---|---|
+| **Design System & Layout Panel** | ✅ Selesai (Responsive, Modern UI) | N/A (Frontend Only) | **Selesai (Frontend)** |
+| **Apps & Runtime Selector** | ✅ Selesai (27 Template PHP, Node, Python) | ⏳ Belum (Chroot / Docker Runtime Engine) | **Simulasi UI Selesai** |
+| **Hybrid Upstream Routing** | ✅ Selesai (Form, Ping mock, vhost preview) | ⏳ Belum (Write config ke `/usr/local/lsws/conf/`) | **Simulasi UI Selesai** |
+| **Database Suite & SSO** | ✅ Selesai (Detail modal, vault mask, export dump) | ⏳ Belum (Provisioner DB asli & SSO proxy token) | **Simulasi UI Selesai** |
+| **File Manager Pro** | ✅ Selesai (Checklist, batch action, previewer, edit) | ⏳ Belum (API Host FS `/home/<user>/apps/`) | **Simulasi UI Selesai** |
+| **World Traffic Map & Logs** | ✅ Selesai (Vector map, pulsing pin, log viewer) | ⏳ Belum (Real-time daemon log streamer / WSS) | **Simulasi UI Selesai** |
+| **Backup & Migration Hub** | ✅ Selesai (Wizard UI, Token gen, .bpod download) | ⏳ Belum (Rsync daemon stream & S3 backend upload) | **Simulasi UI Selesai** |
+| **Hardware S.M.A.R.T. & Network** | ✅ Selesai (Diagnostic visual, mock self-test, ping) | ⏳ Belum (CLI `smartctl` & `/proc/net/dev` parser) | **Simulasi UI Selesai** |
+| **Web Terminal PTY** | ✅ Selesai (Mock terminal & CLI shim command) | ⏳ Belum (Go `creack/pty` bridge via WebSocket) | **Simulasi UI Selesai** |
+
+---
+
+### 4.2. Rencana Tahapan Eksekusi Nyata (Roadmap):
+
+* **Fase 1: Frontend UI Prototyping (SELESAI ✅)**:
+  Merancang seluruh user interface, interaksi pengguna, arsitektur data tipe (TypeScript), dan alur navigasi agar developer experience (DX) teruji sempurna sebelum backend dibangun.
+* **Fase 2: Backend Core Daemon Go (MILESTONE BERIKUTNYA 🚀)**:
+  Inisialisasi service daemon di Go (Golang):
+  - Setup SQLite lokal (WAL mode) untuk database internal panel.
+  - REST API & WebSocket router (menggantikan mock data di React).
+  - JWT Authentication & RBAC (Multi-tenant user manager).
+* **Fase 3: Host OS & Container Integration (TERJADWAL 📋)**:
+  - Integrasi Docker Engine SDK (`docker/moby`) untuk manajemen container pod.
+  - File Manager backend API (membaca/menulis direktori Linux asli dengan hak akses tenant user terisolasi).
+  - WebSocket PTY terminal bridge (`creack/pty` + Xterm.js).
+* **Fase 4: Web Server & Network Automations (TERJADWAL 📋)**:
+  - Generator konfigurasi vhost asli (OpenLiteSpeed, Nginx, Caddy).
+  - Automated Let's Encrypt / ZeroSSL.
+  - Daemon `cloudflared` controller.
+* **Fase 5: Engine Database & SSO Gateway (TERJADWAL 📋)**:
+  - Automated database user creation & grant schema di PostgreSQL, MySQL, Mongo, Redis.
+  - Internal reverse proxy gateway untuk autologin DbGate / phpMyAdmin.
+* **Fase 6: Live Migration Daemon & Installer (TERJADWAL 📋)**:
+  - Daemon-to-daemon encrypted stream transfer via rsync.
+  - Snapshot packager `.bpod` (tar.gz + metadata + dump sql).
+  - Skrip instalasi 1-baris untuk VPS Ubuntu/Debian (`curl -fsSL https://get.barepod.com | bash`).
 
 ---
 
