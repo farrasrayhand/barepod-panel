@@ -110,6 +110,8 @@ export interface DatabaseItem {
   note?: string;
   websiteSlug?: string;
   fileBased?: boolean;
+  detected?: boolean;
+  path?: string;
 }
 
 export interface SharedEngineInstance {

@@ -213,6 +213,7 @@ export interface DatabaseRow {
   deletedAt?: string;
   createdAt: string;
   fileBased: boolean;
+  detected?: boolean;
   sizeBytes?: number;
 }
 

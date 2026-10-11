@@ -64,6 +64,8 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
   note: row.note,
   websiteSlug: row.websiteSlug,
   fileBased: row.fileBased,
+  detected: row.detected,
+  path: row.path,
 });
 
 export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => {
@@ -540,8 +542,17 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                         {badge.label}
                       </div>
                       <div>
-                        <span className="font-semibold text-slate-900 text-sm block">{db.name}</span>
-                        <span className="text-[10px] text-slate-400 font-mono">Format: {db.charset}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-900 text-sm block">{db.name}</span>
+                          {db.detected && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                              Detected (app-managed)
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {db.detected && db.path ? db.path : `Format: ${db.charset}`}
+                        </span>
                         {isBinned && (
                           <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
                             <Lock className="w-2.5 h-2.5" />
@@ -559,8 +570,8 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                       {isSqliteDb ? (
                         <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[10px] border border-slate-200/60 max-w-[260px]">
                           <Folder className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span className="truncate" title={sqlitePath}>{sqlitePath}</span>
-                          <span className="text-[9px] text-slate-400 shrink-0">(file)</span>
+                          <span className="truncate" title={db.path || sqlitePath}>{db.path || sqlitePath}</span>
+                          <span className="text-[9px] text-slate-400 shrink-0">({db.detected ? 'app' : 'file'})</span>
                         </div>
                       ) : (
                         <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[10px] border border-slate-200/60">
@@ -677,13 +688,15 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                         <span>Details & Connect</span>
                       </button>
 
-                      <button
-                        onClick={() => setDbToDelete(db)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                        title="Drop database"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {!db.detected && (
+                        <button
+                          onClick={() => setDbToDelete(db)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="Drop database"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                     )}
                   </td>

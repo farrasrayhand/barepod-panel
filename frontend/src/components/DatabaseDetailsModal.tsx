@@ -308,10 +308,16 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   Active
                 </span>
-                <span className="text-xs text-slate-400 font-mono">({database.charset})</span>
+                {database.detected ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    Detected (app-managed)
+                  </span>
+                ) : (
+                  <span className="text-xs text-slate-400 font-mono">({database.charset})</span>
+                )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                {database.version} • {badge.label} • {database.size}
+                {database.detected && database.path ? database.path : `${database.version} • ${badge.label} • ${database.size}`}
               </p>
             </div>
           </div>
@@ -1089,7 +1095,7 @@ USE \`${database.name}\`;
             <span>Protected by BarePod Internal Proxy & Linux Security Vault</span>
           </div>
           <div className="flex items-center gap-2">
-            {onDelete && (
+            {onDelete && !database.detected && (
               <button
                 onClick={() => onDelete(database)}
                 className="px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-white hover:bg-rose-600 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
