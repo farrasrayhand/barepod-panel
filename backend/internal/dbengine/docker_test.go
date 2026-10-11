@@ -5,10 +5,13 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
 )
 
 func TestContainerBindsLoopbackAndKeepsCredentialsOutOfArgv(t *testing.T) {
-	spec, extra, err := ContainerFor("postgresql", "barepod_admin", "admin-secret", t.TempDir())
+	adminSecret := id.Token(16)
+	spec, extra, err := ContainerFor("postgresql", "barepod_admin", adminSecret, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +38,7 @@ func TestContainerBindsLoopbackAndKeepsCredentialsOutOfArgv(t *testing.T) {
 		t.Errorf("the volume is missing: %s", argv)
 	}
 	// The credential must not be in the process list.
-	if strings.Contains(argv, "admin-secret") {
+	if strings.Contains(argv, adminSecret) {
 		t.Errorf("the admin password reached argv: %s", argv)
 	}
 	if !strings.Contains(argv, "--env-file") {
@@ -45,7 +48,7 @@ func TestContainerBindsLoopbackAndKeepsCredentialsOutOfArgv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(content), "POSTGRES_PASSWORD=admin-secret") {
+	if !strings.Contains(string(content), "POSTGRES_PASSWORD="+adminSecret) {
 		t.Errorf("the env file is missing the credential: %s", content)
 	}
 	if info, err := os.Stat(spec.EnvPath); err == nil && info.Mode().Perm() != 0o600 {
@@ -53,14 +56,20 @@ func TestContainerBindsLoopbackAndKeepsCredentialsOutOfArgv(t *testing.T) {
 	}
 	defer func() { _ = os.Remove(spec.EnvPath) }()
 
-	// Redis has no env variable for its password, so it comes as an argument and
-	// the env file only carries nothing at all.
-	redis, extraRedis, err := ContainerFor("redis", "barepod_admin", "cache-secret", t.TempDir())
+	// Redis has no environment variable for its password, so it arrives as an
+	// argument. The expected value is built from the variable rather than written
+	// out, so this file never contains something that looks like a credential
+	// (a scanner flagged exactly that once).
+	redisSecret := id.Token(16)
+	redis, extraRedis, err := ContainerFor("redis", "barepod_admin", redisSecret, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(extraRedis, " ") != "redis-server --requirepass cache-secret" {
+	if strings.Join(extraRedis, " ") != "redis-server --requirepass "+redisSecret {
 		t.Errorf("redis arguments = %v", extraRedis)
+	}
+	if strings.Contains(strings.Join(redis.RunArgv(), " "), redisSecret) {
+		t.Errorf("the redis credential reached the container argument list: %v", redis.RunArgv())
 	}
 	if redis.EnvPath != "" {
 		t.Errorf("redis should need no env file")
@@ -71,7 +80,7 @@ func TestContainerBindsLoopbackAndKeepsCredentialsOutOfArgv(t *testing.T) {
 }
 
 func TestContainerLifecycleAndPurge(t *testing.T) {
-	spec, _, err := ContainerFor("mysql", "barepod_admin", "pw", t.TempDir())
+	spec, _, err := ContainerFor("mysql", "barepod_admin", id.Token(16), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

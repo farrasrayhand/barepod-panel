@@ -3,17 +3,20 @@ package dbengine
 import (
 	"strings"
 	"testing"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
 )
 
 func TestQueryCommandKeepsThePasswordOutOfArgv(t *testing.T) {
+	postgresSecret := id.Token(16)
 	postgres, err := QueryCommand("postgresql", Resource{
-		User: "shop_user", Name: "shop", Secret: "s3cret-pw", AdminHost: "127.0.0.1", AdminPort: 5432,
+		User: "shop_user", Name: "shop", Secret: postgresSecret, AdminHost: "127.0.0.1", AdminPort: 5432,
 	}, "SELECT 1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(postgres.Argv, " ")
-	if strings.Contains(joined, "s3cret-pw") {
+	if strings.Contains(joined, postgresSecret) {
 		t.Errorf("the password reached the argument list: %s", joined)
 	}
 	for _, want := range []string{"-X", "--csv", "--no-psqlrc", "-U shop_user", "-d shop"} {
@@ -22,7 +25,7 @@ func TestQueryCommandKeepsThePasswordOutOfArgv(t *testing.T) {
 		}
 	}
 	env := strings.Join(postgres.Env, " ")
-	if !strings.Contains(env, "PGPASSWORD=s3cret-pw") {
+	if !strings.Contains(env, "PGPASSWORD="+postgresSecret) {
 		t.Errorf("the password is not in the environment: %s", env)
 	}
 	// Root's own files must not be able to change what runs or where it connects.
@@ -30,14 +33,15 @@ func TestQueryCommandKeepsThePasswordOutOfArgv(t *testing.T) {
 		t.Errorf("psql may read root's password file: %s", env)
 	}
 
+	mysqlSecret := id.Token(16) + "'with"
 	mysql, err := QueryCommand("mysql", Resource{
-		User: "shop_user", Name: "shop", Secret: "pw'with", AdminHost: "127.0.0.1", AdminPort: 3306,
+		User: "shop_user", Name: "shop", Secret: mysqlSecret, AdminHost: "127.0.0.1", AdminPort: 3306,
 	}, "SELECT 1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	mysqlArgv := strings.Join(mysql.Argv, " ")
-	if strings.Contains(mysqlArgv, "pw'with") {
+	if strings.Contains(mysqlArgv, mysqlSecret) {
 		t.Errorf("the password reached the argument list: %s", mysqlArgv)
 	}
 	for _, want := range []string{"--no-defaults", "--batch", "--raw", "--protocol=TCP", "-u shop_user", "-D shop"} {
@@ -45,7 +49,7 @@ func TestQueryCommandKeepsThePasswordOutOfArgv(t *testing.T) {
 			t.Errorf("the command is missing %q: %s", want, mysqlArgv)
 		}
 	}
-	if !strings.Contains(strings.Join(mysql.Env, " "), "MYSQL_PWD=pw'with") {
+	if !strings.Contains(strings.Join(mysql.Env, " "), "MYSQL_PWD="+mysqlSecret) {
 		t.Errorf("the password is not in the environment: %v", mysql.Env)
 	}
 

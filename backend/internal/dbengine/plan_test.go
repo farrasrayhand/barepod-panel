@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
 )
 
 func TestLookupReportsWhatEachEngineIs(t *testing.T) {
@@ -332,11 +334,12 @@ func TestClientPathLooksBeyondPath(t *testing.T) {
 func TestDockerModeAdministersOverLoopbackWithThePanelAccount(t *testing.T) {
 	// The same SQL, delivered the way a container needs it: TCP to the engine's
 	// loopback port as the administrator the panel created, password in the env.
+	dockerAdminSecret := id.Token(16)
 	resource := Resource{
 		Engine: "postgresql", Mode: ModeDocker,
-		Name: "shop", User: "shop", Secret: "shop-pw",
+		Name: "shop", User: "shop", Secret: id.Token(16),
 		AdminHost: "127.0.0.1", AdminPort: 5433,
-		AdminUser: "barepod_admin", AdminSecret: "admin-pw", Port: 5433,
+		AdminUser: "barepod_admin", AdminSecret: dockerAdminSecret, Port: 5433,
 	}
 	plan, err := PlanFor(StepProvision, resource)
 	if err != nil {
@@ -351,10 +354,10 @@ func TestDockerModeAdministersOverLoopbackWithThePanelAccount(t *testing.T) {
 			t.Errorf("the docker plan is missing %q:\n%s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "admin-pw") {
+	if strings.Contains(joined, dockerAdminSecret) {
 		t.Errorf("the administrator password reached the argument list:\n%s", joined)
 	}
-	if !strings.Contains(strings.Join(plan.Env, " "), "PGPASSWORD=admin-pw") {
+	if !strings.Contains(strings.Join(plan.Env, " "), "PGPASSWORD="+dockerAdminSecret) {
 		t.Errorf("the administrator password is not in the environment: %v", plan.Env)
 	}
 
