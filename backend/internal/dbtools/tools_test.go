@@ -66,6 +66,9 @@ type fakeRunner struct {
 	byPort  bool
 	running map[int]bool
 	namedOn map[string]int
+	// psLines is what `docker ps --format {{.Names}}\t{{.Ports}}` answers: the
+	// containers a previous daemon left, which Reconcile adopts.
+	psLines string
 }
 
 func (f *fakeRunner) Mode() string { return "fake" }
@@ -91,6 +94,10 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) (s
 		f.up = false
 		return "", nil
 	case "docker":
+		if len(args) > 0 && args[0] == "ps" {
+			// What a previous daemon left running, as `--format {{.Names}}\t{{.Ports}}`.
+			return f.psLines + "\n", nil
+		}
 		if len(args) > 0 && args[0] == "inspect" {
 			return f.containerEnv + "\n", nil
 		}
@@ -253,7 +260,7 @@ func TestDbGateRunsAsAContainerOnLoopbackOnlyAndIsRemovedToStop(t *testing.T) {
 		"-v /home/t/apps/site:/dbgate-sqlite",
 		"--user 1001:1001",
 		"--env-file /var/lib/barepod/dbtools/dbgate-01H.env",
-		"dbgate/dbgate:7.3.2",
+		"dbgate/dbgate:7.3.1",
 	} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("the DbGate command is missing %q: %s", want, argv)
@@ -349,6 +356,48 @@ func TestASharedContainerScopedElsewhereIsReplacedNotReused(t *testing.T) {
 	}
 	if log := mine.log(); strings.Contains(log, "docker rm") || strings.Contains(log, "docker run") {
 		t.Errorf("a container already scoped to this database was restarted:\n%s", log)
+	}
+}
+
+// A panel restart used to remove every manager container, which closed the page
+// somebody had open — an operator reads that as "it is not stable". A container is
+// recognisable (it is named after its database and holds its own settings), so it is
+// adopted and keeps serving; the sweeper still ends it once nobody comes back.
+func TestAContainerSurvivesAPanelRestart(t *testing.T) {
+	runner := &fakeRunner{
+		byPort:       true,
+		containerEnv: `["WEB_ROOT=/api/v1/databases/A/gui/dbgate"]`,
+		psLines:      "barepod-dbgate-a\t127.0.0.1:8793->3000/tcp",
+	}
+	before := New(runner, time.Minute)
+	base := Registry()["dbgate"]
+	spec := base
+	spec.ContainerName = "barepod-dbgate-a"
+	spec.Prefix = "/api/v1/databases/A/gui/dbgate"
+	spec.EnvFile = "/tmp/a.env"
+	spec.Port = 0
+	port, ok := before.Port(spec)
+	if !ok {
+		t.Fatal("no port for the first instance")
+	}
+	spec.Port = port
+	if err := before.Ensure(context.Background(), spec, ""); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	// A new daemon starts: what the old one left is adopted, not removed.
+	after := New(runner, time.Minute)
+	after.Reconcile(context.Background())
+	if strings.Contains(runner.log(), "docker rm -f barepod-dbgate-a") {
+		t.Errorf("the restart removed an open manager:\n%s", runner.log())
+	}
+
+	// The same record reopens on the same port without a new container starting.
+	if err := after.Ensure(context.Background(), spec, ""); err != nil {
+		t.Fatalf("Ensure after the restart: %v", err)
+	}
+	if starts := strings.Count(runner.log(), "docker run -d"); starts != 1 {
+		t.Errorf("the manager was started again instead of adopted (%d starts):\n%s", starts, runner.log())
 	}
 }
 

@@ -11,6 +11,7 @@ package dbtools
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -118,13 +119,16 @@ func Registry() map[string]Spec {
 			Container:  true,
 			// Pinned, not `latest`: the manager starts on demand for whoever opens it, and a
 			// surprise release the moment upstream publishes one is not something an operator
-			// should discover through their databases. 7.3.2 is the version the operator ran
-			// while it was stable, and it was measured against what this panel depends on
-			// (the socket connection fields read from env, WEB_ROOT handling) next to 7.2.6 —
-			// both worked, so the one with real operating history wins. The image is DbGate's
-			// community edition, which is the only edition there is: its "premium" items are
-			// license upsells inside that same image, and no setting removes them.
-			Image:         "dbgate/dbgate:7.3.2",
+			// should discover through their databases. There is no LTS tag to lean on
+			// (DbGate publishes `latest`, `beta` and version tags only), so a measured patch
+			// is the closest thing: 7.3.1 was checked against what this panel depends on —
+			// the socket fields read from env (CONNECTION_<id>_authType/socketPath) and
+			// WEB_ROOT handling — and it passed, as did 7.3.2 and 7.2.6. 6.0.0 does **not**
+			// (its env loader ignores those fields, which would drop PostgreSQL/MySQL/MariaDB
+			// back to an unreachable TCP loopback). The image is DbGate's community edition,
+			// the only edition there is: its "premium" items are license upsells inside that
+			// same image, and no setting removes them.
+			Image:         "dbgate/dbgate:7.3.1",
 			ContainerName: "barepod-dbgate",
 			// The API names each instance after its record and takes a port from this
 			// range, so several databases can have DbGate open at once.
@@ -457,14 +461,22 @@ func (s *Supervisor) Sweep(ctx context.Context) []string {
 	return stopped
 }
 
-// Reconcile stops tools left running by a previous daemon: after a restart nothing
-// knows how long they have been idle, and an unaccounted process is worse than a
-// cold start. Containers are cleared by the name they all share, because there may be
-// one per database.
+// Reconcile deals with what a previous daemon left behind.
+//
+// A manager that is a process is stopped: its arguments carry the credential it was
+// given, and there is nothing to read them back from (the tool's own command line is
+// not ours to reconstruct), so a cold start is the honest choice.
+//
+// A container is *adopted* instead. It is named after the database it serves and it
+// holds its own configuration inside itself, so the new daemon can recognise it, take
+// it over and keep serving whoever has the page open — removing them, as this used to,
+// closed every open manager the moment the panel restarted, which is exactly when an
+// operator notices "it is not stable". An adopted instance is given a fresh idle
+// window, so the sweeper still stops it once nobody comes back.
 func (s *Supervisor) Reconcile(ctx context.Context) {
 	for _, spec := range Registry() {
 		if spec.Container {
-			continue // handled by prefix below: a container tool may have many instances
+			continue // adopted below, never removed
 		}
 		if s.running(ctx, spec) {
 			argv := stopArgv(spec)
@@ -475,14 +487,48 @@ func (s *Supervisor) Reconcile(ctx context.Context) {
 		if !spec.Container || spec.ContainerName == "" {
 			continue
 		}
-		out, err := s.runner.Run(ctx, "", "docker", "ps", "-aq", "--filter", "name="+spec.ContainerName)
+		out, err := s.runner.Run(ctx, "", "docker", "ps",
+			"--filter", "name="+spec.ContainerName, "--format", "{{.Names}}\t{{.Ports}}")
 		if err != nil {
 			continue
 		}
-		for _, container := range strings.Fields(out) {
-			_, _ = s.runner.Run(ctx, "", "docker", "rm", "-f", container)
+		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+			name, ports, _ := strings.Cut(strings.TrimSpace(line), "\t")
+			if name == "" {
+				continue
+			}
+			adopted := spec
+			adopted.ContainerName = name
+			adopted.Port = publishedPort(ports)
+			s.mu.Lock()
+			s.active[name] = adopted
+			s.startedByTool[name] = true
+			s.lastAccess[name] = s.now()
+			if adopted.Port != 0 {
+				s.ports[name] = adopted.Port
+			}
+			s.mu.Unlock()
 		}
 	}
+}
+
+// publishedPort reads the loopback port out of `docker ps --format {{.Ports}}`, e.g.
+// "127.0.0.1:8793->3000/tcp" -> 8793. Zero means it publishes nothing (the instance is
+// then still adoptable, it just does not reserve a port).
+func publishedPort(ports string) int {
+	for _, field := range strings.Fields(ports) {
+		host, rest, ok := strings.Cut(field, "->")
+		if !ok {
+			continue
+		}
+		if _, port, err := net.SplitHostPort(host); err == nil {
+			if n, err := strconv.Atoi(port); err == nil {
+				_ = rest
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 // DetachedArgv wraps a tool's command so the daemon does not wait for it. A
