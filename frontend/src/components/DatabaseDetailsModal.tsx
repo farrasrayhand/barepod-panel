@@ -31,6 +31,14 @@ import { api } from '../api/client';
 // pgweb for PostgreSQL, phpMyAdmin for MySQL/MariaDB, and dbgate as the plan.
 export type DatabaseManagerTool = 'browser' | 'pgweb' | 'phpmyadmin' | 'dbgate';
 
+// Identifiers are quoted per engine: MySQL/MariaDB use backticks, SQLite and
+// PostgreSQL double quotes. A double-quoted name is a *string literal* on MySQL by
+// default, which is why `SELECT * FROM "notes"` was a syntax error there.
+const quoteIdent = (type: DatabaseItem['type'], name: string): string =>
+  type === 'mysql' || type === 'mariadb'
+    ? '`' + name.replace(/`/g, '``') + '`'
+    : '"' + name.replace(/"/g, '""') + '"';
+
 interface DatabaseDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -112,7 +120,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
         if (res.tables.length > 0 && !selectedTable) {
           const first = res.tables[0];
           setSelectedTable(first);
-          const initialSql = `SELECT * FROM "${first}" LIMIT 50;`;
+          const initialSql = `SELECT * FROM ${quoteIdent(database.type, first)} LIMIT 50;`;
           setSqlQuery(initialSql);
           runQuery(initialSql);
         }
@@ -175,6 +183,9 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     database.type === 'postgres' ||
     database.type === 'mysql' ||
     database.type === 'mariadb';
+  // A logical dump exists for the SQL engines (SQLite is a file copy of itself);
+  // there is none for a key-value or document store.
+  const canExport = canRunSql;
   const createTableTemplate = (() => {
     const name = `notes_${Date.now().toString().slice(-4)}`;
     switch (database.type) {
@@ -450,35 +461,19 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                   <span>Open DbGate</span>
                 </button>
 
-                {/* Export Logical SQL Dump Button */}
-                <button
-                  onClick={() => {
-                    const dumpContent = `-- BarePod Database Logical Dump
--- Engine: ${database.type.toUpperCase()}
--- Database Name: ${database.name}
--- Tenant: ${database.tenantUser || 'default'}
--- Generated At: ${new Date().toISOString()}
-
-CREATE DATABASE IF NOT EXISTS \`${database.name}\`;
-USE \`${database.name}\`;
-
--- Schema and Table Dumps
--- User credentials and grants isolated for tenant ${database.tenantUser || 'default'}
-`;
-                    const blob = new Blob([dumpContent], { type: 'application/sql' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${database.name}-${database.type}-dump-${new Date().toISOString().slice(0, 10)}.sql`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-100 border border-emerald-400/30 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
-                  title="Export Logical SQL Dump"
-                >
-                  <Download className="w-3.5 h-3.5 text-emerald-300" />
-                  <span>Export .sql</span>
-                </button>
+                {/* Export: the daemon runs the engine's own dumper and streams it
+                    back on this same-origin GET (the session cookie rides along). */}
+                {canExport && (
+                  <a
+                    href={`/api/v1/databases/${database.id}/export`}
+                    download={`${database.name}.${database.type === 'sqlite' ? 'sqlite' : 'sql'}`}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-100 border border-emerald-400/30 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                    title="Download a logical dump (pg_dump / mysqldump, or the .sqlite file)"
+                  >
+                    <Download className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>Export {database.type === 'sqlite' ? '.sqlite' : '.sql'}</span>
+                  </a>
+                )}
               </div>
             </div>
           </div>
@@ -854,7 +849,7 @@ USE \`${database.name}\`;
                             type="button"
                             onClick={() => {
                               setSelectedTable(tbl);
-                              const q = `SELECT * FROM "${tbl}" LIMIT 50;`;
+                              const q = `SELECT * FROM ${quoteIdent(database.type, tbl)} LIMIT 50;`;
                               setSqlQuery(q);
                               runQuery(q);
                             }}
@@ -887,7 +882,7 @@ USE \`${database.name}\`;
                           type="button"
                           onClick={() => {
                             if (selectedTable) {
-                              const q = `SELECT * FROM "${selectedTable}" LIMIT 50;`;
+                              const q = `SELECT * FROM ${quoteIdent(database.type, selectedTable)} LIMIT 50;`;
                               setSqlQuery(q);
                               runQuery(q);
                             }
@@ -900,8 +895,9 @@ USE \`${database.name}\`;
                           type="button"
                           onClick={() => {
                             if (selectedTable) {
-                              setSqlQuery(`SELECT COUNT(*) AS total FROM "${selectedTable}";`);
-                              runQuery(`SELECT COUNT(*) AS total FROM "${selectedTable}";`);
+                              const q = `SELECT COUNT(*) AS total FROM ${quoteIdent(database.type, selectedTable)};`;
+                              setSqlQuery(q);
+                              runQuery(q);
                             }
                           }}
                           className="px-2 py-0.5 text-[10px] font-mono text-slate-600 hover:bg-slate-100 rounded border border-slate-200 cursor-pointer"

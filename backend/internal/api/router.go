@@ -203,6 +203,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/databases/{id}/rotate-password", databases(s.handleRotateDatabasePassword(store.KindDatabase)))
 	mux.HandleFunc("POST /api/v1/databases/{id}/reveal", databases(s.handleRevealDatabase(store.KindDatabase)))
 	mux.HandleFunc("GET /api/v1/databases/{id}/connection-string", databases(s.handleConnectionString(store.KindDatabase)))
+	mux.HandleFunc("GET /api/v1/databases/{id}/export", databases(s.handleExportDatabase(store.KindDatabase)))
 	mux.HandleFunc("POST /api/v1/databases/{id}/restore", databases(s.handleRestoreDatabase(store.KindDatabase)))
 	mux.HandleFunc("POST /api/v1/databases/{id}/purge", databases(s.handlePurgeDatabase(store.KindDatabase)))
 	// Data browsing, served by the daemon itself: no extra port, no GUI process —

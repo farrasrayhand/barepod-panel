@@ -1260,6 +1260,35 @@ func TestPreparePhpMyAdminWritesAScopedConfig(t *testing.T) {
 	}
 }
 
+// A dump runs the engine's own dumper as that database's user, and the credential
+// must travel in the environment — never in the argument list, which is public.
+func TestExportArgvKeepsTheCredentialOutOfTheCommand(t *testing.T) {
+	argv, env := exportArgv(store.Database{Engine: "mysql", User: "adm_shop", Name: "adm_shop", Port: 3306}, "s3cr3t")
+	if argv == nil || argv[0] != "mysqldump" {
+		t.Fatalf("mysql argv = %v", argv)
+	}
+	if strings.Contains(strings.Join(argv, " "), "s3cr3t") {
+		t.Errorf("the password is in the command line: %v", argv)
+	}
+	if strings.Join(env, " ") != "MYSQL_PWD=s3cr3t" {
+		t.Errorf("the password is not in the environment: %v", env)
+	}
+	if !strings.Contains(strings.Join(argv, " "), "adm_shop") {
+		t.Errorf("the database is not in the command line: %v", argv)
+	}
+
+	pg, pgenv := exportArgv(store.Database{Engine: "postgresql", User: "adm_shop", Name: "adm_shop", Port: 5432}, "s3cr3t")
+	if pg == nil || pg[0] != "pg_dump" || strings.Contains(strings.Join(pg, " "), "s3cr3t") {
+		t.Errorf("postgres argv = %v", pg)
+	}
+	if strings.Join(pgenv, " ") != "PGPASSWORD=s3cr3t" {
+		t.Errorf("postgres env = %v", pgenv)
+	}
+	if a, _ := exportArgv(store.Database{Engine: "redis"}, ""); a != nil {
+		t.Errorf("a key-value store has no dump: %v", a)
+	}
+}
+
 func TestGuiConnectionStringEncodesTheCredential(t *testing.T) {
 	// A password with special characters must not change the meaning of the DSN.
 	dsn := guiConnectionString(store.Database{

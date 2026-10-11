@@ -313,5 +313,9 @@ go test -race ./internal/deploy/ ./internal/resources/ ./internal/metrics/
 - SQLite runs with a single connection (one writer) — the panel's write volume is tiny.
 - Pure-Go SQLite driver (`modernc.org/sqlite`) — no cgo, so one build covers
   **amd64, arm64 and LXC**.
-- Not implemented yet: metrics collection, files/terminal APIs, tenant `useradd`,
-  databases module, TLS/Cloudflare Tunnel, and installing itself as a systemd service.
+- **Live:** metrics, the file manager, the terminal, tenant `useradd`, the databases &
+  caches module (engines, in-panel browsing, hosted pgweb/phpMyAdmin, logical export),
+  and self-install as a systemd service.
+- Not implemented yet: pods/Docker, backups & migration, domains & SSL, Cloudflare
+  tunnels, users/groups CRUD, API tokens/webhooks/MCP, per-app access control, and
+  the web-server (vhost) writer.

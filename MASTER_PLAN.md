@@ -8,8 +8,9 @@
 The number describes **completed milestones, not effort** — and nothing may
 invent its own version.
 
-- **0.x = prototype line.** It stays on `0.1` while the panel is still a
-  prototype (mock UI, dry-run provisioning, no release artefact).
+- **0.x = prototype line.** The line is at **0.3** (the databases module) and stays
+  in 0.x while the panel is a prototype (some views still mock, dry-run provisioning,
+  no release artefact).
 - **0.1 → 0.2 (reached):** the milestone was *"a website really runs end-to-end on
   a Linux host"*. Verified on Ubuntu 24.04 in an LXC container: unit active,
   service running as the tenant, cgroup limits applied, health check green, files
@@ -106,10 +107,13 @@ Changes in Phase 1 (React UI prototype):
 - **phpMyAdmin is hosted for MySQL/MariaDB — the light way**: a PHP app, run by **PHP's own built-in server** (`php -S`, one process; no Apache, no PHP-FPM) behind the same gated path. The panel writes a per-database `config.inc.php` (root 0600) with `auth_type = 'config'` and `only_db`, so it opens exactly that database **with no login**, plus `PmaAbsoluteUri` pointing at the mount; the proxy strips the mount so phpMyAdmin sees its own root while its (relative) URLs stay inside the panel's. Same rules as pgweb: session-gated (401), a path-scoped `SameSite=Strict` cookie for the subtree, loopback only, `database.gui_open` audited, stopped when idle. `install-engines.sh` installs `php-cli` + extensions and unpacks a pinned phpMyAdmin tarball. Verified on the LXC: the page and its assets `200` under the mount (`theme.css` 357 kB in 2 ms), the scoped database visible with no login, `127.0.0.1:8791` only, and a `POST` without the tool's cookie `403`.
 - **Bug caught while building it — two PHP managers would stop each other**: both would run as the `php` binary, so `pkill -x php` from one would kill the other. A `Spec.Match` lets a tool be stopped by its own command line (`pkill -f "php -S 127.0.0.1:8791"`) while pgweb keeps its exact-name stop.
 - **Bug caught by the operator — the Data Browser & SQL tab was SQLite-only in the UI**: the daemon has reached every engine with a **pure-Go driver** since the query work, and `tables`/`query` answer for PostgreSQL/MySQL/MariaDB too (`browser: daemon-driver`), but the modal only drew the table pills and the SQL editor for SQLite and showed a "use a Web GUI manager" placeholder for everything else — so MySQL/MariaDB looked unbrowsable although the API worked. The tab now renders for every engine with a driver (SQLite in-process, the daemon engines over their driver), with an engine-appropriate `CREATE TABLE` template, and keeps the placeholder only for MongoDB (no driver yet). Verified on the LXC against `mariadb-example`: `CREATE TABLE` → `INSERT` (2 rows affected) → `SELECT` returned `[["1","budi"],["2","siti"]]` and `tables` listed `["notes"]`, each audited as `database.query` with the row count and never the SQL. (One statement per execution — the engine refuses a multi-statement batch, and the panel passes its refusal through.)
+- **The two things that only pretended to work are real now**: the "Export .sql" button used to write a hand-made stub (`-- BarePod Database Logical Dump …`) with no schema or data, with nothing behind it; there is now `GET /databases/:id/export`, which runs the engine's own dumper (`pg_dump` / `mysqldump`, credential in the **environment**, never argv) as that database's user, or copies the `.sqlite` file — returned as an attachment and audited as `database.export`. And `maxConnections` used to be stored and never applied: `PATCH /databases/:id` now runs the engine's `ALTER ROLE … CONNECTION LIMIT` / `ALTER USER … MAX_USER_CONNECTIONS` as that database's user (the `StepLimits` plan existed but nothing called it), while a file engine, a missing client or a dry-run host keeps the number in the ledger. Verified on the LXC: `pg_dump` and `mysqldump` output for the ready PostgreSQL and MariaDB examples (each with its `CREATE TABLE`), a byte-correct `.sqlite` copy, and `mysql.user.max_user_connections` reading **7** after the panel set 7.
+- **Bug caught by the operator — the browser quoted identifiers for the wrong engine**: clicking a table built `SELECT * FROM "notes"`, which SQLite and PostgreSQL accept but MySQL/MariaDB read as a *string literal*, so the panel's own generated query failed there. Quoting is now per engine (backticks for MySQL/MariaDB, double quotes otherwise) in the table click, the SELECT/COUNT shortcuts and the `CREATE TABLE` template.
+- **Documentation that had drifted is corrected** (the plan's own rule: a claim that cannot be verified is a bug): `backend/README.md` no longer says "not implemented yet" for metrics, the file manager, the terminal, tenant `useradd`, the databases module or the systemd install (all live); `scripts/install.sh` no longer lists metrics or the service install as missing; the versioning policy no longer says the line "stays on 0.1"; the stale GUI lists (DbGate/phpMyAdmin/pgAdmin/Mongo Express/Redis Commander) and the layout's "planned modules" comment are updated; and the contract no longer advertises a `POST /databases/:id/export` / `POST …/max-connections` that does not exist.
 - **Adminer is a different problem (found, not built)**: Adminer is truly lighter (one ~330 kB PHP file) and needs the same PHP, but version 5 has **no zero-login** — `adminer_object()` can only be declared before its namespaced class exists, and `credentials()` / `login()` / `permanentLogin()` do not skip the empty login form (checked against 5.3.0 on the host). It is left out rather than shipped pretending to be SSO; phpMyAdmin covers MySQL/MariaDB with a real one, and the panel's own browser covers the rest.
 
 > **Versioning note:** the panel is still a prototype, so the document stays in the
-> 0.x line (**0.2** since a site really runs on Linux — see the policy at the top).
+> 0.x line (**0.3** — the databases module; see the policy at the top).
 
 - **Guided Deploy wizard**: "Deploy New Website" is now a 5-step flow (Basics → Engine & Runtime → Source → Database & Cache → Review), with per-mode step sets for reverse proxy and static sites.
 - **Source selection**: Scaffold/Download (framework preset), GitHub repository (branch + auto-deploy webhook), Upload archive, or Existing files (with directory verification that blocks deploy when the folder is missing).
@@ -159,7 +163,7 @@ Changes in Phase 1 (React UI prototype):
 3. **Smart CLI Automation (Auto-Switch Runtime)**: When a user opens a web terminal on a website, CLI commands such as `php -v`, `node -v`, or `python -v` automatically match the runtime version configured for that site without conflicting between tenants.
 4. **Flexibility of 4 Web Server Engines**: Supports OpenLiteSpeed (OLS + LSCache), Nginx, Caddy (Auto-HTTPS & HTTP/3), and Apache 2.4 according to the user's application architecture needs.
 5. **Complete Database & In-Memory Support**: PostgreSQL 16, MariaDB 11/MySQL 8, MongoDB 7.0, Redis 7.2, and file-based SQLite ready to use from a single panel, with databases and caches provisioned independently with a *Shared Daemon* or *Dedicated Pod* option.
-6. **Built-in Database Web GUI (SSO)**: GUI access (DbGate, phpMyAdmin, pgAdmin, Mongo Express, Redis Commander) is protected behind an internal proxy and logs in automatically without requiring you to enter database credentials repeatedly.
+6. **Built-in Database Web GUI (SSO)**: the panel hosts **pgweb** (PostgreSQL) and **phpMyAdmin** (MySQL/MariaDB) behind its own gated path — one loopback process each, no Apache or extra port, credentials injected server-side, closed when idle — plus its own in-panel **Data Browser & SQL** for every engine. DbGate (SQLite/MongoDB/Redis) is planned; pgAdmin and Adminer were dropped.
 7. **Credential Password Protection**: Database passwords are encrypted and hidden. To display a password as plain text, the user must first enter their panel account password.
 8. **File Manager Pro (cPanel / VS Code Grade)**:
    - Checkbox on every file/folder with a master *Select All* checkbox.
@@ -495,7 +499,9 @@ BarePod-Panel/
 │   │   └── id/                   # ULID & token generation
 │   ├── go.mod
 │   └── .gitignore
-│   # planned modules: tenant/ proxy/ database/ backup/ git/ pty/ metrics/
+│   # implemented: api/ rbac/ config/ store/ dbengine/ dbtools/ resources/ metrics/
+│   #   tenant/ files/ terminal/ deploy/ host/ supervisor/ provision/ auth/ secrets/
+│   #   sysinfo/ validate/ id/  ·  planned: pods/ (Docker SDK), backup/, proxy/ (vhosts)
 ├── scripts/
 │   └── install.sh                # 1-line installation script for Ubuntu/Debian VPS
 ├── MASTER_PLAN.md                # Master Plan & Main Architecture Document

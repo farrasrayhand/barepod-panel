@@ -111,4 +111,5 @@ log "There is no default account and no default password by design."
 if [ "$IS_LXC" -eq 1 ] || ! command -v systemctl >/dev/null 2>&1; then
   log "Note: without systemd the daemon runs in dry-run mode — sites are prepared but not started."
 fi
-log "Not implemented yet: systemd service installation, TLS/Cloudflare Tunnel, metrics."
+log "Not implemented yet: TLS/Cloudflare Tunnel, Docker pods, backups & migration."
+log "Ready now: systemd service install (barepod service install), metrics, files, terminal, databases."

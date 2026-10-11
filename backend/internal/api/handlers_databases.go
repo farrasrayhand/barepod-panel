@@ -524,6 +524,26 @@ func (s *Server) runDatabasePlan(ctx context.Context, plan dbengine.Plan) error 
 	return nil
 }
 
+// applyConnectionLimit tells the engine about a per-database connection limit as
+// that database's own user. A file-based engine, a missing client, or a dry-run
+// host has nowhere to apply it, so the number stays in the ledger.
+func (s *Server) applyConnectionLimit(ctx context.Context, record *store.Database, limit int) error {
+	engine, found := s.engineFor(ctx, record.Engine)
+	if !found || engine.FileBased || !engine.Available || !s.host.Materialises() {
+		return nil
+	}
+	updated := *record
+	updated.MaxConns = limit
+	plan, err := dbengine.PlanFor(dbengine.StepLimits, s.resourceFor(&updated, ""))
+	if err != nil {
+		return err
+	}
+	if len(plan.Commands) == 0 {
+		return nil
+	}
+	return s.runDatabasePlan(ctx, plan)
+}
+
 // handleGetDatabase returns one record.
 func (s *Server) handleGetDatabase(kind string) authedHandler {
 	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
@@ -550,6 +570,16 @@ func (s *Server) handlePatchDatabase(kind string) authedHandler {
 		alias := record.Alias
 		if strings.TrimSpace(patch.Alias) != "" {
 			alias = strings.TrimSpace(patch.Alias)
+		}
+		// A changed connection limit is told to the engine, not merely stored: a
+		// number that never reaches the server would be a promise the panel cannot
+		// keep. An engine with nowhere to apply it (a file, a missing client,
+		// dry-run) keeps the number in the ledger.
+		if patch.MaxConnections > 0 && patch.MaxConnections != record.MaxConns {
+			if err := s.applyConnectionLimit(r.Context(), record, patch.MaxConnections); err != nil {
+				writeError(w, http.StatusBadGateway, "service_error", "The connection limit was not applied: "+err.Error())
+				return
+			}
 		}
 		if err := s.store.SetDatabaseLimits(record.ID, alias, patch.MaxConnections, patch.MaxMemoryMB); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not save the change")
@@ -687,6 +717,95 @@ func connectionString(record store.Database, password string) string {
 		return "file:" + record.FilePath
 	}
 	return ""
+}
+
+// handleExportDatabase streams a logical dump of one database. There is no
+// separate "export" service: the daemon runs the engine's own dumper as that
+// database's user, with the credential in the environment (never in argv), and
+// the bytes go straight back. SQLite is a file, so its dump is a copy of it.
+func (s *Server) handleExportDatabase(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
+			return
+		}
+		if record.Engine == "redis" || record.Engine == "mongodb" {
+			writeError(w, http.StatusConflict, "not_applicable",
+				"There is no logical dump for a key-value or document store — use its data browser")
+			return
+		}
+		if record.FileBased {
+			data, err := os.ReadFile(record.FilePath)
+			if err != nil {
+				writeError(w, http.StatusConflict, "not_ready", "The database file could not be read")
+				return
+			}
+			_ = s.store.Audit(user.ID, "database.export", record.Name, clientIP(r), "sqlite")
+			writeDatabaseDownload(w, record.Name+"."+strings.TrimPrefix(filepath.Ext(record.FilePath), "."), data)
+			return
+		}
+		engine, found := s.engineFor(r.Context(), record.Engine)
+		if !found || !engine.Available || !s.host.Materialises() {
+			writeError(w, http.StatusConflict, "not_available",
+				fmt.Sprintf("The %s client is not installed on this host, so it cannot be dumped", engine.Client))
+			return
+		}
+		password := ""
+		if record.PasswordCipher != "" {
+			plain, err := secrets.Decrypt(s.key, record.PasswordCipher)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal", "Could not decrypt the credential")
+				return
+			}
+			password = plain
+		}
+		argv, env := exportArgv(*record, password)
+		if len(argv) == 0 {
+			writeError(w, http.StatusConflict, "not_applicable", "No export for this engine")
+			return
+		}
+		out, err := s.host.Runner.RunEnv(r.Context(), "", env, argv[0], argv[1:]...)
+		if err != nil {
+			message := strings.TrimSpace(out)
+			if message == "" {
+				message = err.Error()
+			}
+			writeError(w, http.StatusBadGateway, "service_error", "The dump failed: "+message)
+			return
+		}
+		_ = s.store.Audit(user.ID, "database.export", record.Name, clientIP(r), record.Engine)
+		writeDatabaseDownload(w, record.Name+".sql", []byte(out))
+	}
+}
+
+// exportArgv is the engine's own dumper, run as the database's user. The password
+// travels in the environment (PGPASSWORD / MYSQL_PWD), never in the argument list,
+// and --no-defaults / an explicit host keep it from reading root's own config.
+func exportArgv(record store.Database, password string) ([]string, []string) {
+	switch record.Engine {
+	case "postgresql":
+		return []string{
+				"pg_dump", "--no-owner", "--no-privileges", "--host", "127.0.0.1",
+				"--port", fmt.Sprint(record.Port), "--username", record.User, "--dbname", record.Name,
+			},
+			[]string{"PGPASSWORD=" + password}
+	case "mysql", "mariadb":
+		return []string{
+				"mysqldump", "--no-defaults", "--skip-comments", "--single-transaction",
+				"--host", "127.0.0.1", "--port", fmt.Sprint(record.Port), "--user", record.User, record.Name,
+			},
+			[]string{"MYSQL_PWD=" + password}
+	}
+	return nil, nil
+}
+
+// writeDatabaseDownload hands the dump back as an attachment; the body is the
+// dump itself, not JSON.
+func writeDatabaseDownload(w http.ResponseWriter, filename string, data []byte) {
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+	_, _ = w.Write(data)
 }
 
 // handleBinDatabase is the soft delete: nothing is dropped, the data is kept and
