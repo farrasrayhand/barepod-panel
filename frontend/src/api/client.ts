@@ -188,6 +188,8 @@ export interface FileEntry {
   mode: string;
   modifiedAt: string;
   symlinkTarget?: string;
+  /** A system path the browser may read but never change. */
+  protected?: boolean;
 }
 
 export const api = {
@@ -347,37 +349,100 @@ export const api = {
   uploadUrl: (slug: string, path = '') =>
     `${API_BASE}/websites/${slug}/files/upload?path=${encodeURIComponent(path)}`,
 
-  /**
-   * Multipart upload. Kept here (not in the view) so the CSRF header and the
-   * error shape stay in one place.
-   */
-  uploadFiles: async (slug: string, path: string, files: File[]) => {
-    const form = new FormData();
-    files.forEach((file) => form.append('files', file, file.name));
-    const headers = new Headers();
-    if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
-
-    const response = await fetch(api.uploadUrl(slug, path), {
-      method: 'POST',
-      body: form,
-      headers,
-      credentials: 'include',
-    });
-    if (!response.ok) {
-      let message = `Upload failed (${response.status})`;
-      try {
-        const payload = (await response.json()) as { error?: { message?: string } };
-        if (payload?.error?.message) message = payload.error.message;
-      } catch {
-        // keep the generic message
-      }
-      throw new ApiError(message, response.status);
-    }
-    return (await response.json()) as { uploaded: string[] };
-  },
+  /** Multipart upload; the URL builder differs per family, the work does not. */
+  uploadFiles: (slug: string, path: string, files: File[]) => uploadTo(api.uploadUrl(slug, path), files),
 
   downloadUrl: (slug: string, path: string) =>
     `${API_BASE}/websites/${slug}/files/download?path=${encodeURIComponent(path)}`,
+
+  /** The picker behind the host-wide browser: which accounts have a home. */
+  tenants: () => request<{ items: TenantRow[]; root: string }>('/tenants'),
+
+  /**
+   * The host-wide browser. Same operations as a website's files, but the scope
+   * travels as a query instead of a slug: `scope=host` for the whole machine
+   * (admin only) or `scope=tenant&tenant=<name>` for one account's home.
+   */
+  scopedFiles: {
+    list: (scope: FileScope, path = '') =>
+      request<{
+        path: string;
+        scope: string;
+        root: string;
+        readOnly: boolean;
+        items: FileEntry[];
+        maxSize: number;
+      }>(`/files?${fileScopeQuery(scope)}&path=${encodeURIComponent(path)}`),
+
+    read: (scope: FileScope, path: string) =>
+      request<{
+        path: string;
+        size: number;
+        mode: string;
+        modifiedAt: string;
+        binary: boolean;
+        encoding: 'utf-8' | 'base64';
+        content: string;
+        writable: boolean;
+      }>(`/files/content?${fileScopeQuery(scope)}&path=${encodeURIComponent(path)}`),
+
+    write: (scope: FileScope, path: string, content: string, encoding?: 'utf-8' | 'base64') =>
+      request<{ path: string; size: number; modifiedAt: string }>(`/files/content?${fileScopeQuery(scope)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ path, content, encoding }),
+      }),
+
+    create: (scope: FileScope, path: string) =>
+      request<{ path: string }>(`/files/create?${fileScopeQuery(scope)}`, {
+        method: 'POST',
+        body: JSON.stringify({ path }),
+      }),
+
+    mkdir: (scope: FileScope, path: string) =>
+      request<{ path: string }>(`/files/mkdir?${fileScopeQuery(scope)}`, {
+        method: 'POST',
+        body: JSON.stringify({ path }),
+      }),
+
+    rename: (scope: FileScope, path: string, name: string) =>
+      request<{ path: string }>(`/files/rename?${fileScopeQuery(scope)}`, {
+        method: 'POST',
+        body: JSON.stringify({ path, name }),
+      }),
+
+    copy: (scope: FileScope, path: string, to?: string) =>
+      request<{ path: string }>(`/files/copy?${fileScopeQuery(scope)}`, {
+        method: 'POST',
+        body: JSON.stringify({ path, to }),
+      }),
+
+    move: (scope: FileScope, path: string, to?: string) =>
+      request<{ path: string }>(`/files/move?${fileScopeQuery(scope)}`, {
+        method: 'POST',
+        body: JSON.stringify({ path, to }),
+      }),
+
+    remove: (scope: FileScope, paths: string[]) =>
+      request<{ deleted: string[] }>(`/files/delete?${fileScopeQuery(scope)}`, {
+        method: 'POST',
+        body: JSON.stringify({ paths }),
+      }),
+
+    compress: (scope: FileScope, paths: string[]) =>
+      request<Blob>(`/files/compress?${fileScopeQuery(scope)}`, {
+        method: 'POST',
+        body: JSON.stringify({ paths }),
+        raw: true,
+      }),
+
+    uploadUrl: (scope: FileScope, path = '') => `${API_BASE}/files/upload?${fileScopeQuery(scope)}&path=${encodeURIComponent(path)}`,
+
+    uploadFiles: (scope: FileScope, path: string, files: File[]) =>
+      uploadTo(api.scopedFiles.uploadUrl(scope, path), files),
+
+    downloadUrl: (scope: FileScope, path: string) =>
+      `${API_BASE}/files/download?${fileScopeQuery(scope)}&path=${encodeURIComponent(path)}`,
+  },
 
   // --- terminal ------------------------------------------------------------
   /** One-time ticket for a WebSocket handshake (never a token in the URL). */
@@ -426,6 +491,42 @@ function wsBase(): string {
   if (/^https?:\/\//.test(API_BASE)) return API_BASE.replace(/^http/, 'ws');
   const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${scheme}//${window.location.host}${API_BASE}`;
+}
+
+/** One account, as the host-wide browser's picker needs it. */
+export interface TenantRow {
+  username: string;
+  group: string;
+  status: string;
+  home: string;
+  exists: boolean;
+}
+
+/** Which tree a host-wide request is about. */
+export type FileScope = { kind: 'host' } | { kind: 'tenant'; tenant: string };
+
+const fileScopeQuery = (scope: FileScope): string =>
+  scope.kind === 'host' ? 'scope=host' : `scope=tenant&tenant=${encodeURIComponent(scope.tenant)}`;
+
+/** Shared multipart upload: the CSRF header and the error shape live here once. */
+async function uploadTo(url: string, files: File[]): Promise<{ uploaded: string[] }> {
+  const form = new FormData();
+  files.forEach((file) => form.append('files', file, file.name));
+  const headers = new Headers();
+  if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
+
+  const response = await fetch(url, { method: 'POST', body: form, headers, credentials: 'include' });
+  if (!response.ok) {
+    let message = `Upload failed (${response.status})`;
+    try {
+      const payload = (await response.json()) as { error?: { message?: string } };
+      if (payload?.error?.message) message = payload.error.message;
+    } catch {
+      // keep the generic message
+    }
+    throw new ApiError(message, response.status);
+  }
+  return (await response.json()) as { uploaded: string[] };
 }
 
 export interface SessionRow {

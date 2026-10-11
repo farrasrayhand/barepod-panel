@@ -33,6 +33,20 @@ func probeJail() (bool, string) {
 	return true, ""
 }
 
+// makePrivate stops this namespace's mounts from propagating outwards.
+//
+// A CLONE_NEWNS child inherits the parent's *shared* propagation, so mounting a
+// mask without this would publish it to the container (and, with a shared root,
+// even to the host): that is exactly how one run left 12 298 masks behind and
+// hid a tenant's real directories. Making the tree private first keeps every mask
+// inside this shell's namespace.
+func makePrivate() error {
+	if err := syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
+		return fmt.Errorf("terminal: cannot make this mount namespace private (%v)", err)
+	}
+	return nil
+}
+
 // Mask hides each path inside the current mount namespace: a tmpfs over a
 // directory (mode 0000, so the tenant cannot even enter it) and /dev/null over a
 // file. Because the mounts belong to this namespace only, the host is untouched
@@ -40,6 +54,9 @@ func probeJail() (bool, string) {
 func Mask(paths []string) ([]string, error) {
 	if !InPrivateNamespace() {
 		return nil, errors.New("terminal: refusing to mask outside a private mount namespace")
+	}
+	if err := makePrivate(); err != nil {
+		return nil, err
 	}
 
 	masked := make([]string, 0, len(paths))
@@ -103,6 +120,7 @@ func newJailedCommand(opts Options, shell, dir string, env []string) (*exec.Cmd,
 		"--gid", strconv.Itoa(opts.GID),
 		"--shell", shell,
 		"--status-fd", "3",
+		"--parent-mnt-ns", MountNamespace(),
 	)
 	cmd.Dir = dir
 	cmd.Env = env
@@ -121,6 +139,9 @@ func newJailedCommand(opts Options, shell, dir string, env []string) (*exec.Cmd,
 // MountProbe is what the helper runs for --probe: a real mount in the current
 // namespace, undone right away.
 func MountProbe() error {
+	if err := makePrivate(); err != nil {
+		return err
+	}
 	dir, err := os.MkdirTemp("", "barepod-jail-")
 	if err != nil {
 		return err

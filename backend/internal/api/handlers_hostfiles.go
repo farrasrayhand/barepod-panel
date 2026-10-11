@@ -57,7 +57,7 @@ func (s *Server) scopedFilesFor(w http.ResponseWriter, r *http.Request, user *st
 			writeError(w, http.StatusInternalServerError, "internal", "Could not open the host root")
 			return fileScope{}, false
 		}
-		return fileScope{manager: manager, kind: "host", label: "host", root: "/", writable: false}, true
+		return fileScope{manager: manager, kind: "host", label: "host", root: "/"}, true
 
 	case "tenant":
 		name := strings.TrimSpace(r.URL.Query().Get("tenant"))
@@ -83,7 +83,7 @@ func (s *Server) scopedFilesFor(w http.ResponseWriter, r *http.Request, user *st
 			writeError(w, http.StatusInternalServerError, "internal", "Could not open the tenant home")
 			return fileScope{}, false
 		}
-		return fileScope{manager: manager, kind: "tenant", label: name, root: root, writable: true}, true
+		return fileScope{manager: manager, kind: "tenant", label: name, root: root}, true
 	}
 
 	writeError(w, http.StatusBadRequest, "bad_request", "scope must be \"host\" or \"tenant\"")
@@ -113,14 +113,17 @@ func (s *Server) handleScopedList(w http.ResponseWriter, r *http.Request, user *
 		s.block(w, r, user, scope, relative, err)
 		return
 	}
-	if abs, err := scope.manager.Resolve(relative); err == nil && !scope.writable && files.SystemPolicy().Protects(abs) {
+	// Read-only is a property of the directory being listed, not of the scope: an
+	// admin can create files in /tmp and cannot create any in /etc.
+	readOnly := scope.manager.Protects(relative)
+	if readOnly {
 		_ = s.store.Audit(user.ID, "files.read_system", scope.auditTarget(relative), clientIP(r), "")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path":     relative,
 		"scope":    scope.kind,
 		"root":     scope.root,
-		"readOnly": !scope.writable,
+		"readOnly": readOnly,
 		"items":    entries,
 		"maxSize":  scope.manager.MaxUploadBytes(),
 	})
@@ -142,8 +145,7 @@ func (s *Server) handleScopedRead(w http.ResponseWriter, r *http.Request, user *
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "This file is too large to open in the editor")
 		return
 	}
-	abs, _ := scope.manager.Resolve(relative)
-	protected := !scope.writable && files.SystemPolicy().Protects(abs)
+	protected := scope.manager.Protects(relative)
 	if protected {
 		_ = s.store.Audit(user.ID, "files.read_system", scope.auditTarget(relative), clientIP(r), fmt.Sprintf("%d bytes", len(data)))
 	}
@@ -325,7 +327,7 @@ func (s *Server) handleScopedDownload(w http.ResponseWriter, r *http.Request, us
 		s.block(w, r, user, scope, relative, err)
 		return
 	}
-	if abs, err := scope.manager.Resolve(relative); err == nil && !scope.writable && files.SystemPolicy().Protects(abs) {
+	if scope.manager.Protects(relative) {
 		_ = s.store.Audit(user.ID, "files.read_system", scope.auditTarget(relative), clientIP(r), fmt.Sprintf("download %d bytes", len(data)))
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")

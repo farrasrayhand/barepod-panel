@@ -366,6 +366,16 @@ func (m *Manager) Delete(relative string) error {
 	return m.ops.Remove(abs)
 }
 
+// Protects reports whether a path may be read but not changed, according to the
+// manager's policy. A site manager (no policy) always answers false.
+func (m *Manager) Protects(relative string) bool {
+	abs, err := m.Resolve(relative)
+	if err != nil {
+		return false
+	}
+	return m.policy.Protects(abs)
+}
+
 // Exists reports whether a path exists inside the site.
 func (m *Manager) Exists(relative string) (bool, error) {
 	abs, err := m.Resolve(relative)

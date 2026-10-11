@@ -74,6 +74,27 @@ func JailSupported() (bool, string) {
 	return jailAvailable, jailUnavailable
 }
 
+// MountNamespace names this process's mount namespace, e.g. "mnt:[4026531840]".
+// It is empty where /proc/ns is not readable.
+func MountNamespace() string {
+	inode, err := os.Readlink("/proc/self/ns/mnt")
+	if err != nil {
+		return ""
+	}
+	return inode
+}
+
+// SharesMountNamespace reports whether this process is in the mount namespace
+// named by inode. The daemon passes its own: if a helper ever finds itself in the
+// daemon's namespace, the namespace was not private and masking would hide the
+// real directories for everyone.
+func SharesMountNamespace(inode string) bool {
+	if inode == "" {
+		return false
+	}
+	return MountNamespace() == inode
+}
+
 // InPrivateNamespace reports whether this process has a mount namespace of its
 // own. Masking anywhere else would hide the real directories for the whole
 // machine, so Mask refuses to run without it.

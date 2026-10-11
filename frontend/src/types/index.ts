@@ -11,6 +11,7 @@ export type NavItem =
   | 'settings'
   | 'api'
   | 'profile'
+  | 'files'
   | 'backup';
 
 export type RuntimeType = 

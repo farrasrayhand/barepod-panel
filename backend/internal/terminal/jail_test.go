@@ -89,3 +89,21 @@ func TestJailSupportIsHonest(t *testing.T) {
 		t.Error("an unsupported host must explain why")
 	}
 }
+
+func TestMountNamespaceDetection(t *testing.T) {
+	// Where /proc/ns is readable (Linux), a process must recognise its own
+	// namespace: that is what makes "am I the daemon?" checkable.
+	current := MountNamespace()
+	if current == "" {
+		t.Skip("this platform has no mount namespaces")
+	}
+	if !SharesMountNamespace(current) {
+		t.Errorf("a process did not recognise its own mount namespace (%s)", current)
+	}
+	if SharesMountNamespace("mnt:[0]") {
+		t.Error("a foreign namespace was reported as ours")
+	}
+	if SharesMountNamespace("") {
+		t.Error("an empty namespace must never match (the daemon may not pass one)")
+	}
+}

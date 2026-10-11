@@ -158,6 +158,8 @@ func New(d Deps) http.Handler {
 	}))
 	mux.HandleFunc("POST /api/v1/files/delete", files(s.handleScopedDelete))
 	mux.HandleFunc("POST /api/v1/files/compress", files(s.handleScopedCompress))
+	// The picker behind the host-wide browser: which accounts have a home.
+	mux.HandleFunc("GET /api/v1/tenants", files(s.handleListTenants))
 
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)

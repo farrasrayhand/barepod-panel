@@ -17,6 +17,7 @@ import { ApiMcpView } from './components/ApiMcpView';
 import { Footer } from './components/Footer';
 import { ProfileView } from './components/ProfileView';
 import { DomainsView } from './components/DomainsView';
+import { HostFilesView } from './components/HostFilesView';
 import { BackupMigrationView } from './components/BackupMigrationView';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
@@ -42,6 +43,7 @@ const TAB_PATHS: Record<NavItem, string> = {
   settings: '/settings',
   api: '/api',
   profile: '/profile',
+  files: '/files',
   backup: '/backup',
 };
 
@@ -553,6 +555,20 @@ export function App() {
               onNavigate={navigate}
               onOpenAddModal={() => setIsAddModalOpen(true)}
             />
+          )}
+
+          {currentTab === 'files' && isAdmin && <HostFilesView onShowToast={showToast} />}
+
+          {currentTab === 'files' && !isAdmin && (
+            <div className="p-8 max-w-3xl mx-auto">
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2">
+                <h2 className="text-sm font-bold text-slate-900">Administrators only</h2>
+                <p className="text-xs text-slate-500">
+                  The host file browser spans every account, so it is limited to administrators. Your own files live in
+                  the File Manager of each website.
+                </p>
+              </div>
+            </div>
           )}
 
           {currentTab === 'monitoring' && (

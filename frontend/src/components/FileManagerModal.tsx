@@ -31,9 +31,10 @@ import {
   ExternalLink,
   Loader2,
   TriangleAlert,
+  Lock,
 } from 'lucide-react';
 import type { WebApp } from '../types';
-import { api, apiReachable, ApiError, type FileEntry as ApiFileEntry } from '../api/client';
+import { api, apiReachable, type FileScope, type FileEntry as ApiFileEntry } from '../api/client';
 import { createZip } from '../utils/zip';
 import { describeError } from '../utils/format';
 import { highlightCode } from '../utils/highlight';
@@ -46,7 +47,74 @@ interface FileManagerModalProps {
   onClose: () => void;
   app: WebApp | null;
   inline?: boolean;
+  /** Which tree this browser works on: one website (default), a whole host, or a tenant home. */
+  scope?: 'site' | 'host' | 'tenant';
+  /** The tenant whose home is open, when scope is "tenant". */
+  tenant?: string;
 }
+
+/** Everything the modal needs from the API, so one tree looks like another. */
+interface FileOps {
+  list(path: string): Promise<{ items: ApiFileEntry[]; readOnly: boolean; root: string }>;
+  read(path: string): Promise<{ content: string; encoding: 'utf-8' | 'base64'; binary: boolean; writable: boolean }>;
+  write(path: string, content: string, encoding: 'utf-8' | 'base64'): Promise<unknown>;
+  create(path: string): Promise<unknown>;
+  mkdir(path: string): Promise<unknown>;
+  rename(path: string, name: string): Promise<unknown>;
+  copy(from: string, to: string): Promise<unknown>;
+  move(from: string, to: string): Promise<unknown>;
+  remove(paths: string[]): Promise<unknown>;
+  compress(paths: string[]): Promise<Blob>;
+  upload(path: string, files: File[]): Promise<{ uploaded: string[] }>;
+  downloadUrl(path: string): string;
+}
+
+/** The website family takes a slug; the host-wide family takes a scope query. */
+const buildFileOps = (scope: 'site' | 'host' | 'tenant', target: string): FileOps => {
+  if (scope === 'site') {
+    const slug = target;
+    return {
+      list: async (path) => {
+        const result = await api.files(slug, path);
+        return { items: result.items, readOnly: false, root: '' };
+      },
+      read: async (path) => {
+        const result = await api.readFile(slug, path);
+        return { ...result, writable: true };
+      },
+      write: (path, content, encoding) => api.writeFile(slug, path, content, encoding),
+      create: (path) => api.createFile(slug, path),
+      mkdir: (path) => api.mkdir(slug, path),
+      rename: (path, name) => api.renameFile(slug, path, name),
+      copy: (from, to) => api.copyFiles(slug, from, to),
+      move: (from, to) => api.moveFiles(slug, from, to),
+      remove: (paths) => api.deleteFiles(slug, paths),
+      compress: (paths) => api.compressFiles(slug, paths),
+      upload: (path, files) => api.uploadFiles(slug, path, files),
+      downloadUrl: (path) => api.downloadUrl(slug, path),
+    };
+  }
+
+  const fileScope: FileScope = scope === 'host' ? { kind: 'host' } : { kind: 'tenant', tenant: target };
+  const scoped = api.scopedFiles;
+  return {
+    list: async (path) => {
+      const result = await scoped.list(fileScope, path);
+      return { items: result.items, readOnly: result.readOnly, root: result.root };
+    },
+    read: (path) => scoped.read(fileScope, path),
+    write: (path, content, encoding) => scoped.write(fileScope, path, content, encoding),
+    create: (path) => scoped.create(fileScope, path),
+    mkdir: (path) => scoped.mkdir(fileScope, path),
+    rename: (path, name) => scoped.rename(fileScope, path, name),
+    copy: (from, to) => scoped.copy(fileScope, from, to),
+    move: (from, to) => scoped.move(fileScope, from, to),
+    remove: (paths) => scoped.remove(fileScope, paths),
+    compress: (paths) => scoped.compress(fileScope, paths),
+    upload: (path, files) => scoped.uploadFiles(fileScope, path, files),
+    downloadUrl: (path) => scoped.downloadUrl(fileScope, path),
+  };
+};
 
 interface FileEntry {
   name: string;
@@ -62,6 +130,8 @@ interface FileEntry {
   content?: string;
   mediaType?: 'text' | 'image' | 'pdf' | 'audio' | 'video';
   symlinkTarget?: string;
+  /** A system path: readable, never writable (set by a host-scope listing). */
+  protected?: boolean;
 }
 
 interface ClipboardState {
@@ -113,7 +183,7 @@ const parentUiPath = (uiPath: string): string => {
   return parts.length ? `/${parts.join('/')}` : '/';
 };
 
-const toEntry = (item: ApiFileEntry, slug: string): FileEntry => {
+const toEntry = (item: ApiFileEntry, ops: FileOps): FileEntry => {
   const isFolder = item.type === 'directory';
   return {
     name: item.name,
@@ -122,9 +192,10 @@ const toEntry = (item: ApiFileEntry, slug: string): FileEntry => {
     modified: formatWhen(item.modifiedAt),
     permissions: item.mode,
     apiPath: item.path,
-    previewUrl: isFolder ? undefined : api.downloadUrl(slug, item.path),
+    previewUrl: isFolder ? undefined : ops.downloadUrl(item.path),
     mediaType: detectMediaType(item.name),
     symlinkTarget: item.symlinkTarget,
+    protected: item.protected,
   };
 };
 
@@ -133,8 +204,12 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   onClose,
   app,
   inline = false,
+  scope = 'site',
+  tenant = '',
 }) => {
-  const slug = app?.name ?? '';
+  const scopeTarget = scope === 'site' ? app?.name ?? '' : tenant;
+  const ops = React.useMemo(() => buildFileOps(scope, scopeTarget), [scope, scopeTarget]);
+  const [readOnlyRoot, setReadOnlyRoot] = useState(false);
 
   const [currentPath, setCurrentPath] = useState('/');
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
@@ -245,17 +320,24 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
   // The real listing: one call per directory change.
   useEffect(() => {
-    if (live !== true || !slug) return;
+    // The host scope needs no target (it is the whole machine); a tenant scope
+    // does. Requiring one for both is why the host root first came up empty.
+    if (live !== true) return;
+    if (scope !== 'host' && !scopeTarget) return;
     let cancelled = false;
     setLoading(true);
     setError('');
-    api
-      .files(slug, toApiPath(currentPath))
-      .then((res) => { if (!cancelled) setLiveEntries(res.items.map((item) => toEntry(item, slug))); })
+    ops
+      .list(toApiPath(currentPath))
+      .then((res) => {
+        if (cancelled) return;
+        setLiveEntries(res.items.map((item) => toEntry(item, ops)));
+        setReadOnlyRoot(res.readOnly);
+      })
       .catch((err) => { if (!cancelled) setError(describeError(err)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [live, slug, currentPath, reloadKey]);
+  }, [live, scopeTarget, ops, currentPath, reloadKey]);
 
   // Close context menu on outside click
   useEffect(() => {
@@ -266,7 +348,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     return () => window.removeEventListener('click', handleGlobalClick);
   }, []);
 
-  if (!app || (!isOpen && !inline)) return null;
+  if (!isOpen && !inline) return null;
+  // A website scope needs a website; the host-wide browser does not have one.
+  if (scope === 'site' && !app) return null;
 
   const currentFiles = live ? liveEntries : mockFs[currentPath] || [];
 
@@ -291,7 +375,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     }
     setBusy(true);
     try {
-      const result = await api.readFile(slug, file.apiPath ?? '');
+      const result = await ops.read(file.apiPath ?? '');
       setEditorEncoding(result.encoding);
       setEditorContent(result.content ?? '');
       if (result.binary) {
@@ -331,7 +415,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   const handleDownload = (file: FileEntry) => {
     if (live && file.apiPath !== undefined) {
       // The daemon sets Content-Disposition; the cookie authenticates it.
-      triggerDownload(api.downloadUrl(slug, file.apiPath), file.name);
+      triggerDownload(ops.downloadUrl(file.apiPath), file.name);
       showToast(`Downloading ${file.name}`);
       return;
     }
@@ -357,9 +441,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       }
       setBusy(true);
       try {
-        const blob = await api.compressFiles(slug, paths);
+        const blob = await ops.compress(paths);
         const url = URL.createObjectURL(blob);
-        triggerDownload(url, `${app.name}-selection.zip`);
+        triggerDownload(url, `${app?.name ?? 'selection'}-selection.zip`);
         URL.revokeObjectURL(url);
         showToast(`Downloading ${paths.length} items as a .zip archive`);
       } catch (err) {
@@ -389,7 +473,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (live && editingFile.apiPath !== undefined) {
       setBusy(true);
       try {
-        await api.writeFile(slug, editingFile.apiPath, editorContent, editorEncoding);
+        await ops.write(editingFile.apiPath, editorContent, editorEncoding);
         setIsSaved(true);
         showToast(`Saved ${editingFile.name}`);
         reload();
@@ -460,9 +544,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
           taken.push(targetName);
           const to = joinApiPath(currentPath, targetName);
           if (operation === 'copy') {
-            await api.copyFiles(slug, file.apiPath ?? '', to);
+            await ops.copy(file.apiPath ?? '', to);
           } else {
-            await api.moveFiles(slug, file.apiPath ?? '', to);
+            await ops.move(file.apiPath ?? '', to);
           }
         }
         showToast(operation === 'copy'
@@ -515,7 +599,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (live) {
       setBusy(true);
       try {
-        await api.deleteFiles(slug, [file.apiPath ?? '']);
+        await ops.remove([file.apiPath ?? '']);
         showToast(`Deleted ${file.name}`);
         reload();
       } catch (err) {
@@ -546,7 +630,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         .filter(Boolean);
       setBusy(true);
       try {
-        await api.deleteFiles(slug, paths);
+        await ops.remove(paths);
         setSelectedFiles([]);
         setSelectedFile(null);
         showToast(`${count} items deleted.`);
@@ -575,7 +659,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (live) {
       setBusy(true);
       try {
-        await api.copyFiles(slug, file.apiPath ?? '', joinApiPath(currentPath, newName));
+        await ops.copy(file.apiPath ?? '', joinApiPath(currentPath, newName));
         showToast(`Duplicated as ${newName}`);
         reload();
       } catch (err) {
@@ -602,7 +686,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (live) {
       setBusy(true);
       try {
-        await api.renameFile(slug, target.apiPath ?? '', newName);
+        await ops.rename(target.apiPath ?? '', newName);
         showToast(`Renamed to ${newName}`);
         setRenameModal({ isOpen: false, file: null, newName: '' });
         reload();
@@ -630,7 +714,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (live) {
       setBusy(true);
       try {
-        await api.createFile(slug, joinApiPath(currentPath, name));
+        await ops.create(joinApiPath(currentPath, name));
         setNewFileModal({ isOpen: false, name: '' });
         showToast(`Created ${name}`);
         reload();
@@ -666,7 +750,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (live) {
       setBusy(true);
       try {
-        await api.mkdir(slug, joinApiPath(currentPath, name));
+        await ops.mkdir(joinApiPath(currentPath, name));
         setNewFolderModal({ isOpen: false, name: '' });
         showToast(`Created folder ${name}`);
         reload();
@@ -698,7 +782,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     setBusy(true);
     setError('');
     try {
-      const result = await api.uploadFiles(slug, toApiPath(currentPath), files);
+      const result = await ops.upload(toApiPath(currentPath), files);
       showToast(`Uploaded ${result.uploaded.length} file${result.uploaded.length === 1 ? '' : 's'}`);
       reload();
     } catch (err) {
@@ -722,6 +806,16 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   };
 
   const breadcrumbSegments = currentPath.split('/').filter(Boolean);
+  const scopeLabel =
+    scope === 'host' ? 'Host root' : scope === 'tenant' ? `Tenant home — ${tenant}` : `Website — ${app?.name ?? ''}`;
+  const scopePath =
+    scope === 'host'
+      ? '/'
+      : scope === 'tenant'
+        ? `/home/${tenant}`
+        : `/home/${app?.tenantUser ?? ''}/apps/${app?.name ?? ''}`;
+  /** A protected entry can be opened and downloaded, never changed. */
+  const isLocked = (file: FileEntry | null | undefined) => Boolean(file?.protected);
 
   return (
     <div className={inline ? 'block' : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200'}>
@@ -748,9 +842,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-semibold text-sm">File Manager — {app.name}</span>
+                <span className="font-semibold text-sm">File Manager — {scopeLabel}</span>
                 <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">
-                  /home/{app.tenantUser}/apps/{app.name}
+                  {scopePath}
                 </span>
                 {live === true && (
                   <span className="text-[10px] bg-emerald-500/15 text-emerald-300 px-2 py-0.5 rounded font-semibold">
@@ -762,10 +856,17 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     Simulation (mock data)
                   </span>
                 )}
+                {live === true && readOnlyRoot && (
+                  <span className="flex items-center gap-1 text-[10px] bg-amber-500/15 text-amber-200 px-2 py-0.5 rounded font-semibold">
+                    <Lock className="w-3 h-3" /> System paths are read-only
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-400">
                 {live === true
-                  ? 'Files on the host, read and written as the tenant account'
+                  ? scope === 'site'
+                    ? 'Files on the host, read and written as the tenant account'
+                    : 'Everything is readable; the system keeps its own files safe from edits'
                   : 'No daemon on this machine — showing mock files'}
               </p>
             </div>
@@ -831,7 +932,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             {live === true && (
               <button
                 onClick={() => uploadInputRef.current?.click()}
-                disabled={busy}
+                disabled={busy || readOnlyRoot}
                 className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
                 title="Upload files into this directory"
               >
@@ -877,6 +978,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             )}
 
             <button
+              disabled={readOnlyRoot}
               onClick={() => setNewFileModal({ isOpen: true, name: '' })}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
             >
@@ -885,6 +987,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             </button>
 
             <button
+              disabled={readOnlyRoot}
               onClick={() => setNewFolderModal({ isOpen: true, name: '' })}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
             >
@@ -1062,6 +1165,14 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                               → {file.symlinkTarget}
                             </span>
                           )}
+                          {file.protected && (
+                            <span
+                              className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded"
+                              title="Protected (read-only): the panel lets you read this path but never change it"
+                            >
+                              <Lock className="w-3 h-3" /> Protected
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px]">{file.size}</td>
@@ -1088,7 +1199,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleSaveFile}
-                    disabled={busy}
+                    disabled={busy || isLocked(editingFile)}
                     className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded text-xs font-semibold shadow-xs transition-colors cursor-pointer"
                   >
                     {isSaved ? <Check className="w-3.5 h-3.5" /> : busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
@@ -1103,6 +1214,13 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   </button>
                 </div>
               </div>
+
+              {isLocked(editingFile) && (
+                <div className="px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-[11px] text-amber-200 flex items-center gap-2">
+                  <Lock className="w-3.5 h-3.5 shrink-0" />
+                  <span>This is a system file: it is shown read-only, and saving is disabled.</span>
+                </div>
+              )}
 
               {editorNote && (
                 <div className="px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-[11px] text-amber-200 flex items-center gap-2">
@@ -1191,6 +1309,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 </button>
 
                 <button
+                  disabled={isLocked(contextMenu.file)}
                   onClick={() => {
                     if (contextMenu.file) void handleDuplicate(contextMenu.file);
                     setContextMenu(null);
@@ -1202,6 +1321,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 </button>
 
                 <button
+                  disabled={isLocked(contextMenu.file)}
                   onClick={() => {
                     if (contextMenu.file) setRenameModal({ isOpen: true, file: contextMenu.file, newName: contextMenu.file.name });
                     setContextMenu(null);
@@ -1226,6 +1346,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 <div className="my-1 border-t border-slate-100" />
 
                 <button
+                  disabled={isLocked(contextMenu.file)}
                   onClick={() => {
                     if (contextMenu.file) void handleDelete(contextMenu.file);
                     setContextMenu(null);

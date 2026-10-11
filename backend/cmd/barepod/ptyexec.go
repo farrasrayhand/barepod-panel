@@ -25,6 +25,7 @@ func runPTYExec(args []string) error {
 	sitesRoot := fs.String("sites-root", "", "sites root")
 	statusFD := fs.Int("status-fd", 0, "fd that receives one status line for the daemon")
 	command := fs.String("command", "", "run one command instead of an interactive shell (diagnostics)")
+	parentNS := fs.String("parent-mnt-ns", "", "the daemon's mount namespace; masking is refused if this process shares it")
 	probe := fs.Bool("probe", false, "only check whether a jail can be built here, then exit")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -53,7 +54,15 @@ func runPTYExec(args []string) error {
 		return fmt.Errorf("pty-exec: %w", err)
 	}
 
-	masked, maskErr := terminal.Mask(siblings)
+	// Masking in the daemon's own namespace would hide the tenant's real
+	// directories for every process on the machine, so refuse that outright.
+	var maskErr error
+	masked := []string{}
+	if *parentNS != "" && terminal.SharesMountNamespace(*parentNS) {
+		maskErr = errors.New("this shell shares the daemon's mount namespace, so masking is unsafe")
+	} else {
+		masked, maskErr = terminal.Mask(siblings)
+	}
 	if maskErr != nil {
 		// The shell still opens, but it is not confined and the daemon is told so.
 		reportJailStatus(*statusFD, "jailed=0 masked=%d reason=%q", len(masked), maskErr.Error())

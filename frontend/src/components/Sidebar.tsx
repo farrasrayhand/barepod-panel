@@ -18,6 +18,7 @@ import {
   Archive,
   Webhook
 } from 'lucide-react';
+import { FolderTree } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { NavItem } from '../types';
 
@@ -25,6 +26,8 @@ interface SidebarProps {
   currentTab: NavItem;
   onSelectTab: (tab: NavItem) => void;
   collapsed: boolean;
+  /** The host file browser is an administrator's tool. */
+  isAdmin?: boolean;
 }
 
 interface NavGroupItem {
@@ -33,7 +36,7 @@ interface NavGroupItem {
   icon: LucideIcon;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed, isAdmin = false }) => {
   const [copiedIp, setCopiedIp] = useState(false);
 
   const handleCopyIp = (e: React.MouseEvent) => {
@@ -58,6 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
 
   const devItems: NavGroupItem[] = [
     { id: 'terminal', label: 'Isolated Web Terminal', icon: Terminal },
+    ...(isAdmin ? [{ id: 'files' as NavItem, label: 'Host Files', icon: FolderTree }] : []),
     { id: 'api', label: 'API & MCP', icon: Webhook },
     { id: 'users', label: 'Tenants & Multi-User', icon: Users },
     { id: 'settings', label: 'Panel Settings', icon: Settings },
