@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/terminal"
@@ -91,6 +92,16 @@ func runPTYExec(args []string) error {
 		}
 	}
 
+	// Inside the jail, bash gets a small rc file that bounces the prompt back to the
+	// website whenever it leaves it. The kernel already makes everything outside
+	// read-only and the other sites do not exist; this only stops the *shell* from
+	// wandering into the read-only system skeleton.
+	if rooted {
+		if err := writeProjectGuard(shellDir); err != nil {
+			fmt.Fprintf(os.Stderr, "barepod: could not install the directory guard: %v\r\n", err)
+		}
+	}
+
 	if err := terminal.DropPrivileges(*uid, *gid); err != nil {
 		return err
 	}
@@ -100,10 +111,43 @@ func runPTYExec(args []string) error {
 		sh = terminal.DefaultShell()
 	}
 	argv := []string{sh, "--login"}
+	if rooted && *command == "" && filepath.Base(sh) == "bash" {
+		argv = []string{sh, "--rcfile", projectGuardPath, "-i"}
+	}
 	if *command != "" {
 		argv = []string{sh, "-c", *command}
 	}
 	return terminal.Exec(sh, argv, terminal.ShellEnv(shellDir, *tenant), shellDir)
+}
+
+// projectGuardPath is the rc file installed inside the jail.
+const projectGuardPath = "/tmp/.barepod-shell"
+
+// writeProjectGuard drops a tiny rc file into the jail (its /tmp is private, so
+// nothing of the project is touched) which wraps cd and checks the prompt.
+func writeProjectGuard(project string) error {
+	script := `# BarePod: this shell belongs to one website.
+[ -r /etc/profile ] && . /etc/profile
+[ -r /etc/bash.bashrc ] && . /etc/bash.bashrc
+BAREPOD_PROJECT="` + project + `"
+cd() {
+  builtin cd "$@" 2>/dev/null || return 1
+  case "$PWD" in
+    "$BAREPOD_PROJECT"|"$BAREPOD_PROJECT"/*) ;;
+    *) echo "barepod: this shell lives in $BAREPOD_PROJECT — everything else is read-only" >&2
+       builtin cd "$BAREPOD_PROJECT" ;;
+  esac
+}
+barepod_keep_inside() {
+  case "$PWD" in
+    "$BAREPOD_PROJECT"|"$BAREPOD_PROJECT"/*) ;;
+    *) echo "barepod: this shell lives in $BAREPOD_PROJECT" >&2
+       builtin cd "$BAREPOD_PROJECT" ;;
+  esac
+}
+PROMPT_COMMAND="barepod_keep_inside${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+`
+	return os.WriteFile(projectGuardPath, []byte(script), 0o644)
 }
 
 // reportJailStatus writes the one line the daemon reads, then closes the pipe so
