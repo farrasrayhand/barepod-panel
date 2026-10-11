@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -37,6 +38,10 @@ type ptyTarget struct {
 	Dir      string
 	UID, GID int
 	Host     bool
+	// Tenant and Slug identify the site whose shell this is, so the session can
+	// be confined to that one directory (a host shell is never confined).
+	Tenant string
+	Slug   string
 }
 
 // upgrader allows the same host or a loopback origin (the Vite dev server runs
@@ -121,8 +126,10 @@ func (s *Server) handleWebsitePTY(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target := ptyTarget{
-		Title: site.Slug,
-		Dir:   s.host.SitePath(site.TenantUser, site.Slug),
+		Title:  site.Slug,
+		Dir:    s.host.SitePath(site.TenantUser, site.Slug),
+		Tenant: site.TenantUser,
+		Slug:   site.Slug,
 	}
 	// The shell must run as the site's owner, not as root.
 	if s.tenants != nil {
@@ -187,12 +194,15 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request, user *store.Us
 	defer func() { _ = conn.Close() }()
 
 	session, err := terminal.Start(terminal.Options{
-		Shell: terminal.DefaultShell(),
-		Dir:   target.Dir,
-		UID:   target.UID,
-		GID:   target.GID,
-		Cols:  100,
-		Rows:  30,
+		Shell:     terminal.DefaultShell(),
+		Dir:       target.Dir,
+		UID:       target.UID,
+		GID:       target.GID,
+		Cols:      100,
+		Rows:      30,
+		Tenant:    target.Tenant,
+		Site:      target.Slug,
+		SitesRoot: s.host.SitesRoot,
 	})
 	if err != nil {
 		_ = ws.json(map[string]any{"type": "error", "message": err.Error()})
@@ -200,16 +210,24 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request, user *store.Us
 	}
 	defer func() { _ = session.Close() }()
 
-	_ = s.store.Audit(user.ID, "terminal.open", auditTarget, clientIP(r), "shell="+session.Shell()+" as "+session.User())
+	jailed, masked := session.Jailed()
+	_ = s.store.Audit(user.ID, "terminal.open", auditTarget, clientIP(r),
+		fmt.Sprintf("shell=%s as %s jailed=%t masked=%d", session.Shell(), session.User(), jailed, masked))
 
 	note := "This shell runs as the website's owner account."
 	if target.Host {
 		note = "This is a host shell: commands run with the daemon's privileges (root)."
+	} else if jailed {
+		note = fmt.Sprintf("This shell runs as the website's owner and is confined to %s — the account's other folders (%d) are hidden.", target.Dir, masked)
+	} else {
+		note = "This shell runs as the website's owner, but this host cannot confine it (no mount namespaces), so it can also reach the account's other folders."
 	}
 	_ = ws.json(map[string]any{
 		"type":   "ready",
 		"target": target.Title,
 		"dir":    target.Dir,
+		"jailed": jailed,
+		"masked": masked,
 		"shell":  session.Shell(),
 		"user":   session.User(),
 		"mode":   s.host.Mode(),

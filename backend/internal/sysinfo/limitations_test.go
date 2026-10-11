@@ -49,10 +49,28 @@ func TestLimitationsOnAMacDevelopmentHost(t *testing.T) {
 func TestLimitationsIsEmptyOnAFullHost(t *testing.T) {
 	caps := Capabilities{
 		OS: "linux", Systemd: true, Smart: true, Fstrim: true,
-		Useradd: true, Quota: true, RunAsUser: true, DiskStats: true,
+		Useradd: true, Quota: true, RunAsUser: true, DiskStats: true, PTYJail: true,
 	}
 	if got := caps.Limitations(); len(got) != 0 {
 		t.Fatalf("a fully capable host reported limitations: %+v", got)
+	}
+}
+
+func TestLimitationsMentionTheTerminalJail(t *testing.T) {
+	// Without mount namespaces a site shell cannot be confined, and the panel has
+	// to say so rather than let an operator assume it is.
+	caps := Capabilities{OS: "linux", RunAsUser: true}
+	found := false
+	for _, l := range caps.Limitations() {
+		if l.Feature == "ptyJail" {
+			found = true
+			if l.Reason == "" || l.Advice == "" {
+				t.Errorf("the ptyJail limitation is missing text: %+v", l)
+			}
+		}
+	}
+	if !found {
+		t.Error("a host without mount namespaces must explain the unconfined terminal")
 	}
 }
 

@@ -43,6 +43,11 @@ func (c Capabilities) Limitations() []Limitation {
 			"Running a process as another user needs setuid/setgid, which only exists on Linux.",
 			"Run the daemon on Linux: tenant isolation (files owned by the tenant, terminals dropped to the tenant UID) depends on it. On this host everything runs in dry-run mode.")
 	}
+	if !c.PTYJail {
+		add("ptyJail",
+			"Confining a tenant shell to its own site needs a private mount namespace, and this host does not allow mounting one (unprivileged container, or not Linux).",
+			"Run the daemon in a privileged container or on a plain VPS: the terminal then hides the account's other sites and folders. Without it a website's shell runs as the tenant but can still reach that account's other files.")
+	}
 	return out
 }
 

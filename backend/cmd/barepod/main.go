@@ -41,6 +41,7 @@ Commands:
   service install       install the daemon as a systemd service (serve flags apply)
   service status        show whether barepod.service is installed/active/enabled
   service uninstall     stop, disable and remove the daemon's unit
+  pty-exec              hidden: open a site shell confined to one directory
   version               print the version
   help                  print this help
 
@@ -69,6 +70,9 @@ func main() {
 		err = runTenant(os.Args[2:])
 	case "service":
 		err = runService(os.Args[2:])
+	case "pty-exec":
+		// Hidden helper: a confined site shell (see internal/terminal).
+		err = runPTYExec(os.Args[2:])
 	case "fs-exec":
 		// Hidden helper: one file operation, run as the tenant (see internal/files).
 		err = runFSExec()

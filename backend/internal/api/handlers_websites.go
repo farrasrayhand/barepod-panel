@@ -5,6 +5,7 @@ import (
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/sysinfo"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/terminal"
 )
 
 // handleCapabilities reports what this host can actually do (systemd, LXC,
@@ -12,6 +13,11 @@ import (
 // gracefully — with guidance instead of an error — on an unprivileged container.
 func (s *Server) handleCapabilities(w http.ResponseWriter, _ *http.Request, _ *store.User, _ *store.Session) {
 	caps := sysinfo.Detect()
+	// The jail probe runs the daemon again in a throwaway namespace, so it lives
+	// with the terminal rather than in the sysinfo package.
+	if jailed, _ := terminal.JailSupported(); jailed {
+		caps.PTYJail = true
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"capabilities": caps,
 		"limitations":  caps.Limitations(),

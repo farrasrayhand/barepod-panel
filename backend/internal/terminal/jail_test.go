@@ -1,0 +1,91 @@
+package terminal
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// The list of what a site shell must not see is plain filesystem logic, so it is
+// tested everywhere — the mounting itself needs Linux and a real host.
+func TestSiblingsAreTheTenantsOtherFilesAndSites(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "bptest")
+	apps := filepath.Join(home, "apps")
+
+	for _, dir := range []string{
+		filepath.Join(apps, "web-flask"),
+		filepath.Join(apps, "web-flask2"),
+		filepath.Join(home, "downloads"),
+		filepath.Join(home, ".cache"),
+	} {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(home, "notes.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	spec := JailSpec{SitesRoot: root, Tenant: "bptest", Slug: "web-flask2"}
+	siblings, err := spec.Siblings()
+	if err != nil {
+		t.Fatalf("Siblings: %v", err)
+	}
+
+	joined := strings.Join(siblings, "\n")
+	for _, want := range []string{
+		filepath.Join(home, "downloads"),
+		filepath.Join(home, ".cache"),
+		filepath.Join(home, "notes.txt"),
+		filepath.Join(apps, "web-flask"),
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("a sibling was not masked: %s\n%s", want, joined)
+		}
+	}
+	for _, forbidden := range []string{
+		filepath.Join(apps, "web-flask2"),
+		filepath.Join(home, "apps"),
+		home,
+	} {
+		if strings.Contains(joined, forbidden+"\n") || joined == forbidden {
+			t.Errorf("the site itself would be masked: %s\n%s", forbidden, joined)
+		}
+	}
+}
+
+func TestSiblingsHandleATenantWithoutAppsYet(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "fresh"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	siblings, err := JailSpec{SitesRoot: root, Tenant: "fresh", Slug: "site"}.Siblings()
+	if err != nil {
+		t.Fatalf("Siblings: %v", err)
+	}
+	if len(siblings) != 0 {
+		t.Errorf("a tenant with nothing but its home needs no masks: %v", siblings)
+	}
+}
+
+func TestMaskRefusesToRunOutsideANamespace(t *testing.T) {
+	// Masking without a private namespace would hide the real directories for the
+	// whole machine, so the guard is mandatory (this process is not in one).
+	dir := t.TempDir()
+	if _, err := Mask([]string{dir}); err == nil {
+		t.Fatal("Mask ran outside a private mount namespace")
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("the directory must be untouched: %v", err)
+	}
+}
+
+func TestJailSupportIsHonest(t *testing.T) {
+	// Whatever the answer, it must come with a reason when it is "no".
+	supported, reason := JailSupported()
+	if !supported && strings.TrimSpace(reason) == "" {
+		t.Error("an unsupported host must explain why")
+	}
+}

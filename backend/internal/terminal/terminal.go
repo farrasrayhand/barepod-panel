@@ -43,6 +43,11 @@ type Options struct {
 	Env         map[string]string
 	Cols, Rows  uint16
 	IdleTimeout time.Duration
+	// Tenant, Site and SitesRoot let the shell be confined to one site: the
+	// tenant's other directories are masked inside a private mount namespace.
+	Tenant    string
+	Site      string
+	SitesRoot string
 }
 
 // Session is a running shell attached to a pseudo-terminal.
@@ -52,6 +57,8 @@ type Session struct {
 	shell   string
 	uid     int
 	gid     int
+	jailed  bool
+	masked  int
 	mu      sync.Mutex
 	closed  bool
 }
@@ -88,18 +95,32 @@ func Start(opts Options) (*Session, error) {
 	}
 
 	env := buildEnv(dir, opts.Env)
-	cmd := exec.Command(shell, "--login")
-	cmd.Dir = dir
-	cmd.Env = env
 
-	if opts.UID > 0 {
-		// Drop privileges: the kernel then enforces the tenant's own permissions.
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			Credential: &syscall.Credential{Uid: uint32(opts.UID), Gid: uint32(opts.GID)},
-			Setsid:     true,
+	// Preferred: a helper that masks the tenant's other sites inside a private
+	// mount namespace, then drops to the tenant and becomes the shell. Falling
+	// back is honest but weaker, so the session says which one happened.
+	var cmd *exec.Cmd
+	var statusReader *os.File
+	var closeStatusWriter func()
+	if opts.jailable() {
+		jailedCmd, reader, closer, err := newJailedCommand(opts, shell, dir, env)
+		if err == nil {
+			cmd, statusReader, closeStatusWriter = jailedCmd, reader, closer
 		}
-	} else {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
+	if cmd == nil {
+		cmd = exec.Command(shell, "--login")
+		cmd.Dir = dir
+		cmd.Env = env
+		if opts.UID > 0 {
+			// Drop privileges: the kernel then enforces the tenant's own permissions.
+			cmd.SysProcAttr = &syscall.SysProcAttr{
+				Credential: &syscall.Credential{Uid: uint32(opts.UID), Gid: uint32(opts.GID)},
+				Setsid:     true,
+			}
+		} else {
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		}
 	}
 
 	size := &pty.Winsize{Cols: opts.Cols, Rows: opts.Rows}
@@ -111,10 +132,60 @@ func Start(opts Options) (*Session, error) {
 	}
 
 	ptyFile, err := pty.StartWithSize(cmd, size)
+	if closeStatusWriter != nil {
+		// The child owns the descriptor now; the parent closes its copy so the
+		// read below sees EOF as soon as the helper is done reporting.
+		closeStatusWriter()
+	}
 	if err != nil {
+		if statusReader != nil {
+			_ = statusReader.Close()
+		}
 		return nil, fmt.Errorf("terminal: start shell: %w", err)
 	}
-	return &Session{ptyFile: ptyFile, cmd: cmd, shell: shell, uid: opts.UID, gid: opts.GID}, nil
+
+	session := &Session{ptyFile: ptyFile, cmd: cmd, shell: shell, uid: opts.UID, gid: opts.GID}
+	if statusReader != nil {
+		session.jailed, session.masked = readJailStatus(statusReader)
+		_ = statusReader.Close()
+	}
+	return session, nil
+}
+
+// jailable reports whether this session can be confined at all: it needs a
+// tenant to drop to, a site to keep, and a host that can build the namespace.
+func (o Options) jailable() bool {
+	if o.UID <= 0 || o.Tenant == "" || o.Site == "" || o.SitesRoot == "" {
+		return false
+	}
+	supported, _ := JailSupported()
+	return supported
+}
+
+// readJailStatus waits briefly for the helper's one-line report. A helper that
+// says nothing (it crashed, or the feature is off) means "not confined".
+func readJailStatus(reader *os.File) (bool, int) {
+	_ = reader.SetReadDeadline(time.Now().Add(750 * time.Millisecond))
+	buf := make([]byte, 128)
+	n, err := reader.Read(buf)
+	if err != nil && n == 0 {
+		return false, 0
+	}
+	line := strings.TrimSpace(string(buf[:n]))
+	jailed := strings.Contains(line, "jailed=1")
+	masked := 0
+	if _, value, found := strings.Cut(line, "masked="); found {
+		fmt.Sscanf(value, "%d", &masked)
+	}
+	return jailed, masked
+}
+
+// ShellEnv is the environment of a tenant shell: the daemon's PATH and tooling,
+// but the tenant's HOME and identity.
+func ShellEnv(dir, tenant string) []string {
+	env := buildEnv(dir, nil)
+	env = append(env, "USER="+tenant, "LOGNAME="+tenant)
+	return env
 }
 
 // buildEnv keeps the daemon's environment but makes sure HOME/TERM/PWD describe
@@ -198,3 +269,8 @@ func (s *Session) User() string {
 
 // Shell reports the interpreter that was started.
 func (s *Session) Shell() string { return filepath.Base(s.shell) }
+
+// Jailed reports whether the shell is confined to its site directory, and how
+// many other paths were hidden from it. It is false on a host that cannot build
+// the namespace, which the audit line and the UI both say out loud.
+func (s *Session) Jailed() (bool, int) { return s.jailed, s.masked }

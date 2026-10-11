@@ -183,7 +183,9 @@ Normative: a client must not offer a control the site type cannot use, and the s
 
 ### 4.5 Terminal
 - `WS /websites/:slug/pty` — tenant shell (runs as the tenant, cwd = the site directory, allow-listed shell)
-- **The shell is a real shell, and the isolation boundary is the tenant, not the site.** All sites of one tenant share a Linux UID, so a shell opened for one of them can also read and write the tenant's *other* sites and its home (`/home/<tenant>`); the file-manager jail applies to the API, not to a shell. Two customers' sites must therefore be two tenants — that is the model, not a bug. (Hard per-site shells would need a mount namespace per session, or one Linux user per site.)
+- **A site shell is confined to its site.** The daemon opens it inside a private mount namespace (`CLONE_NEWNS`) through a helper, which masks the tenant's other paths — the sibling sites under `apps/` and the rest of its home — as an empty `tmpfs` (directories) or `/dev/null` (files), then drops to the tenant's UID/GID. Global tooling keeps working; masking never runs outside a private namespace. The `ready` frame carries `jailed` and `masked`, and `terminal.open` is audited with them, so a client can show the truth instead of assuming.
+- **Hosts that cannot build the namespace** (unprivileged container, not Linux) still open the shell, but unconfined: `/system/capabilities` reports `ptyJail: false` and `limitations[]` explains it, and the `ready` frame says `jailed: false`. Never report a confined shell when it is not.
+- **Isolation is per tenant, not per site, at the account level**: sites of one tenant share a Linux UID, so two customers' sites must be two tenants. The confinement above covers the shell; the file-manager jail covers the API.
 - `WS /system/pty` — host root shell (**admin only**)
 - **Auth:** redeem a one-time ticket, never a session token in the URL — `POST /ws/ticket` → `{ ticket, expiresAt }` (30 s TTL, single use) → connect with `?ticket=…`. A replayed ticket is refused.
 - **Frames:** binary = stdin/stdout; text = control JSON:

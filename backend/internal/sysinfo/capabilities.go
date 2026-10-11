@@ -11,19 +11,22 @@ import (
 
 // Capabilities describes what the daemon can actually do on this host.
 type Capabilities struct {
-	OS           string `json:"os"`
-	Arch         string `json:"arch"`
-	Kernel       string `json:"kernel"`
-	Distro       string `json:"distro"`
-	Systemd      bool   `json:"systemd"`
-	LXC          bool   `json:"lxc"`
-	Docker       bool   `json:"docker"`
-	Smart        bool   `json:"smart"`
-	Fstrim       bool   `json:"fstrim"`
-	Useradd      bool   `json:"useradd"`   // can create Linux tenant accounts
-	Quota        bool   `json:"quota"`     // setquota/quota tools available
-	RunAsUser    bool   `json:"runAsUser"` // can drop to a tenant UID/GID (Linux)
-	DiskStats    bool   `json:"diskStats"` // /proc/diskstats is readable
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	Kernel    string `json:"kernel"`
+	Distro    string `json:"distro"`
+	Systemd   bool   `json:"systemd"`
+	LXC       bool   `json:"lxc"`
+	Docker    bool   `json:"docker"`
+	Smart     bool   `json:"smart"`
+	Fstrim    bool   `json:"fstrim"`
+	Useradd   bool   `json:"useradd"`   // can create Linux tenant accounts
+	Quota     bool   `json:"quota"`     // setquota/quota tools available
+	RunAsUser bool   `json:"runAsUser"` // can drop to a tenant UID/GID (Linux)
+	DiskStats bool   `json:"diskStats"` // /proc/diskstats is readable
+	// PTYJail reports that a tenant shell can be confined to its own site with a
+	// private mount namespace (Linux + CAP_SYS_ADMIN).
+	PTYJail      bool   `json:"ptyJail"`
 	SystemdState string `json:"systemdState"`
 }
 
