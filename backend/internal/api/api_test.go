@@ -1133,3 +1133,37 @@ func TestScopedQueryRefusesWhatItMust(t *testing.T) {
 		t.Errorf("binning a managed database = %d", resp.StatusCode)
 	}
 }
+
+func TestDbEnginesSayWhereEachEngineRuns(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	_, body := panel.do(t, http.MethodGet, "/api/v1/db-engines", nil)
+	var payload struct {
+		Items []struct {
+			Engine string `json:"engine"`
+			Mode   string `json:"mode"`
+			Note   string `json:"note"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Items) == 0 {
+		t.Fatal("no engines reported")
+	}
+	for _, engine := range payload.Items {
+		if engine.Mode == "" {
+			t.Errorf("%s does not say where it runs: %s", engine.Engine, body)
+		}
+		if engine.Mode != "host" && engine.Mode != "docker" && engine.Mode != "none" {
+			t.Errorf("%s reported an unknown mode %q", engine.Engine, engine.Mode)
+		}
+	}
+	// On a test host without Docker, an engine that is nowhere must say so.
+	for _, engine := range payload.Items {
+		if engine.Mode == "none" && engine.Note == "" {
+			t.Errorf("%s is in no mode without a reason", engine.Engine)
+		}
+	}
+}

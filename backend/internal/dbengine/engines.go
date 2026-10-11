@@ -35,8 +35,11 @@ type Engine struct {
 	// Running means the server answered a probe on this host.
 	Running bool `json:"running"`
 	// Automated means the panel can create/drop this engine's resources itself.
-	Automated bool   `json:"automated"`
-	Note      string `json:"note,omitempty"`
+	Automated bool `json:"automated"`
+	// Mode says where this engine runs on this host: a container, packages, or
+	// nowhere yet. The panel never leaves that implicit.
+	Mode EngineMode `json:"mode"`
+	Note string     `json:"note,omitempty"`
 }
 
 // catalog is the list of engines, with the versions the panel offers.
@@ -93,6 +96,11 @@ func Lookup(name string) (Engine, bool) {
 func Detect(ctx context.Context, runner host.Runner) []Engine {
 	engines := catalog()
 	real := runner != nil && runner.Mode() == "real"
+	// A container per engine is the tidier model — one authentication path, no
+	// packaging differences — but an unprivileged LXC simply cannot, so the host's
+	// answer decides the mode instead of a preference.
+	containers := DockerAvailable(ctx, runner)
+	recipes := containerImages()
 
 	for i := range engines {
 		engine := &engines[i]
@@ -101,22 +109,39 @@ func Detect(ctx context.Context, runner host.Runner) []Engine {
 			// into the sites that use it.
 			engine.Available = true
 			engine.Running = true
+			engine.Mode = ModeHost
 			continue
 		}
 
+		recipe, containerised := recipes[engine.Name]
 		if path, found := clientPath(engine.Client); found {
 			engine.Available = true
 			engine.ClientPath = path
 		}
 		if !engine.Available {
-			engine.Note = fmt.Sprintf("%s is not installed on this host.", engine.Client)
+			engine.Mode = ModeNone
+			if containers && containerised {
+				// Nothing is installed, but the panel can run it as a container here.
+				engine.Mode = ModeDocker
+				engine.Note = fmt.Sprintf("Nothing is installed, but this host runs containers: the panel can start %s as a container (%s, bound to 127.0.0.1).",
+					engine.Label, recipe.Image)
+				continue
+			}
+			engine.Note = fmt.Sprintf("%s is not installed on this host, and this host cannot run containers (Docker is unavailable), so the panel cannot offer it yet.",
+				engine.Client)
 			continue
 		}
 		if !real {
+			engine.Mode = ModeHost
 			engine.Note = runnerNote(*engine)
 			continue
 		}
+		engine.Mode = ModeHost
 		engine.Running, engine.Note = probeServer(ctx, runner, *engine)
+		if containers && containerised && !engine.Running {
+			engine.Note = fmt.Sprintf("%s is installed but its server did not answer; this host can also run it as a container (%s).",
+				engine.Client, recipe.Image)
+		}
 	}
 	return engines
 }
