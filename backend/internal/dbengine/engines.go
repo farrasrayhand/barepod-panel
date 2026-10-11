@@ -9,7 +9,9 @@ package dbengine
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -24,9 +26,10 @@ type Engine struct {
 	Versions    []string `json:"versions"`
 	DefaultPort int      `json:"port,omitempty"`
 	// FileBased engines (SQLite) live inside the site: no daemon, no credentials.
-	FileBased bool   `json:"fileBased"`
-	Client    string `json:"client,omitempty"`
-	Daemon    string `json:"daemon,omitempty"`
+	FileBased  bool   `json:"fileBased"`
+	Client     string `json:"client,omitempty"`
+	ClientPath string `json:"clientPath,omitempty"`
+	Daemon     string `json:"daemon,omitempty"`
 	// Available means the client for this engine is installed on the host.
 	Available bool `json:"available"`
 	// Running means the server answered a probe on this host.
@@ -101,7 +104,10 @@ func Detect(ctx context.Context, runner host.Runner) []Engine {
 			continue
 		}
 
-		engine.Available = hasClient(*engine)
+		if path, found := clientPath(engine.Client); found {
+			engine.Available = true
+			engine.ClientPath = path
+		}
 		if !engine.Available {
 			engine.Note = fmt.Sprintf("%s is not installed on this host.", engine.Client)
 			continue
@@ -115,12 +121,53 @@ func Detect(ctx context.Context, runner host.Runner) []Engine {
 	return engines
 }
 
-func hasClient(engine Engine) bool {
-	if engine.Client == "" {
-		return false
+// clientCandidates are the places a distribution may hide a client binary. The
+// daemon runs with a plain PATH (usually /usr/local/bin:/usr/bin), while Debian
+// keeps PostgreSQL in /usr/lib/postgresql/<n>/bin and RHEL in /usr/pgsql-<n>/bin,
+// and package managers use /snap, /opt or a brew prefix — so PATH alone reports
+// "not installed" on a host that has the engine.
+func clientCandidates(client string) []string {
+	if client == "" {
+		return nil
 	}
-	_, err := exec.LookPath(engine.Client)
-	return err == nil
+	return []string{
+		"/usr/lib/postgresql/*/bin/" + client,
+		"/usr/pgsql-*/bin/" + client,
+		"/usr/local/pgsql/bin/" + client,
+		"/opt/homebrew/bin/" + client,
+		"/home/linuxbrew/.linuxbrew/bin/" + client,
+		"/snap/bin/" + client,
+		"/opt/" + client + "/bin/" + client,
+	}
+}
+
+// hasClient reports whether a client is runnable, and where it is.
+func hasClient(engine Engine) bool {
+	_, ok := clientPath(engine.Client)
+	return ok
+}
+
+// clientPath finds the client: PATH first, then the distribution-specific places,
+// so the answer reflects the host instead of the daemon's PATH.
+func clientPath(client string) (string, bool) {
+	if client == "" {
+		return "", false
+	}
+	if found, err := exec.LookPath(client); err == nil {
+		return found, true
+	}
+	for _, pattern := range clientCandidates(client) {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, match := range matches {
+			if info, err := os.Stat(match); err == nil && !info.IsDir() {
+				return match, true
+			}
+		}
+	}
+	return "", false
 }
 
 func runnerNote(engine Engine) string {

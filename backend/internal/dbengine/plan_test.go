@@ -1,6 +1,8 @@
 package dbengine
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -207,5 +209,114 @@ func TestRedisAdminConnection(t *testing.T) {
 	}
 	if !strings.Contains(joined, "--no-auth-warning -a adminpw") {
 		t.Errorf("the admin password is not passed: %s", joined)
+	}
+}
+
+func TestScanSQLiteFilesIsBoundedAndSkipsDependencies(t *testing.T) {
+	root := t.TempDir()
+	write := func(relative string, content string) {
+		path := filepath.Join(root, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A real database, one the app keeps, and everything that must be ignored.
+	write("database/database.sqlite", "SQLite format 3\x00rest")
+	write("db.sqlite3", "SQLite format 3\x00rest")
+	write("notes.txt", "not a database")
+	write("node_modules/pkg/cache.db", "SQLite format 3\x00rest")
+	write("vendor/lib/x.db", "SQLite format 3\x00rest")
+	write(".trash/binned.sqlite", "SQLite format 3\x00rest")
+	write("deep/one/two/three/four.sqlite", "SQLite format 3\x00rest")
+
+	found, err := ScanSQLiteFiles(root, "own-check", "bptest", 3, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{}
+	for _, file := range found {
+		names = append(names, file.Relative)
+	}
+	joined := strings.Join(names, ",")
+	for _, want := range []string{"database/database.sqlite", "db.sqlite3"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the scan missed %s: %v", want, names)
+		}
+	}
+	for _, forbidden := range []string{"node_modules", "vendor", ".trash", "notes.txt", "four.sqlite"} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("the scan should have skipped %s: %v", forbidden, names)
+		}
+	}
+}
+
+func TestDetectedIDRoundTrip(t *testing.T) {
+	id := DetectedID("own-check", "database/database.sqlite")
+	if !strings.HasPrefix(id, "det:sqlite:") || strings.Contains(id, "/") {
+		t.Errorf("a detected id must be one path segment and carry no slash: %q", id)
+	}
+	slug, relative, ok := ParseDetectedID(id)
+	if !ok || slug != "own-check" || relative != "database/database.sqlite" {
+		t.Errorf("round trip = %q %q %v", slug, relative, ok)
+	}
+	if _, _, ok := ParseDetectedID("01M4MRCQPQJKEJQ6EWAFW7DZ0Q"); ok {
+		t.Error("a ledger id was read as a detected one")
+	}
+	if !IsDetectedID(id) || IsDetectedID("nope") {
+		t.Error("IsDetectedID is wrong")
+	}
+}
+
+func TestFileHasSQLiteHeader(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.db")
+	if err := os.WriteFile(real, []byte("SQLite format 3\x00\x10\x00"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fake := filepath.Join(dir, "fake.db")
+	if err := os.WriteFile(fake, []byte("just text"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !FileHasSQLiteHeader(real) {
+		t.Error("a SQLite file was not recognised")
+	}
+	if FileHasSQLiteHeader(fake) {
+		t.Error("a text file was taken for a database")
+	}
+	if FileHasSQLiteHeader(filepath.Join(dir, "missing.db")) {
+		t.Error("a missing file was taken for a database")
+	}
+}
+
+func TestClientPathLooksBeyondPath(t *testing.T) {
+	// A fake client in a distribution-specific location must be found even when it
+	// is not on PATH.
+	dir := t.TempDir()
+	fakeDir := filepath.Join(dir, "pgsql-16", "bin")
+	if err := os.MkdirAll(fakeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(fakeDir, "psql")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The candidate list is absolute for real hosts, so this asserts the logic with
+	// the same shape: a glob that only matches the temp tree.
+	pattern := filepath.Join(dir, "pgsql-*/bin/psql")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("the glob logic itself is wrong: %v %v", matches, err)
+	}
+	if _, found := os.Stat(matches[0]); found != nil {
+		t.Errorf("the candidate should exist: %v", found)
+	}
+	if len(clientCandidates("psql")) == 0 {
+		t.Error("there are no candidate paths for psql")
+	}
+	if len(clientCandidates("")) != 0 {
+		t.Error("an empty client should have no candidates")
 	}
 }

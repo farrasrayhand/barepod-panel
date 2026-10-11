@@ -40,6 +40,9 @@ type Database struct {
 	DeletedAt   string `json:"deletedAt,omitempty"`
 	CreatedAt   string `json:"createdAt"`
 	FileBased   bool   `json:"fileBased"`
+	// Detected marks a file the panel found inside a website: the application made
+	// it, so the panel reports and browses it but never deletes it.
+	Detected bool `json:"detected,omitempty"`
 	// SizeBytes is measured when it can be (a file-based database is one stat
 	// call); it stays 0 rather than carrying an invented number.
 	SizeBytes int64 `json:"sizeBytes,omitempty"`

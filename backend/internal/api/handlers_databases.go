@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
@@ -60,7 +62,16 @@ func canManageDatabase(user *store.User, db *store.Database) bool {
 // touch (404, not 403: the panel never confirms that someone else's resource
 // exists).
 func (s *Server) findDatabase(w http.ResponseWriter, r *http.Request, user *store.User, kind string) (*store.Database, bool) {
-	record, err := s.store.DatabaseByID(r.PathValue("id"))
+	id := r.PathValue("id")
+	if dbengine.IsDetectedID(id) {
+		record, ok := s.detectedDatabase(id, kind, user)
+		if !ok {
+			writeError(w, http.StatusNotFound, "not_found", "No such record")
+			return nil, false
+		}
+		return record, true
+	}
+	record, err := s.store.DatabaseByID(id)
 	if err != nil || record.Kind != kind || !canManageDatabase(user, record) {
 		writeError(w, http.StatusNotFound, "not_found", "No such record")
 		return nil, false
@@ -80,6 +91,98 @@ func withSizes(items []store.Database) []store.Database {
 		}
 	}
 	return items
+}
+
+// detectedDatabase turns a "det:" id back into a record, re-checking that the file
+// is still inside a website the caller may manage and that it really is a SQLite
+// database. Nothing is stored for it.
+func (s *Server) detectedDatabase(id, kind string, user *store.User) (*store.Database, bool) {
+	slug, relative, ok := dbengine.ParseDetectedID(id)
+	if !ok {
+		return nil, false
+	}
+	site, err := s.store.WebsiteBySlug(slug)
+	if err != nil || !canManageSite(user, site) {
+		return nil, false
+	}
+	root := s.host.SitePath(site.TenantUser, site.Slug)
+	full := filepath.Join(root, filepath.FromSlash(relative))
+	cleanRoot, cleanFull := filepath.Clean(root), filepath.Clean(full)
+	if !strings.HasPrefix(cleanFull, cleanRoot+string(filepath.Separator)) {
+		return nil, false // a relative path that climbed out of the site
+	}
+	if !dbengine.FileHasSQLiteHeader(cleanFull) {
+		return nil, false
+	}
+	info, err := os.Stat(cleanFull)
+	if err != nil || info.IsDir() {
+		return nil, false
+	}
+	return &store.Database{
+		ID: id, Kind: kind, Engine: "sqlite", FileBased: true, Detected: true,
+		WebsiteSlug: site.Slug, TenantUser: site.TenantUser,
+		Alias: filepath.Base(relative), Name: filepath.Base(relative),
+		FilePath: cleanFull, Status: "ready", SizeBytes: info.Size(),
+		CreatedAt: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"),
+	}, true
+}
+
+// detectedFor lists the SQLite files inside the websites a caller may manage.
+func (s *Server) detectedFor(user *store.User, kind string) []store.Database {
+	if kind != store.KindDatabase {
+		return nil
+	}
+	sites, err := s.store.ListWebsites()
+	if err != nil {
+		return nil
+	}
+	// A file the ledger already knows about is not "detected": otherwise a database
+	// the panel created shows up twice (once as managed, once as found).
+	known := map[string]bool{}
+	if records, err := s.store.DatabasesForTenant(kind, "", false); err == nil {
+		for _, record := range records {
+			if record.FilePath != "" {
+				known[filepath.Clean(record.FilePath)] = true
+			}
+		}
+	}
+	out := []store.Database{}
+	for i := range sites {
+		site := &sites[i]
+		if !canManageSite(user, site) {
+			continue
+		}
+		root := s.host.SitePath(site.TenantUser, site.Slug)
+		found, err := dbengine.ScanSQLiteFiles(root, site.Slug, site.TenantUser, 3, 25)
+		if err != nil {
+			continue
+		}
+		for _, file := range found {
+			if known[filepath.Clean(file.Path)] || !dbengine.FileHasSQLiteHeader(file.Path) {
+				continue
+			}
+			out = append(out, store.Database{
+				ID: dbengine.DetectedID(file.SiteSlug, file.Relative), Kind: kind,
+				Engine: "sqlite", FileBased: true, Detected: true,
+				WebsiteSlug: file.SiteSlug, TenantUser: file.TenantUser,
+				Alias: filepath.Base(file.Relative), Name: filepath.Base(file.Relative),
+				FilePath: file.Path, Status: "ready", SizeBytes: file.SizeBytes,
+				CreatedAt: file.ModifiedAt,
+			})
+		}
+	}
+	return out
+}
+
+// refuseDetected explains why an application's own database cannot be changed from
+// here (the File Manager is the honest way to delete a file).
+func refuseDetected(w http.ResponseWriter, record *store.Database) bool {
+	if !record.Detected {
+		return false
+	}
+	writeError(w, http.StatusConflict, "app_managed",
+		"This database belongs to the application, not to the panel: browse and query it here, and delete the file from the File Manager if you really mean to")
+	return true
 }
 
 // engineFor answers with the engine as this host really has it. The catalog entry
@@ -118,8 +221,14 @@ func (s *Server) handleListDatabases(kind string) authedHandler {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not list the records")
 			return
 		}
+		if !binned {
+			// Files the application created belong in the answer: a page that says
+			// "no databases" while the app has one is worse than useless.
+			items = append(items, s.detectedFor(user, kind)...)
+			sort.SliceStable(items, func(i, j int) bool { return items[i].Alias < items[j].Alias })
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"items":         items,
+			"items":         withSizes(items),
 			"bin":           binned,
 			"retentionDays": 30,
 		})
@@ -437,6 +546,9 @@ func (s *Server) handleRotateDatabasePassword(kind string) authedHandler {
 		if !ok {
 			return
 		}
+		if refuseDetected(w, record) {
+			return
+		}
 		var req rotateRequest
 		if r.ContentLength > 0 {
 			if err := decodeJSON(r, &req); err != nil {
@@ -486,6 +598,9 @@ func (s *Server) handleRevealDatabase(kind string) authedHandler {
 		// unelevated caller, or the refusal itself would confirm it exists.
 		record, ok := s.findDatabase(w, r, user, kind)
 		if !ok {
+			return
+		}
+		if refuseDetected(w, record) {
 			return
 		}
 		if !sessionElevated(sess) {
@@ -559,6 +674,9 @@ func (s *Server) handleBinDatabase(kind string) authedHandler {
 		if !ok {
 			return
 		}
+		if refuseDetected(w, record) {
+			return
+		}
 		if err := s.suspendDatabase(r.Context(), record); err != nil {
 			writeError(w, http.StatusBadGateway, "service_error", err.Error())
 			return
@@ -630,6 +748,9 @@ func (s *Server) handlePurgeDatabase(kind string) authedHandler {
 	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 		record, ok := s.findDatabase(w, r, user, kind)
 		if !ok {
+			return
+		}
+		if refuseDetected(w, record) {
 			return
 		}
 		if err := s.purgeDatabase(r.Context(), record); err != nil {
