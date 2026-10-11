@@ -270,20 +270,29 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 		if !spec.Container {
 			return fmt.Errorf("%s could not be started: %s", spec.Name, strings.TrimSpace(out))
 		}
-		// Docker refuses a container *instantly* when its name or its loopback port is
-		// still held by one that was just removed — which is exactly the moment somebody
-		// opens a manager right after another one went away, and it surfaced as a 502 in
-		// 171 ms rather than as the startup wait it looked like. Clear the name and try
-		// once more: the retry turns a refusal the operator sees into a start that simply
-		// takes a moment.
-		_, _ = s.runner.Run(ctx, "", "docker", "rm", "-f", spec.ContainerName)
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(containerRetryWait):
+		// Docker refuses a container *instantly* while its name or its loopback port is
+		// still held by the one that was just removed — which is exactly the moment
+		// somebody opens a manager right after another one went away, and it surfaced as a
+		// 502 in 171 ms rather than as the startup wait it looked like. One retry reduced
+		// that (1 failure in 3 measured attempts) without removing it, so this clears the
+		// name and tries a few times: a refusal the operator sees is worse than a start
+		// that takes a second or two.
+		startErr, detail := err, strings.TrimSpace(out)
+		for attempt := 0; attempt < containerStartAttempts && startErr != nil; attempt++ {
+			_, _ = s.runner.Run(ctx, "", "docker", "rm", "-f", spec.ContainerName)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(containerRetryWait):
+			}
+			var retryOut string
+			retryOut, startErr = s.runner.Run(ctx, "", start[0], start[1:]...)
+			if startErr != nil {
+				detail = strings.TrimSpace(retryOut)
+			}
 		}
-		if out, err = s.runner.Run(ctx, "", start[0], start[1:]...); err != nil {
-			return fmt.Errorf("%s could not be started: %s", spec.Name, strings.TrimSpace(out))
+		if startErr != nil {
+			return fmt.Errorf("%s could not be started: %s", spec.Name, detail)
 		}
 	}
 
@@ -318,8 +327,13 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 const startupWait = 20 * time.Second
 
 // containerRetryWait is how long to let Docker release a name and a loopback port before
-// starting the replacement for a container that was just removed.
-const containerRetryWait = 1500 * time.Millisecond
+// starting the replacement for a container that was just removed, and
+// containerStartAttempts is how many times that replacement is attempted before the
+// refusal is reported.
+const (
+	containerRetryWait     = 1200 * time.Millisecond
+	containerStartAttempts = 4
+)
 
 // logPathFor is where a tool's output is captured: one small file per tool, so a
 // start that fails can say why. An empty LogDir discards it.
