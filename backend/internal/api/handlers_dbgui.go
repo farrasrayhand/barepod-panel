@@ -36,9 +36,13 @@ func writeManagerStarting(w http.ResponseWriter, tool, mount string, cause error
 	// The look is the maintenance page's own (light card, amber status dot with the ping
 	// animation, a bouncing icon, prefers-reduced-motion honoured) so a visitor sees one
 	// panel, not two designs. Keep the two in step when either changes.
+	// No `meta refresh`: it reloads for ever when the manager genuinely cannot come up
+	// (a missing file, a port held elsewhere), and a browser answers that with
+	// ERR_TOO_MANY_RETRIES after a few dozen round trips — which is exactly what an
+	// operator saw. The reload is scripted and bounded instead, and when the attempts run
+	// out the page stops and says so, with the reason under it.
 	_, _ = fmt.Fprintf(w, `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="2">
 <title>Preparing %[1]s · BarePod Panel</title>
 <style>
 *{box-sizing:border-box}
@@ -67,7 +71,9 @@ a:hover{text-decoration:underline}
 </style></head>
 <body><main class="card">
 <div class="icon">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+<!-- Its own glyph, not the status page's database cylinder: the two pages share a look,
+     not a message, and an operator should see at a glance which one they are on. -->
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
 <span class="pill">Starting</span>
 </div>
 <h1>Preparing %[1]s…</h1>
@@ -79,8 +85,25 @@ a:hover{text-decoration:underline}
 <div class="row"><span>Panel</span><a href="%[2]s/">reload now</a></div>
 </div>
 <p class="reason">%[3]s</p>
-<p class="footer">Nothing needs to be clicked — this page reloads itself until the manager answers.</p>
-</main></body></html>
+<p class="footer" id="waiting">Nothing needs to be clicked — this page reloads itself until the manager answers.</p>
+<p class="footer" id="stuck" hidden>It is not coming up. The reason above is the daemon's own — <a href="%[2]s/">try again</a>.</p>
+</main>
+<script>
+// Twelve attempts, about twenty-five seconds: enough for a cold container, few enough
+// that a manager which cannot start stops hammering the panel and the browser.
+(function () {
+  var tries = parseInt(sessionStorage.getItem('bpod.manager.wait') || '0', 10);
+  if (tries >= 12) {
+    document.getElementById('waiting').hidden = true;
+    document.getElementById('stuck').hidden = false;
+    sessionStorage.removeItem('bpod.manager.wait');
+    return;
+  }
+  sessionStorage.setItem('bpod.manager.wait', String(tries + 1));
+  setTimeout(function () { location.reload(); }, 1800);
+})();
+</script>
+</body></html>
 `, html.EscapeString(tool), html.EscapeString(mount), html.EscapeString(cause.Error()))
 }
 
@@ -415,6 +438,18 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 			writeError(w, http.StatusConflict, "not_applicable",
 				"This is a file, not a server: use the Data Browser & SQL tab")
 			return
+		}
+		// DbGate opens a SQLite file itself, so for that one tool the file has to exist. A
+		// file whose website was deleted has nothing to open, and starting a manager for it
+		// only fails — which used to mean a waiting page reloading until the browser gave up
+		// with ERR_TOO_MANY_RETRIES. Saying so is quicker and true.
+		if tool == "dbgate" && record.FileBased && record.FilePath != "" {
+			if _, err := os.Stat(record.FilePath); err != nil {
+				writeError(w, http.StatusConflict, "not_ready", fmt.Sprintf(
+					"its file is gone (%s) — the website it lived in was deleted, so there is nothing to open",
+					record.FilePath))
+				return
+			}
 		}
 		if reason, runnable := s.guiToolRunnable(spec); !runnable {
 			writeError(w, http.StatusNotImplemented, "not_installed",

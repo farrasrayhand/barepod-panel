@@ -93,6 +93,12 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+// wantsHTML reports whether this request is a browser asking for a page rather than a
+// client asking for data: a navigation sends Accept: text/html, fetch/XHR does not.
+func wantsHTML(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "text/html")
+}
+
 // requestScheme is the scheme the visitor is really on, which is not necessarily the
 // scheme of the last hop: behind a tunnel or reverse proxy (Cloudflare Tunnel, nginx)
 // the daemon is reached over plain HTTP while the visitor is on HTTPS, and
@@ -127,6 +133,14 @@ func (s *Server) requireSession(csrf bool, next authedHandler) http.HandlerFunc 
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(sessionCookie)
 		if err != nil || cookie.Value == "" {
+			// A browser that lands here — an incognito tab opened straight on a manager's
+			// path, say — is sent to the sign-in screen the contract promises it, instead of
+			// being shown raw JSON. The frontend remembers the path it was asked for, so
+			// signing in returns there.
+			if wantsHTML(r) {
+				http.Redirect(w, r, "/login", http.StatusFound)
+				return
+			}
 			writeError(w, http.StatusUnauthorized, "unauthenticated", "Sign in required")
 			return
 		}
