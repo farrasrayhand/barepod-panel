@@ -1,5 +1,5 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Document Version:** 0.1 (Prototype) — Phase 1 frontend prototype complete; Phase 2 Go daemon in progress (no real site started yet)
+> **Document Version:** 0.2 (Prototype) — a website now really runs end-to-end on a Linux host (systemd + cgroup v2 + tenant isolation), verified on an LXC container
 > **Last Updated:** October 10, 2026  
 > **Status:** Active & Maintained
 
@@ -10,6 +10,10 @@ invent its own version.
 
 - **0.x = prototype line.** It stays on `0.1` while the panel is still a
   prototype (mock UI, dry-run provisioning, no release artefact).
+- **0.1 → 0.2 (reached):** the milestone was *"a website really runs end-to-end on
+  a Linux host"*. Verified on Ubuntu 24.04 in an LXC container: unit active,
+  service running as the tenant, cgroup limits applied, health check green, files
+  created through the API owned by the tenant, per-site metrics from the cgroup.
 - **It only moves when a milestone is finished**, e.g. `0.2` = a website really
   runs end-to-end on a Linux host; `0.3` = databases module; `1.0` = first
   release with the installer and a supported upgrade path. Commits, features in
@@ -54,10 +58,10 @@ Changes in Phase 1 (React UI prototype):
 - **Navigation rules**: menu changes start at the top of the page, the Terminal menu always starts at the session picker, the black "Terminal root" button scrolls the shell into view, and switching tabs does not move the page.
 - **The address bar always matches the screen**: a path that is not a panel route (e.g. `/asdasdasd`) is corrected to the route actually shown and explained with a toast, and `/apps/<unknown>` returns to the website list instead of half-loading it. The daemon answers an unknown `/api/*` route with a JSON `404` (never the SPA), while page paths keep the SPA fallback deep links need.
 - **Monitoring shows the daemon's numbers**: CPU (with real cores and load average), memory, host filesystem, disk/network rates and the trend charts come from `GET /system/metrics` + `GET /system/capabilities`; anything the daemon cannot provide is labelled instead of faked, and without a daemon the page says "Simulation (mock data)".
+- **0.2 — first real deploy, plus the lifecycle around it**: on a Linux LXC the daemon runs `mode: real` and a scaffolded Flask site is genuinely live (unit active, running as the tenant, cgroup limits from the package, health check green, app answering). The three bugs only a real host could reveal are fixed — **two `ExecStart=` settings** (systemd refused the unit), **root-owned `.env`** (breaks runtime dotenv), and **presets without an entrypoint** (scaffold produced a site that could not start) — each with a regression test. Teardown and redeploy arrived: `DELETE /websites/:slug` stops the unit, removes the drop-in, deletes the app directory (guarded to stay inside the sites root) and forgets the rows, and `POST /websites/:slug/redeploy` re-runs the pipeline from the source recorded at create time while keeping the existing database and cache. The version now has one source (`api.Version`, surfaced by `/health` and the footer).
 
-> **Versioning note:** the panel is still a prototype, so the document stays on
-> **0.1** until the milestone is reached (see the versioning policy at the top):
-> the frontend is a prototype and the daemon runs in dry-run off Linux.
+> **Versioning note:** the panel is still a prototype, so the document stays in the
+> 0.x line (**0.2** since a site really runs on Linux — see the policy at the top).
 
 - **Guided Deploy wizard**: "Deploy New Website" is now a 5-step flow (Basics → Engine & Runtime → Source → Database & Cache → Review), with per-mode step sets for reverse proxy and static sites.
 - **Source selection**: Scaffold/Download (framework preset), GitHub repository (branch + auto-deploy webhook), Upload archive, or Existing files (with directory verification that blocks deploy when the folder is missing).
@@ -357,7 +361,9 @@ graph TD
   - ✅ **LXC-aware degradation**: `GET /system/capabilities` also returns a **`limitations[]`** list (reason + advice) for what an unprivileged container cannot do — S.M.A.R.T. (no block device), fstrim (no discard; use host `fstrim.timer` or pool `discard`/`autotrim`), `setquota` (use host-side quotas) — instead of showing an error. CPU/RAM capacity stays container-aware.
   - ✅ **Metrics** (`internal/metrics`): a background sampler (default 15s, ring buffer in memory) serves `GET /system/metrics?range=1h` and `GET /websites/:slug/metrics`. Host figures come from `/proc` (stat deltas, meminfo, diskstats, net/dev) with real deltas — the first sample reports rates as 0 instead of averaging over uptime — and per-website figures from cgroup v2 (`memory.current`, `memory.max`, `pids.current`, `cpu.stat`). Raw numbers + RFC3339 only; a metric the host cannot provide is **unavailable with a reason**, never a fake zero.
   - ✅ **Frontend wired to the API**: `src/api/client.ts` (session, websites, deploy SSE, files, terminal ticket, metrics, capacity), `useSession` (daemon reachable → real login; otherwise the prototype stays in simulation mode with its mock data), a real **sign-in screen** (with the `barepod admin create` hint), the website list loaded from the daemon with per-site metrics, and a **live terminal pane** (`@xterm/xterm`) over the ticketed WebSocket — tenant shell per website, host shell switch for admins.
-  - ⏳ Next: wiring the remaining views (monitoring charts, file manager tab, databases) to the API, then the databases module.
+  - ✅ **Website lifecycle**: `DELETE /websites/:slug` tears a site down for real (stop + disable the unit, remove the drop-in and reload systemd, delete the app directory **inside the sites root only**, forget the secrets and the row) and `POST /websites/:slug/redeploy` re-runs the pipeline from the source recorded at create time, keeping the existing database and cache. No more cleaning up by hand after a failed deploy.
+  - ✅ **Version has one source**: `api.Version` (0.2.0-prototype) is what `/health` reports, what the CLI prints and what the footer shows.
+  - ⏳ Next: wiring the remaining views (file manager tab, databases) to the API, then the databases module, then pods/Docker and the installer (daemon systemd unit).
 * **Phase 3: Host OS & Container Integration (SCHEDULED 📋)**:
   - Docker Engine SDK (`docker/moby`) integration for container pod management.
   - File Manager backend API (reading/writing real Linux directories with isolated tenant user privileges).

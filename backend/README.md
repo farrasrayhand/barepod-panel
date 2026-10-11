@@ -63,6 +63,12 @@ Everywhere else (macOS, containers without systemd, `-dry-run`) the daemon runs 
 **dry-run**: it records the commands, writes the units and `.env`, and reports
 `mode: "dry-run"` — the website is left `stopped` rather than faking a success.
 
+> **Verified on a real host (0.2):** on Ubuntu 24.04 in an LXC container the daemon
+> ran `mode: real` and a scaffolded Flask site came up end-to-end — unit active,
+> service running as the tenant, cgroup limits applied (`memory.max`, `cpu.max`,
+> `pids.max`), health check green, files created through the API owned by the
+> tenant, per-site metrics read from the cgroup.
+
 ## Endpoints
 
 | Method | Path | Notes |
@@ -90,6 +96,8 @@ Everywhere else (macOS, containers without systemd, `-dry-run`) the daemon runs 
 | `POST` | `/api/v1/websites` | Deploy wizard payload → `202` + `deployId` |
 | `POST` | `/api/v1/websites/prepare-directory` | Create `/home/<tenant>/apps/<slug>` for "Existing Files" |
 | `GET` | `/api/v1/websites/{slug}` | Website detail |
+| `DELETE` | `/api/v1/websites/{slug}` | Full teardown: stop/disable the unit, remove the drop-in, delete the app directory, forget the rows |
+| `POST` | `/api/v1/websites/{slug}/redeploy` | Re-run the pipeline from the recorded source (keeps the existing database/cache) |
 | `GET` | `/api/v1/websites/{slug}/deploy` | Latest deploy job |
 | `GET` | `/api/v1/websites/{slug}/deploy/{id}` | Job + log (poll with `?after=<id>`) |
 | `GET` | `/api/v1/websites/{slug}/deploy/stream` | SSE log stream, ends with `event: done` |

@@ -15,9 +15,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/api"
 )
 
-const version = "0.1.0-prototype"
+// version comes from the api package: one source of truth for the panel version.
+var version = api.Version
 
 func usage() {
 	fmt.Fprint(os.Stderr, `BarePod Panel — self-hosted control panel

@@ -280,6 +280,67 @@ func TestFileManagerRequiresTheCapability(t *testing.T) {
 	}
 }
 
+func TestDeleteWebsiteRemovesEverything(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	resp, body := panel.do(t, http.MethodDelete, "/api/v1/websites/admin-site", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("delete status = %d (%s)", resp.StatusCode, body)
+	}
+	var payload struct {
+		Slug  string   `json:"slug"`
+		Steps []string `json:"steps"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Slug != "admin-site" || len(payload.Steps) == 0 {
+		t.Errorf("delete response = %s", body)
+	}
+	if _, err := panel.store.WebsiteBySlug("admin-site"); err != store.ErrNotFound {
+		t.Errorf("the row survived the delete: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(panel.home, "admin", "apps", "admin-site")); !os.IsNotExist(err) {
+		t.Errorf("the site directory survived: %v", err)
+	}
+
+	// Deleting it twice is a 404, not a crash.
+	resp, _ = panel.do(t, http.MethodDelete, "/api/v1/websites/admin-site", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("second delete status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestRedeployStartsANewJob(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	// The fixture records no source, so a redeploy falls back to "existing".
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/websites/alex-site/redeploy", nil)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("redeploy status = %d (%s)", resp.StatusCode, body)
+	}
+	var payload struct {
+		Slug     string `json:"slug"`
+		DeployID string `json:"deployId"`
+		Mode     string `json:"mode"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.DeployID == "" || payload.Slug != "alex-site" {
+		t.Errorf("redeploy response = %s", body)
+	}
+
+	// A tenant may not redeploy someone else's website.
+	panel.login(t, "alex")
+	resp, _ = panel.do(t, http.MethodPost, "/api/v1/websites/admin-site/redeploy", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("cross-tenant redeploy status = %d, want 404", resp.StatusCode)
+	}
+}
+
 func TestFileUploadIsConfinedToTheDirectory(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")

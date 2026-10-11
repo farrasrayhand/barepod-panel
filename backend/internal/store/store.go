@@ -23,6 +23,9 @@ type Website struct {
 	WebServer    string `json:"webServer"`
 	Status       string `json:"status"`       // running | stopped | building | error
 	DeployStatus string `json:"deployStatus"` // pending | building | ready | failed
+	SourceKind   string `json:"sourceKind"`   // scaffold | github | upload | existing
+	SourceRepo   string `json:"sourceRepo,omitempty"`
+	SourceBranch string `json:"sourceBranch,omitempty"`
 	SSL          bool   `json:"ssl"`
 	TunnelEnable bool   `json:"tunnelEnabled"`
 	Port         int    `json:"port"`

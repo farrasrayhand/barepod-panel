@@ -12,6 +12,7 @@ var migrations = []migration{
 	{version: 2, statements: schemaV2},
 	{version: 3, statements: schemaV3},
 	{version: 4, statements: schemaV4},
+	{version: 5, statements: schemaV5},
 }
 
 // schemaV2 adds the deploy job ledger: one row per deployment, plus its step log.
@@ -48,6 +49,14 @@ CREATE TABLE IF NOT EXISTS website_secrets (
   created_at   TEXT NOT NULL,
   UNIQUE (website_slug, name)
 );
+`
+
+// schemaV5 remembers where a website's code came from, so a redeploy does not
+// have to ask the operator again.
+const schemaV5 = `
+ALTER TABLE websites ADD COLUMN source_kind TEXT NOT NULL DEFAULT '';
+ALTER TABLE websites ADD COLUMN source_repo TEXT NOT NULL DEFAULT '';
+ALTER TABLE websites ADD COLUMN source_branch TEXT NOT NULL DEFAULT '';
 `
 
 // schemaV3 describes permission groups. Membership is tracked on users.group_name.

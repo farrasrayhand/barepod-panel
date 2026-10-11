@@ -67,6 +67,8 @@ type Request struct {
 	Database         *DatabaseSpec
 	Cache            *CacheSpec
 	Automation       []string
+	// Redeploy keeps the existing database and cache instead of provisioning them.
+	Redeploy bool
 }
 
 // Manager owns the deploy pipeline.
@@ -393,7 +395,11 @@ func stepWriteEnv(ctx context.Context, s *state) error {
 func stepProvisionDatabase(ctx context.Context, s *state) error {
 	db := s.req.Database
 	if db == nil {
-		s.log("stdout", "skipped: no database requested")
+		if s.req.Redeploy {
+			s.log("stdout", "skipped: redeploy keeps the existing database")
+		} else {
+			s.log("stdout", "skipped: no database requested")
+		}
 		return nil
 	}
 	engine := strings.ToLower(db.Engine)
@@ -433,7 +439,11 @@ func stepProvisionDatabase(ctx context.Context, s *state) error {
 func stepProvisionCache(ctx context.Context, s *state) error {
 	cache := s.req.Cache
 	if cache == nil {
-		s.log("stdout", "skipped: no cache requested")
+		if s.req.Redeploy {
+			s.log("stdout", "skipped: redeploy keeps the existing cache")
+		} else {
+			s.log("stdout", "skipped: no cache requested")
+		}
 		return nil
 	}
 	engine := strings.ToLower(cache.Engine)

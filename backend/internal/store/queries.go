@@ -158,7 +158,8 @@ func (s *Store) SetElevated(sessionID string, until time.Time) error {
 func (s *Store) ListWebsites() ([]Website, error) {
 	rows, err := s.DB.Query(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
-		        status, deploy_status, ssl, tunnel_enabled, port, created_at
+		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
+		        source_kind, source_repo, source_branch
 		 FROM websites ORDER BY created_at DESC, slug ASC`)
 	if err != nil {
 		return nil, err
@@ -170,7 +171,7 @@ func (s *Store) ListWebsites() ([]Website, error) {
 		var w Website
 		if err := rows.Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version,
 			&w.Framework, &w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable,
-			&w.Port, &w.CreatedAt); err != nil {
+			&w.Port, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -182,7 +183,8 @@ func (s *Store) ListWebsites() ([]Website, error) {
 func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
 	rows, err := s.DB.Query(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
-		        status, deploy_status, ssl, tunnel_enabled, port, created_at
+		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
+		        source_kind, source_repo, source_branch
 		 FROM websites WHERE tenant_user = ? ORDER BY created_at DESC, slug ASC`, tenant)
 	if err != nil {
 		return nil, err
@@ -194,7 +196,7 @@ func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
 		var w Website
 		if err := rows.Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version,
 			&w.Framework, &w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable,
-			&w.Port, &w.CreatedAt); err != nil {
+			&w.Port, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -214,10 +216,12 @@ func (s *Store) WebsiteBySlug(slug string) (*Website, error) {
 	var w Website
 	err := s.DB.QueryRow(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
-		        status, deploy_status, ssl, tunnel_enabled, port, created_at
+		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
+		        source_kind, source_repo, source_branch
 		 FROM websites WHERE slug = ?`, slug,
 	).Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version, &w.Framework,
-		&w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable, &w.Port, &w.CreatedAt)
+		&w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable, &w.Port, &w.CreatedAt,
+		&w.SourceKind, &w.SourceRepo, &w.SourceBranch)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -237,10 +241,12 @@ func (s *Store) CreateWebsite(w *Website) error {
 	}
 	_, err := s.DB.Exec(
 		`INSERT INTO websites (id, slug, domain, tenant_user, runtime, version, framework,
-		                       web_server, status, deploy_status, ssl, tunnel_enabled, port, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                       web_server, status, deploy_status, ssl, tunnel_enabled, port, created_at,
+		                       source_kind, source_repo, source_branch)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		w.ID, w.Slug, w.Domain, w.TenantUser, w.Runtime, w.Version, w.Framework,
 		w.WebServer, w.Status, w.DeployStatus, w.SSL, w.TunnelEnable, w.Port, w.CreatedAt,
+		w.SourceKind, w.SourceRepo, w.SourceBranch,
 	)
 	return err
 }

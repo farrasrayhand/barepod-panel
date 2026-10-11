@@ -3,16 +3,17 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
-	"github.com/farrasrayhand/barepod-panel/backend/internal/provision"
-	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
-	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
-	"github.com/farrasrayhand/barepod-panel/backend/internal/validate"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/provision"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/validate"
 )
 
 type sourcePayload struct {
@@ -178,6 +179,9 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		SSL:          req.SSL,
 		TunnelEnable: req.TunnelEnabled,
 		Port:         req.Port,
+		SourceKind:   req.Source.Kind,
+		SourceRepo:   req.Source.Repo,
+		SourceBranch: req.Source.Branch,
 	}
 	if err := s.store.CreateWebsite(site); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Could not record the website")
@@ -444,6 +448,75 @@ func (s *Server) handlePrepareDirectory(w http.ResponseWriter, r *http.Request, 
 		"existed":    existed,
 		"mode":       s.host.Mode(),
 		"next":       "Upload your code with the File Manager, then deploy.",
+	})
+}
+
+// handleDeleteWebsite removes a website completely: service, unit, files and
+// records. Deploying used to leave the operator to clean up by hand.
+func (s *Server) handleDeleteWebsite(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	slug := r.PathValue("slug")
+	site, err := s.store.WebsiteBySlug(slug)
+	if err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+
+	steps, err := s.deploy.Teardown(r.Context(), slug)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Teardown failed: "+err.Error())
+		return
+	}
+	_ = s.store.Audit(user.ID, "website.delete", slug, clientIP(r), strings.Join(steps, "; "))
+
+	writeJSON(w, http.StatusOK, map[string]any{"slug": slug, "steps": steps, "mode": s.host.Mode()})
+}
+
+// handleRedeployWebsite runs the pipeline again for an existing website, using
+// the source that was recorded when it was created.
+func (s *Server) handleRedeployWebsite(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	slug := r.PathValue("slug")
+	site, err := s.store.WebsiteBySlug(slug)
+	if err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+	if !validate.HasRuntime(site.Runtime) {
+		writeError(w, http.StatusConflict, "not_applicable",
+			"A reverse proxy has nothing to build or deploy")
+		return
+	}
+
+	kind := site.SourceKind
+	if kind == "" {
+		kind = "existing"
+	}
+	job, err := s.deploy.Start(deploy.Request{
+		Slug:          site.Slug,
+		Tenant:        site.TenantUser,
+		Domain:        site.Domain,
+		Runtime:       site.Runtime,
+		Version:       site.Version,
+		Framework:     site.Framework,
+		WebServer:     site.WebServer,
+		Port:          site.Port,
+		SSL:           site.SSL,
+		TunnelEnabled: site.TunnelEnable,
+		Source:        deploy.SourceSpec{Kind: kind, Repo: site.SourceRepo, Branch: site.SourceBranch},
+		Redeploy:      true,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Could not start the redeploy")
+		return
+	}
+	_ = s.store.Audit(user.ID, "website.redeploy", slug, clientIP(r), "job="+job.ID)
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"slug":       site.Slug,
+		"deployId":   job.ID,
+		"mode":       job.Mode,
+		"status":     job.Status,
+		"totalSteps": job.TotalSteps,
+		"stream":     "/api/v1/websites/" + site.Slug + "/deploy/stream?id=" + job.ID,
 	})
 }
 

@@ -20,7 +20,7 @@ import (
 )
 
 // Version is the panel/daemon version (prototype line, see MASTER_PLAN §0).
-const Version = "0.1.0-prototype"
+const Version = "0.2.0-prototype"
 
 // Deps are the dependencies the HTTP layer needs.
 type Deps struct {
@@ -105,6 +105,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/websites", deploy(s.handleCreateWebsite))
 	mux.HandleFunc("POST /api/v1/websites/prepare-directory", deploy(s.handlePrepareDirectory))
 	mux.HandleFunc("GET /api/v1/websites/{slug}", deploy(s.handleGetWebsite))
+	mux.HandleFunc("DELETE /api/v1/websites/{slug}", deploy(s.handleDeleteWebsite))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/redeploy", deploy(s.handleRedeployWebsite))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy", deploy(s.handleLatestDeploy))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/stream", deploy(s.handleDeployStream))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/{id}", deploy(s.handleDeployJob))

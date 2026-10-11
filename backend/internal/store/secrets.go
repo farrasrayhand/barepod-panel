@@ -53,3 +53,21 @@ func (s *Store) ListWebsiteSecrets(slug string) (map[string]string, error) {
 	}
 	return out, rows.Err()
 }
+
+// DeleteWebsiteSecrets removes every secret of a website (used on teardown).
+func (s *Store) DeleteWebsiteSecrets(slug string) error {
+	_, err := s.DB.Exec(`DELETE FROM website_secrets WHERE website_slug = ?`, slug)
+	return err
+}
+
+// DeleteWebsite removes a website row.
+func (s *Store) DeleteWebsite(slug string) error {
+	res, err := s.DB.Exec(`DELETE FROM websites WHERE slug = ?`, slug)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
