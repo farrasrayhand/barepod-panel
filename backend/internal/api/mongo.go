@@ -113,7 +113,15 @@ func (s *Server) rotateMongo(ctx context.Context, record *store.Database, passwo
 			{Key: "pwd", Value: password},
 			{Key: "roles", Value: mongoAccess(record)},
 		}
-		return db.RunCommand(ctx, create).Err()
+		if err := db.RunCommand(ctx, create).Err(); err != nil {
+			return err
+		}
+		// A record from before accounts moved to `admin` still has one in its own database,
+		// with the old password — and that is the account a client would reach if it named
+		// the database as its auth source. Two accounts of the same name with two different
+		// passwords is how "it worked when I created it" turns into "authentication failed"
+		// after a rotate, so the stale copy goes.
+		_ = client.Database(record.Name).RunCommand(ctx, bson.D{{Key: "dropUser", Value: record.User}}).Err()
 	}
 	return err
 }

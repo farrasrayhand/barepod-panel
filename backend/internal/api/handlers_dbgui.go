@@ -494,6 +494,27 @@ func (s *Server) ensureGuiTool(ctx context.Context, spec dbtools.Spec, record *s
 	return nil
 }
 
+// dropManagers stops the managers that could be holding a record's old credential and
+// forgets them, so the next time one is opened it starts with the new one. A running
+// manager was started with the password it was given and keeps it in its own env or
+// command line: after a rotate it would answer "authentication failed" (DbGate's own
+// "Database connection closed") until something restarted it, which is what the
+// operator hit.
+func (s *Server) dropManagers(ctx context.Context, record *store.Database) {
+	if s.tools == nil {
+		return
+	}
+	for _, spec := range dbtools.Registry() {
+		if spec.Container {
+			// A container is per record, so stopping it needs that record's name — the
+			// port is not part of `docker rm -f`.
+			spec.ContainerName = dbgateContainerName(record.ID)
+		}
+		_ = s.tools.Stop(ctx, spec)
+		s.forgetGuiTool(spec.Key())
+	}
+}
+
 // forgetGuiTool drops the record of a tool serving a database, so the next
 // request starts it again: a tool that died is not left believed to be up.
 func (s *Server) forgetGuiTool(name string) {

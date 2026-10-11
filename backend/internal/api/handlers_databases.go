@@ -762,6 +762,9 @@ func (s *Server) handleRotateDatabasePassword(kind string) authedHandler {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not save the credential")
 			return
 		}
+		// A manager that is already open holds the password it was started with, so it
+		// would keep failing with the old one until it restarted: drop it here.
+		s.dropManagers(r.Context(), record)
 		_ = s.store.Audit(user.ID, "database.rotate_password", record.Name, clientIP(r), "")
 		writeJSON(w, http.StatusOK, map[string]any{"id": record.ID, "password": password})
 	}
