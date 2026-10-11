@@ -508,12 +508,43 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 // memory (Touch) instead of probing: a page makes many asset requests, and a
 // probe (and, worse, an engine detection) per request would make it crawl.
 func (s *Server) ensureGuiTool(ctx context.Context, spec dbtools.Spec, record *store.Database, dsn string, engine dbengine.Engine, engineFound bool) error {
+	key := spec.Key()
+
+	// A container tool is an instance of its own: its key *is* this record. Its start is
+	// therefore nobody else's business, and it is done outside the global mutex — holding
+	// that lock across a `docker run` (plus the wait for the server inside) is what made a
+	// second manager's page slow while the first was starting. The supervisor is
+	// single-flight per instance, so two requests for the same record cannot race here.
+	if spec.Container {
+		if s.guiServedFor(key) == record.ID {
+			s.tools.Touch(key)
+			return nil
+		}
+		if engineFound && engine.Mode == dbengine.ModeDocker {
+			if _, err := s.ensureEngineRunning(ctx, engine); err != nil {
+				return err
+			}
+		}
+		if err := s.tools.Ensure(ctx, spec, dsn); err != nil {
+			return err
+		}
+		s.guiMu.Lock()
+		if s.guiServed == nil {
+			s.guiServed = map[string]string{}
+		}
+		s.guiServed[key] = record.ID
+		s.guiMu.Unlock()
+		return nil
+	}
+
+	// A tool that is one process on one port (pgweb, phpMyAdmin) genuinely serves one
+	// record at a time, so switching it has to be serialised: stop what is there, then
+	// start it for this record. The lock is held for that, and only that.
 	s.guiMu.Lock()
 	defer s.guiMu.Unlock()
 	if s.guiServed == nil {
 		s.guiServed = map[string]string{}
 	}
-	key := spec.Key()
 	if current, ok := s.guiServed[key]; ok {
 		if current == record.ID {
 			s.tools.Touch(key)
@@ -535,6 +566,13 @@ func (s *Server) ensureGuiTool(ctx context.Context, spec dbtools.Spec, record *s
 	}
 	s.guiServed[key] = record.ID
 	return nil
+}
+
+// guiServedFor is which record an instance is known to be serving, read under the lock.
+func (s *Server) guiServedFor(key string) string {
+	s.guiMu.Lock()
+	defer s.guiMu.Unlock()
+	return s.guiServed[key]
 }
 
 // dropManagers stops the managers that could be holding a record's old credential and
