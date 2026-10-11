@@ -15,8 +15,9 @@ interface LoginViewProps {
  * Sign-in screen for the real daemon.
  *
  * The panel has no built-in account: the operator creates one with
- * `barepod admin create` at install time. When the daemon is not running the
- * prototype can continue with its simulation instead.
+ * `barepod admin create` at install time. That hint — and the escape into the
+ * prototype's simulation — is shown only when the daemon is *unreachable*; a live
+ * panel already has an account, so neither belongs in front of the operator.
  */
 export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, error, busy, mode, redirectTo }) => {
   const [username, setUsername] = useState('');
@@ -89,25 +90,30 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
           </button>
         </form>
 
-        <div className="pt-3 border-t border-slate-100 space-y-3">
-          <p className="text-[11px] text-slate-500 leading-relaxed">
-            No account yet? Create one on the server:
-            <code className="block mt-1 px-2 py-1 rounded bg-slate-900 text-slate-100 font-mono text-[11px]">
-              barepod admin create --username &lt;you&gt;
-            </code>
-          </p>
-          <button
-            type="button"
-            onClick={onSimulate}
-            className="w-full px-4 py-2 text-xs font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            <FlaskConical className="w-3.5 h-3.5" />
-            <span>Continue in simulation mode</span>
-          </button>
-          <p className="text-[10px] text-slate-400 text-center">
-            Simulation mode uses the frontend's mock data and never touches a server.
-          </p>
-        </div>
+        {/* Only shown when the daemon is unreachable: a live panel already has an
+            account (it refuses to start without one), so the install hint and the
+            simulation escape would both be misleading. */}
+        {mode === 'mock' && (
+          <div className="pt-3 border-t border-slate-100 space-y-3">
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              No account yet? Create one on the server:
+              <code className="block mt-1 px-2 py-1 rounded bg-slate-900 text-slate-100 font-mono text-[11px]">
+                barepod admin create --username &lt;you&gt;
+              </code>
+            </p>
+            <button
+              type="button"
+              onClick={onSimulate}
+              className="w-full px-4 py-2 text-xs font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              <FlaskConical className="w-3.5 h-3.5" />
+              <span>Continue in simulation mode</span>
+            </button>
+            <p className="text-[10px] text-slate-400 text-center">
+              Simulation mode uses the frontend's mock data and never touches a server.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

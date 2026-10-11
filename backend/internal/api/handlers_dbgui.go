@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbtools"
@@ -47,7 +48,7 @@ var databaseGuiTools = []guiTool{
 	{name: "browser", description: "The panel's own table browser: it reads SQLite itself, lists a cache's keys and runs SQL.", hosted: true},
 	{name: "pgweb", description: "A small PostgreSQL browser (one Go binary): started on demand, this database's credential injected server-side, stopped when idle.", engines: []string{"postgresql"}, hosted: true},
 	{name: "phpmyadmin", description: "The familiar MySQL/MariaDB manager, run by PHP's own small server: one process, no Apache or PHP-FPM, no login (the credential is injected server-side), stopped when idle.", engines: []string{"mysql", "mariadb"}, hosted: true},
-	{name: "dbgate", description: "One web container covering PostgreSQL, MySQL/MariaDB, SQLite, MongoDB and Redis — decided, not hosted yet.", hosted: false},
+	{name: "dbgate", description: "A click-and-browse manager for SQLite, MongoDB and Redis (one container, started on demand, its port on loopback only and scoped to this one database).", engines: []string{"sqlite", "mongodb", "redis"}, hosted: true},
 }
 
 // guiToolInstallDir is the subdirectory under DbtoolsDir where a tool that needs
@@ -112,18 +113,53 @@ func (s *Server) guiToolAvailability(kind string, record *store.Database, tool g
 	if reason, blocked := guiRecordBlocked(record); blocked {
 		return "", false, reason
 	}
-	if _, ok := dbtools.Available(spec, s.lookPath); !ok {
-		return "", false, fmt.Sprintf("%s is not installed on this host", spec.Binary)
+	if reason, runnable := s.guiToolRunnable(spec); !runnable {
+		return "", false, reason
 	}
 	if sub := guiToolInstallDir(tool.name); sub != "" {
 		if _, err := os.Stat(filepath.Join(s.cfg.DbtoolsDir, sub, "index.php")); err != nil {
 			return "", false, fmt.Sprintf("%s is not installed on this host yet (run scripts/install-engines.sh)", tool.name)
 		}
 	}
-	if !s.host.Materialises() {
-		return "", false, "the daemon is in dry-run mode, so no manager can be started"
-	}
 	return mount + "/", true, ""
+}
+
+// guiToolRunnable answers whether the host can actually run a tool, and why not: a
+// container tool needs a real host with Docker, a binary tool needs its binary (and,
+// either way, a daemon that is not in dry-run).
+func (s *Server) guiToolRunnable(spec dbtools.Spec) (string, bool) {
+	if spec.Container {
+		if !s.host.Materialises() {
+			return "the daemon is in dry-run mode, so no manager can be started", false
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if out, err := s.host.Runner.Run(ctx, "", "docker", "info"); err != nil {
+			message := strings.TrimSpace(out)
+			if message == "" {
+				message = err.Error()
+			}
+			return "this host cannot run containers (" + truncate(message, 160) + ")", false
+		}
+		return "", true
+	}
+	// The missing binary is the more useful reason, so it is checked before the
+	// daemon's mode.
+	if _, ok := dbtools.Available(spec, s.lookPath); !ok {
+		return fmt.Sprintf("%s is not installed on this host", spec.Binary), false
+	}
+	if !s.host.Materialises() {
+		return "the daemon is in dry-run mode, so no manager can be started", false
+	}
+	return "", true
+}
+
+// truncate keeps a refusal short enough to read in a tooltip.
+func truncate(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	return text[:limit] + "…"
 }
 
 // guiRecordBlocked answers why a server manager cannot be opened for a record: a
@@ -252,19 +288,16 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 				fmt.Sprintf("%s does not open %s databases", tool, record.Engine))
 			return
 		}
-		if record.Detected || record.FileBased {
+		// A file database has no server to connect to — except for DbGate, which
+		// opens the SQLite file itself.
+		if (record.Detected || record.FileBased) && tool != "dbgate" {
 			writeError(w, http.StatusConflict, "not_applicable",
 				"This is a file, not a server: use the Data Browser & SQL tab")
 			return
 		}
-		if _, ok := dbtools.Available(spec, s.lookPath); !ok {
+		if reason, runnable := s.guiToolRunnable(spec); !runnable {
 			writeError(w, http.StatusNotImplemented, "not_installed",
-				fmt.Sprintf("%s is not installed on this host", spec.Binary))
-			return
-		}
-		if !s.host.Materialises() {
-			writeError(w, http.StatusNotImplemented, "not_installed",
-				"The daemon is in dry-run mode: a database manager is only started on a real host")
+				fmt.Sprintf("%s cannot be opened here: %s", tool, reason))
 			return
 		}
 		if s.tools == nil {
@@ -272,10 +305,16 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 				"The database-tool supervisor is not configured on this daemon")
 			return
 		}
-		password, err := secrets.Decrypt(s.key, record.PasswordCipher)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Could not decrypt the credential")
-			return
+		// A file database carries no credential, so it is only decrypted when there
+		// is one to decrypt.
+		password := ""
+		if !record.FileBased {
+			plain, err := secrets.Decrypt(s.key, record.PasswordCipher)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal", "Could not decrypt the credential")
+				return
+			}
+			password = plain
 		}
 		mount := fmt.Sprintf("/api/v1/%s/%s/gui/%s", guiKindPath(kind), record.ID, tool)
 
@@ -302,6 +341,16 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 				return
 			}
 			spec.DocRoot = dir
+		}
+		if spec.Name == "dbgate" {
+			plan, err := s.prepareDbGate(r.Context(), record, mount)
+			if err != nil {
+				writeError(w, http.StatusBadGateway, "service_error", err.Error())
+				return
+			}
+			spec.EnvFile = plan.envPath
+			spec.Volumes = plan.volumes
+			spec.User = plan.user
 		}
 		if err := s.ensureGuiTool(r.Context(), spec, record, guiConnectionString(*record, password)); err != nil {
 			writeError(w, http.StatusBadGateway, "service_error", err.Error())

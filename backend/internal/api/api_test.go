@@ -1091,8 +1091,13 @@ func TestDatabaseGuiNeedsThePanelSession(t *testing.T) {
 			t.Errorf("the tool list is missing %s: %s", tool, body)
 		}
 	}
-	if !strings.Contains(string(body), "not hosted yet") && !strings.Contains(string(body), "not hosted by this daemon yet") {
-		t.Errorf("the unavailable dbgate should say why: %s", body)
+	// DbGate is hosted now, but this test host is in dry-run: it must be listed and
+	// say why it cannot be opened, rather than pretending to be usable.
+	if !strings.Contains(string(body), `"tool":"dbgate"`) || !strings.Contains(string(body), `"available":false`) {
+		t.Errorf("the tool list should show dbgate as unavailable here: %s", body)
+	}
+	if !strings.Contains(string(body), `"note"`) {
+		t.Errorf("an unavailable tool must say why: %s", body)
 	}
 	// The path must use the real route segment ("databases"), not the ledger's
 	// internal kind ("database"), or the UI would open a 404.

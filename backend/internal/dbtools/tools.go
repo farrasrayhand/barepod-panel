@@ -49,6 +49,20 @@ type Spec struct {
 	// exact binary name: two PHP apps both run as "php", so "php" alone would let
 	// one stop the other.
 	Match string
+	// Container marks a tool the panel runs as a Docker container instead of a
+	// process: it is started with `docker run` (publishing its port on loopback
+	// only) and stopped with `docker rm -f`.
+	Container bool
+	// Image is the container image, and ContainerName the name it is run under.
+	Image         string
+	ContainerName string
+	// EnvFile is the --env-file the container is started with; the API writes it
+	// per database (credential, scope, and the path it is served under).
+	EnvFile string
+	// Volumes are -v mounts (a SQLite file's directory has to reach the container),
+	// and User is an optional --user (so the container writes as the tenant).
+	Volumes []string
+	User    string
 	// Note explains what the tool is for, in the API's own words.
 	Note string
 }
@@ -78,6 +92,16 @@ func Registry() map[string]Spec {
 			Match:      "php -S 127.0.0.1:8791",
 			Note:       "The familiar PHP manager for MySQL/MariaDB, run by PHP's own small server — one process, no Apache or PHP-FPM, loopback only.",
 		},
+		"dbgate": {
+			Name:          "dbgate",
+			Engines:       []string{"sqlite", "mongodb", "redis"},
+			Port:          8793,
+			HealthPath:    "/",
+			Container:     true,
+			Image:         "dbgate/dbgate:latest",
+			ContainerName: "barepod-dbgate",
+			Note:          "A click-and-browse manager for SQLite, MongoDB and Redis, run as a container with its port published on loopback only and scoped to this one database; started on first access and removed when idle.",
+		},
 	}
 }
 
@@ -85,6 +109,9 @@ func Registry() map[string]Spec {
 // the tool declares one — by a command-line pattern, so a tool that shares a
 // binary with another (both PHP apps run as "php") stops only its own process.
 func stopArgv(spec Spec) []string {
+	if spec.Container {
+		return []string{"docker", "rm", "-f", spec.ContainerName}
+	}
 	if spec.Match != "" {
 		return []string{"pkill", "-f", spec.Match}
 	}
@@ -171,7 +198,13 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 	if len(argv) == 0 {
 		return fmt.Errorf("no recipe for %q", spec.Name)
 	}
-	start := DetachedArgv(argv, s.logPathFor(spec))
+	// A container start returns on its own (`docker run -d`), so it is run directly:
+	// its failure (a taken port, a bad image) is then the reason the panel reports,
+	// instead of being hidden behind the background wrapper.
+	start := argv
+	if !spec.Container {
+		start = DetachedArgv(argv, s.logPathFor(spec))
+	}
 	if out, err := s.runner.Run(ctx, "", start[0], start[1:]...); err != nil {
 		return fmt.Errorf("%s could not be started: %s", spec.Name, strings.TrimSpace(out))
 	}
@@ -353,6 +386,24 @@ func StartArgv(spec Spec, connectionURL string) []string {
 			argv = append(argv, "--url", connectionURL)
 		}
 		return argv
+	case "dbgate":
+		// A container manager, started on demand with its port published on loopback
+		// only: the per-database env file carries the single connection it is scoped
+		// to and the path it is served under.
+		argv := []string{"docker", "run", "-d", "--name", spec.ContainerName}
+		if spec.Port != 0 {
+			argv = append(argv, "-p", fmt.Sprintf("127.0.0.1:%d:3000", spec.Port))
+		}
+		for _, volume := range spec.Volumes {
+			argv = append(argv, "-v", volume)
+		}
+		if spec.User != "" {
+			argv = append(argv, "--user", spec.User)
+		}
+		if spec.EnvFile != "" {
+			argv = append(argv, "--env-file", spec.EnvFile)
+		}
+		return append(argv, spec.Image)
 	case "phpmyadmin":
 		// PHP's own built-in server: one process, no Apache or PHP-FPM. The document
 		// root is where the app was installed; the panel writes the scoped config

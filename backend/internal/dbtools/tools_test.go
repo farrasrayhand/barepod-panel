@@ -153,6 +153,35 @@ func TestPhpMyAdminRunsOnTheBuiltinServerAndStopsByItsOwnPattern(t *testing.T) {
 	}
 }
 
+// DbGate is a container: it publishes its port on loopback only, mounts what it
+// needs (a SQLite file's directory), runs as the tenant, and is *removed* to stop
+// (a container is not a process to signal).
+func TestDbGateRunsAsAContainerOnLoopbackOnlyAndIsRemovedToStop(t *testing.T) {
+	spec := Registry()["dbgate"]
+	if !spec.Container || spec.ContainerName == "" {
+		t.Fatalf("unexpected dbgate spec: %+v", spec)
+	}
+	spec.EnvFile = "/var/lib/barepod/dbtools/dbgate-01H.env"
+	spec.Volumes = []string{"/home/t/apps/site:/dbgate-sqlite"}
+	spec.User = "1001:1001"
+	argv := strings.Join(StartArgv(spec, ""), " ")
+	for _, want := range []string{
+		"docker run -d --name barepod-dbgate",
+		"-p 127.0.0.1:8793:3000",
+		"-v /home/t/apps/site:/dbgate-sqlite",
+		"--user 1001:1001",
+		"--env-file /var/lib/barepod/dbtools/dbgate-01H.env",
+		"dbgate/dbgate:latest",
+	} {
+		if !strings.Contains(argv, want) {
+			t.Errorf("the DbGate command is missing %q: %s", want, argv)
+		}
+	}
+	if got := strings.Join(stopArgv(spec), " "); got != "docker rm -f barepod-dbgate" {
+		t.Errorf("DbGate is not removed by its own name: %s", got)
+	}
+}
+
 func TestEnsureStartsOnceAndIdleSweepStopsIt(t *testing.T) {
 	runner := &fakeRunner{}
 	supervisor := New(runner, 30*time.Minute)
