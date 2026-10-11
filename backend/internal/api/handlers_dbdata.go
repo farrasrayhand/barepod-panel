@@ -124,16 +124,21 @@ func (s *Server) handleDatabaseQuery(kind string) authedHandler {
 				return
 			}
 			out, runErr := s.host.Runner.RunEnv(r.Context(), "", command.Env, command.Argv[0], command.Argv[1:]...)
-			grid, parseErr := dbengine.ParseQueryOutput(record.Engine, out)
-			if runErr != nil && parseErr != nil {
-				// The client said nothing usable: report its message, with the
-				// credential redacted in case a driver ever echoes it back.
+			// The client exits non-zero when the engine refuses (a permission error,
+			// a syntax error): that is an error to report, never a one-column grid
+			// with "ERROR: …" in it (the first version did exactly that).
+			if runErr != nil {
 				message := strings.TrimSpace(out)
 				if message == "" {
 					message = runErr.Error()
 				}
 				message = strings.ReplaceAll(message, password, "***")
 				writeError(w, http.StatusBadGateway, "service_error", message)
+				return
+			}
+			grid, parseErr := dbengine.ParseQueryOutput(record.Engine, out)
+			if parseErr != nil {
+				writeError(w, http.StatusBadGateway, "service_error", parseErr.Error())
 				return
 			}
 			kind := "exec"
