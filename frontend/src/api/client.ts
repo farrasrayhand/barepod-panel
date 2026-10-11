@@ -233,6 +233,24 @@ export interface DbEngineRow {
   note?: string;
 }
 
+/** What the deploy wizard sends; the daemon validates every part of it. */
+export interface CreateWebsitePayload {
+  slug: string;
+  domain: string;
+  tenantUser: string;
+  runtime: string;
+  version?: string;
+  framework?: string;
+  webServer: string;
+  port?: number;
+  tunnelEnabled?: boolean;
+  source: { kind: string; repo?: string; branch?: string };
+  database?: { engine: string; version?: string; name?: string; user?: string };
+  cache?: { engine: string };
+  autoEnv?: boolean;
+  automationSteps?: string[];
+}
+
 export interface CreateDatabasePayload {
   engine: string;
   version?: string;
@@ -370,6 +388,13 @@ export const api = {
   audit: (limit = 25) => request<{ items: AuditEntry[]; everything: boolean }>(`/audit?limit=${limit}`),
 
   websites: () => request<{ items: ApiWebsite[] }>('/websites'),
+
+  /** The real deploy: the daemon provisions asynchronously and answers with a job id. */
+  createWebsite: (payload: CreateWebsitePayload) =>
+    request<{ slug: string; deployId: string; mode: string; status: string; totalSteps?: number }>(
+      '/websites',
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
 
   website: (slug: string) => request<ApiWebsite>(`/websites/${slug}`),
 

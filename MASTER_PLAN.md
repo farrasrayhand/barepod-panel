@@ -15,6 +15,12 @@ invent its own version.
   a Linux host"*. Verified on Ubuntu 24.04 in an LXC container: unit active,
   service running as the tenant, cgroup limits applied, health check green, files
   created through the API owned by the tenant, per-site metrics from the cgroup.
+  **What that claim covers, precisely: the daemon and its API.** The milestone was
+  reached by driving `POST /websites` end-to-end, not by clicking the panel's
+  Add-Website wizard — that wizard was prototype state (it updated local state and
+  called nothing; the API client had no create call at all) until it was wired. A
+  milestone is a claim about the daemon; a screen that does not call the daemon is
+  still mock, and saying so is the point of this section.
 - **0.2 → 0.3 (reached):** the milestone was *"databases and caches module"*. Verified
   end-to-end: SQLite file database in site directory owned by tenant, live size reporting,
   Redis ACL user per cache with key prefix and password rotation via resetpass, Recycle Bin

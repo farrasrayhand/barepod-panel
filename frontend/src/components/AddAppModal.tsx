@@ -448,6 +448,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
       cacheAutoProvision: createCache,
       cacheEngine: createCache ? 'redis' : undefined,
       autoEnv,
+      sourceKind: effectiveSource,
       provisionMode: effectiveSource === 'scaffold' ? 'download' : 'generic',
       automationSteps: plan.steps.length ? plan.steps : undefined,
       gitRepo: effectiveSource === 'github' ? gitRepo : undefined,

@@ -83,6 +83,8 @@ export interface WebApp {
   cacheAutoProvision?: boolean;
   cacheEngine?: 'redis';
   autoEnv?: boolean;
+  /** Where the code came from, as the deploy wizard chose it (see the API contract). */
+  sourceKind?: 'scaffold' | 'github' | 'upload' | 'existing' | 'default';
   provisionMode?: 'download' | 'generic';
   automationSteps?: string[];
 }

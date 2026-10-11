@@ -432,6 +432,49 @@ export function App() {
       proxyRealIp: newApp.proxyRealIp,
       proxyTimeoutSecs: newApp.proxyTimeoutSecs,
     };
+    // Live: the wizard used to update local state and call nothing, which is how a
+    // screen can look like a deploy while the daemon never hears about it.
+    if (session.mode === 'live' && session.user) {
+      const slug = created.name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
+      void (async () => {
+        try {
+          const result = await api.createWebsite({
+            slug,
+            domain: created.domain,
+            tenantUser: created.tenantUser,
+            runtime: created.runtime,
+            version: newApp.version,
+            framework: created.framework,
+            webServer: created.webServer,
+            port: newApp.port,
+            tunnelEnabled: created.tunnelEnabled,
+            source: {
+              kind: newApp.sourceKind ?? (newApp.gitRepo ? 'github' : 'existing'),
+              repo: newApp.gitRepo,
+              branch: newApp.gitBranch,
+            },
+            database:
+              newApp.dbAutoProvision && newApp.dbEngine
+                ? { engine: newApp.dbEngine, name: newApp.dbName, user: newApp.dbUser }
+                : undefined,
+            cache: newApp.cacheAutoProvision ? { engine: 'redis' } : undefined,
+            autoEnv: newApp.autoEnv,
+          });
+          showToast(
+            'Deploy started',
+            `${slug} — job ${result.deployId} (${result.mode}, ${result.status}). Progress streams on the website page.`,
+            'success',
+          );
+          const { items } = await api.websites();
+          setApps(items.map((site) => toWebApp(site)));
+          setAppsLoaded(true);
+        } catch (err) {
+          showToast('Deploy refused', err instanceof Error ? err.message : 'The daemon refused.', 'error');
+        }
+      })();
+      return;
+    }
+
     setApps([created, ...apps]);
     showToast(
       created.runtime === 'proxy' ? 'Reverse Proxy Live' : 'App Deployed Successfully',
