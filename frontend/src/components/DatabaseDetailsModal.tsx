@@ -30,6 +30,7 @@ interface DatabaseDetailsModalProps {
   onOpenGui: (db: DatabaseItem, tool: DatabaseManagerTool) => void;
   onDelete?: (db: DatabaseItem) => void;
   onUpdateDatabase?: (updated: DatabaseItem) => void;
+  onUnlock?: (panelPassword: string) => Promise<{ password: string }>;
 }
 
 export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
@@ -39,8 +40,11 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   onOpenGui,
   onDelete,
   onUpdateDatabase,
+  onUnlock,
 }) => {
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [revealedPassword, setRevealedPassword] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [panelPassword, setPanelPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [showPasswordText, setShowPasswordText] = useState(false);
@@ -58,6 +62,8 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
       setShowPasswordText(false);
       setPanelPassword('');
       setAutoLockSeconds(60);
+      setRevealedPassword(null);
+      setBusy(false);
     }
   }, [database]);
 
@@ -77,6 +83,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
       setShowPasswordText(false);
       setPanelPassword('');
       setAutoLockSeconds(60);
+      setRevealedPassword(null);
     }
   }, [isUnlocked, autoLockSeconds]);
 
@@ -91,7 +98,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     'db-6': 'pos_legacy_pwd_771@',
   };
 
-  const plainPassword = mockPasswords[database.id] || 'barepod_secret_key_889#';
+  const plainPassword = revealedPassword ?? mockPasswords[database.id] ?? 'barepod_secret_key_889#';
   const effectivePassword = isUnlocked ? plainPassword : '••••••••••••';
 
   const host = database.host || '127.0.0.1';
@@ -166,10 +173,25 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
     setTimeout(() => setCopiedKey(null), 1800);
   };
 
-  const handleUnlockPassword = (e: React.FormEvent) => {
+  const handleUnlockPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!panelPassword.trim()) {
       setErrorMsg('Enter your panel account password.');
+      return;
+    }
+    if (onUnlock) {
+      setBusy(true);
+      setErrorMsg('');
+      try {
+        const res = await onUnlock(panelPassword);
+        setRevealedPassword(res.password);
+        setIsUnlocked(true);
+        setShowPasswordText(true);
+      } catch (err) {
+        setErrorMsg(err instanceof Error ? err.message : 'That password was not accepted.');
+      } finally {
+        setBusy(false);
+      }
       return;
     }
     // Simulation unlocks password
@@ -499,9 +521,10 @@ USE \`${database.name}\`;
                       />
                       <button
                         type="submit"
-                        className="px-3 py-1 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors whitespace-nowrap shadow-2xs"
+                        disabled={busy}
+                        className="px-3 py-1 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg transition-colors whitespace-nowrap shadow-2xs disabled:opacity-50 cursor-pointer"
                       >
-                        Unlock
+                        {busy ? 'Verifying...' : 'Unlock'}
                       </button>
                     </form>
                   )}

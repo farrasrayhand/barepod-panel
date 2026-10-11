@@ -705,6 +705,16 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
           setDbToDelete(db);
         }}
         onUpdateDatabase={handleUpdateDatabase}
+        onUnlock={
+          live && selectedDbForDetails
+            ? async (panelPassword) => {
+                await api.verify(panelPassword);
+                const family = selectedDbForDetails.type === 'redis' ? api.caches : api.databases;
+                const revealed = await family.reveal(selectedDbForDetails.id);
+                return { password: revealed.password };
+              }
+            : undefined
+        }
       />
 
       {/* Move to Recycle Bin Modal */}

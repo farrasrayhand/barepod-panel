@@ -197,9 +197,10 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm shadow-blue-500/20"
+                disabled={busy}
+                className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm shadow-blue-500/20 disabled:opacity-50 cursor-pointer"
               >
-                Unlock & Reveal
+                {busy ? 'Verifying...' : 'Unlock & Reveal'}
               </button>
             </div>
           </form>
