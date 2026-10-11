@@ -20,7 +20,7 @@ import (
 )
 
 // Version is the panel/daemon version (prototype line, see MASTER_PLAN §0).
-const Version = "0.2.0-prototype"
+const Version = "0.3.0-prototype"
 
 // Deps are the dependencies the HTTP layer needs.
 type Deps struct {

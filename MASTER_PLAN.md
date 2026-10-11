@@ -1,6 +1,6 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Document Version:** 0.2 (Prototype) — a website now really runs end-to-end on a Linux host (systemd + cgroup v2 + tenant isolation), verified on an LXC container
-> **Last Updated:** October 10, 2026  
+> **Document Version:** 0.3 (Prototype) — databases & caches module live end-to-end (SQLite file engine, Redis multi-tenant ACL, AES-256-GCM vault, live Reveal & Rotate, and Recycle Bin)
+> **Last Updated:** October 11, 2026  
 > **Status:** Active & Maintained
 
 ## Versioning policy
@@ -14,6 +14,11 @@ invent its own version.
   a Linux host"*. Verified on Ubuntu 24.04 in an LXC container: unit active,
   service running as the tenant, cgroup limits applied, health check green, files
   created through the API owned by the tenant, per-site metrics from the cgroup.
+- **0.2 → 0.3 (reached):** the milestone was *"databases and caches module"*. Verified
+  end-to-end: SQLite file database in site directory owned by tenant, live size reporting,
+  Redis ACL user per cache with key prefix and password rotation via resetpass, Recycle Bin
+  with suspend & restore, AES-256-GCM password vault with elevated session, and UI Reveal /
+  Rotate click-through.
 - **It only moves when a milestone is finished**, e.g. `0.2` = a website really
   runs end-to-end on a Linux host; `0.3` = databases module; `1.0` = first
   release with the installer and a supported upgrade path. Commits, features in
@@ -379,10 +384,11 @@ graph TD
   - ✅ **Metrics** (`internal/metrics`): a background sampler (default 15s, ring buffer in memory) serves `GET /system/metrics?range=1h` and `GET /websites/:slug/metrics`. Host figures come from `/proc` (stat deltas, meminfo, diskstats, net/dev) with real deltas — the first sample reports rates as 0 instead of averaging over uptime — and per-website figures from cgroup v2 (`memory.current`, `memory.max`, `pids.current`, `cpu.stat`). Raw numbers + RFC3339 only; a metric the host cannot provide is **unavailable with a reason**, never a fake zero.
   - ✅ **Frontend wired to the API**: `src/api/client.ts` (session, websites, deploy SSE, files, terminal ticket, metrics, capacity), `useSession` (daemon reachable → real login; otherwise the prototype stays in simulation mode with its mock data), a real **sign-in screen** (with the `barepod admin create` hint), the website list loaded from the daemon with per-site metrics, a **live terminal pane** (`@xterm/xterm`) over the ticketed WebSocket — tenant shell per website, host shell switch for admins — and the **File Manager tab on real files** (list/save/create/rename/copy/move/delete/upload/zip/preview with a Live badge, mock tree only when no daemon answers).
   - ✅ **Website lifecycle**: `DELETE /websites/:slug` tears a site down for real (stop + disable the unit, remove the drop-in and reload systemd, delete the app directory **inside the sites root only**, forget the secrets and the row) and `POST /websites/:slug/redeploy` re-runs the pipeline from the source recorded at create time, keeping the existing database and cache. No more cleaning up by hand after a failed deploy.
-  - ✅ **Version has one source**: `api.Version` (0.2.0-prototype) is what `/health` reports, what the CLI prints and what the footer shows.
+  - ✅ **Version has one source**: `api.Version` (0.3.0-prototype) is what `/health` reports, what the CLI prints and what the footer shows.
   - ✅ **Self-install as a systemd service**: `barepod service install` writes the daemon unit from the same flags as `serve`, enables + starts it, and `service status|uninstall` manage it. Verified on the LXC: active + enabled, and killing the process by force brings it straight back (`Restart=always`).
   - ✅ **Deploys own their files as the tenant** (fixed): `Runner.RunAs` runs a command with the tenant's UID/GID and HOME, `RunInSite` and the GitHub clone go through it, and the source step ends with a `chown -R <tenant>` on the site directory — so a scaffolded `.venv` or a cloned repo belongs to the tenant instead of root, and sites deployed before the fix are repaired by their next deploy. Verified on the LXC: the old `root:root` `.venv` came back as `bptest:bptest` after a redeploy, and a fresh Flask scaffold had zero root-owned files. Install scripts no longer run as root either (a supply-chain win, not just tidiness).
-  - ⏳ Next: the databases module (target 0.3), then pods/Docker, then the remaining views (databases, backup) and the one-line installer.
+  - ✅ **Databases & Caches module (0.3 reached)**: SQLite file engine with live `os.Stat` size reporting & `.trash` Recycle Bin, Redis multi-tenant ACL users with key prefix restrictions and password rotation, AES-256-GCM vault with elevated sessions, and live UI Reveal/Rotate click-through.
+  - ⏳ Next: pods/Docker (target 0.4), reverse proxy vhosts (OpenLiteSpeed/Nginx/Caddy) and installer.
 * **Phase 3: Host OS & Container Integration (SCHEDULED 📋)**:
   - Docker Engine SDK (`docker/moby`) integration for container pod management.
   - File Manager backend API (reading/writing real Linux directories with isolated tenant user privileges).
