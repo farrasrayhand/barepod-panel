@@ -166,6 +166,28 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
 
   if (!isOpen || !database) return null;
 
+  // The panel browses every engine it has a driver for — SQLite in-process and the
+  // daemon engines (PostgreSQL/MySQL/MariaDB) through pure-Go drivers — so the
+  // Data Browser & SQL tab works for them. MongoDB has no such driver yet and
+  // keeps the "use a manager / connection string" panel.
+  const canRunSql =
+    database.type === 'sqlite' ||
+    database.type === 'postgres' ||
+    database.type === 'mysql' ||
+    database.type === 'mariadb';
+  const createTableTemplate = (() => {
+    const name = `notes_${Date.now().toString().slice(-4)}`;
+    switch (database.type) {
+      case 'postgres':
+        return `CREATE TABLE IF NOT EXISTS "${name}" (\n  id serial PRIMARY KEY,\n  title text NOT NULL,\n  created_at timestamptz DEFAULT now()\n);`;
+      case 'mysql':
+      case 'mariadb':
+        return `CREATE TABLE IF NOT EXISTS \`${name}\` (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  title VARCHAR(255) NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);`;
+      default:
+        return `CREATE TABLE IF NOT EXISTS "${name}" (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  title TEXT NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);`;
+    }
+  })();
+
   const mockPasswords: Record<string, string> = {
     'db-1': 'bp_pg_98f!aA72#xK',
     'db-2': 'analytics_sec_89Qv$L1',
@@ -363,9 +385,9 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
           >
             <Table className="w-3.5 h-3.5" />
             <span>Data Browser & SQL</span>
-            {database.type === 'sqlite' && (
+            {canRunSql && (
               <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-700 text-[10px] rounded font-mono font-bold">
-                Direct
+                {database.type === 'sqlite' ? 'Direct' : 'Driver'}
               </span>
             )}
           </button>
@@ -800,8 +822,8 @@ USE \`${database.name}\`;
                 </div>
               )}
 
-              {/* SQLite: Table list + SQL Editor + Results */}
-              {database.type === 'sqlite' && (
+              {/* Table list + SQL Editor + Results (every engine the panel can reach) */}
+              {canRunSql && (
                 <div className="space-y-4">
                   {/* Table selector pills */}
                   <div>
@@ -812,9 +834,7 @@ USE \`${database.name}\`;
                       <button
                         type="button"
                         onClick={() => {
-                          const demoTbl = `notes_${Date.now().toString().slice(-4)}`;
-                          const createSql = `CREATE TABLE IF NOT EXISTS "${demoTbl}" (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  title TEXT NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);`;
-                          setSqlQuery(createSql);
+                          setSqlQuery(createTableTemplate);
                         }}
                         className="text-[11px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
                       >
@@ -824,7 +844,7 @@ USE \`${database.name}\`;
 
                     {tableList.length === 0 ? (
                       <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500">
-                        No user tables found in this SQLite database file yet. Run a <code className="font-mono text-slate-700">CREATE TABLE</code> statement below.
+                        No user tables found yet. Run a <code className="font-mono text-slate-700">CREATE TABLE</code> statement below, or browse the Web GUI manager.
                       </div>
                     ) : (
                       <div className="flex flex-wrap gap-1.5">
@@ -1042,8 +1062,8 @@ USE \`${database.name}\`;
                 </div>
               )}
 
-              {/* Non-sqlite/redis message */}
-              {database.type !== 'sqlite' && database.type !== 'redis' && (
+              {/* Engines the panel has no driver for yet (MongoDB) */}
+              {!canRunSql && database.type !== 'redis' && (
                 <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-center space-y-3">
                   <Database className="w-8 h-8 text-slate-400 mx-auto" />
                   <div>
