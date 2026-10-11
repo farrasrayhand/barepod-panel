@@ -109,6 +109,32 @@ else
     || note "could not create the 'root' role — create it yourself: su postgres -c \"psql -c 'CREATE ROLE root SUPERUSER LOGIN'\""
 fi
 
+# ---------------------------------------------------------------- optional managers
+# pgweb is one Go binary with no runtime of its own, and the panel starts it only
+# when someone opens it and stops it when it goes idle — so having it installed
+# costs nothing while it is not being used. It is fetched from its own release page
+# at a pinned version; if the download fails the rest of the install still stands.
+PGWEB_VERSION="0.16.2"
+if have pgweb; then
+  note "pgweb already installed"
+else
+  ARCH=$(uname -m); case "$ARCH" in x86_64) PGWEB_ARCH="amd64";; aarch64|arm64) PGWEB_ARCH="arm64";; *) PGWEB_ARCH="";; esac
+  if [[ -n "$PGWEB_ARCH" ]]; then
+    URL="https://github.com/sosedoff/pgweb/releases/download/v${PGWEB_VERSION}/pgweb_linux_${PGWEB_ARCH}.zip"
+    if curl -fsSL "$URL" -o /tmp/pgweb.zip 2>/dev/null && unzip -o -q /tmp/pgweb.zip -d /tmp/pgweb-extract 2>/dev/null; then
+      install -m 0755 /tmp/pgweb-extract/pgweb /usr/local/bin/pgweb \
+        && note "installed pgweb ${PGWEB_VERSION} (starts on demand, stops when idle)" \
+        || note "pgweb could not be installed — the panel will say it is unavailable"
+      rm -rf /tmp/pgweb.zip /tmp/pgweb-extract
+    else
+      note "pgweb could not be downloaded — the panel will say it is unavailable"
+      rm -f /tmp/pgweb.zip
+    fi
+  else
+    note "no pgweb build for $ARCH — the panel will say it is unavailable"
+  fi
+fi
+
 say "Done"
 if [[ "$failures" -gt 0 ]]; then
   echo "   $failures engine(s) did not answer; the panel will report them honestly rather than pretend."
