@@ -56,6 +56,9 @@ interface AppRoute {
 const parseRoute = (pathname: string): AppRoute => {
   const clean = pathname.replace(/\/+$/, '') || '/';
   if (clean === '/') return { tab: 'apps' };
+  // /login is the signed-out address; it is not a panel page but it is valid,
+  // so refreshing there must not be reported as a missing page.
+  if (clean === '/login') return { tab: 'apps' };
   const parts = clean.split('/').filter(Boolean);
   if (parts[0] === 'apps') {
     return {
@@ -240,6 +243,7 @@ export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [loggedOut, setLoggedOut] = useState(false);
+  const [redirectTo, setRedirectTo] = useState<string | null>(null);
   const [terminalTarget, setTerminalTarget] = useState<{ kind: 'site' | 'pod'; id: string } | null>(null);
 
   // Session: the daemon answers (live) or the prototype stays on mock data.
@@ -279,12 +283,40 @@ export function App() {
     setCurrentTab('terminal');
   };
 
-  // Normalize bare "/" to the default menu endpoint on first load
+  // Signed out, the address bar says so: the URL becomes /login instead of
+  // showing a login form under a protected path. Where you were heading is
+  // remembered, so signing in still takes you there.
+  const signedOut = session.mode === 'live' && !session.user;
   useEffect(() => {
+    if (!signedOut) return;
+    const path = window.location.pathname + window.location.search;
+    if (path === '/login') return;
+    if (path !== '/' && path !== TAB_PATHS.apps) setRedirectTo(path);
+    window.history.replaceState(null, '', '/login');
+    setRoute(parseRoute('/login'));
+  }, [signedOut]);
+
+  const handleSignIn = async (username: string, password: string) => {
+    const ok = await session.signIn(username, password);
+    if (ok) {
+      const target = redirectTo ?? TAB_PATHS.apps;
+      setRedirectTo(null);
+      window.history.replaceState(null, '', target);
+      setRoute(parseRoute(target));
+    }
+    return ok;
+  };
+
+  // Normalize bare "/" to the default menu endpoint — but only once we know the
+  // visitor is signed in. Without the guard, a fresh visit rewrote the address
+  // to /apps even while the login screen was on display.
+  useEffect(() => {
+    if (session.mode === 'checking') return;
+    if (signedOut) return;
     if (window.location.pathname === '/') {
       window.history.replaceState(null, '', TAB_PATHS.apps);
     }
-  }, []);
+  }, [session.mode, signedOut]);
 
   // Restore the correct route on refresh / browser back-forward
   useEffect(() => {
@@ -313,6 +345,8 @@ export function App() {
   // under an unknown URL.
   useEffect(() => {
     if (!route.unmatchedPath) return;
+    // While signed out the login screen owns the address bar.
+    if (signedOut) return;
     const fallback = TAB_PATHS[route.tab];
     window.history.replaceState(null, '', fallback);
     setRoute(parseRoute(fallback));
@@ -449,18 +483,15 @@ export function App() {
     );
   }
 
-  if (session.mode === 'live' && !session.user) {
-    // The URL is left alone while signed out so a bookmark or a shared link
-    // still works after signing in; the screen just says where you were going.
-    const requested = window.location.pathname;
+  if (signedOut) {
     return (
       <LoginView
-        onSignIn={session.signIn}
+        onSignIn={handleSignIn}
         onSimulate={session.useSimulation}
         error={session.error}
         busy={session.busy}
         mode={session.mode}
-        redirectTo={requested === '/' ? undefined : requested}
+        redirectTo={redirectTo ?? undefined}
       />
     );
   }

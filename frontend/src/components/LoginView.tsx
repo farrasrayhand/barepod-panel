@@ -44,8 +44,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
           </p>
           {redirectTo && (
             <p className="text-[11px] text-slate-500">
-              You asked for <code className="px-1 py-0.5 rounded bg-slate-100 font-mono">{redirectTo}</code> — signing
-              in takes you there.
+              Signing in takes you back to <code className="px-1 py-0.5 rounded bg-slate-100 font-mono">{redirectTo}</code>
+              .
             </p>
           )}
         </div>
