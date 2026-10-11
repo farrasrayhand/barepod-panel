@@ -117,12 +117,14 @@ func Registry() map[string]Spec {
 			HealthPath: "/",
 			Container:  true,
 			// Pinned, not `latest`: the manager starts on demand for whoever opens it, and a
-			// surprise major the moment upstream publishes one is not something an operator
-			// should discover through their databases. 7.2.6 is the last patch of the 7.2
-			// line — a settled release. The image is DbGate's community edition, which is the
-			// only edition there is: its "premium" items are license upsells inside that same
-			// image, and no setting removes them.
-			Image:         "dbgate/dbgate:7.2.6",
+			// surprise release the moment upstream publishes one is not something an operator
+			// should discover through their databases. 7.3.2 is the version the operator ran
+			// while it was stable, and it was measured against what this panel depends on
+			// (the socket connection fields read from env, WEB_ROOT handling) next to 7.2.6 —
+			// both worked, so the one with real operating history wins. The image is DbGate's
+			// community edition, which is the only edition there is: its "premium" items are
+			// license upsells inside that same image, and no setting removes them.
+			Image:         "dbgate/dbgate:7.3.2",
 			ContainerName: "barepod-dbgate",
 			// The API names each instance after its record and takes a port from this
 			// range, so several databases can have DbGate open at once.

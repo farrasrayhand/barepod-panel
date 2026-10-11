@@ -42,6 +42,8 @@ interface AppsViewProps {
   onToggleAppStatus: (appId: string) => void;
   onUpdateApp?: (updated: WebApp) => void;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+  /** Hands a running deploy to the log panel: it shows the daemon's own stream. */
+  onWatchDeploy?: (slug: string, deployId: string) => void;
 }
 
 export const AppsView: React.FC<AppsViewProps> = ({
@@ -58,6 +60,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
   onToggleAppStatus,
   onUpdateApp,
   onShowToast,
+  onWatchDeploy,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -131,6 +134,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
           isOpen={!!selectedAppForGit}
           onClose={() => setSelectedAppForGit(null)}
           app={selectedAppForGit}
+          onWatchDeploy={onWatchDeploy}
           onUpdateApp={handleUpdateAppDetail}
           onShowToast={onShowToast}
         />

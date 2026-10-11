@@ -18,6 +18,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import type { WebApp } from '../types';
+import { api } from '../api/client';
 
 interface GitDeploymentModalProps {
   isOpen: boolean;
@@ -25,6 +26,8 @@ interface GitDeploymentModalProps {
   app: WebApp | null;
   onUpdateApp?: (updated: WebApp) => void;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+  /** Shows the daemon's own log for the job this screen just started. */
+  onWatchDeploy?: (slug: string, deployId: string) => void;
 }
 
 export const GitDeploymentModal: React.FC<GitDeploymentModalProps> = ({
@@ -33,6 +36,7 @@ export const GitDeploymentModal: React.FC<GitDeploymentModalProps> = ({
   app,
   onUpdateApp,
   onShowToast,
+  onWatchDeploy,
 }) => {
   const getDefaultScript = (runtime?: string) => {
     if (runtime === 'php') {
@@ -65,10 +69,9 @@ npm run build`;
   const [isSaving, setIsSaving] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
-  const [deployLogs, setDeployLogs] = useState<string[]>([
-    '[SYSTEM] Last deployment succeeded on 2026-10-10 16:40:12 (Commit d70a45a)',
-    '[SYSTEM] Webhook listener active and awaiting push events.',
-  ]);
+  // Empty on purpose: this window has no history of its own, and inventing one ("last
+  // deployment succeeded, commit d70a45a") is exactly what it used to do.
+  const [deployLogs, setDeployLogs] = useState<string[]>([]);
 
   // Sync state when app changes
   useEffect(() => {
@@ -146,47 +149,26 @@ systemctl reload ${app.name}`;
     }, 400);
   };
 
+  // This used to invent a whole deployment: a fake commit hash, a fake PID, a fake
+  // "HTTP 200 OK" and a fake duration, all written by a timer. Nothing here is
+  // fabricated any more — the daemon starts the job and its own stream is the log.
   const handleTriggerRedeploy = () => {
     setIsDeploying(true);
-    const nowStr = new Date().toLocaleTimeString();
-    const initialLogs = [
-      `[${nowStr}] Manual redeploy triggered for '${app.name}'`,
-      `[${nowStr}] Connecting to ${repoUrl} (branch: ${branch})...`,
-      `[${nowStr}] Validating tenant isolation cgroup v2: /home/${app.tenantUser}`,
-    ];
-    setDeployLogs(initialLogs);
-
-    // Save configuration alongside deploy trigger
-    const updated: WebApp = {
-      ...app,
-      gitRepo: repoUrl,
-      gitBranch: branch,
-      autoDeploy,
-      buildScript,
-      lastDeployedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      lastDeployCommit: '7fa901a',
-    };
-    onUpdateApp?.(updated);
-
-    setTimeout(() => {
-      setDeployLogs((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] Fetching latest commit (git fetch & fast-forward)...`,
-        `[${new Date().toLocaleTimeString()}] Running stored build script:`,
-        ...buildScript.split('\n').filter(Boolean).map(line => `    $ ${line}`),
-      ]);
-    }, 1200);
-
-    setTimeout(() => {
-      setDeployLogs((prev) => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] Reloading runtime service in isolated jail (PID 49102)...`,
-        `[${new Date().toLocaleTimeString()}] Cloudflare Ingress health probe: HTTP 200 OK (${app.domain})`,
-        `[${new Date().toLocaleTimeString()}] [OK] Zero-Downtime Deployment finished in 3.8s!`,
-      ]);
-      setIsDeploying(false);
-      onShowToast?.('Redeploy Complete', `App '${app.name}' rebuilt and redeployed.`, 'success');
-    }, 2800);
+    onUpdateApp?.({ ...app, gitRepo: repoUrl, gitBranch: branch, autoDeploy, buildScript });
+    void (async () => {
+      try {
+        const result = await api.redeploy(app.name);
+        setDeployLogs([
+          `Redeploy requested — the daemon is running job ${result.deployId} (${result.mode}).`,
+          'Its own log is streaming in the panel at the bottom right; this window shows nothing it did not say.',
+        ]);
+        onWatchDeploy?.(app.name, result.deployId);
+      } catch (err) {
+        setDeployLogs([`The daemon refused the redeploy: ${err instanceof Error ? err.message : 'unknown reason'}`]);
+      } finally {
+        setIsDeploying(false);
+      }
+    })();
   };
 
   return (

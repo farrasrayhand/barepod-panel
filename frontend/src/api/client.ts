@@ -398,6 +398,13 @@ export const api = {
 
   website: (slug: string) => request<ApiWebsite>(`/websites/${slug}`),
 
+  /** Re-run the pipeline from the source recorded at create time; also a 202 + job. */
+  redeploy: (slug: string) =>
+    request<{ slug: string; deployId: string; mode: string; status: string; totalSteps?: number }>(
+      `/websites/${slug}/redeploy`,
+      { method: 'POST' },
+    ),
+
   websiteAction: (slug: string, action: 'start' | 'stop' | 'restart') =>
     request<{ slug: string; action: string; status: string; mode: string }>(
       `/websites/${slug}/${action}`,

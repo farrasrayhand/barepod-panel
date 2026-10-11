@@ -253,7 +253,7 @@ func TestDbGateRunsAsAContainerOnLoopbackOnlyAndIsRemovedToStop(t *testing.T) {
 		"-v /home/t/apps/site:/dbgate-sqlite",
 		"--user 1001:1001",
 		"--env-file /var/lib/barepod/dbtools/dbgate-01H.env",
-		"dbgate/dbgate:7.2.6",
+		"dbgate/dbgate:7.3.2",
 	} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("the DbGate command is missing %q: %s", want, argv)

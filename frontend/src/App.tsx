@@ -626,6 +626,7 @@ export function App() {
             <AppsView
               apps={apps}
               appsLoaded={appsLoaded}
+              onWatchDeploy={(slug, deployId) => setDeployWatch({ slug, deployId })}
               selectedAppSlug={route.appSlug ?? null}
               appSubTab={route.appSubTab}
               onSelectApp={(slug) => navigatePath(`/apps/${encodeURIComponent(slug)}`)}
