@@ -121,9 +121,15 @@ func Detect(ctx context.Context, runner host.Runner) []Engine {
 		if !engine.Available {
 			engine.Mode = ModeNone
 			if containers && containerised {
-				// Nothing is installed, but the panel can run it as a container here.
+				// Nothing is installed, but the panel can run it as a container here — so it
+				// *is* available: availability means the panel can provide it, and the mode
+				// says how. Reporting "not installed" kept the UI from offering an engine the
+				// panel runs perfectly well (MongoDB was locked out while its container was
+				// up, and creating one from the API worked all along).
+				engine.Available = true
 				engine.Mode = ModeDocker
-				engine.Note = fmt.Sprintf("Nothing is installed, but this host runs containers: the panel can start %s as a container (%s, bound to 127.0.0.1).",
+				engine.Running = containerEngineRunning(ctx, runner, engine.Name)
+				engine.Note = fmt.Sprintf("Nothing is installed, but this host runs containers: the panel starts %s as a container (%s, bound to 127.0.0.1).",
 					engine.Label, recipe.Image)
 				continue
 			}
@@ -144,6 +150,23 @@ func Detect(ctx context.Context, runner host.Runner) []Engine {
 		}
 	}
 	return engines
+}
+
+// containerEngineRunning reports whether the container the panel runs an engine in is
+// already up, so the panel can say "running" rather than guess. A failure answers
+// false: not knowing is not the same as knowing it runs.
+func containerEngineRunning(ctx context.Context, runner host.Runner, engine string) bool {
+	if runner == nil {
+		return false
+	}
+	spec, _, err := ContainerFor(engine, "u", "p", os.TempDir())
+	if err != nil {
+		return false
+	}
+	probe, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := runner.Run(probe, "", "docker", "ps", "--filter", "name="+spec.Name, "--filter", "status=running", "-q")
+	return err == nil && strings.TrimSpace(out) != ""
 }
 
 // clientCandidates are the places a distribution may hide a client binary. The

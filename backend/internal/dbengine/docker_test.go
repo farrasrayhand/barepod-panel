@@ -1,6 +1,7 @@
 package dbengine
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -8,6 +9,54 @@ import (
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
 )
+
+// dockerOnly stands in for a host that has no engine client installed but can run
+// containers, which is exactly the LXC this panel targets.
+type dockerOnly struct{ running string }
+
+func (d dockerOnly) Mode() string { return "real" }
+
+func (d dockerOnly) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
+	switch {
+	case name == "docker" && len(args) > 0 && args[0] == "info":
+		return "ok", nil
+	case name == "docker" && len(args) > 0 && args[0] == "ps":
+		return d.running, nil
+	}
+	return "", fmt.Errorf("not found: %s", name)
+}
+
+func (d dockerOnly) RunAs(_ context.Context, _, _ string, _ string, _ ...string) (string, error) {
+	return "", nil
+}
+
+func (d dockerOnly) RunEnv(_ context.Context, _ string, _ []string, _ string, _ ...string) (string, error) {
+	return "", nil
+}
+
+// An engine the panel runs as a container is available even when nothing at all is
+// installed: availability means the panel can provide it, and the mode says how.
+// Reporting it as unavailable locked the drop-down on an engine the panel runs
+// perfectly well — MongoDB showed "not installed" while its container was up.
+func TestAContainerEngineIsAvailableWithoutItsClient(t *testing.T) {
+	ctx := context.Background()
+	for _, engine := range Detect(ctx, dockerOnly{running: "abc123"}) {
+		if engine.Name != "mongodb" {
+			continue
+		}
+		if !engine.Available {
+			t.Errorf("MongoDB was reported unavailable although this host runs containers: %+v", engine)
+		}
+		if engine.Mode != ModeDocker {
+			t.Errorf("the mode does not say the panel runs it as a container: %q", engine.Mode)
+		}
+		if !engine.Running {
+			t.Errorf("the running container was not noticed: %+v", engine)
+		}
+		return
+	}
+	t.Fatal("mongodb is missing from the catalog")
+}
 
 func TestContainerBindsLoopbackAndKeepsCredentialsOutOfArgv(t *testing.T) {
 	adminSecret := id.Token(16)
