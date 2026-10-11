@@ -184,6 +184,9 @@ func New(d Deps) http.Handler {
 	// the panel's own session, capability and audit apply.
 	mux.HandleFunc("GET /api/v1/databases/{id}/tables", databases(s.handleListTables(store.KindDatabase)))
 	mux.HandleFunc("POST /api/v1/databases/{id}/query", databases(s.handleDatabaseQuery(store.KindDatabase)))
+	// Managers live behind the panel's own session: no port, no direct link.
+	mux.HandleFunc("GET /api/v1/databases/{id}/gui", databases(s.handleDatabaseGui(store.KindDatabase)))
+	mux.HandleFunc("GET /api/v1/databases/{id}/gui/{tool}", databases(s.handleDatabaseGui(store.KindDatabase)))
 
 	mux.HandleFunc("GET /api/v1/caches", databases(s.handleListDatabases(store.KindCache)))
 	mux.HandleFunc("POST /api/v1/caches", databases(s.handleCreateDatabase(store.KindCache)))
@@ -199,6 +202,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/caches/{id}/purge", databases(s.handlePurgeDatabase(store.KindCache)))
 	mux.HandleFunc("GET /api/v1/caches/{id}/tables", databases(s.handleListTables(store.KindCache)))
 	mux.HandleFunc("POST /api/v1/caches/{id}/query", databases(s.handleDatabaseQuery(store.KindCache)))
+	mux.HandleFunc("GET /api/v1/caches/{id}/gui", databases(s.handleDatabaseGui(store.KindCache)))
+	mux.HandleFunc("GET /api/v1/caches/{id}/gui/{tool}", databases(s.handleDatabaseGui(store.KindCache)))
 
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)

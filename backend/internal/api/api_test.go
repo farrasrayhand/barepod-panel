@@ -1032,3 +1032,62 @@ func TestDataBrowserRefusesWhatItCannotDoYet(t *testing.T) {
 		t.Errorf("a tenant browsed another account's database: %d", resp.StatusCode)
 	}
 }
+
+func TestDatabaseGuiNeedsThePanelSession(t *testing.T) {
+	panel := newTestPanel(t)
+
+	// Nothing is reachable without a session: not the tool list, not a tool.
+	for _, path := range []string{
+		"/api/v1/databases/gui",
+		"/api/v1/databases/anything/gui",
+		"/api/v1/databases/anything/gui/phpmyadmin",
+	} {
+		resp, body := panel.do(t, http.MethodGet, path, nil)
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s without a session = %d (%s), want 401", path, resp.StatusCode, body)
+		}
+	}
+
+	panel.login(t, "admin")
+	_, created := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
+		"engine": "sqlite", "alias": "Gui DB", "websiteSlug": "admin-site",
+	})
+	id := ""
+	for _, field := range strings.Split(string(created), `"id":"`) {
+		if len(field) > 26 {
+			id = field[:26]
+			break
+		}
+	}
+	if id == "" {
+		t.Fatalf("no id in %s", created)
+	}
+
+	// The built-in browser needs nothing installed and points at the data API.
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/databases/"+id+"/gui", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("tool list = %d (%s)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"tool":"browser"`) || !strings.Contains(string(body), `"available":true`) {
+		t.Errorf("the tool list is wrong: %s", body)
+	}
+	for _, tool := range []string{"browser", "phpmyadmin", "pgadmin"} {
+		if !strings.Contains(string(body), tool) {
+			t.Errorf("the tool list is missing %s", tool)
+		}
+	}
+
+	// A third-party manager is refused with an explanation rather than hosted on a
+	// port of its own, and the attempt is audited.
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/databases/"+id+"/gui/phpmyadmin", nil)
+	if resp.StatusCode != http.StatusNotImplemented {
+		t.Errorf("phpmyadmin = %d (%s), want 501", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "never on a port") {
+		t.Errorf("the refusal should state the rule: %s", body)
+	}
+	_, auditBody := panel.do(t, http.MethodGet, "/api/v1/audit?limit=10", nil)
+	if !strings.Contains(string(auditBody), "database.gui_open") {
+		t.Errorf("opening a manager was not audited: %s", auditBody)
+	}
+}
