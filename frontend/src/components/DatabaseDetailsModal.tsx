@@ -176,12 +176,13 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
 
   if (!isOpen || !database) return null;
 
-  // The in-panel browser stays only where there is no hosted manager: SQLite (a
-  // file the daemon reads itself), Redis (the key inspector that stands in for
-  // redis-commander) and MongoDB (which has neither yet). PostgreSQL and
-  // MySQL/MariaDB open pgweb / phpMyAdmin instead — what users already know.
-  const hasHostedManager =
-    database.type === 'postgres' || database.type === 'mysql' || database.type === 'mariadb';
+  // The in-panel tab stays only where no manager can open the record. PostgreSQL,
+  // MySQL and MariaDB open pgweb / phpMyAdmin; SQLite (a file DbGate mounts) and
+  // MongoDB (a document store it speaks) open DbGate — so those two no longer get a
+  // "Browse Data" tab, and MongoDB's was a note rather than a browser. Redis keeps
+  // its key inspector: a host cache listens on TCP loopback, which is the one thing a
+  // container cannot reach, so DbGate is not offered for it.
+  const showsDataTab = database.type === 'redis';
   // A logical dump exists for the SQL engines (SQLite's is a copy of its file).
   const canExport =
     database.type === 'sqlite' ||
@@ -382,7 +383,7 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
             <Server className="w-3.5 h-3.5" />
             <span>Connection & Credentials</span>
           </button>
-          {!hasHostedManager && (
+          {showsDataTab && (
             <button
               type="button"
               onClick={() => {
