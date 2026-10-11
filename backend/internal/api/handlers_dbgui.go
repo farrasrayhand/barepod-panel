@@ -23,6 +23,13 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
 
+// guiMountRoot reports whether this request is the mount root — the page a browser is
+// given. The wildcard segment captures the trailing slash, so the path is "" or "/"
+// depending on how the request was written; both are the root.
+func guiMountRoot(r *http.Request) bool {
+	return strings.Trim(r.PathValue("path"), "/") == ""
+}
+
 // guiCookie is the anti-CSRF cookie issued for one proxied manager. The tool's
 // own client cannot carry our X-CSRF-Token header, so the panel issues this
 // path-scoped HttpOnly cookie when the page is opened and requires it for every
@@ -387,7 +394,13 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 		// request under the mount must present it. The tool's own client cannot
 		// carry our CSRF header, but a cross-site request does not carry this
 		// cookie, so a statement cannot be run from another page.
-		if r.PathValue("path") == "" {
+		//
+		// The mount root is what a browser is given — "/gui/<tool>/", with the trailing
+		// slash — and the wildcard captures that slash, so an equality test against ""
+		// never matched: the cookie was never issued, and every asset and API call the
+		// page then made was refused with 403 (the page rendered from cache, and clicking
+		// anything did nothing).
+		if guiMountRoot(r) {
 			http.SetCookie(w, &http.Cookie{
 				Name: guiCookie, Value: sess.CSRFToken, Path: mount + "/",
 				HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 3600,
@@ -436,7 +449,7 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 			writeError(w, http.StatusBadGateway, "service_error", err.Error())
 			return
 		}
-		if r.PathValue("path") == "" {
+		if guiMountRoot(r) {
 			_ = s.store.Audit(user.ID, "database.gui_open", record.Name, clientIP(r), tool)
 		}
 		s.proxyGuiTool(w, r, spec, mount)
