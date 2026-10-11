@@ -180,9 +180,11 @@ func readJailStatus(reader *os.File) (bool, int, string) {
 	}
 	mode := ""
 	switch {
-	case strings.Contains(line, "apps="):
-		// The account's apps directory holds only this website inside this shell.
-		mode = "apps"
+	case strings.Contains(line, "root="):
+		// The shell is chrooted into a minimal tree around the website.
+		mode = "root"
+	case strings.Contains(line, "masked=") && masked > 0:
+		mode = "mask"
 	case masked > 0:
 		mode = "mask"
 	}
@@ -280,7 +282,8 @@ func (s *Session) User() string {
 func (s *Session) Shell() string { return filepath.Base(s.shell) }
 
 // Jailed reports whether the shell is confined to its site directory, how many
-// paths were hidden, and which shape was used: "apps" (the account's other sites
-// are unreachable) or "mask" (their contents were hidden). It is false on a host that
+// paths were hidden, and which shape was used: "root" (the shell is jailed into a
+// minimal tree around the website) or "mask" (the neighbours' contents were
+// hidden, used only where a jail cannot be built). It is false on a host that
 // cannot build the namespace, which the audit line and the UI both say out loud.
 func (s *Session) Jailed() (bool, int, string) { return s.jailed, s.masked, s.jailMode }

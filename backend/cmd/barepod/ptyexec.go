@@ -52,7 +52,7 @@ func runPTYExec(args []string) error {
 	// Where the shell starts: with the home overlay it is the home path (which now
 	// *is* the site), otherwise the site's own directory.
 	shellDir := spec.SiteDir()
-	appsConfined := false
+	rooted := false
 
 	// Masking, or overlaying, in the daemon's own namespace would change the real
 	// directories for every process on the machine, so refuse that outright.
@@ -61,10 +61,14 @@ func runPTYExec(args []string) error {
 	if *parentNS != "" && terminal.SharesMountNamespace(*parentNS) {
 		jailErr = errors.New("this shell shares the daemon's mount namespace, so confining it is unsafe")
 	} else if spec.SiteInsideHome() {
-		// The account's `apps` directory becomes a private one holding only this
-		// site: the project path stays, the neighbours disappear.
-		jailErr = terminal.ConfineApps(spec.Home(), spec.SiteDir(), spec.Slug, *uid, *gid)
-		appsConfined = jailErr == nil
+		// A jail: the shell is rooted at a minimal tree whose only writable place is
+		// this website, so `cd` has nowhere else to go.
+		workdir, err := terminal.JailRoot(spec.Home(), spec.SiteDir(), spec.Slug, *uid, *gid)
+		jailErr = err
+		if err == nil {
+			rooted = true
+			shellDir = workdir
+		}
 	} else {
 		siblings, err := spec.Siblings()
 		if err != nil {
@@ -77,9 +81,9 @@ func runPTYExec(args []string) error {
 		// The shell still opens, but it is not confined and the daemon is told so.
 		reportJailStatus(*statusFD, "jailed=0 masked=%d reason=%q", len(masked), jailErr.Error())
 		fmt.Fprintf(os.Stderr, "barepod: this shell could not be confined: %v\r\n", jailErr)
-	} else if appsConfined {
-		reportJailStatus(*statusFD, "jailed=1 apps=%s", spec.SiteDir())
-		fmt.Fprintf(os.Stderr, "barepod: confined to %s — the account's other websites are not reachable from this shell\r\n", spec.SiteDir())
+	} else if rooted {
+		reportJailStatus(*statusFD, "jailed=1 root=%s", spec.SiteDir())
+		fmt.Fprintf(os.Stderr, "barepod: this shell is rooted at %s — the rest of the machine is not part of its world\r\n", spec.SiteDir())
 	} else {
 		reportJailStatus(*statusFD, "jailed=1 masked=%d", len(masked))
 		if len(masked) > 0 {

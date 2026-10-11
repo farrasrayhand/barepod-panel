@@ -20,9 +20,9 @@ func newJailedCommand(Options, string, string, []string) (*exec.Cmd, *os.File, f
 	return nil, nil, nil, errors.New("terminal: confining a shell is only supported on Linux")
 }
 
-// ConfineApps is not available off Linux.
-func ConfineApps(string, string, string, int, int) error {
-	return errors.New("terminal: confining a shell is only supported on Linux")
+// JailRoot is not available off Linux.
+func JailRoot(string, string, string, int, int) (string, error) {
+	return "", errors.New("terminal: confining a shell is only supported on Linux")
 }
 
 // Mask is not available off Linux.

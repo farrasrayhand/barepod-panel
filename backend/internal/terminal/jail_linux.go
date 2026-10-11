@@ -47,56 +47,6 @@ func makePrivate() error {
 	return nil
 }
 
-// ConfineApps hides the account's other websites: inside this mount namespace the
-// `apps` directory becomes a private one that contains only this site, bind-mounted
-// at its usual path.
-//
-// The result keeps the project path (`/home/<tenant>/apps/<site>`), so the prompt
-// says which website the shell belongs to, while a sibling is not even a name in a
-// listing — unlike masking each neighbour, which hides only its contents.
-func ConfineApps(home, siteDir, slug string, uid, gid int) error {
-	if err := makePrivate(); err != nil {
-		return err
-	}
-	appsDir := filepath.Join(home, "apps")
-
-	// A scratch tmpfs to build the replacement in. /mnt is the conventional place
-	// and, because the whole thing lives in this namespace, nothing is left on the
-	// host when the shell exits.
-	staging := "/mnt"
-	if info, err := os.Stat(staging); err != nil || !info.IsDir() {
-		staging = os.TempDir()
-	}
-	if err := syscall.Mount("tmpfs", staging, "tmpfs", 0, "size=1M"); err != nil {
-		return fmt.Errorf("terminal: cannot prepare a private directory (%v)", err)
-	}
-	// The shell runs as the tenant: everything on the way to the site has to be
-	// theirs, or the chdir after dropping privileges fails with permission denied.
-	if err := os.Chmod(staging, 0o755); err != nil {
-		return err
-	}
-	replacement := filepath.Join(staging, "apps")
-	if err := os.MkdirAll(filepath.Join(replacement, slug), 0o750); err != nil {
-		return err
-	}
-	for _, dir := range []string{replacement, filepath.Join(replacement, slug)} {
-		if err := os.Chown(dir, uid, gid); err != nil {
-			return fmt.Errorf("terminal: cannot hand %s to the tenant (%v)", dir, err)
-		}
-	}
-	if err := syscall.Mount(siteDir, filepath.Join(replacement, slug), "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
-		return fmt.Errorf("terminal: cannot bind %s (%v)", siteDir, err)
-	}
-	if err := syscall.Mount(replacement, appsDir, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
-		return fmt.Errorf("terminal: cannot put the private apps directory over %s (%v)", appsDir, err)
-	}
-	// Cover the scratch area again: the bind above keeps its own reference, so the
-	// replacement stays reachable at the project path while the scratch itself is
-	// out of sight.
-	_ = syscall.Mount("tmpfs", staging, "tmpfs", 0, "size=1M,mode=0000")
-	return nil
-}
-
 // Mask hides each path inside the current mount namespace: a tmpfs over a
 // directory (mode 0000, so the tenant cannot even enter it) and /dev/null over a
 // file. Because the mounts belong to this namespace only, the host is untouched
