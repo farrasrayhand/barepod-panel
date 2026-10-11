@@ -86,6 +86,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     truncated: boolean;
   } | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
+  const [showSqlEditor, setShowSqlEditor] = useState(false);
 
   React.useEffect(() => {
     if (database) {
@@ -105,6 +106,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
       setQueryResult(null);
       setQueryError(null);
       setTablesError(null);
+      setShowSqlEditor(false);
     }
   }, [database]);
 
@@ -174,18 +176,18 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
 
   if (!isOpen || !database) return null;
 
-  // The panel browses every engine it has a driver for — SQLite in-process and the
-  // daemon engines (PostgreSQL/MySQL/MariaDB) through pure-Go drivers — so the
-  // Data Browser & SQL tab works for them. MongoDB has no such driver yet and
-  // keeps the "use a manager / connection string" panel.
-  const canRunSql =
+  // The in-panel browser stays only where there is no hosted manager: SQLite (a
+  // file the daemon reads itself), Redis (the key inspector that stands in for
+  // redis-commander) and MongoDB (which has neither yet). PostgreSQL and
+  // MySQL/MariaDB open pgweb / phpMyAdmin instead — what users already know.
+  const hasHostedManager =
+    database.type === 'postgres' || database.type === 'mysql' || database.type === 'mariadb';
+  // A logical dump exists for the SQL engines (SQLite's is a copy of its file).
+  const canExport =
     database.type === 'sqlite' ||
     database.type === 'postgres' ||
     database.type === 'mysql' ||
     database.type === 'mariadb';
-  // A logical dump exists for the SQL engines (SQLite is a file copy of itself);
-  // there is none for a key-value or document store.
-  const canExport = canRunSql;
   const createTableTemplate = (() => {
     const name = `notes_${Date.now().toString().slice(-4)}`;
     switch (database.type) {
@@ -380,28 +382,25 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
             <Server className="w-3.5 h-3.5" />
             <span>Connection & Credentials</span>
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setDataTabActive('data');
-              if (tableList.length === 0 && !redisKeys && !tablesError) {
-                loadTables();
-              }
-            }}
-            className={`px-3 py-2 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
-              dataTabActive === 'data'
-                ? 'border-blue-600 text-blue-600 bg-white'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Table className="w-3.5 h-3.5" />
-            <span>Data Browser & SQL</span>
-            {canRunSql && (
-              <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-700 text-[10px] rounded font-mono font-bold">
-                {database.type === 'sqlite' ? 'Direct' : 'Driver'}
-              </span>
-            )}
-          </button>
+          {!hasHostedManager && (
+            <button
+              type="button"
+              onClick={() => {
+                setDataTabActive('data');
+                if (tableList.length === 0 && !redisKeys && !tablesError) {
+                  loadTables();
+                }
+              }}
+              className={`px-3 py-2 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+                dataTabActive === 'data'
+                  ? 'border-blue-600 text-blue-600 bg-white'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Table className="w-3.5 h-3.5" />
+              <span>{database.type === 'redis' ? 'Keys' : database.type === 'mongodb' ? 'Data' : 'Browse Data'}</span>
+            </button>
+          )}
         </div>
 
         {/* Modal Scrollable Body */}
@@ -817,8 +816,8 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                 </div>
               )}
 
-              {/* Table list + SQL Editor + Results (every engine the panel can reach) */}
-              {canRunSql && (
+              {/* SQLite: a friendly grid — click a table and its rows appear; SQL is optional. */}
+              {database.type === 'sqlite' && (
                 <div className="space-y-4">
                   {/* Table selector pills */}
                   <div>
@@ -828,12 +827,10 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                       </span>
                       <button
                         type="button"
-                        onClick={() => {
-                          setSqlQuery(createTableTemplate);
-                        }}
+                        onClick={() => setShowSqlEditor((shown) => !shown)}
                         className="text-[11px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
                       >
-                        + Insert CREATE TABLE template
+                        {showSqlEditor ? 'Hide SQL' : 'Show SQL'}
                       </button>
                     </div>
 
@@ -867,17 +864,23 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                     )}
                   </div>
 
-                  {/* SQL query input */}
+                  {/* SQL is optional: the tables above already open as a plain grid. */}
+                  {showSqlEditor && (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                         <Terminal className="w-3.5 h-3.5 text-blue-600" />
-                        <span>SQL Statement</span>
-                        <span className="text-[10px] text-slate-400 font-normal font-sans">
-                          (Press Ctrl+Enter / Cmd+Enter to execute)
-                        </span>
+                        <span>SQL (optional)</span>
                       </label>
                       <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setSqlQuery(createTableTemplate)}
+                          className="px-2 py-0.5 text-[10px] font-mono text-slate-600 hover:bg-slate-100 rounded border border-slate-200 cursor-pointer"
+                          title="Insert a CREATE TABLE template"
+                        >
+                          CREATE TABLE
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
@@ -938,6 +941,7 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                       </button>
                     </div>
                   </div>
+                  )}
 
                   {/* Query Error */}
                   {queryError && (
@@ -1058,8 +1062,8 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                 </div>
               )}
 
-              {/* Engines the panel has no driver for yet (MongoDB) */}
-              {!canRunSql && database.type !== 'redis' && (
+              {/* MongoDB: no hosted manager and no in-panel driver yet */}
+              {database.type === 'mongodb' && (
                 <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-center space-y-3">
                   <Database className="w-8 h-8 text-slate-400 mx-auto" />
                   <div>
