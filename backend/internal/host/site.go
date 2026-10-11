@@ -124,7 +124,9 @@ func (h *Host) FetchSource(ctx context.Context, tenant, slug, kind, repo, branch
 			branch = "main"
 		}
 		argv := []string{"git", "clone", "--depth", "1", "--branch", branch, repo, "."}
-		out, err := h.Runner.Run(ctx, dir, argv[0], argv[1:]...)
+		// Cloned code belongs to the tenant: a root-owned checkout could not be
+		// edited or pulled by the account that runs it.
+		out, err := h.Runner.RunAs(ctx, tenant, dir, argv[0], argv[1:]...)
 		if err != nil {
 			return nil, fmt.Errorf("host: git clone failed: %w (%s)", err, strings.TrimSpace(out))
 		}
@@ -141,12 +143,36 @@ func (h *Host) FetchSource(ctx context.Context, tenant, slug, kind, repo, branch
 	}
 }
 
-// RunInSite executes a command inside the site directory.
+// RunInSite executes a command inside the site directory **as the tenant**.
+//
+// Deploys used to run here as root, which left root-owned artifacts inside the
+// site (a scaffolded `.venv`, its installed packages) that the tenant could not
+// write to — the site kept serving, but `pip install`/`npm install` from the
+// tenant's own shell failed.
 func (h *Host) RunInSite(ctx context.Context, tenant, slug string, argv []string) (string, error) {
 	if len(argv) == 0 {
 		return "", nil
 	}
-	return h.Runner.Run(ctx, h.SitePath(tenant, slug), argv[0], argv[1:]...)
+	return h.Runner.RunAs(ctx, tenant, h.SitePath(tenant, slug), argv[0], argv[1:]...)
+}
+
+// ChownSite gives the whole site directory back to its tenant.
+//
+// Belt and braces after a deploy step that writes files: it repairs directories
+// that were left root-owned by earlier versions, and guarantees the documented
+// rule "everything inside a site belongs to the tenant".
+func (h *Host) ChownSite(ctx context.Context, tenant, slug string) error {
+	if !h.Materialises() {
+		return nil
+	}
+	dir := h.SitePath(tenant, slug)
+	if _, err := os.Stat(dir); err != nil {
+		return nil
+	}
+	if out, err := h.Runner.Run(ctx, "", "chown", "-R", tenant+":"+tenant, dir); err != nil {
+		return fmt.Errorf("host: chown -R %s: %w (%s)", dir, err, strings.TrimSpace(out))
+	}
+	return nil
 }
 
 // Run executes a command from the daemon's own working directory.

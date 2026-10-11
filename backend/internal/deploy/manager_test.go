@@ -51,6 +51,42 @@ func waitForJob(t *testing.T, st *store.Store, id string) *store.DeployJob {
 
 func isTerminal(status string) bool { return status == "success" || status == "failed" }
 
+// The scaffold used to run as root, which left a root-owned .venv inside the
+// tenant's site (the tenant could not pip install into its own app).
+func TestDeployRunsSiteCommandsAsTheTenant(t *testing.T) {
+	m, st, h, _, _ := newTestManager(t)
+
+	job, err := m.Start(Request{
+		Slug: "tenant-owned", Tenant: "tester", Domain: "tenant.example.com",
+		Runtime: "python", Version: "3.12", Framework: "flask",
+		WebServer: "caddy", Port: 4010,
+		Source: SourceSpec{Kind: "scaffold"},
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if finished := waitForJob(t, st, job.ID); finished.Status != "success" {
+		t.Fatalf("job status = %q, error = %q", finished.Status, finished.Error)
+	}
+
+	runner, ok := h.Runner.(*host.DryRunner)
+	if !ok {
+		t.Fatalf("runner = %T, want *host.DryRunner", h.Runner)
+	}
+	joined := strings.Join(runner.Commands(), "\n")
+	for _, want := range []string{
+		"as tester, cd " + h.SitePath("tester", "tenant-owned") + " && python3 -m venv .venv",
+		"as tester, cd " + h.SitePath("tester", "tenant-owned") + " && ./.venv/bin/pip install",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("recorded commands are missing %q\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "(cd "+h.SitePath("tester", "tenant-owned")+" && python3") {
+		t.Errorf("a site command still runs without a user:\n%s", joined)
+	}
+}
+
 func TestPipelineDryRunSucceeds(t *testing.T) {
 	m, st, h, key, _ := newTestManager(t)
 

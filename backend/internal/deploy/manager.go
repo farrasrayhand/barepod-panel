@@ -269,8 +269,11 @@ func stepFetchSource(ctx context.Context, s *state) error {
 	if err != nil {
 		return err
 	}
-	if s.req.Source.Kind == "existing" {
-		return nil
+	// Whatever the source was — a clone, a scaffold, an uploaded archive or code
+	// that was already there — the site directory must end up belonging to the
+	// tenant. This also repairs directories left root-owned by earlier versions.
+	if err := s.m.host.ChownSite(ctx, s.req.Tenant, s.req.Slug); err != nil {
+		return err
 	}
 	if s.req.Source.Kind != "scaffold" {
 		return nil
@@ -292,7 +295,11 @@ func stepFetchSource(ctx context.Context, s *state) error {
 	// A framework download without an entrypoint would start and immediately
 	// fail, so write the starter file the preset implies (never overwriting an
 	// existing one, so uploaded or cloned code is safe).
-	return s.writeStarterFiles(ctx)
+	if err := s.writeStarterFiles(ctx); err != nil {
+		return err
+	}
+	// Starter files are written by the daemon itself (as root), so hand them over.
+	return s.m.host.ChownSite(ctx, s.req.Tenant, s.req.Slug)
 }
 
 // writeStarterFiles places the framework's entrypoint inside the site.
