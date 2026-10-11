@@ -27,6 +27,10 @@ type Config struct {
 
 	MetricsInterval time.Duration
 	MetricsHistory  int
+
+	// DbtoolsIdle is how long an on-demand database manager (pgweb) may sit
+	// unused before the sweeper stops it. The timer slides on every request.
+	DbtoolsIdle time.Duration
 }
 
 func envDuration(key string, fallback time.Duration) time.Duration {
@@ -106,6 +110,7 @@ func Load(args []string) (Config, error) {
 	maxUpload := fs.Int("max-upload-mb", envInt("BAREPOD_MAX_UPLOAD_MB", 64), "upload/edit ceiling for the file manager, in MiB")
 	metricsInterval := fs.Duration("metrics-interval", envDuration("BAREPOD_METRICS_INTERVAL", 15*time.Second), "how often host and per-website metrics are sampled")
 	metricsHistory := fs.Int("metrics-history", envInt("BAREPOD_METRICS_HISTORY", 2880), "how many metric samples to keep in memory (2880 x 15s = 12h)")
+	dbtoolsIdle := fs.Duration("dbtools-idle", envDuration("BAREPOD_DBTOOLS_IDLE", time.Hour), "how long an unused on-demand database manager (pgweb) stays up before it is stopped")
 
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
@@ -124,5 +129,6 @@ func Load(args []string) (Config, error) {
 		MaxUploadMB:     *maxUpload,
 		MetricsInterval: *metricsInterval,
 		MetricsHistory:  *metricsHistory,
+		DbtoolsIdle:     *dbtoolsIdle,
 	}, nil
 }

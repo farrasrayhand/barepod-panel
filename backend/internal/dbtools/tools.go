@@ -11,6 +11,7 @@ package dbtools
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,9 +31,17 @@ type Spec struct {
 	Port int
 	// HealthPath is fetched until the tool answers.
 	HealthPath string
+	// Prefix is the path the tool is served under, without a leading slash
+	// (pgweb prepends "/" itself). The proxy sets it per database so the tool's
+	// own links and assets stay inside the panel's path; empty means the default.
+	Prefix string
 	// Note explains what the tool is for, in the API's own words.
 	Note string
 }
+
+// DefaultPrefix is the panel path a tool is served under when a request does not
+// provide one (e.g. the supervisor's own Sweep/Reconcile never starts a tool).
+func DefaultPrefix(name string) string { return "api/v1/gui/" + name }
 
 // Registry is what the panel knows how to run.
 func Registry() map[string]Spec {
@@ -125,7 +134,8 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 	if len(argv) == 0 {
 		return fmt.Errorf("no recipe for %q", spec.Name)
 	}
-	if out, err := s.runner.Run(ctx, "", argv[0], argv[1:]...); err != nil {
+	start := DetachedArgv(argv)
+	if out, err := s.runner.Run(ctx, "", start[0], start[1:]...); err != nil {
 		return fmt.Errorf("%s could not be started: %s", spec.Name, strings.TrimSpace(out))
 	}
 
@@ -150,10 +160,14 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 }
 
 // running asks the tool whether it answers on its loopback port.
+//
+// Any HTTP answer counts, not only a 2xx: a tool served under a per-database
+// prefix answers 404 at "/", and the probe must not depend on a path (curl -f
+// would report a running tool as down).
 func (s *Supervisor) running(ctx context.Context, spec Spec) bool {
 	probe, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	out, err := s.runner.Run(probe, "", "curl", "-fsS", "-o", "/dev/null",
+	out, err := s.runner.Run(probe, "", "curl", "-sS", "-o", "/dev/null",
 		fmt.Sprintf("http://127.0.0.1:%d%s", spec.Port, spec.HealthPath))
 	return err == nil && !strings.Contains(out, "refused")
 }
@@ -224,12 +238,38 @@ func (s *Supervisor) Reconcile(ctx context.Context) {
 	}
 }
 
+// DetachedArgv wraps a tool's command so the daemon does not wait for it. A
+// manager runs until it is stopped, while the host runner waits for the command
+// it runs to finish — starting one with the plain argv would block the request
+// until it exits (forever). The tool is put in its own session and its output
+// discarded, and the arguments are passed positionally after a shell script that
+// only refers to them as "$@", so a credential with shell metacharacters cannot
+// change the command.
+func DetachedArgv(argv []string) []string {
+	if len(argv) == 0 {
+		return nil
+	}
+	return append([]string{"sh", "-c", `setsid "$@" >/dev/null 2>&1 &`, "dbtools"}, argv...)
+}
+
 // StartArgv is the command line for a tool, which is also what the tests assert.
+//
+// pgweb is told the exact path it is served under (--prefix) and that it is
+// scoped to a single connection (--lock-session): the panel injects that
+// database's credential as --url, so the browser never types it and cannot point
+// the tool at another database. The prefix must have no leading slash — pgweb
+// prepends "/" itself, and a leading one makes every request answer 404.
 func StartArgv(spec Spec, connectionURL string) []string {
 	switch spec.Name {
 	case "pgweb":
-		argv := []string{"pgweb", "--listen", fmt.Sprintf("127.0.0.1:%d", spec.Port), "--skip-open",
-			"--prefix", fmt.Sprintf("/api/v1/gui/%s", spec.Name)}
+		prefix := spec.Prefix
+		if prefix == "" {
+			prefix = DefaultPrefix(spec.Name)
+		}
+		// pgweb separates host and port: --bind is the interface, --listen the port
+		// (a uint). The old "--listen 127.0.0.1:8790" was refused outright.
+		argv := []string{"pgweb", "--bind", "127.0.0.1", "--listen", strconv.Itoa(spec.Port), "--skip-open",
+			"--lock-session", "--prefix", strings.TrimPrefix(prefix, "/")}
 		if connectionURL != "" {
 			argv = append(argv, "--url", connectionURL)
 		}

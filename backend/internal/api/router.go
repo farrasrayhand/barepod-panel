@@ -6,11 +6,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/dbtools"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/metrics"
@@ -33,6 +36,12 @@ type Deps struct {
 	Metrics        *metrics.Sampler
 	SiteMetrics    *metrics.SiteSampler
 	MaxUploadBytes int64
+	// Tools is the supervisor for the on-demand database managers. Nil means no
+	// manager can be hosted (the gate still reports honestly).
+	Tools *dbtools.Supervisor
+	// LookPath finds a tool's binary; nil means exec.LookPath (tests inject one so
+	// availability does not depend on the machine).
+	LookPath func(string) (string, error)
 }
 
 // Server holds the handler dependencies.
@@ -49,6 +58,14 @@ type Server struct {
 	maxUploadBytes int64
 	// engines is the single-flight orchestrator for containerised engines.
 	engines engineOrchestrator
+	// tools runs the on-demand database managers, and lookPath decides whether one
+	// is offered at all.
+	tools    *dbtools.Supervisor
+	lookPath func(string) (string, error)
+	// guiMu serialises switching a manager between databases; guiServed records
+	// which database each running manager is scoped to.
+	guiMu     sync.Mutex
+	guiServed map[string]string
 }
 
 // New builds the daemon HTTP handler.
@@ -56,6 +73,10 @@ func New(d Deps) http.Handler {
 	maxUpload := d.MaxUploadBytes
 	if maxUpload <= 0 {
 		maxUpload = 64 << 20 // 64 MiB default
+	}
+	lookPath := d.LookPath
+	if lookPath == nil {
+		lookPath = exec.LookPath
 	}
 	s := &Server{
 		cfg:            d.Config,
@@ -68,6 +89,8 @@ func New(d Deps) http.Handler {
 		siteMetrics:    d.SiteMetrics,
 		tickets:        newTicketStore(),
 		maxUploadBytes: maxUpload,
+		tools:          d.Tools,
+		lookPath:       lookPath,
 	}
 
 	mux := http.NewServeMux()
@@ -189,6 +212,14 @@ func New(d Deps) http.Handler {
 	// Managers live behind the panel's own session: no port, no direct link.
 	mux.HandleFunc("GET /api/v1/databases/{id}/gui", databases(s.handleDatabaseGui(store.KindDatabase)))
 	mux.HandleFunc("GET /api/v1/databases/{id}/gui/{tool}", databases(s.handleDatabaseGui(store.KindDatabase)))
+	// The manager's own pages and assets run under the same session. Its client
+	// cannot carry our CSRF header, so this subtree validates the session without
+	// it and the handler issues a path-scoped SameSite=Strict cookie instead.
+	proxy := func(h authedHandler) http.HandlerFunc {
+		return s.requireSession(false, s.requireCapability(rbac.CapDatabases, h))
+	}
+	mux.HandleFunc("GET /api/v1/databases/{id}/gui/{tool}/{path...}", proxy(s.handleDatabaseGuiProxy(store.KindDatabase)))
+	mux.HandleFunc("POST /api/v1/databases/{id}/gui/{tool}/{path...}", proxy(s.handleDatabaseGuiProxy(store.KindDatabase)))
 
 	mux.HandleFunc("GET /api/v1/caches", databases(s.handleListDatabases(store.KindCache)))
 	mux.HandleFunc("POST /api/v1/caches", databases(s.handleCreateDatabase(store.KindCache)))
@@ -206,6 +237,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/caches/{id}/query", databases(s.handleDatabaseQuery(store.KindCache)))
 	mux.HandleFunc("GET /api/v1/caches/{id}/gui", databases(s.handleDatabaseGui(store.KindCache)))
 	mux.HandleFunc("GET /api/v1/caches/{id}/gui/{tool}", databases(s.handleDatabaseGui(store.KindCache)))
+	mux.HandleFunc("GET /api/v1/caches/{id}/gui/{tool}/{path...}", proxy(s.handleDatabaseGuiProxy(store.KindCache)))
+	mux.HandleFunc("POST /api/v1/caches/{id}/gui/{tool}/{path...}", proxy(s.handleDatabaseGuiProxy(store.KindCache)))
 	// The cache browser is ours: keys are read with the pure-Go client, so no
 	// redis-cli (and no redis-commander) has to exist anywhere.
 	mux.HandleFunc("GET /api/v1/caches/{id}/key", databases(s.handleRedisKey(store.KindCache)))

@@ -308,6 +308,8 @@ const databaseFamily = (base: string) => ({
     request<{
       database?: string;
       tool?: string;
+      available?: boolean;
+      path?: string;
       tools?: { tool: string; description: string; available: boolean; path: string }[];
       tables?: string;
       query?: string;

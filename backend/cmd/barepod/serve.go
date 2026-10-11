@@ -14,6 +14,7 @@ import (
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/api"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/dbtools"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/metrics"
@@ -22,6 +23,11 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/sysinfo"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/tenant"
 )
+
+// dbtoolsSweepInterval is how often idle database managers are checked. The idle
+// window itself is exact (the supervisor slides it on every request); this is only
+// how often the daemon looks.
+const dbtoolsSweepInterval = time.Minute
 
 // runServe starts the daemon.
 func runServe(args []string) error {
@@ -72,6 +78,14 @@ func runServe(args []string) error {
 	deploys := deploy.NewManager(st, h, key)
 	tenants := tenant.New(runner, cfg.SitesRoot, caps)
 
+	// On-demand database managers (pgweb). A previous daemon may have left one
+	// running and nothing knows how long it has been idle, so leftovers are
+	// cleared at start; a sweeper then stops the ones that go idle.
+	tools := dbtools.New(runner, cfg.DbtoolsIdle)
+	reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), 15*time.Second)
+	tools.Reconcile(reconcileCtx)
+	cancelReconcile()
+
 	// Metrics run in the background so history exists even while nobody is
 	// looking at the UI.
 	metricsCtx, stopMetrics := context.WithCancel(context.Background())
@@ -93,6 +107,26 @@ func runServe(args []string) error {
 	log.Printf("metrics: sampling every %s (history %d samples, source %s)",
 		cfg.MetricsInterval, cfg.MetricsHistory, sampler.Collector().Mode())
 
+	// Sweeper: an on-demand manager idle past the window is stopped, and the
+	// reason is audited so the panel can say why it went away.
+	toolsCtx, stopTools := context.WithCancel(context.Background())
+	defer stopTools()
+	go func() {
+		ticker := time.NewTicker(dbtoolsSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-toolsCtx.Done():
+				return
+			case <-ticker.C:
+				for _, name := range tools.Sweep(toolsCtx) {
+					log.Printf("dbtools: stopped %s after %s idle", name, tools.IdleTimeout())
+					_ = st.Audit("", "database.gui_idle", name, "", "manager stopped after being idle")
+				}
+			}
+		}
+	}()
+
 	log.Printf("host: %s/%s %q systemd=%v lxc=%v docker=%v smart=%v fstrim=%v",
 		caps.OS, caps.Arch, caps.Distro, caps.Systemd, caps.LXC, caps.Docker, caps.Smart, caps.Fstrim)
 	log.Printf("execution mode: %s (sites root %s, units dir %s)", h.Mode(), cfg.SitesRoot, cfg.UnitsDir)
@@ -112,6 +146,7 @@ func runServe(args []string) error {
 			Metrics:        sampler,
 			SiteMetrics:    siteSampler,
 			MaxUploadBytes: int64(cfg.MaxUploadMB) << 20,
+			Tools:          tools,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

@@ -27,7 +27,9 @@ import {
 import type { DatabaseItem } from '../types';
 import { api } from '../api/client';
 
-export type DatabaseManagerTool = 'phpmyadmin' | 'pgadmin' | 'adminer' | 'mongoexpress' | 'rediscommander';
+// The names the daemon hosts (see GET /databases/:id/gui): its own browser,
+// pgweb for PostgreSQL, and dbgate as the universal plan.
+export type DatabaseManagerTool = 'browser' | 'pgweb' | 'dbgate';
 
 interface DatabaseDetailsModalProps {
   isOpen: boolean;
@@ -386,61 +388,27 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                 </p>
               </div>
 
-              {/* GUI Action Buttons tailored to DB type */}
+              {/* GUI Action Buttons tailored to DB type. The daemon decides what is
+                  really hosted: pgweb for PostgreSQL, the panel's own browser, and
+                  DbGate as the universal plan. */}
               <div className="flex items-center gap-2 shrink-0">
                 {database.type === 'postgres' && (
                   <button
                     onClick={() => {
                       onClose();
-                      onOpenGui(database, 'pgadmin');
+                      onOpenGui(database, 'pgweb');
                     }}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
                   >
-                    <span>Open pgAdmin</span>
+                    <span>Open pgweb</span>
                   </button>
                 )}
 
-                {(database.type === 'mysql' || database.type === 'mariadb') && (
-                  <button
-                    onClick={() => {
-                      onClose();
-                      onOpenGui(database, 'phpmyadmin');
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
-                  >
-                    <span>Open phpMyAdmin</span>
-                  </button>
-                )}
-
-                {database.type === 'mongodb' && (
-                  <button
-                    onClick={() => {
-                      onClose();
-                      onOpenGui(database, 'mongoexpress');
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
-                  >
-                    <span>Open Mongo Express</span>
-                  </button>
-                )}
-
-                {database.type === 'redis' && (
-                  <button
-                    onClick={() => {
-                      onClose();
-                      onOpenGui(database, 'rediscommander');
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
-                  >
-                    <span>Open Redis Commander</span>
-                  </button>
-                )}
-
-                {/* Universal DbGate Studio */}
+                {/* Universal DbGate Studio (planned: covers the other engines) */}
                 <button
                   onClick={() => {
                     onClose();
-                    onOpenGui(database, 'adminer');
+                    onOpenGui(database, 'dbgate');
                   }}
                   className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
                 >

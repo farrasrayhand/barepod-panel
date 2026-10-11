@@ -65,6 +65,7 @@ Use `--db <path>` on any command to point at a non-default database.
 | `-metrics-interval` | `BAREPOD_METRICS_INTERVAL` | `15s` | How often host and per-website metrics are sampled |
 | `-metrics-history` | `BAREPOD_METRICS_HISTORY` | `2880` | Samples kept in memory (2880 × 15s = 12h) |
 | `-log-level` | `BAREPOD_LOG_LEVEL` | `info` | Log verbosity |
+| `-dbtools-idle` | `BAREPOD_DBTOOLS_IDLE` | `1h` | How long an unused on-demand database manager (pgweb) stays up before the sweeper stops it |
 
 `BAREPOD_ADMIN_PASSWORD` is read by `admin create` / `admin passwd` when
 `--password` is omitted, so an installer can pass a secret without argv.

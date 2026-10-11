@@ -122,9 +122,13 @@ else
   if [[ -n "$PGWEB_ARCH" ]]; then
     URL="https://github.com/sosedoff/pgweb/releases/download/v${PGWEB_VERSION}/pgweb_linux_${PGWEB_ARCH}.zip"
     if curl -fsSL "$URL" -o /tmp/pgweb.zip 2>/dev/null && unzip -o -q /tmp/pgweb.zip -d /tmp/pgweb-extract 2>/dev/null; then
-      install -m 0755 /tmp/pgweb-extract/pgweb /usr/local/bin/pgweb \
-        && note "installed pgweb ${PGWEB_VERSION} (starts on demand, stops when idle)" \
-        || note "pgweb could not be installed — the panel will say it is unavailable"
+      # The binary inside the release zip is named pgweb_linux_<arch>, not pgweb.
+      PGWEB_BIN="$(find /tmp/pgweb-extract -maxdepth 1 -type f -name 'pgweb*' | head -n1)"
+      if [[ -n "$PGWEB_BIN" ]] && install -m 0755 "$PGWEB_BIN" /usr/local/bin/pgweb; then
+        note "installed pgweb ${PGWEB_VERSION} (starts on demand, stops when idle)"
+      else
+        note "pgweb could not be installed — the panel will say it is unavailable"
+      fi
       rm -rf /tmp/pgweb.zip /tmp/pgweb-extract
     else
       note "pgweb could not be downloaded — the panel will say it is unavailable"

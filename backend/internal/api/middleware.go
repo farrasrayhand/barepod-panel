@@ -94,6 +94,15 @@ func clientIP(r *http.Request) string {
 
 // requireAuth validates the session cookie and enforces CSRF on state-changing requests.
 func (s *Server) requireAuth(next authedHandler) http.HandlerFunc {
+	return s.requireSession(true, next)
+}
+
+// requireSession validates the session cookie (the caller adds the capability
+// check). csrf=false is used only for the proxied database-manager subtree, whose
+// own client cannot carry our X-CSRF-Token header: there the panel issues a
+// path-scoped, SameSite=Strict cookie instead (see handleDatabaseGuiProxy), so a
+// cross-site request still cannot run a statement.
+func (s *Server) requireSession(csrf bool, next authedHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(sessionCookie)
 		if err != nil || cookie.Value == "" {
@@ -119,7 +128,7 @@ func (s *Server) requireAuth(next authedHandler) http.HandlerFunc {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 			// safe methods need no CSRF token
 		default:
-			if r.Header.Get("X-CSRF-Token") != sess.CSRFToken {
+			if csrf && r.Header.Get("X-CSRF-Token") != sess.CSRFToken {
 				writeError(w, http.StatusForbidden, "csrf", "Missing or invalid CSRF token")
 				return
 			}

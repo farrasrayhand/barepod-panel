@@ -69,12 +69,9 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
 
 // The names the panel hosts (see GET /databases/:id/gui) rather than brand names.
 const TOOL_TO_API: Record<string, string> = {
-  phpmyadmin: 'phpmyadmin',
-  pgadmin: 'pgadmin',
-  adminer: 'adminer',
-  mongoexpress: 'mongo-express',
-  rediscommander: 'redis-command',
   browser: 'browser',
+  pgweb: 'pgweb',
+  dbgate: 'dbgate',
 };
 
 export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => {
@@ -331,9 +328,9 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
     }
   };
 
-  // The panel's own answer decides what happens: it hosts its browser today, and
-  // says why a third-party manager is not hosted yet. Nothing here pretends to be
-  // a pgAdmin screen.
+  // The panel's own answer decides what happens: it opens the hosted manager on
+  // its own path, or says why one is not hosted yet. Nothing here pretends to be
+  // a screen the daemon does not serve.
   const openManagerWithTool = async (db: DatabaseItem, tool: DatabaseManagerTool) => {
     const isCache = db.type === 'redis';
     const family = isCache ? api.caches : api.databases;
@@ -342,7 +339,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
       const answer = (await family.gui(db.id, apiTool)) as {
         tool?: string;
         note?: string;
-        query?: string;
+        path?: string;
       };
       if (apiTool === 'browser') {
         onShowToast?.(
@@ -352,15 +349,21 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         );
         return;
       }
+      if (answer.path) {
+        // The manager runs on the panel's own path — there is no port to reach. The
+        // session cookie rides along; the daemon starts the tool on first access.
+        window.open(answer.path, '_blank', 'noopener');
+        onShowToast?.(
+          'Opened through the panel',
+          `${answer.tool ?? tool} runs behind this same path (loopback only, credential injected server-side) — not on a port of its own.`,
+          'success',
+        );
+        return;
+      }
+      onShowToast?.('Not hosted yet', answer.note ?? 'This manager is not hosted by the panel yet.', 'info');
     } catch (err) {
       onShowToast?.('Not hosted yet', describeError(err), 'info');
-      return;
     }
-    onShowToast?.(
-      'Opened through the panel',
-      `${tool} is reached behind this same path (loopback only, credential injected server-side) — not on a port of its own.`,
-      'success',
-    );
   };
 
   const isInBin = (db: DatabaseItem) => Boolean(db.deletedAt);

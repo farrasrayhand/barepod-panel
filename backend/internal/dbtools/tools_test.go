@@ -62,18 +62,66 @@ func TestPgwеbIsStartedOnLoopbackBehindThePanelPath(t *testing.T) {
 	spec := Registry()["pgweb"]
 	argv := strings.Join(StartArgv(spec, "postgres://u:p@127.0.0.1:5432/db"), " ")
 
-	// Never published: loopback only.
-	if !strings.Contains(argv, "--listen 127.0.0.1:8790") {
-		t.Errorf("the tool is not bound to loopback: %s", argv)
+	// Never published: loopback only. pgweb takes the host and the port as two
+	// separate flags (--bind host, --listen port), not "host:port".
+	for _, want := range []string{"--bind 127.0.0.1", "--listen 8790"} {
+		if !strings.Contains(argv, want) {
+			t.Errorf("the tool is not bound to loopback (%q missing): %s", want, argv)
+		}
+	}
+	if strings.Contains(argv, "--listen 127.0.0.1") {
+		t.Errorf("--listen must be a port, not host:port: %s", argv)
 	}
 	// It must know it is served under the panel's own path, or its assets break.
-	if !strings.Contains(argv, "--prefix /api/v1/gui/pgweb") {
+	// No leading slash: pgweb adds the "/" itself, and a leading one 404s.
+	if !strings.Contains(argv, "--prefix api/v1/gui/pgweb") {
 		t.Errorf("the tool does not know its prefix: %s", argv)
+	}
+	// One connection only: the panel injects the credential, so the browser must
+	// not be able to point the tool at another database.
+	if !strings.Contains(argv, "--lock-session") {
+		t.Errorf("the tool is not locked to the injected connection: %s", argv)
 	}
 	for _, want := range []string{"--skip-open", "--url postgres://u:p@127.0.0.1:5432/db"} {
 		if !strings.Contains(argv, want) {
 			t.Errorf("the command is missing %q: %s", want, argv)
 		}
+	}
+}
+
+// The proxy serves one database under its own path: the tool has to be told that
+// exact mount, so its links and assets stay inside the panel's path.
+func TestStartArgvCarriesTheMountPrefix(t *testing.T) {
+	spec := Registry()["pgweb"]
+	spec.Prefix = "/api/v1/databases/01H/gui/pgweb"
+	argv := strings.Join(StartArgv(spec, ""), " ")
+	if !strings.Contains(argv, "--prefix api/v1/databases/01H/gui/pgweb") {
+		t.Errorf("the per-database prefix was not passed through: %s", argv)
+	}
+	if strings.Contains(argv, "--prefix /") {
+		t.Errorf("the prefix still has a leading slash, which pgweb 404s on: %s", argv)
+	}
+}
+
+// A manager runs forever, so it must be detached; and the credential is passed
+// positionally, so a password with shell metacharacters cannot change the command.
+func TestDetachedArgvDoesNotLetTheCredentialChangeTheCommand(t *testing.T) {
+	argv := StartArgv(Registry()["pgweb"], "postgres://u:p'w&d@127.0.0.1:5432/db")
+	wrapped := DetachedArgv(argv)
+	if len(wrapped) != 4+len(argv) || wrapped[0] != "sh" || wrapped[1] != "-c" {
+		t.Fatalf("the wrapper is wrong: %v", wrapped)
+	}
+	if !strings.Contains(wrapped[2], `"$@"`) {
+		t.Errorf("the script must run the arguments, not embed them: %s", wrapped[2])
+	}
+	if strings.Contains(wrapped[2], `'w&d`) {
+		t.Errorf("the credential was inlined into the script: %s", wrapped[2])
+	}
+	if wrapped[4] != argv[0] {
+		t.Errorf("the tool command is not passed positionally: %v", wrapped)
+	}
+	if DetachedArgv(nil) != nil {
+		t.Error("nothing must wrap to nothing")
 	}
 }
 
@@ -93,7 +141,7 @@ func TestEnsureStartsOnceAndIdleSweepStopsIt(t *testing.T) {
 	if err := supervisor.Ensure(ctx, spec, "postgres://u:p@127.0.0.1:5432/db"); err != nil {
 		t.Fatalf("the second Ensure failed: %v", err)
 	}
-	if starts := strings.Count(runner.log(), "pgweb --listen"); starts != 1 {
+	if starts := strings.Count(runner.log(), "pgweb --bind"); starts != 1 {
 		t.Errorf("the tool was started %d times:\n%s", starts, runner.log())
 	}
 	if stopped := supervisor.Sweep(ctx); len(stopped) != 0 {
@@ -115,7 +163,7 @@ func TestEnsureStartsOnceAndIdleSweepStopsIt(t *testing.T) {
 	if err := supervisor.Ensure(ctx, spec, ""); err != nil {
 		t.Fatalf("the tool did not come back: %v", err)
 	}
-	if starts := strings.Count(runner.log(), "pgweb --listen"); starts != 2 {
+	if starts := strings.Count(runner.log(), "pgweb --bind"); starts != 2 {
 		t.Errorf("the tool was not restarted on demand (%d starts):\n%s", starts, runner.log())
 	}
 }

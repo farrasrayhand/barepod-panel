@@ -48,6 +48,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
   const API_ENGINE: Record<string, string> = {
     postgres: 'postgresql',
     mysql: 'mysql',
+    mariadb: 'mariadb',
     mongodb: 'mongodb',
     redis: 'redis',
     sqlite: 'sqlite',
@@ -164,7 +165,8 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
             <div className="grid grid-cols-2 gap-2">
               {[
                 { id: 'postgres' as DatabaseEngine, label: 'PostgreSQL' },
-                { id: 'mysql' as DatabaseEngine, label: 'MySQL / MariaDB' },
+                { id: 'mysql' as DatabaseEngine, label: 'MySQL' },
+                { id: 'mariadb' as DatabaseEngine, label: 'MariaDB' },
                 { id: 'mongodb' as DatabaseEngine, label: 'MongoDB' },
                 { id: 'redis' as DatabaseEngine, label: 'Redis Cache' },
                 { id: 'sqlite' as DatabaseEngine, label: 'SQLite (file)' },

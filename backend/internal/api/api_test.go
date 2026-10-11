@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -14,9 +15,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/auth"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/dbtools"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/rbac"
@@ -91,6 +94,10 @@ func newTestPanel(t *testing.T) *testPanel {
 		Deploy:         deploy.NewManager(st, h, key),
 		Tenants:        tenant.New(runner, h.SitesRoot, sysinfo.Capabilities{}),
 		MaxUploadBytes: 1 << 20,
+		Tools:          dbtools.New(runner, time.Minute),
+		// Availability must not depend on the machine running the tests: here no
+		// third-party manager is installed, so the gate is deterministic.
+		LookPath: func(string) (string, error) { return "", errors.New("not installed") },
 	})
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
@@ -1033,14 +1040,29 @@ func TestDataBrowserRefusesWhatItCannotDoYet(t *testing.T) {
 	}
 }
 
+// databaseIDFrom pulls the ULID out of a create response.
+func databaseIDFrom(t *testing.T, body []byte) string {
+	t.Helper()
+	for _, field := range strings.Split(string(body), `"id":"`) {
+		if len(field) > 26 {
+			return field[:26]
+		}
+	}
+	t.Fatalf("no id in %s", body)
+	return ""
+}
+
 func TestDatabaseGuiNeedsThePanelSession(t *testing.T) {
 	panel := newTestPanel(t)
 
-	// Nothing is reachable without a session: not the tool list, not a tool.
+	// Nothing is reachable without a session: not the tool list, not a tool, and
+	// not the manager's own path — including its pages and assets.
 	for _, path := range []string{
 		"/api/v1/databases/gui",
 		"/api/v1/databases/anything/gui",
-		"/api/v1/databases/anything/gui/phpmyadmin",
+		"/api/v1/databases/anything/gui/pgweb",
+		"/api/v1/databases/anything/gui/pgweb/",
+		"/api/v1/databases/anything/gui/pgweb/static/js/app.js",
 	} {
 		resp, body := panel.do(t, http.MethodGet, path, nil)
 		if resp.StatusCode != http.StatusUnauthorized {
@@ -1052,18 +1074,11 @@ func TestDatabaseGuiNeedsThePanelSession(t *testing.T) {
 	_, created := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
 		"engine": "sqlite", "alias": "Gui DB", "websiteSlug": "admin-site",
 	})
-	id := ""
-	for _, field := range strings.Split(string(created), `"id":"`) {
-		if len(field) > 26 {
-			id = field[:26]
-			break
-		}
-	}
-	if id == "" {
-		t.Fatalf("no id in %s", created)
-	}
+	id := databaseIDFrom(t, created)
 
-	// The built-in browser needs nothing installed and points at the data API.
+	// The gate lists the managers the daemon knows. The panel's own browser needs
+	// nothing; pgweb's binary is not installed on this test host, so it is listed
+	// but not available — the reason is reported, not hidden.
 	resp, body := panel.do(t, http.MethodGet, "/api/v1/databases/"+id+"/gui", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("tool list = %d (%s)", resp.StatusCode, body)
@@ -1071,17 +1086,31 @@ func TestDatabaseGuiNeedsThePanelSession(t *testing.T) {
 	if !strings.Contains(string(body), `"tool":"browser"`) || !strings.Contains(string(body), `"available":true`) {
 		t.Errorf("the tool list is wrong: %s", body)
 	}
-	for _, tool := range []string{"browser", "phpmyadmin", "pgadmin"} {
-		if !strings.Contains(string(body), tool) {
-			t.Errorf("the tool list is missing %s", tool)
+	for _, tool := range []string{"browser", "pgweb", "dbgate"} {
+		if !strings.Contains(string(body), `"tool":"`+tool+`"`) {
+			t.Errorf("the tool list is missing %s: %s", tool, body)
 		}
 	}
+	if !strings.Contains(string(body), "not hosted yet") && !strings.Contains(string(body), "not hosted by this daemon yet") {
+		t.Errorf("the unavailable dbgate should say why: %s", body)
+	}
+	// The path must use the real route segment ("databases"), not the ledger's
+	// internal kind ("database"), or the UI would open a 404.
+	if !strings.Contains(string(body), `"path":"/api/v1/databases/`+id+`/gui/browser"`) {
+		t.Errorf("the browser path is wrong: %s", body)
+	}
 
-	// A third-party manager is refused with an explanation rather than hosted on a
-	// port of its own, and the attempt is audited.
-	resp, body = panel.do(t, http.MethodGet, "/api/v1/databases/"+id+"/gui/phpmyadmin", nil)
+	// The built-in browser is the panel's own API, not a proxied page.
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/databases/"+id+"/gui/browser", nil)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "/api/v1/databases/"+id+"/tables") {
+		t.Errorf("browser gate = %d (%s)", resp.StatusCode, body)
+	}
+
+	// A manager that is not hosted is refused with the rule, not exposed on a port
+	// of its own. The refusal is audited.
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/databases/"+id+"/gui/dbgate", nil)
 	if resp.StatusCode != http.StatusNotImplemented {
-		t.Errorf("phpmyadmin = %d (%s), want 501", resp.StatusCode, body)
+		t.Errorf("dbgate = %d (%s), want 501", resp.StatusCode, body)
 	}
 	if !strings.Contains(string(body), "never on a port") {
 		t.Errorf("the refusal should state the rule: %s", body)
@@ -1089,6 +1118,96 @@ func TestDatabaseGuiNeedsThePanelSession(t *testing.T) {
 	_, auditBody := panel.do(t, http.MethodGet, "/api/v1/audit?limit=10", nil)
 	if !strings.Contains(string(auditBody), "database.gui_open") {
 		t.Errorf("opening a manager was not audited: %s", auditBody)
+	}
+}
+
+// A PostgreSQL database is what pgweb can open: with the binary missing the panel
+// says so (both at the gate and on the proxied path) instead of pretending.
+func TestDatabaseGuiProxyRefusesWhenTheToolIsMissing(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	_, created := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
+		"engine": "postgresql", "alias": "Proxy PG",
+	})
+	id := databaseIDFrom(t, created)
+
+	for _, path := range []string{
+		"/api/v1/databases/" + id + "/gui/pgweb",
+		"/api/v1/databases/" + id + "/gui/pgweb/",
+		"/api/v1/databases/" + id + "/gui/pgweb/static/js/app.js",
+	} {
+		resp, body := panel.do(t, http.MethodGet, path, nil)
+		if resp.StatusCode != http.StatusNotImplemented {
+			t.Errorf("%s = %d (%s), want 501 while pgweb is missing", path, resp.StatusCode, body)
+		}
+		if !strings.Contains(string(body), "not installed") {
+			t.Errorf("%s should name the missing tool: %s", path, body)
+		}
+	}
+}
+
+// A manager the daemon cannot run for this engine is refused with that reason,
+// and a file database is never mistaken for a server.
+func TestDatabaseGuiProxyRefusesTheWrongEngine(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	_, created := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
+		"engine": "sqlite", "alias": "Proxy SQLite", "websiteSlug": "admin-site",
+	})
+	id := databaseIDFrom(t, created)
+
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/databases/"+id+"/gui/pgweb/", nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("pgweb on sqlite = %d (%s), want 409", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "not_applicable") {
+		t.Errorf("the refusal should carry not_applicable: %s", body)
+	}
+}
+
+func TestGuiConnectionStringEncodesTheCredential(t *testing.T) {
+	// A password with special characters must not change the meaning of the DSN.
+	dsn := guiConnectionString(store.Database{
+		Engine: "postgresql", User: "admin_shop", Name: "admin_shop_db",
+		Host: "127.0.0.1", Port: 5432,
+	}, "p@ss:w/rd?#")
+	if !strings.HasPrefix(dsn, "postgres://admin_shop:") {
+		t.Fatalf("the scheme or user is wrong: %s", dsn)
+	}
+	if strings.Contains(dsn, "p@ss:w/rd") && !strings.Contains(dsn, "p%40ss") {
+		t.Errorf("the password was not encoded: %s", dsn)
+	}
+	if !strings.Contains(dsn, "@127.0.0.1:5432/admin_shop_db") {
+		t.Errorf("the host, port or database is wrong: %s", dsn)
+	}
+}
+
+// pgweb is told its prefix, but a root-absolute asset path or Location that it
+// still emits is pointed at the mount — once, never twice.
+func TestGuiResponseIsRebasedOntoTheMount(t *testing.T) {
+	mount := "/api/v1/databases/01H/gui/pgweb"
+	prefix := mount + "/"
+
+	if got := rebaseGuiPath("/static/js/app.js", prefix); got != prefix+"static/js/app.js" {
+		t.Errorf("root-absolute location = %q", got)
+	}
+	if got := rebaseGuiPath(prefix+"api/info", prefix); got != prefix+"api/info" {
+		t.Errorf("an already-mounted location was changed: %q", got)
+	}
+	if got := rebaseGuiPath("static/js/app.js", prefix); got != "static/js/app.js" {
+		t.Errorf("a relative location must be left alone: %q", got)
+	}
+	if got := rebaseGuiPath("https://example.com/x", prefix); got != "https://example.com/x" {
+		t.Errorf("another origin must be left alone: %q", got)
+	}
+
+	html := `<link href="/static/css/app.css"><script src="` + prefix + `static/js/app.js"></script>`
+	got := rebaseGuiRootPaths(html, prefix)
+	want := `<link href="` + prefix + `static/css/app.css"><script src="` + prefix + `static/js/app.js"></script>`
+	if got != want {
+		t.Errorf("html rebasing wrong:\n got %s\nwant %s", got, want)
 	}
 }
 
