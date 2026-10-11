@@ -14,6 +14,7 @@ import { OverviewView } from './components/OverviewView';
 import { ServerMonitoringView } from './components/ServerMonitoringView';
 import { PanelSettingsView } from './components/PanelSettingsView';
 import { ApiMcpView } from './components/ApiMcpView';
+import { DeployLogPanel } from './components/DeployLogPanel';
 import { Footer } from './components/Footer';
 import { ProfileView } from './components/ProfileView';
 import { DomainsView } from './components/DomainsView';
@@ -245,6 +246,9 @@ export function App() {
   const currentTab = route.tab;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  // The deploy whose log is on screen: POST /websites answers 202, so the only honest
+  // progress is the daemon's own stream (see DeployLogPanel).
+  const [deployWatch, setDeployWatch] = useState<{ slug: string; deployId?: string } | null>(null);
   const [loggedOut, setLoggedOut] = useState(false);
   const [redirectTo, setRedirectTo] = useState<string | null>(null);
   const [terminalTarget, setTerminalTarget] = useState<{ kind: 'site' | 'pod'; id: string } | null>(null);
@@ -460,14 +464,8 @@ export function App() {
             cache: newApp.cacheAutoProvision ? { engine: 'redis' } : undefined,
             autoEnv: newApp.autoEnv,
           });
-          showToast(
-            'Deploy started',
-            `${slug} — job ${result.deployId} (${result.mode}, ${result.status}). Progress streams on the website page.`,
-            'success',
-          );
-          const { items } = await api.websites();
-          setApps(items.map((site) => toWebApp(site)));
-          setAppsLoaded(true);
+          showToast('Deploy started', `${slug} — ${result.mode}. Its log is streaming below.`, 'success');
+          setDeployWatch({ slug, deployId: result.deployId });
         } catch (err) {
           showToast('Deploy refused', err instanceof Error ? err.message : 'The daemon refused.', 'error');
         }
@@ -733,6 +731,33 @@ export function App() {
         onClose={() => setIsAddModalOpen(false)}
         onAddApp={handleAddApp}
       />
+
+      {/* The deploy's own log, straight from the daemon (see POST /websites: 202). */}
+      {deployWatch && (
+        <DeployLogPanel
+          slug={deployWatch.slug}
+          deployId={deployWatch.deployId}
+          onClose={() => setDeployWatch(null)}
+          onFinished={(job) => {
+            showToast(
+              job.status === 'success' ? 'Website deployed' : 'Deploy failed',
+              job.status === 'success'
+                ? `${deployWatch.slug} is live (${job.mode}).`
+                : `${deployWatch.slug}: see the log for the daemon's reason.`,
+              job.status === 'success' ? 'success' : 'error',
+            );
+            void (async () => {
+              try {
+                const { items } = await api.websites();
+                setApps(items.map((site) => toWebApp(site)));
+                setAppsLoaded(true);
+              } catch {
+                // The list refreshes on the next load anyway.
+              }
+            })();
+          }}
+        />
+      )}
 
       {/* Interactive Toast Notifications */}
       <ToastContainer
