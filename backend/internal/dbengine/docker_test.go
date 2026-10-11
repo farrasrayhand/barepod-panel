@@ -1,6 +1,7 @@
 package dbengine
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -104,6 +105,12 @@ func TestContainerLifecycleAndPurge(t *testing.T) {
 		}
 		if len(spec.engineArgs()) == 0 {
 			t.Errorf("%s does not say which port to listen on", engine)
+		}
+		// The health probe has to ask that same port: assuming the engine's default
+		// reported a healthy MongoDB as never coming up.
+		health := strings.Join(spec.HealthArgv(), " ")
+		if !strings.Contains(health, fmt.Sprint(spec.HostPort)) {
+			t.Errorf("%s health probe does not name its port: %s", engine, health)
 		}
 	}
 	if _, _, err := ContainerFor("sqlite", "u", "p", t.TempDir()); err == nil {

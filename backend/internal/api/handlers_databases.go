@@ -209,6 +209,15 @@ func (s *Server) resourceFor(record *store.Database, secret string) dbengine.Res
 			resource.AdminHost, resource.AdminPort, resource.AdminSecret = host, port, adminSecret
 		}
 	}
+	// A containerised engine is administered over loopback as the administrator
+	// account the panel created for it — no socket, no peer authentication.
+	if credential, err := s.store.EngineCredential(record.Engine); err == nil {
+		if password, derr := secrets.Decrypt(s.key, credential.Ciphertext); derr == nil {
+			resource.Mode = dbengine.ModeDocker
+			resource.AdminHost, resource.AdminPort = credential.Host, credential.Port
+			resource.AdminUser, resource.AdminSecret = credential.AdminUser, password
+		}
+	}
 	return resource
 }
 
@@ -402,6 +411,14 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 		record.FileBased = true
 		return s.createSQLiteFile(ctx, record)
 
+	case engine.Mode == dbengine.ModeDocker:
+		// A container engine is brought up first: "not installed" does not apply to
+		// it, because the panel runs it itself (one container per engine).
+		if _, err := s.ensureEngineRunning(ctx, engine); err != nil {
+			record.Status = "failed"
+			record.Note = err.Error()
+			return nil
+		}
 	case !engine.Available:
 		record.Status = "pending"
 		record.Note = fmt.Sprintf("%s is not installed on this host, so the %s was recorded but not created. Install it and rotate the password to finish.",

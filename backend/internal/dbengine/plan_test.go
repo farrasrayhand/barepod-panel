@@ -328,3 +328,52 @@ func TestClientPathLooksBeyondPath(t *testing.T) {
 		t.Error("an empty client should have no candidates")
 	}
 }
+
+func TestDockerModeAdministersOverLoopbackWithThePanelAccount(t *testing.T) {
+	// The same SQL, delivered the way a container needs it: TCP to the engine's
+	// loopback port as the administrator the panel created, password in the env.
+	resource := Resource{
+		Engine: "postgresql", Mode: ModeDocker,
+		Name: "shop", User: "shop", Secret: "shop-pw",
+		AdminHost: "127.0.0.1", AdminPort: 5433,
+		AdminUser: "barepod_admin", AdminSecret: "admin-pw", Port: 5433,
+	}
+	plan, err := PlanFor(StepProvision, resource)
+	if err != nil {
+		t.Fatalf("docker plan: %v", err)
+	}
+	if plan.RunAs != "" {
+		t.Errorf("a container is not administered as the host's postgres user: %q", plan.RunAs)
+	}
+	joined := strings.Join(plan.Commands[0], " ")
+	for _, want := range []string{"-h 127.0.0.1", "-p 5433", "-U barepod_admin", "-d postgres", `CREATE ROLE "shop"`} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the docker plan is missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "admin-pw") {
+		t.Errorf("the administrator password reached the argument list:\n%s", joined)
+	}
+	if !strings.Contains(strings.Join(plan.Env, " "), "PGPASSWORD=admin-pw") {
+		t.Errorf("the administrator password is not in the environment: %v", plan.Env)
+	}
+
+	// The host mode keeps its socket behaviour, so the two worlds do not blur.
+	host := resource
+	host.Mode = ModeHost
+	hostPlan, err := PlanFor(StepProvision, host)
+	if err != nil {
+		t.Fatalf("host plan: %v", err)
+	}
+	if hostPlan.RunAs != "postgres" || len(hostPlan.Env) != 0 {
+		t.Errorf("the host plan changed shape: %+v", hostPlan)
+	}
+	if strings.Contains(strings.Join(hostPlan.Commands[0], " "), "-h 127.0.0.1") {
+		t.Error("the host plan should use the unix socket, not TCP")
+	}
+
+	// Without an administrator account or password the docker plan refuses.
+	if _, err := PlanFor(StepProvision, Resource{Engine: "postgresql", Mode: ModeDocker, Name: "n", User: "u", Secret: "s"}); err == nil {
+		t.Error("a container plan without an administrator was accepted")
+	}
+}

@@ -34,8 +34,7 @@ type ContainerSpec struct {
 	ContainerPort int
 	Env           []string // passed through an env file, never as -e on the command line
 	// EnvPath is where that file was written; RunArgv must use the same path.
-	EnvPath    string `json:"envPath,omitempty"`
-	HealthArgv []string
+	EnvPath string `json:"envPath,omitempty"`
 }
 
 // containerImages pins the engine containers the panel knows how to run.
@@ -44,26 +43,22 @@ func containerImages() map[string]ContainerSpec {
 		"postgresql": {
 			Engine: "postgresql", Image: "postgres:16-alpine", Name: "barepod-postgres",
 			Volume: "barepod-postgres-data", HostPort: 5433, ContainerPort: 5432,
-			Env:        []string{"POSTGRES_USER=barepod_admin", "POSTGRES_DB=postgres"},
-			HealthArgv: []string{"pg_isready", "-q"},
+			Env: []string{"POSTGRES_USER=barepod_admin", "POSTGRES_DB=postgres"},
 		},
 		"mysql": {
 			Engine: "mysql", Image: "mysql:8.0", Name: "barepod-mysql",
 			Volume: "barepod-mysql-data", HostPort: 3307, ContainerPort: 3306,
-			Env:        []string{"MYSQL_ROOT_HOST=%"},
-			HealthArgv: []string{"mysqladmin", "ping", "--silent"},
+			Env: []string{"MYSQL_ROOT_HOST=%"},
 		},
 		"mongodb": {
 			Engine: "mongodb", Image: "mongo:7.0", Name: "barepod-mongo",
 			Volume: "barepod-mongo-data", HostPort: 27018, ContainerPort: 27017,
-			Env:        []string{"MONGO_INITDB_ROOT_USERNAME=barepod_admin"},
-			HealthArgv: []string{"mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"},
+			Env: []string{"MONGO_INITDB_ROOT_USERNAME=barepod_admin"},
 		},
 		"redis": {
 			Engine: "redis", Image: "redis:7-alpine", Name: "barepod-redis",
 			Volume: "barepod-redis-data", HostPort: 6380, ContainerPort: 6379,
-			Env:        nil, // Redis takes its credential as a command argument below
-			HealthArgv: []string{"redis-cli", "ping"},
+			Env: nil, // Redis takes its credential as a command argument below
 		},
 	}
 }
@@ -156,6 +151,23 @@ func (c ContainerSpec) engineArgs() []string {
 		return []string{"--port", fmt.Sprint(c.HostPort)}
 	case "redis":
 		return []string{"--port", fmt.Sprint(c.HostPort)}
+	}
+	return nil
+}
+
+// HealthArgv is how the panel asks the engine whether it is ready. It must name the
+// port the container was told to listen on: the first version assumed each engine's
+// default, so a healthy MongoDB on 27018 was reported as never coming up.
+func (c ContainerSpec) HealthArgv() []string {
+	switch c.Engine {
+	case "postgresql":
+		return []string{"pg_isready", "-q", "-p", fmt.Sprint(c.HostPort)}
+	case "mysql":
+		return []string{"mysqladmin", "ping", "--silent", "--port", fmt.Sprint(c.HostPort)}
+	case "mongodb":
+		return []string{"mongosh", "--quiet", "--port", fmt.Sprint(c.HostPort), "--eval", "db.runCommand({ping:1}).ok"}
+	case "redis":
+		return []string{"redis-cli", "-p", fmt.Sprint(c.HostPort), "ping"}
 	}
 	return nil
 }

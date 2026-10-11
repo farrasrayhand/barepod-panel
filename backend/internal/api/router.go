@@ -47,6 +47,8 @@ type Server struct {
 	siteMetrics    *metrics.SiteSampler
 	tickets        *ticketStore
 	maxUploadBytes int64
+	// engines is the single-flight orchestrator for containerised engines.
+	engines engineOrchestrator
 }
 
 // New builds the daemon HTTP handler.

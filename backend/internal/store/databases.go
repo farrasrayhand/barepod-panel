@@ -201,3 +201,46 @@ func (s *Store) DatabaseNameInUse(name string) (bool, error) {
 	).Scan(&count)
 	return count > 0, err
 }
+
+// EngineCredential is the administrator account of a containerised engine.
+type EngineCredential struct {
+	Engine     string `json:"engine"`
+	AdminUser  string `json:"adminUser"`
+	Ciphertext string `json:"-"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+// PutEngineCredential stores (or replaces) one engine's administrator credential.
+func (s *Store) PutEngineCredential(credential EngineCredential) error {
+	if credential.CreatedAt == "" {
+		credential.CreatedAt = now()
+	}
+	_, err := s.DB.Exec(
+		`INSERT INTO engine_credentials (engine, admin_user, ciphertext, host, port, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(engine) DO UPDATE SET admin_user = excluded.admin_user,
+		   ciphertext = excluded.ciphertext, host = excluded.host, port = excluded.port`,
+		credential.Engine, credential.AdminUser, credential.Ciphertext,
+		credential.Host, credential.Port, credential.CreatedAt,
+	)
+	return err
+}
+
+// EngineCredential loads one engine's administrator credential.
+func (s *Store) EngineCredential(engine string) (*EngineCredential, error) {
+	var credential EngineCredential
+	err := s.DB.QueryRow(
+		`SELECT engine, admin_user, ciphertext, host, port, created_at FROM engine_credentials WHERE engine = ?`,
+		engine,
+	).Scan(&credential.Engine, &credential.AdminUser, &credential.Ciphertext,
+		&credential.Host, &credential.Port, &credential.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &credential, nil
+}

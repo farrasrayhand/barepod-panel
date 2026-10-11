@@ -14,6 +14,7 @@ var migrations = []migration{
 	{version: 4, statements: schemaV4},
 	{version: 5, statements: schemaV5},
 	{version: 6, statements: schemaV6},
+	{version: 7, statements: schemaV7},
 }
 
 // schemaV2 adds the deploy job ledger: one row per deployment, plus its step log.
@@ -79,6 +80,20 @@ CREATE TABLE IF NOT EXISTS databases (
 );
 CREATE INDEX IF NOT EXISTS idx_databases_tenant ON databases(tenant_user, kind);
 CREATE INDEX IF NOT EXISTS idx_databases_site ON databases(website_slug);
+`
+
+// schemaV7 holds the administrator credential of a containerised engine: the panel
+// generates it when it first brings the container up, and needs it afterwards to run
+// admin SQL. Encrypted, like every other secret.
+const schemaV7 = `
+CREATE TABLE IF NOT EXISTS engine_credentials (
+  engine     TEXT PRIMARY KEY,
+  admin_user TEXT NOT NULL,
+  ciphertext TEXT NOT NULL,
+  host       TEXT NOT NULL DEFAULT '127.0.0.1',
+  port       INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
 `
 
 // schemaV5 remembers where a website's code came from, so a redeploy does not

@@ -12,7 +12,11 @@ import (
 type Plan struct {
 	Commands [][]string
 	RunAs    string // OS user the commands must execute as (e.g. "postgres")
-	Note     string
+	// Env carries credentials for a container engine's administration, where the
+	// panel talks TCP to the container as the administrator it created — never as
+	// an argument, which the process list would show.
+	Env  []string
+	Note string
 }
 
 // Step is one lifecycle action on a database.
@@ -41,6 +45,12 @@ type Resource struct {
 	AdminHost   string
 	AdminPort   int
 	AdminSecret string
+	// AdminUser is the account that may create roles and databases: the engine's
+	// own `postgres` over a socket on a host install, `barepod_admin` inside a
+	// container.
+	AdminUser string
+	// Mode decides which of those two worlds the plan is written for.
+	Mode EngineMode
 }
 
 // PlanFor returns the commands for one step.
@@ -57,6 +67,9 @@ func PlanFor(step Step, resource Resource) (Plan, error) {
 	}
 	if !engine.Automated {
 		return Plan{Note: engine.Note}, nil
+	}
+	if resource.Mode == ModeDocker {
+		return dockerAdminPlan(step, engine, resource)
 	}
 
 	switch engine.Name {
@@ -237,6 +250,83 @@ func redisPlan(step Step, resource Resource) (Plan, error) {
 		}, nil
 	}
 	return Plan{}, fmt.Errorf("dbengine: unknown step %q", step)
+}
+
+// dockerAdminPlan rewrites the same SQL for a containerised engine, where there is
+// no host socket to authenticate against: the panel connects over loopback to the
+// engine's container port as the administrator account it created, and the password
+// travels in the environment.
+func dockerAdminPlan(step Step, engine Engine, resource Resource) (Plan, error) {
+	base, err := hostPlanFor(step, engine, resource)
+	if err != nil {
+		return Plan{}, err
+	}
+	if len(base.Commands) == 0 {
+		return base, nil
+	}
+	host := resource.AdminHost
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	adminUser := resource.AdminUser
+	if adminUser == "" {
+		return Plan{}, errors.New("dbengine: a container engine needs its administrator account")
+	}
+	if resource.AdminSecret == "" {
+		return Plan{}, errors.New("dbengine: a container engine needs its administrator password")
+	}
+
+	plan := Plan{RunAs: "", Note: base.Note}
+	for _, argv := range base.Commands {
+		statement := lastArgument(argv)
+		if statement == "" {
+			continue
+		}
+		switch engine.Name {
+		case "postgresql":
+			plan.Commands = append(plan.Commands, []string{
+				"psql", "-X", "-q", "--no-psqlrc",
+				"-h", host, "-p", fmt.Sprint(resource.AdminPort),
+				"-U", adminUser, "-d", "postgres", "-c", statement,
+			})
+		case "mysql", "mariadb":
+			plan.Commands = append(plan.Commands, []string{
+				engine.Client, "--no-defaults", "--protocol=TCP",
+				"-h", host, "-P", fmt.Sprint(resource.AdminPort),
+				"-u", adminUser, "-e", statement,
+			})
+		default:
+			return Plan{}, fmt.Errorf("dbengine: no container administration for %q yet", engine.Name)
+		}
+	}
+	switch engine.Name {
+	case "postgresql":
+		plan.Env = []string{"PGPASSWORD=" + resource.AdminSecret, "PGPASSFILE=/dev/null", "PGCONNECT_TIMEOUT=5"}
+	case "mysql", "mariadb":
+		plan.Env = []string{"MYSQL_PWD=" + resource.AdminSecret}
+	}
+	return plan, nil
+}
+
+// hostPlanFor is the plan as the host world sees it, without the mode branch.
+func hostPlanFor(step Step, engine Engine, resource Resource) (Plan, error) {
+	switch engine.Name {
+	case "postgresql":
+		return postgresPlan(step, resource)
+	case "mysql", "mariadb":
+		return mysqlPlan(step, resource)
+	case "redis":
+		return redisPlan(step, resource)
+	}
+	return Plan{}, fmt.Errorf("dbengine: no plan for %q", engine.Name)
+}
+
+// lastArgument is the SQL a planned command carries (the value after -c or -e).
+func lastArgument(argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	return argv[len(argv)-1]
 }
 
 func adminHost(resource Resource) string {
