@@ -47,6 +47,101 @@ func makePrivate() error {
 	return nil
 }
 
+// JailRoot builds a minimal root inside this mount namespace and chroots into it,
+// so there is nowhere else to go: `cd /` shows a system skeleton (read-only) and
+// the website, `cd ..` from the site stays inside the jail, and no host path — the
+// account's other sites, /var, /root — exists at all.
+//
+// It returns the working directory inside the jail.
+func JailRoot(home, siteDir, slug string, uid, gid int) (string, error) {
+	if err := makePrivate(); err != nil {
+		return "", err
+	}
+	staging := "/mnt"
+	if info, err := os.Stat(staging); err != nil || !info.IsDir() {
+		staging = os.TempDir()
+	}
+	if err := syscall.Mount("tmpfs", staging, "tmpfs", 0, "size=64M"); err != nil {
+		return "", fmt.Errorf("terminal: cannot prepare the jail (%v)", err)
+	}
+	root := filepath.Join(staging, "root")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", err
+	}
+
+	// The system a shell needs, bound read-only: tooling keeps working, and nothing
+	// outside the project can be changed.
+	for _, name := range []string{"bin", "sbin", "lib", "lib32", "lib64", "libx32", "usr", "etc", "var", "srv", "opt"} {
+		source := string(filepath.Separator) + name
+		if info, err := os.Stat(source); err != nil || !info.IsDir() {
+			continue
+		}
+		target := filepath.Join(root, name)
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			return "", err
+		}
+		if err := syscall.Mount(source, target, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+			return "", fmt.Errorf("terminal: cannot bind %s into the jail (%v)", source, err)
+		}
+		// Read-only: a shell inside cannot modify the system it borrows.
+		_ = syscall.Mount("", target, "", syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_RDONLY, "")
+	}
+
+	// A private scratch, a place for sockets, and the usual device/proc surface so
+	// tools behave.
+	for _, dir := range []string{"tmp", "run", "dev", "proc", "sys"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			return "", err
+		}
+	}
+	if err := os.Chmod(filepath.Join(root, "tmp"), 0o1777); err != nil {
+		return "", err
+	}
+	_ = syscall.Mount("tmpfs", filepath.Join(root, "tmp"), "tmpfs", 0, "size=32M,mode=1777")
+	if err := syscall.Mount("tmpfs", filepath.Join(root, "run"), "tmpfs", 0, "size=8M,mode=755"); err != nil {
+		return "", err
+	}
+	if err := syscall.Mount("proc", filepath.Join(root, "proc"), "proc", 0, ""); err != nil {
+		return "", fmt.Errorf("terminal: cannot mount /proc inside the jail (%v)", err)
+	}
+	if err := syscall.Mount("/dev", filepath.Join(root, "dev"), "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		return "", fmt.Errorf("terminal: cannot bind /dev into the jail (%v)", err)
+	}
+
+	// The website, at the very path it has outside, so prompts and scripts match.
+	tenantRoot := filepath.Join(root, strings.TrimPrefix(home, "/"))
+	insideSite := filepath.Join(tenantRoot, "apps", slug)
+	if err := os.MkdirAll(insideSite, 0o750); err != nil {
+		return "", err
+	}
+	if err := syscall.Mount(siteDir, insideSite, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		return "", fmt.Errorf("terminal: cannot bind the website into the jail (%v)", err)
+	}
+	// Every parent on the way in has to be traversable by the tenant, and the last
+	// three belong to them (the first attempt failed exactly here: /home inside the
+	// jail was root-owned 0750).
+	if err := os.Chmod(filepath.Dir(tenantRoot), 0o755); err != nil {
+		return "", err
+	}
+	for _, dir := range []string{tenantRoot, filepath.Join(tenantRoot, "apps"), insideSite} {
+		if err := os.Chmod(dir, 0o750); err != nil {
+			return "", err
+		}
+		if err := os.Chown(dir, uid, gid); err != nil {
+			return "", err
+		}
+	}
+
+	if err := syscall.Chroot(root); err != nil {
+		return "", fmt.Errorf("terminal: cannot enter the jail (%v)", err)
+	}
+	workdir := filepath.Join(string(filepath.Separator), strings.TrimPrefix(home, "/"), "apps", slug)
+	if err := os.Chdir(workdir); err != nil {
+		return "", fmt.Errorf("terminal: cannot enter %s (%v)", workdir, err)
+	}
+	return workdir, nil
+}
+
 // Mask hides each path inside the current mount namespace: a tmpfs over a
 // directory (mode 0000, so the tenant cannot even enter it) and /dev/null over a
 // file. Because the mounts belong to this namespace only, the host is untouched
