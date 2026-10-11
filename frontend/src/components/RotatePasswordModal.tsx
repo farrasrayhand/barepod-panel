@@ -7,11 +7,24 @@ interface RotatePasswordModalProps {
   onClose: () => void;
   database: DatabaseItem | null;
   onRotated: (dbId: string, newPassword: string) => void;
+  /**
+   * Live rotation: confirms the panel password, sets the new secret and tells the
+   * engine. It returns the password that is now in effect.
+   */
+  onRotate?: (dbId: string, panelPassword: string, newPassword: string) => Promise<string>;
 }
 
 const generatePassword = () => 'bp_' + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 6).toUpperCase();
 
-export const RotatePasswordModal: React.FC<RotatePasswordModalProps> = ({ isOpen, onClose, database, onRotated }) => {
+export const RotatePasswordModal: React.FC<RotatePasswordModalProps> = ({
+  isOpen,
+  onClose,
+  database,
+  onRotated,
+  onRotate,
+}) => {
+  const [busy, setBusy] = useState(false);
+  const [applied, setApplied] = useState('');
   const [panelPassword, setPanelPassword] = useState('');
   const [error, setError] = useState('');
   const [verified, setVerified] = useState(false);
@@ -33,10 +46,28 @@ export const RotatePasswordModal: React.FC<RotatePasswordModalProps> = ({ isOpen
     setMode('generate');
   };
 
-  const handleVerify = (e: React.FormEvent) => {
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!panelPassword.trim()) {
       setError('Enter your panel account password.');
+      return;
+    }
+    if (onRotate) {
+      // The daemon checks the password itself, so verification and rotation are
+      // one step: there is no window where the modal claims to be unlocked.
+      setBusy(true);
+      setError('');
+      try {
+        const password = await onRotate(database.id, panelPassword, generatePassword());
+        setNewPassword(password);
+        setApplied(password);
+        setVerified(true);
+        setCopied(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'That password was not accepted.');
+      } finally {
+        setBusy(false);
+      }
       return;
     }
     setError('');
@@ -44,7 +75,20 @@ export const RotatePasswordModal: React.FC<RotatePasswordModalProps> = ({ isOpen
     setNewPassword(generatePassword());
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
+    // A rotated-away password is already in effect; only a custom one still has to
+    // be applied, through the same call.
+    if (onRotate && passwordValid && newPassword !== applied) {
+      setBusy(true);
+      try {
+        await onRotate(database.id, panelPassword, newPassword);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'The password could not be applied.');
+        setBusy(false);
+        return;
+      }
+      setBusy(false);
+    }
     onRotated(database.id, newPassword);
     onClose();
     reset();

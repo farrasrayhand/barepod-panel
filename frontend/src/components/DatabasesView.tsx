@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Database, 
   Plus, 
@@ -27,10 +27,42 @@ import type { DatabaseManagerTool } from './DatabaseGuiModal';
 import { CreateDatabaseModal } from './CreateDatabaseModal';
 import { DatabaseDetailsModal } from './DatabaseDetailsModal';
 import { DangerConfirmModal } from './DangerConfirmModal';
+import { api, apiReachable, type DatabaseRow, type DbEngineRow } from '../api/client';
+import { describeError } from '../utils/format';
 
 interface DatabasesViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
+
+const ENGINE_TO_ITEM: Record<string, DatabaseEngine> = {
+  postgresql: 'postgres',
+  mysql: 'mysql',
+  mariadb: 'mariadb',
+  mongodb: 'mongodb',
+  redis: 'redis',
+  sqlite: 'sqlite',
+};
+
+/** One daemon row, in the shape this screen already renders. */
+const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
+  id: row.id,
+  name: row.alias || row.name,
+  type: ENGINE_TO_ITEM[row.engine] ?? 'postgres',
+  version: [row.engine, row.version].filter(Boolean).join(' ') + (row.fileBased ? ' · file' : ''),
+  username: row.user || '—',
+  size: row.fileBased ? row.path || '—' : '—',
+  charset: row.fileBased ? 'SQLite file' : 'utf8mb4',
+  status: row.deletedAt || row.status !== 'ready' ? 'inactive' : 'active',
+  connections: 0,
+  host: row.host,
+  port: row.port,
+  tenantUser: row.tenantUser,
+  maxConnections: row.maxConnections,
+  deletedAt: row.deletedAt,
+  note: row.note,
+  websiteSlug: row.websiteSlug,
+  fileBased: row.fileBased,
+});
 
 export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => {
   const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine | 'caches' | 'trash'>('all');
@@ -152,6 +184,46 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
     },
   ]);
 
+  // Live when the daemon answers; the sample rows above are only a fallback.
+  const [live, setLive] = useState<boolean | null>(null);
+  const [engines, setEngines] = useState<DbEngineRow[]>([]);
+  const [websites, setWebsites] = useState<{ slug: string; name: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = () => setReloadKey((value) => value + 1);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const reachable = await apiReachable();
+      if (cancelled) return;
+      setLive(reachable);
+      if (!reachable) return;
+      setLoading(true);
+      try {
+        const [engineList, dbList, cacheList, dbBin, cacheBin, sites] = await Promise.all([
+          api.dbEngines(),
+          api.databases.list(),
+          api.caches.list(),
+          api.databases.recycleBin(),
+          api.caches.recycleBin(),
+          api.websites(),
+        ]);
+        if (cancelled) return;
+        setEngines(engineList.items);
+        setWebsites(sites.items.map((site) => ({ slug: site.slug, name: `${site.slug} (${site.domain})` })));
+        setDatabases([...dbList.items, ...cacheList.items, ...dbBin.items, ...cacheBin.items].map(toDatabaseItem));
+      } catch (err) {
+        if (!cancelled) onShowToast?.('Could not load the databases', describeError(err), 'error');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey, onShowToast]);
+
   const handleCreateDatabase = (newDb: DatabaseItem) => {
     setDatabases([newDb, ...databases]);
     if (onShowToast) {
@@ -171,29 +243,76 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
     }
   };
 
-  const handleDeleteDatabase = (dbId: string, dbName: string) => {
+  const handleDeleteDatabase = async (dbId: string, dbName: string) => {
+    if (live) {
+      // Soft delete: the daemon keeps the data and suspends the database.
+      const target = databases.find((d) => d.id === dbId);
+      const family = target?.type === 'redis' ? api.caches : api.databases;
+      try {
+        await family.bin(dbId);
+        reload();
+        onShowToast?.('Moved to Recycle Bin', `${dbName} is suspended, not dropped. Restore it or delete it permanently.`, 'info');
+      } catch (err) {
+        onShowToast?.('Could not move it to the Recycle Bin', describeError(err), 'error');
+      }
+      return;
+    }
     setDatabases(databases.map((d) => (d.id === dbId ? { ...d, deletedAt: new Date().toLocaleString() } : d)));
     if (onShowToast) {
       onShowToast('Moved to Recycle Bin', `Database ${dbName} was moved to the Recycle Bin. You can restore it or delete it permanently.`, 'info');
     }
   };
 
-  const handleRestoreDatabase = (dbId: string, dbName: string) => {
+  const handleRestoreDatabase = async (dbId: string, dbName: string) => {
+    if (live) {
+      const target = databases.find((d) => d.id === dbId);
+      const family = target?.type === 'redis' ? api.caches : api.databases;
+      try {
+        await family.restore(dbId);
+        reload();
+        onShowToast?.('Database Restored', `${dbName} is serving again.`, 'success');
+      } catch (err) {
+        onShowToast?.('Could not restore it', describeError(err), 'error');
+      }
+      return;
+    }
     setDatabases(databases.map((d) => (d.id === dbId ? { ...d, deletedAt: undefined } : d)));
     if (onShowToast) {
       onShowToast('Database Restored', `Database ${dbName} is active again.`, 'success');
     }
   };
 
-  const handlePurgeDatabase = (dbId: string, dbName: string) => {
+  const handlePurgeDatabase = async (dbId: string, dbName: string) => {
+    if (live) {
+      const target = databases.find((d) => d.id === dbId);
+      const family = target?.type === 'redis' ? api.caches : api.databases;
+      try {
+        await family.purge(dbId);
+        reload();
+        onShowToast?.('Deleted Permanently', `${dbName} and its data are gone.`, 'info');
+      } catch (err) {
+        onShowToast?.('Could not delete it', describeError(err), 'error');
+      }
+      return;
+    }
     setDatabases(databases.filter((d) => d.id !== dbId));
     if (onShowToast) {
       onShowToast('Database Deleted Permanently', `Database ${dbName} and all its data have been dropped.`, 'info');
     }
   };
 
-  const handleEmptyBin = () => {
+  const handleEmptyBin = async () => {
     const count = binnedDatabases.length;
+    if (live) {
+      try {
+        await Promise.all([api.databases.emptyBin(), api.caches.emptyBin()]);
+        reload();
+        onShowToast?.('Recycle Bin Emptied', `${count} record(s) permanently deleted.`, 'info');
+      } catch (err) {
+        onShowToast?.('Could not empty the bin', describeError(err), 'error');
+      }
+      return;
+    }
     setDatabases(databases.filter((d) => !isInBin(d)));
     if (onShowToast) {
       onShowToast('Recycle Bin Emptied', `${count} database(s) permanently deleted.`, 'info');
@@ -624,6 +743,23 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onCreate={handleCreateDatabase}
+        onShowToast={onShowToast}
+        engines={live ? engines : undefined}
+        websites={live ? websites : undefined}
+        onCreateLive={
+          live
+            ? async (payload) => {
+                const family = payload.engine === 'redis' ? api.caches : api.databases;
+                const result = await family.create(payload);
+                reload();
+                return {
+                  password: result.password,
+                  status: result.database.status,
+                  note: result.database.note,
+                };
+              }
+            : undefined
+        }
       />
 
       {/* Credential Reveal Security Modal */}
@@ -631,6 +767,17 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         isOpen={!!selectedDbForCredentials}
         onClose={() => setSelectedDbForCredentials(null)}
         database={selectedDbForCredentials}
+        onUnlock={
+          live && selectedDbForCredentials
+            ? async (panelPassword) => {
+                // A fresh panel-password check, then the daemon decrypts.
+                await api.verify(panelPassword);
+                const family = selectedDbForCredentials.type === 'redis' ? api.caches : api.databases;
+                const revealed = await family.reveal(selectedDbForCredentials.id);
+                return { user: revealed.user || '—', password: revealed.password };
+              }
+            : undefined
+        }
       />
 
       {/* Rotate Password Modal */}
@@ -638,6 +785,18 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         isOpen={!!selectedDbForRotate}
         onClose={() => setSelectedDbForRotate(null)}
         database={selectedDbForRotate}
+        onRotate={
+          live
+            ? async (dbId, panelPassword, newPassword) => {
+                await api.verify(panelPassword);
+                const target = databases.find((d) => d.id === dbId);
+                const family = target?.type === 'redis' ? api.caches : api.databases;
+                const result = await family.rotatePassword(dbId, newPassword);
+                reload();
+                return result.password;
+              }
+            : undefined
+        }
         onRotated={(dbId, _newPassword) => {
           setDatabases((prev) =>
             prev.map((d) => (d.id === dbId ? { ...d, passwordRotatedAt: new Date().toLocaleString() } : d))

@@ -3,28 +3,67 @@ import { X, Database, Key, ShieldCheck, Sparkles, Check, Server, Lock, Cpu, Fold
 import type { DatabaseEngine, DatabaseItem } from '../types';
 import { dbIcon } from '../utils/brandIcons';
 import { AVAILABLE_ENGINE_VERSIONS as availableVersions } from '../data/databaseEngines';
+import type { CreateDatabasePayload, DbEngineRow } from '../api/client';
 
 interface CreateDatabaseModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreate: (db: DatabaseItem) => void;
+  /** Engines as this host really has them (see GET /db-engines). */
+  engines?: DbEngineRow[];
+  /**
+   * Live create: the daemon provisions the database and answers with what
+   * happened (a generated password, or a note explaining what is missing).
+   */
+  onCreateLive?: (payload: CreateDatabasePayload) => Promise<{
+    password?: string;
+    status?: string;
+    note?: string;
+  }>;
+  onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+  /** The websites that may own this database (SQLite must live inside one). */
+  websites?: { slug: string; name: string }[];
 }
 
 export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
   isOpen,
   onClose,
   onCreate,
+  engines,
+  onCreateLive,
+  onShowToast,
+  websites,
 }) => {
+  const [busy, setBusy] = useState(false);
   const [name, setName] = useState('');
   const [type, setType] = useState<DatabaseEngine>('postgres');
   const [selectedVersionIndex, setSelectedVersionIndex] = useState<number>(0);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('bp_sec_' + Math.random().toString(36).substring(2, 9));
   const [maxConnections, setMaxConnections] = useState<number>(25);
+  const [websiteSlug, setWebsiteSlug] = useState('');
 
   if (!isOpen) return null;
 
-  const currentVersionList = availableVersions[type] || availableVersions.postgres;
+  const API_ENGINE: Record<string, string> = {
+    postgres: 'postgresql',
+    mysql: 'mysql',
+    mongodb: 'mongodb',
+    redis: 'redis',
+    sqlite: 'sqlite',
+  };
+  const engineRow = engines?.find(
+    (row) => row.engine === (API_ENGINE[type] ?? type) && row.kind === (type === 'redis' ? 'cache' : 'database'),
+  );
+  const engineBlocked = engineRow ? !engineRow.available : false;
+  const currentVersionList = engineRow
+    ? engineRow.versions.map((version) => ({
+        version,
+        port: engineRow.port ?? 0,
+        label: `${engineRow.label} ${version}`,
+        statusText: engineRow.running ? 'running on this host' : 'installed, not running',
+      }))
+    : availableVersions[type] || availableVersions.postgres;
   const activeVersion = currentVersionList[selectedVersionIndex] || currentVersionList[0];
 
   const handleEngineChange = (engine: DatabaseEngine) => {
@@ -32,7 +71,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
     setSelectedVersionIndex(0);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
@@ -53,6 +92,38 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
       maxConnections: type === 'sqlite' ? undefined : maxConnections,
       isolationMode: type === 'sqlite' ? undefined : 'shared_daemon',
     };
+
+    if (type === 'sqlite' && !websiteSlug) {
+      onShowToast?.('Choose a website', 'A SQLite database is a file inside a website, so it needs one.', 'error');
+      return;
+    }
+    if (onCreateLive) {
+      setBusy(true);
+      try {
+        const result = await onCreateLive({
+          engine: API_ENGINE[type] ?? type,
+          version: chosen.version,
+          alias: name.trim(),
+          websiteSlug: websiteSlug || undefined,
+          maxConnections: type === 'sqlite' ? undefined : maxConnections,
+        });
+        onCreate(newDb);
+        onClose();
+        setName('');
+        setUsername('');
+        setSelectedVersionIndex(0);
+        if (result.status && result.status !== 'ready') {
+          onShowToast?.('Recorded, not created', result.note ?? 'The engine is not available on this host.', 'info');
+        } else if (result.password) {
+          onShowToast?.('Database created', `Password (shown once): ${result.password}`, 'success');
+        }
+      } catch (err) {
+        onShowToast?.('Could not create it', err instanceof Error ? err.message : 'The daemon refused.', 'error');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
 
     onCreate(newDb);
     onClose();
@@ -99,24 +170,55 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
                 { id: 'sqlite' as DatabaseEngine, label: 'SQLite (file)' },
               ].map((engine) => {
                 const DbIcon = dbIcon[engine.id] ?? Database;
+                const row = engines?.find((entry) => entry.engine === (API_ENGINE[engine.id] ?? engine.id));
+                const blocked = row ? !row.available : false;
+                const reason = blocked
+                  ? row?.note || `${row?.client ?? 'The engine'} is not installed on this host`
+                  : undefined;
                 return (
                   <button
                     type="button"
                     key={engine.id}
+                    disabled={blocked}
+                    title={reason}
                     onClick={() => handleEngineChange(engine.id)}
                     className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs text-left transition-all ${
-                      type === engine.id
-                        ? 'border-blue-600 bg-blue-50 text-blue-900 font-bold ring-2 ring-blue-500/10'
-                        : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
+                      blocked
+                        ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+                        : type === engine.id
+                          ? 'border-blue-600 bg-blue-50 text-blue-900 font-bold ring-2 ring-blue-500/10'
+                          : 'border-slate-200 bg-white hover:border-slate-300 text-slate-700'
                     }`}
                   >
                     <DbIcon className="w-4 h-4 shrink-0" />
                     <span>{engine.label}</span>
+                    {blocked && <span className="ml-auto text-[10px] font-semibold">not installed</span>}
                   </button>
                 );
               })}
             </div>
           </div>
+
+          {/* Website (required for a file-based database) */}
+          {websites && websites.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Website{type === 'sqlite' ? ' (required: the file lives inside it)' : ' (optional owner)'}
+              </label>
+              <select
+                value={websiteSlug}
+                onChange={(event) => setWebsiteSlug(event.target.value)}
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono text-slate-800"
+              >
+                <option value="">{type === 'sqlite' ? 'Choose a website…' : 'No website'}</option>
+                {websites.map((site) => (
+                  <option key={site.slug} value={site.slug}>
+                    {site.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Version Selector */}
           <div>

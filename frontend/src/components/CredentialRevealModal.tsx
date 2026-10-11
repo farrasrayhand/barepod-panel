@@ -17,13 +17,22 @@ interface CredentialRevealModalProps {
   isOpen: boolean;
   onClose: () => void;
   database: DatabaseItem | null;
+  /**
+   * Live unlock: confirms the panel password and returns the stored credential.
+   * Without it the modal keeps its prototype behaviour (any password unlocks a
+   * sample value), which is only ever used when no daemon is answering.
+   */
+  onUnlock?: (panelPassword: string) => Promise<{ user: string; password: string }>;
 }
 
 export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
   isOpen,
   onClose,
   database,
+  onUnlock,
 }) => {
+  const [credential, setCredential] = useState<{ user: string; password: string } | null>(null);
+  const [busy, setBusy] = useState(false);
   const [panelPassword, setPanelPassword] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -37,6 +46,7 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
     setShowPasswordText(false);
     setPanelPassword('');
     setAutoLockSeconds(60);
+    setCredential(null);
   }, [database]);
 
   // Password Vault auto-lock: re-encrypt credential after 60 seconds unlocked
@@ -70,12 +80,26 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
     'db-6': 'pos_legacy_pwd_771@',
   };
 
-  const actualPassword = mockPasswords[database.id] || 'barepod_secret_key_889#';
+  const actualPassword = credential?.password ?? mockPasswords[database.id] ?? 'barepod_secret_key_889#';
+  const actualUser = credential?.user ?? database.username;
 
-  const handleUnlock = (e: React.FormEvent) => {
+  const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!panelPassword.trim()) {
       setErrorMsg('Please enter your panel password.');
+      return;
+    }
+    if (onUnlock) {
+      setBusy(true);
+      setErrorMsg('');
+      try {
+        setCredential(await onUnlock(panelPassword));
+        setIsUnlocked(true);
+      } catch (err) {
+        setErrorMsg(err instanceof Error ? err.message : 'That password was not accepted.');
+      } finally {
+        setBusy(false);
+      }
       return;
     }
 
@@ -227,9 +251,9 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
               <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
                 <div className="text-[10px] text-slate-400 font-semibold uppercase">Username</div>
                 <div className="flex items-center justify-between mt-0.5">
-                  <span className="font-mono text-slate-800 font-medium">{database.username}</span>
+                  <span className="font-mono text-slate-800 font-medium">{actualUser}</span>
                   <button
-                    onClick={() => handleCopy(database.username, 'user')}
+                    onClick={() => handleCopy(actualUser, 'user')}
                     className="text-slate-400 hover:text-blue-600"
                   >
                     {copiedField === 'user' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}

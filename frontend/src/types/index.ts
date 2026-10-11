@@ -106,6 +106,10 @@ export interface DatabaseItem {
   isolationMode?: 'shared_daemon' | 'dedicated_pod';
   passwordRotatedAt?: string;
   deletedAt?: string;
+  /** Live extras: what the daemon answered. */
+  note?: string;
+  websiteSlug?: string;
+  fileBased?: boolean;
 }
 
 export interface SharedEngineInstance {

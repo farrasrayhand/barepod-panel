@@ -192,6 +192,96 @@ export interface FileEntry {
   protected?: boolean;
 }
 
+/** One database or cache row, as the daemon stores it. */
+export interface DatabaseRow {
+  id: string;
+  kind: 'database' | 'cache';
+  websiteSlug?: string;
+  tenantUser: string;
+  engine: string;
+  version?: string;
+  alias: string;
+  name: string;
+  user?: string;
+  host?: string;
+  port?: number;
+  path?: string;
+  maxConnections?: number;
+  maxMemoryMb?: number;
+  status: string;
+  note?: string;
+  deletedAt?: string;
+  createdAt: string;
+  fileBased: boolean;
+}
+
+/** One engine, with what this host can really do (availability is detected). */
+export interface DbEngineRow {
+  engine: string;
+  label: string;
+  kind: 'database' | 'cache';
+  versions: string[];
+  port?: number;
+  fileBased: boolean;
+  client?: string;
+  daemon?: string;
+  available: boolean;
+  running: boolean;
+  automated: boolean;
+  note?: string;
+}
+
+export interface CreateDatabasePayload {
+  engine: string;
+  version?: string;
+  alias: string;
+  websiteSlug?: string;
+  password?: string;
+  maxConnections?: number;
+  maxMemoryMb?: number;
+}
+
+/** Databases and caches are the same resource with different commands. */
+const databaseFamily = (base: string) => ({
+  list: (bin = false) =>
+    request<{ items: DatabaseRow[]; bin: boolean; retentionDays: number }>(`${base}${bin ? '?bin=true' : ''}`),
+
+  recycleBin: () => request<{ items: DatabaseRow[]; retentionDays: number }>(`${base}/recycle-bin`),
+
+  create: (payload: CreateDatabasePayload) =>
+    request<{ database: DatabaseRow; password?: string; passwordShownOnce?: boolean }>(base, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  get: (id: string) => request<{ database: DatabaseRow }>(`${base}/${id}`),
+
+  patch: (id: string, payload: { alias?: string; maxConnections?: number; maxMemoryMb?: number }) =>
+    request<{ database: DatabaseRow }>(`${base}/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+
+  /** Soft delete: the record is kept and moves to the recycle bin. */
+  bin: (id: string) => request<{ id: string; status: string }>(`${base}/${id}`, { method: 'DELETE' }),
+
+  restore: (id: string) => request<{ database: DatabaseRow }>(`${base}/${id}/restore`, { method: 'POST' }),
+
+  purge: (id: string) => request<{ id: string; purged: boolean }>(`${base}/${id}/purge`, { method: 'POST' }),
+
+  emptyBin: () => request<{ purged: string[] }>(`${base}/recycle-bin`, { method: 'DELETE' }),
+
+  rotatePassword: (id: string, password: string) =>
+    request<{ id: string; password: string }>(`${base}/${id}/rotate-password`, {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+
+  reveal: (id: string) =>
+    request<{ id: string; user: string; password: string; expiresIn: number }>(`${base}/${id}/reveal`, {
+      method: 'POST',
+    }),
+
+  connectionString: (id: string) => request<{ string: string; engine: string }>(`${base}/${id}/connection-string`),
+});
+
 export const api = {
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
 
@@ -354,6 +444,11 @@ export const api = {
 
   downloadUrl: (slug: string, path: string) =>
     `${API_BASE}/websites/${slug}/files/download?path=${encodeURIComponent(path)}`,
+
+  /** Databases: engines detected on this host, then the usual CRUD + bin. */
+  dbEngines: () => request<{ items: DbEngineRow[] }>('/db-engines'),
+  databases: databaseFamily('/databases'),
+  caches: databaseFamily('/caches'),
 
   /** The picker behind the host-wide browser: which accounts have a home. */
   tenants: () => request<{ items: TenantRow[]; root: string }>('/tenants'),
