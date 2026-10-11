@@ -7,15 +7,18 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // Config is the resolved daemon configuration.
 type Config struct {
-	Listen      string
-	DBPath      string
-	KeyPath     string
-	StaticDir   string
+	Listen    string
+	DBPath    string
+	KeyPath   string
+	StaticDir string
+	// RedisURL is the admin connection used to create per-cache ACL users.
+	RedisURL    string
 	SitesRoot   string
 	UnitsDir    string
 	LogLevel    string
@@ -96,6 +99,7 @@ func Load(args []string) (Config, error) {
 	keyPath := fs.String("key", DefaultKeyPath(), "path to the secrets encryption key")
 	staticDir := fs.String("static", env("BAREPOD_STATIC", "./dist"), "path to the built frontend (SPA)")
 	sitesRoot := fs.String("sites-root", env("BAREPOD_SITES_ROOT", DefaultSitesRoot()), "directory that holds tenant home directories")
+	redisURL := fs.String("redis-url", env("BAREPOD_REDIS_URL", "redis://127.0.0.1:6379"), "admin connection used to create per-cache Redis users")
 	unitsDir := fs.String("units-dir", env("BAREPOD_UNITS_DIR", defaultUnitsDir()), "directory for systemd unit files")
 	logLevel := fs.String("log-level", env("BAREPOD_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	dryRun := fs.Bool("dry-run", envBool("BAREPOD_DRY_RUN", false), "never execute privileged commands (forced on non-Linux hosts)")
@@ -113,6 +117,7 @@ func Load(args []string) (Config, error) {
 		KeyPath:         filepath.Clean(*keyPath),
 		StaticDir:       filepath.Clean(*staticDir),
 		SitesRoot:       filepath.Clean(*sitesRoot),
+		RedisURL:        strings.TrimSpace(*redisURL),
 		UnitsDir:        filepath.Clean(*unitsDir),
 		LogLevel:        *logLevel,
 		DryRun:          *dryRun,

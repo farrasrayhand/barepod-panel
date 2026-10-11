@@ -68,8 +68,8 @@ func catalog() []Engine {
 		{
 			Name: "redis", Label: "Redis", Kind: "cache",
 			Versions: []string{"7.2", "7.0", "6.2"}, DefaultPort: 6379,
-			Client: "redis-cli", Daemon: "redis-server", Automated: false,
-			Note: "Provisioning Redis is not automated yet: the panel records the credential and reports what is missing.",
+			Client: "redis-cli", Daemon: "redis-server", Automated: true,
+			Note: "A cache gets its own ACL user, limited to its key prefix. Keys are never flushed for you.",
 		},
 	}
 }

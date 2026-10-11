@@ -40,6 +40,9 @@ type Database struct {
 	DeletedAt   string `json:"deletedAt,omitempty"`
 	CreatedAt   string `json:"createdAt"`
 	FileBased   bool   `json:"fileBased"`
+	// SizeBytes is measured when it can be (a file-based database is one stat
+	// call); it stays 0 rather than carrying an invented number.
+	SizeBytes int64 `json:"sizeBytes,omitempty"`
 	// PasswordCipher is the encrypted credential. It never leaves the daemon: the
 	// API only ever exposes it through a reveal that re-authenticates first.
 	PasswordCipher string `json:"-"`

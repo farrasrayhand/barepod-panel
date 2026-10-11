@@ -29,6 +29,7 @@ import { DatabaseDetailsModal } from './DatabaseDetailsModal';
 import { DangerConfirmModal } from './DangerConfirmModal';
 import { api, apiReachable, type DatabaseRow, type DbEngineRow } from '../api/client';
 import { describeError } from '../utils/format';
+import { formatBytes } from '../api/adapters';
 
 interface DatabasesViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
@@ -50,7 +51,8 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
   type: ENGINE_TO_ITEM[row.engine] ?? 'postgres',
   version: [row.engine, row.version].filter(Boolean).join(' ') + (row.fileBased ? ' · file' : ''),
   username: row.user || '—',
-  size: row.fileBased ? row.path || '—' : '—',
+  // A file-based database has a real size; a daemon one is not measured yet.
+  size: row.fileBased ? (row.sizeBytes ? formatBytes(row.sizeBytes) : '0 B') : '—',
   charset: row.fileBased ? 'SQLite file' : 'utf8mb4',
   status: row.deletedAt || row.status !== 'ready' ? 'inactive' : 'active',
   connections: 0,

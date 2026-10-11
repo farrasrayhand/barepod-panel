@@ -213,6 +213,7 @@ export interface DatabaseRow {
   deletedAt?: string;
   createdAt: string;
   fileBased: boolean;
+  sizeBytes?: number;
 }
 
 /** One engine, with what this host can really do (availability is detected). */

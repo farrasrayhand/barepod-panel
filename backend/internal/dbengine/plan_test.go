@@ -120,3 +120,92 @@ func TestSqliteAndUnautomatedEnginesExplainThemselves(t *testing.T) {
 		t.Errorf("an unautomated engine must say it is not automated: %+v", mongo)
 	}
 }
+
+func TestRedisPlansUseACLUsersScopedToTheirPrefix(t *testing.T) {
+	resource := Resource{
+		Engine: "redis", Name: "bptest_cache", User: "bptest_cache",
+		Secret: "s3cret-cache", AdminHost: "127.0.0.1", AdminPort: 6379,
+	}
+
+	provision, err := PlanFor(StepProvision, resource)
+	if err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	argv := provision.Commands[0]
+	joined := strings.Join(argv, " ")
+	for _, want := range []string{"ACL SETUSER bptest_cache", "reset", "on", ">s3cret-cache", "~bptest_cache:*", "+@all"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the ACL rule is missing %q:\n%s", want, joined)
+		}
+	}
+	// The scope is the point: a cache must not see another cache's keys.
+	if strings.Contains(joined, "~*") {
+		t.Errorf("the user was given every key:\n%s", joined)
+	}
+
+	rotate, _ := PlanFor(StepRotate, resource)
+	rotateLine := strings.Join(rotate.Commands[0], " ")
+	if !strings.Contains(rotateLine, "resetpass") {
+		t.Errorf("rotation must clear the old password first: %s", rotateLine)
+	}
+
+	suspend, _ := PlanFor(StepSuspend, resource)
+	if !strings.Contains(strings.Join(suspend.Commands[0], " "), "ACL SETUSER bptest_cache off") {
+		t.Errorf("suspend must turn the user off: %v", suspend.Commands[0])
+	}
+	restore, _ := PlanFor(StepRestore, resource)
+	if !strings.Contains(strings.Join(restore.Commands[0], " "), "ACL SETUSER bptest_cache on") {
+		t.Errorf("restore must turn the user back on: %v", restore.Commands[0])
+	}
+	purge, _ := PlanFor(StepPurge, resource)
+	if !strings.Contains(strings.Join(purge.Commands[0], " "), "ACL DELUSER bptest_cache") {
+		t.Errorf("purge must remove the user: %v", purge.Commands[0])
+	}
+	if purge.Note == "" {
+		t.Error("purge should say that the keys are left behind")
+	}
+}
+
+func TestRedisAdminConnection(t *testing.T) {
+	cases := []struct {
+		raw        string
+		host       string
+		port       int
+		secret     string
+		shouldFail bool
+	}{
+		{"redis://127.0.0.1:6379", "127.0.0.1", 6379, "", false},
+		{"redis://:adminpw@10.0.0.5:6380", "10.0.0.5", 6380, "adminpw", false},
+		{"redis://default:pa%3Ass@cache.internal", "cache.internal", 6379, "pa%3Ass", false},
+		{"redis://127.0.0.1:not-a-port", "", 0, "", true},
+		{"", "", 0, "", true},
+	}
+	for _, c := range cases {
+		host, port, secret, err := ParseRedisURL(c.raw)
+		if c.shouldFail {
+			if err == nil {
+				t.Errorf("%q should have failed", c.raw)
+			}
+			continue
+		}
+		if err != nil || host != c.host || port != c.port || secret != c.secret {
+			t.Errorf("%q -> %s:%d secret=%q err=%v", c.raw, host, port, secret, err)
+		}
+	}
+
+	// The admin password reaches redis-cli, with the warning suppressed so the
+	// output stays parseable.
+	plan, err := PlanFor(StepSuspend, Resource{
+		Engine: "redis", Name: "c", User: "c", AdminHost: "cache.internal", AdminPort: 6380, AdminSecret: "adminpw",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(plan.Commands[0], " ")
+	if !strings.Contains(joined, "-h cache.internal") || !strings.Contains(joined, "-p 6380") {
+		t.Errorf("the admin address is wrong: %s", joined)
+	}
+	if !strings.Contains(joined, "--no-auth-warning -a adminpw") {
+		t.Errorf("the admin password is not passed: %s", joined)
+	}
+}

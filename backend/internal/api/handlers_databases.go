@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path"
 	"strings"
 
@@ -67,6 +68,47 @@ func (s *Server) findDatabase(w http.ResponseWriter, r *http.Request, user *stor
 	return record, true
 }
 
+// withSizes fills in the size of file-based databases. A daemon engine would need
+// a query per row, so it keeps 0 and the UI shows that it is unknown.
+func withSizes(items []store.Database) []store.Database {
+	for i := range items {
+		if items[i].FilePath == "" {
+			continue
+		}
+		if info, err := os.Stat(items[i].FilePath); err == nil {
+			items[i].SizeBytes = info.Size()
+		}
+	}
+	return items
+}
+
+// engineFor answers with the engine as this host really has it. The catalog entry
+// never knows what is installed, so every lifecycle decision goes through here.
+func (s *Server) engineFor(ctx context.Context, name string) (dbengine.Engine, bool) {
+	for _, candidate := range dbengine.Detect(ctx, s.host.Runner) {
+		if strings.EqualFold(candidate.Name, name) {
+			return candidate, true
+		}
+	}
+	return dbengine.Engine{}, false
+}
+
+// resourceFor builds a plan target for a record, adding the admin connection a
+// shared Redis needs (PostgreSQL and MySQL are reached locally as root).
+func (s *Server) resourceFor(record *store.Database, secret string) dbengine.Resource {
+	resource := dbengine.Resource{
+		Engine: record.Engine, Name: record.Name, User: record.User,
+		Secret: secret, Port: record.Port, MaxConn: record.MaxConns,
+	}
+	if record.Engine == "redis" {
+		host, port, adminSecret, err := dbengine.ParseRedisURL(s.cfg.RedisURL)
+		if err == nil {
+			resource.AdminHost, resource.AdminPort, resource.AdminSecret = host, port, adminSecret
+		}
+	}
+	return resource
+}
+
 // handleListDatabases: /databases and /caches, optionally the recycle bin.
 func (s *Server) handleListDatabases(kind string) authedHandler {
 	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
@@ -92,7 +134,7 @@ func (s *Server) handleListRecycleBin(kind string) authedHandler {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not read the recycle bin")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"items": items, "bin": true, "retentionDays": 30})
+		writeJSON(w, http.StatusOK, map[string]any{"items": withSizes(items), "bin": true, "retentionDays": 30})
 	}
 }
 
@@ -109,8 +151,16 @@ func (s *Server) handleCreateDatabase(kind string) authedHandler {
 			return
 		}
 
-		engine, ok := dbengine.Lookup(req.Engine)
-		if !ok || engine.Kind != kind {
+		// Availability has to come from a detection run, not from the catalog: the
+		// catalog entry does not know what is installed on this host.
+		var engine dbengine.Engine
+		for _, candidate := range dbengine.Detect(r.Context(), s.host.Runner) {
+			if strings.EqualFold(candidate.Name, strings.TrimSpace(req.Engine)) {
+				engine = candidate
+				break
+			}
+		}
+		if engine.Name == "" || engine.Kind != kind {
 			writeError(w, http.StatusBadRequest, "validation_error", "Unknown engine for this resource")
 			return
 		}
@@ -245,7 +295,8 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 
 	case !engine.Available:
 		record.Status = "pending"
-		record.Note = fmt.Sprintf("%s is not installed on this host, so the %s was recorded but not created. Install it and rotate the password to finish.", engine.Client, engine.Name)
+		record.Note = fmt.Sprintf("%s is not installed on this host, so the %s was recorded but not created. Install it and rotate the password to finish.",
+			engine.Client, strings.ToLower(engine.Label))
 		return nil
 
 	case !s.host.Materialises():
@@ -256,9 +307,14 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 
 	record.User = record.Name
 	record.Host = "127.0.0.1"
-	plan, err := dbengine.PlanFor(dbengine.StepProvision, dbengine.Resource{
-		Engine: engine.Name, Name: record.Name, User: record.User, Secret: password, Port: record.Port,
-	})
+	if engine.Name == "redis" {
+		// A cache reports the address a client should use, which is the admin
+		// host/port unless the URL says otherwise.
+		if host, port, _, err := dbengine.ParseRedisURL(s.cfg.RedisURL); err == nil {
+			record.Host, record.Port = host, port
+		}
+	}
+	plan, err := dbengine.PlanFor(dbengine.StepProvision, s.resourceFor(record, password))
 	if err != nil {
 		return err
 	}
@@ -343,7 +399,7 @@ func (s *Server) handleGetDatabase(kind string) authedHandler {
 		if !ok {
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"database": record})
+		writeJSON(w, http.StatusOK, map[string]any{"database": withSizes([]store.Database{*record})[0]})
 	}
 }
 
@@ -396,11 +452,9 @@ func (s *Server) handleRotateDatabasePassword(kind string) authedHandler {
 			return
 		}
 
-		engine, _ := dbengine.Lookup(record.Engine)
+		engine, _ := s.engineFor(r.Context(), record.Engine)
 		if !engine.FileBased && engine.Available && s.host.Materialises() {
-			plan, err := dbengine.PlanFor(dbengine.StepRotate, dbengine.Resource{
-				Engine: record.Engine, Name: record.Name, User: record.User, Secret: password, Port: record.Port,
-			})
+			plan, err := dbengine.PlanFor(dbengine.StepRotate, s.resourceFor(record, password))
 			if err != nil {
 				writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 				return
@@ -520,7 +574,7 @@ func (s *Server) handleBinDatabase(kind string) authedHandler {
 
 // suspendDatabase stops the engine from serving the database, keeping the data.
 func (s *Server) suspendDatabase(ctx context.Context, record *store.Database) error {
-	engine, _ := dbengine.Lookup(record.Engine)
+	engine, _ := s.engineFor(ctx, record.Engine)
 	if engine.FileBased {
 		// SQLite: move the file into the site's own trash, so a wrong bin click
 		// never loses the data.
@@ -530,9 +584,7 @@ func (s *Server) suspendDatabase(ctx context.Context, record *store.Database) er
 		record.Note = "Suspended in the panel; the engine was not told because its client is unavailable on this host."
 		return nil
 	}
-	plan, err := dbengine.PlanFor(dbengine.StepSuspend, dbengine.Resource{
-		Engine: record.Engine, Name: record.Name, User: record.User, Port: record.Port,
-	})
+	plan, err := dbengine.PlanFor(dbengine.StepSuspend, s.resourceFor(record, ""))
 	if err != nil {
 		return err
 	}
@@ -546,16 +598,14 @@ func (s *Server) handleRestoreDatabase(kind string) authedHandler {
 		if !ok {
 			return
 		}
-		engine, _ := dbengine.Lookup(record.Engine)
+		engine, _ := s.engineFor(r.Context(), record.Engine)
 		if engine.FileBased {
 			if err := s.moveSQLiteFile(r.Context(), record, false); err != nil {
 				writeError(w, http.StatusBadGateway, "service_error", err.Error())
 				return
 			}
 		} else if engine.Available && s.host.Materialises() {
-			plan, err := dbengine.PlanFor(dbengine.StepRestore, dbengine.Resource{
-				Engine: record.Engine, Name: record.Name, User: record.User, Port: record.Port,
-			})
+			plan, err := dbengine.PlanFor(dbengine.StepRestore, s.resourceFor(record, ""))
 			if err != nil {
 				writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 				return
@@ -592,15 +642,13 @@ func (s *Server) handlePurgeDatabase(kind string) authedHandler {
 }
 
 func (s *Server) purgeDatabase(ctx context.Context, record *store.Database) error {
-	engine, _ := dbengine.Lookup(record.Engine)
+	engine, _ := s.engineFor(ctx, record.Engine)
 	if engine.FileBased {
 		if err := s.purgeSQLite(ctx, record); err != nil {
 			return err
 		}
 	} else if engine.Available && s.host.Materialises() {
-		plan, err := dbengine.PlanFor(dbengine.StepPurge, dbengine.Resource{
-			Engine: record.Engine, Name: record.Name, User: record.User, Port: record.Port,
-		})
+		plan, err := dbengine.PlanFor(dbengine.StepPurge, s.resourceFor(record, ""))
 		if err != nil {
 			return err
 		}

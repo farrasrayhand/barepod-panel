@@ -208,6 +208,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `GET /databases/:id/tables` · `POST /databases/:id/query`
 - `POST /databases/:id/export` (`.sql`, or a `.sqlite` file copy for SQLite)
 - `GET /databases/:id/gui?tool=pgadmin|phpmyadmin|dbgate|mongoexpress|rediscommander` → `{ ssoUrl }`
+- **A Redis cache is an ACL user, not a database:** the daemon creates `ACL SETUSER <tenant>_<name> reset on ><password> ~<tenant>_<name>:* +@all` on the server it finds through `BAREPOD_REDIS_URL` (default `redis://127.0.0.1:6379`; `redis://:password@host:port` when it needs one). Suspend is `off`, restore is `on`, rotation is `resetpass ><password>` so the previous secret stops working, and purge is `ACL DELUSER` — **the keys are left in place** and the API says so. Per-cache memory limits are not enforceable on a shared server (maxmemory is a server setting); a hard isolation would need one instance per cache.
 - **Caches (Redis) are a separate resource:** `GET|POST /caches` · `GET|PATCH|DELETE /caches/:id` · `POST /caches/:id/rotate-password`
 - `GET /db-engines` (versions + shared-daemon ports; SQLite reports `fileBased: true`, `port: null`)
 - **SQLite is file-based:** `host`/`port`/`username`/`password`/`maxConnections` are `null`; the record carries a `path` (e.g. `/home/<tenant>/apps/<site>/<name>.sqlite`) and has no SSO web GUI.
