@@ -107,6 +107,44 @@ a:hover{text-decoration:underline}
 `, html.EscapeString(tool), html.EscapeString(mount), html.EscapeString(cause.Error()))
 }
 
+// refuseGui answers a manager refusal. A browser that asked for a page gets a page in the
+// panel's own look — "its file is gone (…)" is a sentence for a person, and a JSON blob in
+// a tab is not — while a client asking for data keeps the JSON it can parse.
+func refuseGui(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	if !guiMountRoot(r) || !wantsHTML(r) {
+		writeError(w, status, code, message)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_, _ = fmt.Fprintf(w, `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>%[1]d · BarePod Panel</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f1f5f9;color:#0f172a;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px}
+.card{width:100%%;max-width:34rem;background:#fff;border:1px solid #e2e8f0;border-radius:20px;box-shadow:0 10px 30px rgba(15,23,42,.06);padding:40px 36px;text-align:center}
+.icon{position:relative;width:80px;height:80px;border-radius:24px;background:#fef3c7;border:1px solid #fde68a;color:#b45309;display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
+.icon svg{width:40px;height:40px}
+h1{margin:0 0 8px;font-size:24px;font-weight:900;letter-spacing:-.02em}
+p{margin:0;color:#475569}
+.reason{margin-top:20px;text-align:left;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#92400e;white-space:pre-wrap;word-break:break-word}
+a{color:#2563eb;font-weight:600;text-decoration:none}
+a:hover{text-decoration:underline}
+.footer{margin-top:20px;font-size:11px;color:#94a3b8}
+</style></head>
+<body><main class="card">
+<div class="icon">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+</div>
+<h1>This database cannot be opened</h1>
+<p>%[4]s</p>
+<p class="footer">Back to the panel — <a href="/databases">Databases</a>.</p>
+</main></body></html>
+`, status, html.EscapeString(code), html.EscapeString(http.StatusText(status)), html.EscapeString(message))
+}
+
 // guiMountRoot reports whether this request is the mount root — the page a browser is
 // given. The wildcard segment captures the trailing slash, so the path is "" or "/"
 // depending on how the request was written; both are the root.
@@ -374,7 +412,7 @@ func (s *Server) handleDatabaseGui(kind string) authedHandler {
 			if _, isRecord := guiRecordBlocked(record); isRecord {
 				engine, engineFound := s.engineFor(r.Context(), record.Engine)
 				note, _ := s.guiNotReadyNote(record, engine, engineFound)
-				writeError(w, http.StatusConflict, "not_ready", "This database is not ready to open — "+note)
+				refuseGui(w, r, http.StatusConflict, "not_ready", "This database is not ready to open — "+note)
 				return
 			}
 			writeError(w, http.StatusNotImplemented, "not_installed", fmt.Sprintf(
@@ -428,15 +466,15 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 			return
 		}
 		if !guiToolSupportsEngine(known, record.Engine) {
-			writeError(w, http.StatusConflict, "not_applicable",
+			refuseGui(w, r, http.StatusConflict, "not_applicable",
 				fmt.Sprintf("%s does not open %s databases", tool, record.Engine))
 			return
 		}
 		// A file database has no server to connect to — except for DbGate, which
 		// opens the SQLite file itself.
 		if (record.Detected || record.FileBased) && tool != "dbgate" {
-			writeError(w, http.StatusConflict, "not_applicable",
-				"This is a file, not a server: use the Data Browser & SQL tab")
+			refuseGui(w, r, http.StatusConflict, "not_applicable",
+				"This is a file, not a server, and this tool does not open files — use the manager that does, or the panel's own browser")
 			return
 		}
 		// DbGate opens a SQLite file itself, so for that one tool the file has to exist. A
@@ -445,14 +483,14 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 		// with ERR_TOO_MANY_RETRIES. Saying so is quicker and true.
 		if tool == "dbgate" && record.FileBased && record.FilePath != "" {
 			if _, err := os.Stat(record.FilePath); err != nil {
-				writeError(w, http.StatusConflict, "not_ready", fmt.Sprintf(
+				refuseGui(w, r, http.StatusConflict, "not_ready", fmt.Sprintf(
 					"its file is gone (%s) — the website it lived in was deleted, so there is nothing to open",
 					record.FilePath))
 				return
 			}
 		}
 		if reason, runnable := s.guiToolRunnable(spec); !runnable {
-			writeError(w, http.StatusNotImplemented, "not_installed",
+			refuseGui(w, r, http.StatusNotImplemented, "not_installed",
 				fmt.Sprintf("%s cannot be opened here: %s", tool, reason))
 			return
 		}
