@@ -83,6 +83,10 @@ func DropIn(s Spec) string {
 		fmt.Fprintf(&b, "Environment=%s=%s\n", k, s.ExtraEnv[k])
 	}
 	if len(s.ExecStart) > 0 {
+		// Clear the template's placeholder first. ExecStart is a *list* setting:
+		// assigning it again without an empty assignment leaves two commands and
+		// systemd refuses the unit ("more than one ExecStart= setting").
+		b.WriteString("ExecStart=\n")
 		fmt.Fprintf(&b, "ExecStart=%s\n", strings.Join(s.ExecStart, " "))
 	}
 	fmt.Fprintf(&b, "Restart=%s\n", restart)

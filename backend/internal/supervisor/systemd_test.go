@@ -7,6 +7,39 @@ import (
 	"testing"
 )
 
+func TestDropInResetsExecStartBeforeSettingIt(t *testing.T) {
+	// ExecStart is a list setting: without the empty assignment the template's
+	// placeholder survives and systemd rejects the unit with "more than one
+	// ExecStart= setting" — found on a real systemd host, not in theory.
+	spec := Spec{
+		Slug:      "demo",
+		Tenant:    "tester",
+		WorkDir:   "/home/tester/apps/demo",
+		ExecStart: []string{"/home/tester/apps/demo/.venv/bin/gunicorn", "-b", "127.0.0.1:9101", "app:app"},
+	}
+
+	out := DropIn(spec)
+	reset := strings.Index(out, "\nExecStart=\n")
+	command := strings.Index(out, "ExecStart=/home/tester/apps/demo/.venv/bin/gunicorn")
+	if reset < 0 || command < 0 {
+		t.Fatalf("drop-in must clear then set ExecStart, got:\n%s", out)
+	}
+	if reset > command {
+		t.Errorf("the empty ExecStart= must come first, got:\n%s", out)
+	}
+	if strings.Count(out, "ExecStart=") != 2 {
+		t.Errorf("expected exactly one reset and one command, got:\n%s", out)
+	}
+}
+
+func TestTemplateKeepsAPlaceholderExecStart(t *testing.T) {
+	// The template must stay a valid unit on its own, so it keeps a placeholder
+	// that each per-site drop-in replaces.
+	if !strings.Contains(Template(), "ExecStart=/bin/false") {
+		t.Error("template needs a placeholder ExecStart")
+	}
+}
+
 func TestDropInContainsSiteSettings(t *testing.T) {
 	spec := Spec{
 		Slug:        "billing-api",

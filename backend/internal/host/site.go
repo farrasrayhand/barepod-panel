@@ -68,7 +68,11 @@ func (h *Host) SiteDirEntries(tenant, slug string) (int, error) {
 }
 
 // WriteEnvFile writes <site>/.env atomically and returns its path.
-func (h *Host) WriteEnvFile(tenant, slug string, env map[string]string) (string, error) {
+//
+// The file belongs to the tenant, not to root: systemd reads EnvironmentFile as
+// root, but the app itself (Laravel, Node dotenv, …) reads .env at runtime as the
+// tenant, so a root-owned 0600 file would break it with "permission denied".
+func (h *Host) WriteEnvFile(ctx context.Context, tenant, slug string, env map[string]string) (string, error) {
 	dir := h.SitePath(tenant, slug)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", err
@@ -92,6 +96,11 @@ func (h *Host) WriteEnvFile(tenant, slug string, env map[string]string) (string,
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return "", err
+	}
+	if h.Materialises() {
+		if out, err := h.Runner.Run(ctx, "", "chown", tenant+":"+tenant, path); err != nil {
+			return "", fmt.Errorf("host: chown the environment file: %w (%s)", err, strings.TrimSpace(out))
+		}
 	}
 	return path, nil
 }

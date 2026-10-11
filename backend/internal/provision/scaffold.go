@@ -92,6 +92,57 @@ func DefaultPort(runtime string) int {
 	}
 }
 
+// StarterFiles returns the entrypoint a framework needs to actually run.
+//
+// Downloading a framework is not enough: `gunicorn app:app` fails if nothing
+// defines `app`, so a preset that only installs packages would deploy a broken
+// site. These files are only written when the target does not exist, so uploaded
+// or cloned code is never clobbered.
+func StarterFiles(framework string, port int) map[string]string {
+	switch strings.ToLower(framework) {
+	case "flask":
+		return map[string]string{
+			"app.py": `from flask import Flask
+
+app = Flask(__name__)
+
+
+@app.get("/")
+def index():
+    return {"app": "barepod", "status": "ok"}
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=` + strconv.Itoa(port) + `)
+`,
+		}
+	case "fastapi":
+		return map[string]string{
+			"app.py": `from fastapi import FastAPI
+
+app = FastAPI()
+
+
+@app.get("/")
+def index():
+    return {"app": "barepod", "status": "ok"}
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+`,
+		}
+	default:
+		return nil
+	}
+}
+
 // ExecStart returns the command a systemd unit runs for this website.
 // PHP uses a per-site FPM master, everything else runs the app server directly.
 func ExecStart(runtime, version, framework, workDir string, port int) []string {
@@ -103,7 +154,13 @@ func ExecStart(runtime, version, framework, workDir string, port int) []string {
 	case "nodejs":
 		return []string{"npm", "start", "--", "--port", p}
 	case "python":
-		return []string{workDir + "/.venv/bin/gunicorn", "-b", "127.0.0.1:" + p, "--workers", "2", "app:app"}
+		// FastAPI/Starlette need an ASGI worker; Flask runs on the default one.
+		workers := []string{"--workers", "2"}
+		if strings.EqualFold(framework, "fastapi") {
+			workers = []string{"--workers", "2", "-k", "uvicorn.workers.UvicornWorker"}
+		}
+		start := []string{workDir + "/.venv/bin/gunicorn", "-b", "127.0.0.1:" + p}
+		return append(start, append(workers, "app:app")...)
 	case "go":
 		return []string{workDir + "/bin/app"}
 	case "ruby":

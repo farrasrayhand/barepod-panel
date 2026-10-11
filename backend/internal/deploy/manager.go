@@ -287,6 +287,34 @@ func stepFetchSource(ctx context.Context, s *state) error {
 			return err
 		}
 	}
+	// A framework download without an entrypoint would start and immediately
+	// fail, so write the starter file the preset implies (never overwriting an
+	// existing one, so uploaded or cloned code is safe).
+	return s.writeStarterFiles(ctx)
+}
+
+// writeStarterFiles places the framework's entrypoint inside the site.
+func (s *state) writeStarterFiles(ctx context.Context) error {
+	files := provision.StarterFiles(s.req.Framework, s.req.Port)
+	if len(files) == 0 {
+		return nil
+	}
+	for name, content := range files {
+		target := filepath.Join(s.siteDir, name)
+		if _, err := os.Stat(target); err == nil {
+			s.log("stdout", "kept the existing "+name)
+			continue
+		}
+		if err := os.WriteFile(target, []byte(content), 0o640); err != nil {
+			return fmt.Errorf("could not write %s: %w", name, err)
+		}
+		if s.m.host.Materialises() {
+			if out, err := s.m.host.Run(ctx, []string{"chown", s.req.Tenant + ":" + s.req.Tenant, target}); err != nil {
+				return fmt.Errorf("chown %s: %w (%s)", name, err, strings.TrimSpace(out))
+			}
+		}
+		s.log("stdout", "wrote the starter entrypoint "+name)
+	}
 	return nil
 }
 
@@ -353,12 +381,12 @@ func stepWriteEnv(ctx context.Context, s *state) error {
 		s.log("stdout", "cache ("+engine+") password generated and stored encrypted (AES-256-GCM)")
 	}
 
-	path, err := s.m.host.WriteEnvFile(s.req.Tenant, s.req.Slug, env)
+	path, err := s.m.host.WriteEnvFile(ctx, s.req.Tenant, s.req.Slug, env)
 	if err != nil {
 		return err
 	}
 	s.envPath = path
-	s.log("stdout", "environment file written: "+path+" (mode 0600)")
+	s.log("stdout", "environment file written: "+path+" (mode 0600, owned by "+s.req.Tenant+")")
 	return nil
 }
 
