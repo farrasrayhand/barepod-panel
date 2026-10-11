@@ -513,6 +513,121 @@ func TestDownloadIsAudited(t *testing.T) {
 	}
 }
 
+func TestHostScopeIsAdminOnlyAndSystemPathsAreReadOnly(t *testing.T) {
+	panel := newTestPanel(t)
+
+	// A normal account may not browse the host at all.
+	panel.login(t, "alex")
+	resp, _ := panel.do(t, http.MethodGet, "/api/v1/files?scope=host&path=etc", nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("a tenant browsed the host: %d", resp.StatusCode)
+	}
+
+	panel.login(t, "admin")
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/files?scope=host&path=etc", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("listing /etc as admin = %d (%s)", resp.StatusCode, body)
+	}
+	var listing struct {
+		ReadOnly bool   `json:"readOnly"`
+		Scope    string `json:"scope"`
+		Items    []struct {
+			Name      string `json:"name"`
+			Protected bool   `json:"protected"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &listing); err != nil {
+		t.Fatal(err)
+	}
+	if listing.Scope != "host" || !listing.ReadOnly {
+		t.Errorf("listing should say it is a read-only host scope: %s", body)
+	}
+	if len(listing.Items) == 0 {
+		t.Fatalf("no entries under /etc: %s", body)
+	}
+	for _, item := range listing.Items {
+		if !item.Protected {
+			t.Errorf("%s under /etc is not marked protected", item.Name)
+		}
+	}
+
+	// Writing into a system path is refused, whatever the admin intends.
+	resp, body = panel.do(t, http.MethodPut, "/api/v1/files/content?scope=host", map[string]string{
+		"path":    "etc/hosts",
+		"content": "changed by a mistake\n",
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("writing /etc/hosts = %d (%s)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "system_path_protected") {
+		t.Errorf("the refusal should name the reason: %s", body)
+	}
+
+	// Deleting a system path is refused too.
+	resp, body = panel.do(t, http.MethodPost, "/api/v1/files/delete?scope=host", map[string]any{
+		"paths": []string{"etc/hosts", "usr/bin"},
+	})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("deleting a system path = %d (%s)", resp.StatusCode, body)
+	}
+
+	// Reading a system path is allowed and leaves a trace.
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/files/content?scope=host&path=etc/passwd", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reading /etc/passwd = %d (%s)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"writable":false`) {
+		t.Errorf("a protected file must say it cannot be edited: %s", body)
+	}
+	_, auditBody := panel.do(t, http.MethodGet, "/api/v1/audit?limit=20", nil)
+	for _, want := range []string{"files.read_system", "files.blocked"} {
+		if !strings.Contains(string(auditBody), want) {
+			t.Errorf("the audit trail is missing %q: %s", want, auditBody)
+		}
+	}
+}
+
+func TestTenantScopeSeesTheWholeHome(t *testing.T) {
+	panel := newTestPanel(t)
+
+	// The junk an admin could not see before living outside apps/.
+	junk := filepath.Join(panel.home, "admin", "downloads.tar.gz")
+	if err := os.WriteFile(junk, []byte("2 GB of leftovers"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	panel.login(t, "admin")
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/files?scope=tenant&tenant=admin&path=", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("listing the tenant home = %d (%s)", resp.StatusCode, body)
+	}
+	for _, want := range []string{`"name":"apps"`, "downloads.tar.gz"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("the home listing is missing %s: %s", want, body)
+		}
+	}
+	if !strings.Contains(string(body), `"readOnly":false`) {
+		t.Errorf("a tenant home is the account's own data and stays writable: %s", body)
+	}
+
+	// A tenant may browse its own home, never another account's.
+	panel.login(t, "alex")
+	resp, _ = panel.do(t, http.MethodGet, "/api/v1/files?scope=tenant&tenant=alex&path=", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("a tenant could not open its own home: %d", resp.StatusCode)
+	}
+	resp, _ = panel.do(t, http.MethodGet, "/api/v1/files?scope=tenant&tenant=admin&path=", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("a tenant opened another account's home: %d", resp.StatusCode)
+	}
+
+	// The scope is mandatory and must be known.
+	resp, _ = panel.do(t, http.MethodGet, "/api/v1/files?path=", nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("a missing scope should be a bad request: %d", resp.StatusCode)
+	}
+}
+
 func TestFileUploadIsConfinedToTheDirectory(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")

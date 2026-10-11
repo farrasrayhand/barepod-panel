@@ -66,6 +66,9 @@ func (s *Server) fileManagerFor(w http.ResponseWriter, r *http.Request, user *st
 
 func writeFileError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, files.ErrProtected):
+		writeError(w, http.StatusForbidden, "system_path_protected",
+			"That path belongs to the system, so the panel only lets you read it")
 	case errors.Is(err, files.ErrOutsideRoot), errors.Is(err, files.ErrSymlinkEscape):
 		writeError(w, http.StatusForbidden, "path_not_allowed", "That path is outside the website directory")
 	case os.IsNotExist(err):

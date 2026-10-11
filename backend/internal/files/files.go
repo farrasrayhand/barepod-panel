@@ -40,6 +40,8 @@ type Entry struct {
 	Mode          string `json:"mode"`
 	ModifiedAt    string `json:"modifiedAt"`
 	SymlinkTarget string `json:"symlinkTarget,omitempty"`
+	// Protected marks a path the browser may read but never change.
+	Protected bool `json:"protected,omitempty"`
 }
 
 // Ops performs the actual filesystem work, so it can run in-process or inside a
@@ -59,6 +61,7 @@ type Manager struct {
 	root           string // absolute, symlink-resolved
 	ops            Ops
 	maxUploadBytes int64
+	policy         Policy // empty for a site root: everything inside it is writable
 }
 
 // NewManager builds a manager for a site root. The root is resolved once so the
@@ -81,6 +84,17 @@ func NewManager(root string, ops Ops, maxUploadBytes int64) (*Manager, error) {
 		maxUploadBytes = 64 << 20 // 64 MiB
 	}
 	return &Manager{root: filepath.Clean(resolved), ops: ops, maxUploadBytes: maxUploadBytes}, nil
+}
+
+// NewManagerGuarded is NewManager with a write policy, for browsers that reach
+// outside a site (a tenant's home, or the whole host).
+func NewManagerGuarded(root string, ops Ops, maxUploadBytes int64, policy Policy) (*Manager, error) {
+	manager, err := NewManager(root, ops, maxUploadBytes)
+	if err != nil {
+		return nil, err
+	}
+	manager.policy = policy
+	return manager, nil
 }
 
 // Root is the resolved site root.
@@ -158,6 +172,11 @@ func insideRoot(root, candidate string) bool {
 	if candidate == root {
 		return true
 	}
+	// The host root contains everything: it must not be turned into a "//" prefix,
+	// which would reject every path (used by the host-wide file browser).
+	if root == string(filepath.Separator) {
+		return filepath.IsAbs(candidate)
+	}
 	return strings.HasPrefix(candidate, root+string(filepath.Separator))
 }
 
@@ -175,6 +194,7 @@ func (m *Manager) List(relative string) ([]Entry, error) {
 	}
 	for i := range entries {
 		entries[i].Path = relativePath(relative, entries[i].Name)
+		entries[i].Protected = m.policy.Protects(filepath.Join(abs, entries[i].Name))
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		if (entries[i].Type == "directory") != (entries[j].Type == "directory") {
@@ -211,6 +231,9 @@ func (m *Manager) Write(relative string, data []byte) (os.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := m.assertWritable(abs); err != nil {
+		return nil, err
+	}
 	if err := m.ops.MkdirAll(filepath.Dir(abs)); err != nil {
 		return nil, err
 	}
@@ -229,6 +252,9 @@ func (m *Manager) Mkdir(relative string) error {
 	if abs == m.root {
 		return errors.New("files: the site root already exists")
 	}
+	if err := m.assertWritable(abs); err != nil {
+		return err
+	}
 	return m.ops.MkdirAll(abs)
 }
 
@@ -246,6 +272,12 @@ func (m *Manager) Rename(relative, newName string) (string, error) {
 	}
 	dest, err := m.Resolve(path.Join(path.Dir(relative), newName))
 	if err != nil {
+		return "", err
+	}
+	if err := m.assertWritable(source); err != nil {
+		return "", err
+	}
+	if err := m.assertWritable(dest); err != nil {
 		return "", err
 	}
 	if err := m.ops.Rename(source, dest); err != nil {
@@ -281,6 +313,9 @@ func (m *Manager) Copy(relative, toRelative string) error {
 	if insideRoot(source, dest) {
 		return errors.New("files: cannot copy a directory into itself")
 	}
+	if err := m.assertWritable(dest); err != nil {
+		return err
+	}
 	return m.copyTree(source, dest)
 }
 
@@ -300,6 +335,12 @@ func (m *Manager) Move(relative, toRelative string) error {
 	if insideRoot(source, dest) {
 		return errors.New("files: cannot move a directory into itself")
 	}
+	if err := m.assertWritable(source); err != nil {
+		return err
+	}
+	if err := m.assertWritable(dest); err != nil {
+		return err
+	}
 	if err := m.ops.Rename(source, dest); err == nil {
 		return nil
 	}
@@ -318,6 +359,9 @@ func (m *Manager) Delete(relative string) error {
 	}
 	if abs == m.root {
 		return errors.New("files: cannot delete the site root")
+	}
+	if err := m.assertWritable(abs); err != nil {
+		return err
 	}
 	return m.ops.Remove(abs)
 }

@@ -139,6 +139,26 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/websites/{slug}/files/delete", files(s.handleDeleteFiles))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/files/compress", files(s.handleCompressFiles))
 
+	// Host-wide browser. An admin may look anywhere; the daemon enforces that the
+	// system trees (/etc, /usr, /boot, /var/lib, /proc, /sys, …) are read-only, so
+	// a panel can never brick its own machine by mistake.
+	mux.HandleFunc("GET /api/v1/files", files(s.handleScopedList))
+	mux.HandleFunc("GET /api/v1/files/content", files(s.handleScopedRead))
+	mux.HandleFunc("PUT /api/v1/files/content", files(s.handleScopedWrite))
+	mux.HandleFunc("GET /api/v1/files/download", files(s.handleScopedDownload))
+	mux.HandleFunc("POST /api/v1/files/upload", files(s.handleScopedUpload))
+	mux.HandleFunc("POST /api/v1/files/create", files(s.handleScopedCreate))
+	mux.HandleFunc("POST /api/v1/files/mkdir", files(s.handleScopedMkdir))
+	mux.HandleFunc("POST /api/v1/files/rename", files(s.handleScopedRename))
+	mux.HandleFunc("POST /api/v1/files/copy", files(func(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {
+		s.handleScopedTransfer(w, r, user, "copy")
+	}))
+	mux.HandleFunc("POST /api/v1/files/move", files(func(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {
+		s.handleScopedTransfer(w, r, user, "move")
+	}))
+	mux.HandleFunc("POST /api/v1/files/delete", files(s.handleScopedDelete))
+	mux.HandleFunc("POST /api/v1/files/compress", files(s.handleScopedCompress))
+
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)
 
