@@ -268,3 +268,53 @@ func (s *Store) Audit(userID, action, target, ip, detail string) error {
 	)
 	return err
 }
+
+// AuditEntry is one line of the audit log, with the account that caused it.
+type AuditEntry struct {
+	ID       int64  `json:"id"`
+	At       string `json:"at"`
+	UserID   string `json:"userId,omitempty"`
+	Username string `json:"username,omitempty"`
+	Action   string `json:"action"`
+	Target   string `json:"target,omitempty"`
+	IP       string `json:"ip,omitempty"`
+	Detail   string `json:"detail,omitempty"`
+}
+
+// ListAudit returns the newest audit entries, newest first. An empty userID
+// means every account, which is only ever used for admins.
+func (s *Store) ListAudit(userID string, limit int) ([]AuditEntry, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	query := `SELECT a.id, a.ts, a.user_id, COALESCE(u.username, ''), a.action, a.target, a.ip, a.detail
+	          FROM audit_log a LEFT JOIN users u ON u.id = a.user_id`
+	args := []any{}
+	if userID != "" {
+		query += ` WHERE a.user_id = ?`
+		args = append(args, userID)
+	}
+	query += ` ORDER BY a.id DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []AuditEntry{}
+	for rows.Next() {
+		var entry AuditEntry
+		if err := rows.Scan(&entry.ID, &entry.At, &entry.UserID, &entry.Username,
+			&entry.Action, &entry.Target, &entry.IP, &entry.Detail); err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
+	}
+	return out, rows.Err()
+}

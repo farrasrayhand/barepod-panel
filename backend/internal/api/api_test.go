@@ -341,6 +341,135 @@ func TestRedeployStartsANewJob(t *testing.T) {
 	}
 }
 
+func TestAuditIsScopedToTheCaller(t *testing.T) {
+	panel := newTestPanel(t)
+
+	// Signing in as two accounts leaves one auth.login entry each.
+	panel.login(t, "admin")
+	panel.login(t, "alex")
+	// Back to the admin, whose session is the one that asks for the log.
+	panel.login(t, "admin")
+
+	// An admin sees every account's activity (the single documented exception).
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/audit?limit=50", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("audit status = %d (%s)", resp.StatusCode, body)
+	}
+	var adminView struct {
+		Everything bool `json:"everything"`
+		Items      []struct {
+			Action   string `json:"action"`
+			Username string `json:"username"`
+			IP       string `json:"ip"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &adminView); err != nil {
+		t.Fatal(err)
+	}
+	if !adminView.Everything {
+		t.Error("an admin should see every account")
+	}
+	if len(adminView.Items) < 2 {
+		t.Fatalf("admin sees %d entries, want at least 2: %s", len(adminView.Items), body)
+	}
+	seen := map[string]bool{}
+	for _, item := range adminView.Items {
+		seen[item.Username] = true
+	}
+	for _, want := range []string{"admin", "alex"} {
+		if !seen[want] {
+			t.Errorf("the admin log is missing %q: %s", want, body)
+		}
+	}
+
+	// A tenant sees only its own activity.
+	panel.login(t, "alex")
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/audit?limit=50", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("tenant audit status = %d (%s)", resp.StatusCode, body)
+	}
+	var tenantView struct {
+		Everything bool `json:"everything"`
+		Items      []struct {
+			Username string `json:"username"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &tenantView); err != nil {
+		t.Fatal(err)
+	}
+	if tenantView.Everything {
+		t.Error("a tenant must not see every account")
+	}
+	if len(tenantView.Items) == 0 {
+		t.Fatalf("the tenant sees no activity of its own: %s", body)
+	}
+	for _, item := range tenantView.Items {
+		if item.Username != "alex" {
+			t.Errorf("a tenant can read another account's activity: %s", body)
+			break
+		}
+	}
+}
+
+func TestAuditHonoursTheLimit(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+	for i := 0; i < 3; i++ {
+		panel.do(t, http.MethodGet, "/api/v1/auth/me", nil)
+	}
+
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/audit?limit=1", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d (%s)", resp.StatusCode, body)
+	}
+	var payload struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Items) != 1 {
+		t.Errorf("limit=1 returned %d entries", len(payload.Items))
+	}
+}
+
+func TestSessionsListFlagsTheCurrentOne(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/sessions", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sessions status = %d (%s)", resp.StatusCode, body)
+	}
+	var payload struct {
+		CurrentID string `json:"currentId"`
+		Items     []struct {
+			ID    string `json:"id"`
+			Agent string `json:"userAgent"`
+			IP    string `json:"ip"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.CurrentID == "" || len(payload.Items) == 0 {
+		t.Fatalf("sessions payload = %s", body)
+	}
+	// The CSRF token must never travel through this endpoint.
+	if bytes.Contains(body, []byte("csrfToken")) || bytes.Contains(body, []byte("csrf_token")) {
+		t.Errorf("the session list leaked a CSRF token: %s", body)
+	}
+
+	// Revoking another session removes it immediately.
+	resp, body = panel.do(t, http.MethodDelete, "/api/v1/sessions/"+payload.Items[0].ID, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("revoke status = %d (%s)", resp.StatusCode, body)
+	}
+	if _, err := panel.store.SessionByID(payload.Items[0].ID); err != store.ErrNotFound {
+		t.Errorf("the revoked session is still in the store: %v", err)
+	}
+}
+
 func TestFileUploadIsConfinedToTheDirectory(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")

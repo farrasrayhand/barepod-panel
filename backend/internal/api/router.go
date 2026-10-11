@@ -80,6 +80,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/verify", s.requireAuth(s.handleVerify))
 	mux.HandleFunc("GET /api/v1/sessions", s.requireAuth(s.handleListSessions))
 	mux.HandleFunc("DELETE /api/v1/sessions/{id}", s.requireAuth(s.handleRevokeSession))
+	mux.HandleFunc("GET /api/v1/audit", s.requireAuth(s.handleListAudit))
 
 	// Permission groups / tenant packages (the only built-in data) — "users" capability
 	mux.HandleFunc("GET /api/v1/groups", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleListGroups)))

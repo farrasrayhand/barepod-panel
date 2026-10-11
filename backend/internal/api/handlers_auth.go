@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/auth"
@@ -120,6 +121,26 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request, user
 	}
 	// Never leak CSRF tokens through this endpoint.
 	writeJSON(w, http.StatusOK, map[string]any{"items": sessions, "currentId": sess.ID})
+}
+
+// handleListAudit returns the caller's own recent activity, or every account's
+// for an admin (the same single exception as everywhere else in the panel).
+func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	scope := user.ID
+	everything := false
+	if user.Role == "admin" {
+		scope = ""
+		everything = true
+	}
+
+	entries, err := s.store.ListAudit(scope, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Could not read the activity log")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": entries, "everything": everything})
 }
 
 func (s *Server) handleRevokeSession(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {

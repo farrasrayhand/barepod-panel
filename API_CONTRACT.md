@@ -97,6 +97,7 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `GET|PATCH /profile` (identity: username, email, group)
 - `POST /profile/password` (change the panel password)
 - `GET /sessions` · `DELETE /sessions/:id` (active sessions, revoke)
+- `GET /audit?limit=<n>` → `{ items: [{ id, at, userId, username, action, target, ip, detail }], everything }` — the caller's own activity, newest first, or **every account's for an admin** (the same single exception as elsewhere; `everything` says which view you got). `limit` defaults to 50 and is capped at 500. Actions are namespaced: `auth.login`, `auth.logout`, `auth.elevate`, `auth.session_revoke`, `website.*`, `group.update`, `system.capacity_exceeded`.
 
 ### 4.2 Websites
 - `GET /websites` · `POST /websites` · `GET|PATCH|DELETE /websites/:slug`
@@ -182,6 +183,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 
 ### 4.5 Terminal
 - `WS /websites/:slug/pty` — tenant shell (runs as the tenant, cwd = the site directory, allow-listed shell)
+- **The shell is a real shell, and the isolation boundary is the tenant, not the site.** All sites of one tenant share a Linux UID, so a shell opened for one of them can also read and write the tenant's *other* sites and its home (`/home/<tenant>`); the file-manager jail applies to the API, not to a shell. Two customers' sites must therefore be two tenants — that is the model, not a bug. (Hard per-site shells would need a mount namespace per session, or one Linux user per site.)
 - `WS /system/pty` — host root shell (**admin only**)
 - **Auth:** redeem a one-time ticket, never a session token in the URL — `POST /ws/ticket` → `{ ticket, expiresAt }` (30 s TTL, single use) → connect with `?ticket=…`. A replayed ticket is refused.
 - **Frames:** binary = stdin/stdout; text = control JSON:
