@@ -69,14 +69,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "Could not create session")
 		return
 	}
-	setSessionCookie(w, sess.ID, 0, r.TLS != nil)
+	setSessionCookie(w, sess.ID, 0, requestScheme(r) == "https")
 	_ = s.store.Audit(user.ID, "auth.login", user.Username, clientIP(r), "")
 	writeJSON(w, http.StatusOK, sessionResponse{User: user, CSRFToken: sess.CSRFToken})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {
 	_ = s.store.DeleteSession(sess.ID)
-	setSessionCookie(w, "", -1, r.TLS != nil)
+	setSessionCookie(w, "", -1, requestScheme(r) == "https")
 	_ = s.store.Audit(user.ID, "auth.logout", user.Username, clientIP(r), "")
 	writeJSON(w, http.StatusOK, map[string]string{"status": "signed_out"})
 }

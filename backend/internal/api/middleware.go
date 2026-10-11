@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
@@ -90,6 +91,26 @@ func clientIP(r *http.Request) string {
 		return fwd
 	}
 	return r.RemoteAddr
+}
+
+// requestScheme is the scheme the visitor is really on, which is not necessarily the
+// scheme of the last hop: behind a tunnel or reverse proxy (Cloudflare Tunnel, nginx)
+// the daemon is reached over plain HTTP while the visitor is on HTTPS, and
+// X-Forwarded-Proto is the only honest answer. A manager's absolute URLs (phpMyAdmin's
+// PmaAbsoluteUri) and the session cookie's Secure flag have to follow the visitor, not
+// the hop.
+func requestScheme(r *http.Request) string {
+	proto := r.Header.Get("X-Forwarded-Proto")
+	if idx := strings.Index(proto, ","); idx >= 0 {
+		proto = proto[:idx]
+	}
+	if proto = strings.TrimSpace(proto); proto != "" {
+		return proto
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
 }
 
 // requireAuth validates the session cookie and enforces CSRF on state-changing requests.

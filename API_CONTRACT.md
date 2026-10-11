@@ -17,6 +17,7 @@
 ## 1. Conventions
 
 - **Base path:** `/api/v1`
+- **Everything is behind one origin.** The panel and every manager it hosts are reached on the panel's own port and path, so a reverse proxy or tunnel (Cloudflare Tunnel, nginx) only has to point at the panel — there is no second hostname or port to expose, and nothing to configure per database. When one is in front, `X-Forwarded-Proto` decides the scheme the *visitor* is on: a manager's absolute URLs (phpMyAdmin's `PmaAbsoluteUri`) and the session cookie's `Secure` flag follow the visitor, not the plain-HTTP hop to the daemon.
 - **Format:** JSON (`application/json`), UTF-8.
 - **Auth:** `Authorization: Bearer <JWT>` (except `POST /auth/login` and GitHub webhooks).
 - **Tenant scope:** endpoints under `/websites/:slug/...` are automatically restricted to the owning tenant.

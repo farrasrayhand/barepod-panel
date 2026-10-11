@@ -515,10 +515,7 @@ func (s *Server) preparePhpMyAdmin(record *store.Database, password, mount strin
 	if _, err := os.Stat(filepath.Join(dir, "index.php")); err != nil {
 		return "", errors.New("phpMyAdmin is not installed on this host")
 	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
+	scheme := requestScheme(r)
 	config := fmt.Sprintf(`<?php
 $cfg['blowfish_secret'] = '%s';
 $i = 1;

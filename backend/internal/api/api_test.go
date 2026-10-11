@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1291,6 +1292,36 @@ func TestExportArgvKeepsTheCredentialOutOfTheCommand(t *testing.T) {
 	}
 	if a, _ := exportArgv(store.Database{Engine: "redis"}, ""); a != nil {
 		t.Errorf("a key-value store has no dump: %v", a)
+	}
+}
+
+// Behind a tunnel or reverse proxy the daemon is reached over plain HTTP while the
+// visitor is on HTTPS. The scheme has to come from the proxy's header: otherwise a
+// manager builds http:// URLs on an https page (phpMyAdmin's PmaAbsoluteUri) and the
+// session cookie loses its Secure flag — which is exactly the Cloudflare Tunnel case.
+func TestRequestSchemeFollowsTheVisitorNotTheHop(t *testing.T) {
+	cases := []struct {
+		proto string
+		tls   bool
+		want  string
+	}{
+		{"", false, "http"},
+		{"", true, "https"},
+		{"https", false, "https"}, // a tunnel in front of the plain listener
+		{"http", true, "http"},    // a proxy that says the visitor is not secure
+		{"https, http", false, "https"},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		if c.proto != "" {
+			req.Header.Set("X-Forwarded-Proto", c.proto)
+		}
+		if c.tls {
+			req.TLS = &tls.ConnectionState{}
+		}
+		if got := requestScheme(req); got != c.want {
+			t.Errorf("X-Forwarded-Proto=%q tls=%v gave %q, want %q", c.proto, c.tls, got, c.want)
+		}
 	}
 }
 
