@@ -489,7 +489,13 @@ func (s *Server) fileManagerForSite(site *store.Website) *files.Manager {
 // runDatabasePlan executes the SQL a lifecycle step needs.
 func (s *Server) runDatabasePlan(ctx context.Context, plan dbengine.Plan) error {
 	for _, argv := range plan.Commands {
-		out, err := s.host.Run(ctx, argv)
+		var out string
+		var err error
+		if plan.RunAs != "" {
+			out, err = s.host.RunAs(ctx, plan.RunAs, argv)
+		} else {
+			out, err = s.host.Run(ctx, argv)
+		}
 		if err != nil {
 			message := strings.TrimSpace(out)
 			if message == "" {

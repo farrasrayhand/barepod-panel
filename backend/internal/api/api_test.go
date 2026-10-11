@@ -1021,8 +1021,8 @@ func TestDataBrowserRefusesWhatItCannotDoYet(t *testing.T) {
 	resp, body := panel.do(t, http.MethodPost, "/api/v1/databases/"+created.Database.ID+"/query", map[string]string{
 		"sql": "SELECT 1",
 	})
-	if resp.StatusCode != http.StatusNotImplemented {
-		t.Errorf("a daemon engine accepted arbitrary SQL: %d (%s)", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusConflict {
+		t.Errorf("a pending daemon database accepted arbitrary SQL: %d (%s)", resp.StatusCode, body)
 	}
 
 	// Another account's database is still a 404.

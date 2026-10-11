@@ -183,6 +183,14 @@ func (h *Host) Run(ctx context.Context, argv []string) (string, error) {
 	return h.Runner.Run(ctx, "", argv[0], argv[1:]...)
 }
 
+// RunAs executes a command as another user from the daemon's working directory.
+func (h *Host) RunAs(ctx context.Context, username string, argv []string) (string, error) {
+	if len(argv) == 0 {
+		return "", nil
+	}
+	return h.Runner.RunAs(ctx, username, "", argv[0], argv[1:]...)
+}
+
 // ReloadUnits asks systemd to re-read unit files.
 func (h *Host) ReloadUnits(ctx context.Context) (string, error) {
 	return h.Runner.Run(ctx, "", "systemctl", "daemon-reload")

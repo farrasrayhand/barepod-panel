@@ -31,6 +31,9 @@ func TestProvisionPlansAreRealAndQuoted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("postgresql plan: %v", err)
 	}
+	if postgres.RunAs != "postgres" {
+		t.Errorf("postgresql plan must run as OS user postgres: got %q", postgres.RunAs)
+	}
 	roleSQL := postgres.Commands[0][len(postgres.Commands[0])-1]
 	dbSQL := postgres.Commands[1][len(postgres.Commands[1])-1]
 	if !strings.Contains(roleSQL, `CREATE ROLE "bptest_shop" LOGIN PASSWORD 's3cret'`) {
@@ -38,6 +41,11 @@ func TestProvisionPlansAreRealAndQuoted(t *testing.T) {
 	}
 	if !strings.Contains(dbSQL, `CREATE DATABASE "bptest_shop" OWNER "bptest_shop"`) {
 		t.Errorf("the database statement is wrong: %s", dbSQL)
+	}
+	for _, arg := range postgres.Commands[0] {
+		if arg == "-h" {
+			t.Errorf("postgresql admin command must connect over unix socket, found -h: %v", postgres.Commands[0])
+		}
 	}
 
 	mysql, err := PlanFor(StepProvision, Resource{

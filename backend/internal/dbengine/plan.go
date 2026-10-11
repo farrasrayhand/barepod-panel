@@ -11,6 +11,7 @@ import (
 // when the step cannot be automated on this host.
 type Plan struct {
 	Commands [][]string
+	RunAs    string // OS user the commands must execute as (e.g. "postgres")
 	Note     string
 }
 
@@ -76,45 +77,56 @@ func postgresPlan(step Step, resource Resource) (Plan, error) {
 		return Plan{}, errors.New("dbengine: a name and a user are required")
 	}
 	psql := func(sql string) []string {
-		return []string{"psql", "-v", "ON_ERROR_STOP=1", "-h", "127.0.0.1", "-p", fmt.Sprint(port(resource.Port, 5432)), "-c", sql}
+		cmd := []string{"psql", "-v", "ON_ERROR_STOP=1"}
+		if resource.Port != 0 && resource.Port != 5432 {
+			cmd = append(cmd, "-p", fmt.Sprint(resource.Port))
+		}
+		return append(cmd, "-c", sql)
 	}
 
+	plan := Plan{RunAs: "postgres"}
 	switch step {
 	case StepProvision:
 		if resource.Secret == "" {
 			return Plan{}, errors.New("dbengine: a password is required")
 		}
-		return Plan{Commands: [][]string{
+		plan.Commands = [][]string{
 			psql(fmt.Sprintf(`CREATE ROLE %s LOGIN PASSWORD %s`, role, quoteLiteral(resource.Secret))),
 			psql(fmt.Sprintf(`CREATE DATABASE %s OWNER %s ENCODING 'UTF8'`, db, role)),
-		}}, nil
+		}
+		return plan, nil
 	case StepRotate:
 		if resource.Secret == "" {
 			return Plan{}, errors.New("dbengine: a password is required")
 		}
-		return Plan{Commands: [][]string{
+		plan.Commands = [][]string{
 			psql(fmt.Sprintf(`ALTER ROLE %s PASSWORD %s`, role, quoteLiteral(resource.Secret))),
-		}}, nil
+		}
+		return plan, nil
 	case StepSuspend:
 		// Refuse new connections and stop the account: the data stays.
-		return Plan{Commands: [][]string{
+		plan.Commands = [][]string{
 			psql(fmt.Sprintf(`ALTER DATABASE %s ALLOW_CONNECTIONS false`, db)),
 			psql(fmt.Sprintf(`ALTER ROLE %s NOLOGIN`, role)),
-		}}, nil
+		}
+		return plan, nil
 	case StepRestore:
-		return Plan{Commands: [][]string{
+		plan.Commands = [][]string{
 			psql(fmt.Sprintf(`ALTER DATABASE %s ALLOW_CONNECTIONS true`, db)),
 			psql(fmt.Sprintf(`ALTER ROLE %s LOGIN`, role)),
-		}}, nil
+		}
+		return plan, nil
 	case StepPurge:
-		return Plan{Commands: [][]string{
+		plan.Commands = [][]string{
 			psql(fmt.Sprintf(`DROP DATABASE IF EXISTS %s WITH (FORCE)`, db)),
 			psql(fmt.Sprintf(`DROP ROLE IF EXISTS %s`, role)),
-		}}, nil
+		}
+		return plan, nil
 	case StepLimits:
-		return Plan{Commands: [][]string{
+		plan.Commands = [][]string{
 			psql(fmt.Sprintf(`ALTER ROLE %s CONNECTION LIMIT %d`, role, resource.MaxConn)),
-		}}, nil
+		}
+		return plan, nil
 	}
 	return Plan{}, fmt.Errorf("dbengine: unknown step %q", step)
 }
@@ -128,7 +140,11 @@ func mysqlPlan(step Step, resource Resource) (Plan, error) {
 	// database for the internet.
 	account := fmt.Sprintf("'%s'@'localhost'", escapeSingleQuotes(resource.User))
 	client := func(sql string) []string {
-		return []string{resource.ClientBinary(), "-h", "127.0.0.1", "-P", fmt.Sprint(port(resource.Port, 3306)), "-e", sql}
+		cmd := []string{resource.ClientBinary(), "--no-defaults"}
+		if resource.Port != 0 && resource.Port != 3306 {
+			cmd = append(cmd, "-P", fmt.Sprint(resource.Port))
+		}
+		return append(cmd, "-e", sql)
 	}
 
 	switch step {

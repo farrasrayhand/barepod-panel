@@ -15,4 +15,5 @@ bin/
 .DS_Store
 .vscode/
 .idea/
+.commandcode/
 *.log
