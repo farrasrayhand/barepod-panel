@@ -231,6 +231,9 @@ export const api = {
 
   revokeSession: (id: string) => request(`/sessions/${id}`, { method: 'DELETE' }),
 
+  /** The caller's own activity; an admin receives every account's (see `everything`). */
+  audit: (limit = 25) => request<{ items: AuditEntry[]; everything: boolean }>(`/audit?limit=${limit}`),
+
   websites: () => request<{ items: ApiWebsite[] }>('/websites'),
 
   website: (slug: string) => request<ApiWebsite>(`/websites/${slug}`),
@@ -432,6 +435,18 @@ export interface SessionRow {
   elevatedUntil?: string;
   createdAt: string;
   lastSeenAt: string;
+}
+
+/** One line of the daemon's audit log. */
+export interface AuditEntry {
+  id: number;
+  at: string;
+  userId?: string;
+  username?: string;
+  action: string;
+  target?: string;
+  ip?: string;
+  detail?: string;
 }
 
 export interface GroupRow {

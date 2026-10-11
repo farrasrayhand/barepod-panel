@@ -35,6 +35,7 @@ import {
 import type { WebApp } from '../types';
 import { api, apiReachable, ApiError, type FileEntry as ApiFileEntry } from '../api/client';
 import { createZip } from '../utils/zip';
+import { describeError } from '../utils/format';
 import { highlightCode } from '../utils/highlight';
 import { usePanelSize } from '../hooks/usePanelSize';
 import { PanelSizeControl } from './PanelSizeControl';
@@ -110,11 +111,6 @@ const parentUiPath = (uiPath: string): string => {
   const parts = uiPath.split('/').filter(Boolean);
   parts.pop();
   return parts.length ? `/${parts.join('/')}` : '/';
-};
-
-const describeError = (err: unknown): string => {
-  if (err instanceof ApiError || err instanceof Error) return err.message;
-  return 'Something went wrong';
 };
 
 const toEntry = (item: ApiFileEntry, slug: string): FileEntry => {

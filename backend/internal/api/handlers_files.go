@@ -353,7 +353,7 @@ func (s *Server) handleDeleteFiles(w http.ResponseWriter, r *http.Request, user 
 
 // handleDownloadFile streams one file (or a zip of the selection).
 func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
-	manager, _, ok := s.fileManagerFor(w, r, user)
+	manager, site, ok := s.fileManagerFor(w, r, user)
 	if !ok {
 		return
 	}
@@ -363,6 +363,10 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request, user
 		writeFileError(w, err)
 		return
 	}
+	// Taking a copy of a file out of the panel is worth recording: downloads are
+	// how data leaves, so they belong in the audit trail next to the writes.
+	_ = s.store.Audit(user.ID, "files.download", site.Slug+"/"+strings.TrimPrefix(relative, "/"), clientIP(r),
+		fmt.Sprintf("%d bytes", len(data)))
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+path.Base(strings.TrimPrefix(relative, "/"))+"\"")
 	w.Header().Set("Content-Length", fmt.Sprint(len(data)))

@@ -97,7 +97,7 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `GET|PATCH /profile` (identity: username, email, group)
 - `POST /profile/password` (change the panel password)
 - `GET /sessions` · `DELETE /sessions/:id` (active sessions, revoke)
-- `GET /audit?limit=<n>` → `{ items: [{ id, at, userId, username, action, target, ip, detail }], everything }` — the caller's own activity, newest first, or **every account's for an admin** (the same single exception as elsewhere; `everything` says which view you got). `limit` defaults to 50 and is capped at 500. Actions are namespaced: `auth.login`, `auth.logout`, `auth.elevate`, `auth.session_revoke`, `website.*`, `group.update`, `system.capacity_exceeded`.
+- `GET /audit?limit=<n>` → `{ items: [{ id, at, userId, username, action, target, ip, detail }], everything }` — the caller's own activity, newest first, or **every account's for an admin** (the same single exception as elsewhere; `everything` says which view you got). `limit` defaults to 50 and is capped at 500. Actions are namespaced: `auth.*` (login, logout, elevate, session_revoke), `terminal.*` (open, close), `files.*` (write, create, mkdir, rename, copy, move, delete, compress, **download**), `website.*` (deploy_start, start, stop, restart, delete, redeploy, secret_reveal, directory_prepare), `group.update`, `system.capacity_exceeded`.
 
 ### 4.2 Websites
 - `GET /websites` · `POST /websites` · `GET|PATCH|DELETE /websites/:slug`

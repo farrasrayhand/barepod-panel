@@ -470,6 +470,49 @@ func TestSessionsListFlagsTheCurrentOne(t *testing.T) {
 	}
 }
 
+func TestDownloadIsAudited(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	// Put a file in the site, then take a copy out of the panel.
+	resp, body := panel.do(t, http.MethodPut, "/api/v1/websites/admin-site/files/content", map[string]string{
+		"path":    "secret.txt",
+		"content": "creds",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("write status = %d (%s)", resp.StatusCode, body)
+	}
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/websites/admin-site/files/download?path=secret.txt", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("download status = %d (%s)", resp.StatusCode, body)
+	}
+
+	// Downloads are how data leaves the panel, so they must leave a trail.
+	_, auditBody := panel.do(t, http.MethodGet, "/api/v1/audit?limit=10", nil)
+	var audit struct {
+		Items []struct {
+			Action string `json:"action"`
+			Target string `json:"target"`
+			Detail string `json:"detail"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(auditBody, &audit); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range audit.Items {
+		if item.Action == "files.download" && item.Target == "admin-site/secret.txt" {
+			found = true
+			if item.Detail != "5 bytes" {
+				t.Errorf("download detail = %q, want the size", item.Detail)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("the download was not audited: %s", auditBody)
+	}
+}
+
 func TestFileUploadIsConfinedToTheDirectory(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")

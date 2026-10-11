@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Server, 
   Cpu, 
@@ -16,9 +16,14 @@ import {
   Box,
   AlertTriangle,
   Plus,
-  ArrowRight
+  ArrowRight,
+  Monitor,
+  LogIn,
+  Loader2
 } from 'lucide-react';
 import type { NavItem, WebApp } from '../types';
+import { api, apiReachable } from '../api/client';
+import { clockTime, describeAudit, describeDevice, timeAgo } from '../utils/format';
 
 interface OverviewViewProps {
   apps: WebApp[];
@@ -26,7 +31,21 @@ interface OverviewViewProps {
   onOpenAddModal: () => void;
 }
 
-const recentEvents = [
+interface ActivityLine {
+  time: string;
+  level: 'info' | 'warn' | 'error';
+  msg: string;
+}
+
+interface SessionLine {
+  device: string;
+  ip: string;
+  lastActive: string;
+  current: boolean;
+}
+
+// Shown only while no daemon answers.
+const MOCK_EVENTS: ActivityLine[] = [
   { time: '18:42:10', level: 'info', msg: 'flask-sentiment-api redeployed from GitHub (commit 7fa901a).' },
   { time: '18:34:02', level: 'info', msg: 'larastore-commerce: php artisan migrate ran without errors.' },
   { time: '17:58:44', level: 'warn', msg: 'NVMe wear index 6% — still within safe limits (S.M.A.R.T. OK).' },
@@ -38,13 +57,78 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
   const runningApps = apps.filter((a) => a.status === 'running').length;
   const runningPct = apps.length ? Math.round((runningApps / apps.length) * 100) : 0;
 
+  const [events, setEvents] = useState<ActivityLine[]>(MOCK_EVENTS);
+  const [sessions, setSessions] = useState<SessionLine[]>([]);
+  const [live, setLive] = useState<boolean | null>(null);
+  const [livePlatform, setLivePlatform] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Sign-ins, deploys and session changes come from the daemon's own audit log.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const reachable = await apiReachable();
+      if (cancelled) return;
+      setLive(reachable);
+      if (!reachable) return;
+
+      setLoading(true);
+      try {
+        const [audit, sessionList, caps] = await Promise.all([
+          api.audit(12),
+          api.sessions(),
+          api.capabilities(),
+        ]);
+        if (cancelled) return;
+
+        setEvents(
+          audit.items.map((entry) => ({
+            time: clockTime(entry.at),
+            level: entry.action === 'system.capacity_exceeded'
+              ? 'error'
+              : /delete|revoke|stop|capacity/.test(entry.action)
+                ? 'warn'
+                : 'info',
+            msg: `${describeAudit(entry.action, entry.target ?? '', entry.detail ?? '', entry.username ?? '')}${
+              entry.ip ? ` from ${entry.ip}` : ''
+            }`,
+          })),
+        );
+        setSessions(
+          sessionList.items.map((row) => ({
+            device: describeDevice(row.userAgent),
+            ip: row.ip,
+            lastActive: timeAgo(row.lastSeenAt),
+            current: row.id === sessionList.currentId,
+          })),
+        );
+
+        const c = caps.capabilities;
+        setLivePlatform(
+          [c.os, c.distro, c.kernel ? `kernel ${c.kernel}` : '', c.lxc ? 'LXC container' : '']
+            .filter(Boolean)
+            .join(' · '),
+        );
+      } catch {
+        // Leave whatever we already have: the page still works without the daemon.
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       {/* Title & Quick Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Overview & VPS Health</h1>
-          <p className="text-sm text-slate-500 mt-0.5">BarePod Host Monitor • Debian 12 (Bookworm) • Linux Kernel 6.1</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            BarePod Host Monitor{livePlatform ? ` • ${livePlatform}` : ' • this machine reports no platform details'}
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
@@ -230,14 +314,32 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
           </table>
         </div>
 
-        {/* Recent Events */}
+        {/* Recent Events — the daemon's audit log, so sign-ins and deploys are real */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
           <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
             <Activity className="w-4 h-4 text-purple-600" />
             <h2 className="text-sm font-bold text-slate-900">Recent Activity</h2>
+            {live === true && (
+              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">Live</span>
+            )}
+            {live === false && (
+              <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                Simulation (mock data)
+              </span>
+            )}
+            {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+            <button
+              onClick={() => onNavigate('monitoring')}
+              className="ml-auto text-[11px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
+            >
+              Full monitor
+            </button>
           </div>
           <div className="p-4 space-y-3">
-            {recentEvents.map((ev, i) => {
+            {events.length === 0 && (
+              <p className="text-xs text-slate-400 text-center py-3">No activity recorded yet.</p>
+            )}
+            {events.map((ev, i) => {
               const color = ev.level === 'error'
                 ? 'text-rose-600 bg-rose-50'
                 : ev.level === 'warn'
@@ -255,6 +357,46 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        {/* Who is signed in — the same sessions the Profile page can revoke */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
+            <Monitor className="w-4 h-4 text-slate-700" />
+            <h2 className="text-sm font-bold text-slate-900">Active Sessions</h2>
+            {live === true && (
+              <span className="text-[10px] font-mono text-slate-400">{sessions.length}</span>
+            )}
+            <button
+              onClick={() => onNavigate('profile')}
+              className="ml-auto text-[11px] font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
+            >
+              Manage in Profile
+            </button>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {sessions.map((session, i) => (
+              <div key={i} className="px-5 py-2.5 flex items-center justify-between gap-3 text-xs">
+                <span className="font-semibold text-slate-800 flex items-center gap-2">
+                  <LogIn className="w-3.5 h-3.5 text-slate-400" />
+                  {session.device}
+                  {session.current && (
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                      This device
+                    </span>
+                  )}
+                </span>
+                <span className="text-slate-400 font-mono text-[11px] shrink-0">
+                  {session.ip} · {session.lastActive}
+                </span>
+              </div>
+            ))}
+            {sessions.length === 0 && (
+              <p className="px-5 py-4 text-xs text-slate-400">
+                {live === false ? 'No daemon on this machine — nothing to list.' : 'No active sessions.'}
+              </p>
+            )}
           </div>
         </div>
       </div>

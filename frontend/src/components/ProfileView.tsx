@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   User,
   Mail,
@@ -10,8 +10,11 @@ import {
   LogOut,
   Eye,
   EyeOff,
+  Loader2,
 } from 'lucide-react';
 import { PERMISSION_MATRIX } from '../data/permissions';
+import { api, apiReachable } from '../api/client';
+import { describeDevice, describeError, timeAgo } from '../utils/format';
 
 interface ProfileViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
@@ -26,19 +29,62 @@ interface SessionItem {
   current?: boolean;
 }
 
+// Shown only while no daemon answers.
+const MOCK_SESSIONS: SessionItem[] = [
+  { id: 's1', device: 'Chrome · macOS', ip: '103.147.154.82', lastActive: 'Active now', current: true },
+  { id: 's2', device: 'Safari · iPhone', ip: '114.124.180.52', lastActive: '2 hours ago' },
+  { id: 's3', device: 'CLI · barepod-mcp', ip: '45.33.32.156', lastActive: 'Yesterday' },
+];
+
 export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigatePath }) => {
   const [twoFactor, setTwoFactor] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  const [sessions, setSessions] = useState<SessionItem[]>([
-    { id: 's1', device: 'Chrome · macOS', ip: '103.147.154.82', lastActive: 'Active now', current: true },
-    { id: 's2', device: 'Safari · iPhone', ip: '114.124.180.52', lastActive: '2 hours ago' },
-    { id: 's3', device: 'CLI · barepod-mcp', ip: '45.33.32.156', lastActive: 'Yesterday' },
-  ]);
+  const [sessions, setSessions] = useState<SessionItem[]>(MOCK_SESSIONS);
+  const [sessionsLive, setSessionsLive] = useState<boolean | null>(null);
+  const [sessionsBusy, setSessionsBusy] = useState(false);
 
-  const revokeSession = (id: string, device: string) => {
+  // Real sessions when the daemon answers, the prototype's list otherwise.
+  const loadSessions = useCallback(async () => {
+    const reachable = await apiReachable();
+    setSessionsLive(reachable);
+    if (!reachable) return;
+    try {
+      const { items, currentId } = await api.sessions();
+      setSessions(
+        items.map((row) => ({
+          id: row.id,
+          device: describeDevice(row.userAgent),
+          ip: row.ip,
+          lastActive: timeAgo(row.lastSeenAt),
+          current: row.id === currentId,
+        })),
+      );
+    } catch (err) {
+      onShowToast?.('Could not load sessions', describeError(err), 'error');
+    }
+  }, [onShowToast]);
+
+  useEffect(() => {
+    void loadSessions();
+  }, [loadSessions]);
+
+  const revokeSession = async (id: string, device: string) => {
+    if (sessionsLive) {
+      setSessionsBusy(true);
+      try {
+        await api.revokeSession(id);
+        await loadSessions();
+        onShowToast?.('Session revoked', `Signed out ${device}.`, 'info');
+      } catch (err) {
+        onShowToast?.('Could not revoke the session', describeError(err), 'error');
+      } finally {
+        setSessionsBusy(false);
+      }
+      return;
+    }
     setSessions((prev) => prev.filter((s) => s.id !== id));
     onShowToast?.('Session Revoked', `Signed out ${device}.`, 'info');
   };
@@ -174,6 +220,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
         <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
           <Monitor className="w-4 h-4 text-slate-700" />
           <h2 className="text-sm font-bold text-slate-900">Active Sessions</h2>
+          {sessionsLive === true && (
+            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">Live</span>
+          )}
+          {sessionsLive === false && (
+            <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+              Simulation (mock data)
+            </span>
+          )}
+          {sessionsBusy && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
         </div>
         <div className="divide-y divide-slate-100">
           {sessions.map((session) => (
