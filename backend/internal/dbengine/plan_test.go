@@ -115,7 +115,7 @@ func TestLifecycleStepsCoverSuspendRestorePurge(t *testing.T) {
 	}
 }
 
-func TestSqliteAndUnautomatedEnginesExplainThemselves(t *testing.T) {
+func TestSqliteAndDriverRunEnginesExplainThemselves(t *testing.T) {
 	sqlite, err := PlanFor(StepProvision, Resource{Engine: "sqlite", Name: "shop"})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
@@ -124,12 +124,14 @@ func TestSqliteAndUnautomatedEnginesExplainThemselves(t *testing.T) {
 		t.Errorf("sqlite should need no commands and say so: %+v", sqlite)
 	}
 
+	// MongoDB has no command line either: the panel administers it through its own
+	// driver (no mongosh on the host), so the plan says so instead of pretending.
 	mongo, err := PlanFor(StepProvision, Resource{Engine: "mongodb", Name: "shop", User: "shop", Secret: "x"})
 	if err != nil {
 		t.Fatalf("mongodb: %v", err)
 	}
-	if len(mongo.Commands) != 0 || !strings.Contains(mongo.Note, "not automated") {
-		t.Errorf("an unautomated engine must say it is not automated: %+v", mongo)
+	if len(mongo.Commands) != 0 || !strings.Contains(mongo.Note, "driver") {
+		t.Errorf("mongodb must say it is run by the panel's driver: %+v", mongo)
 	}
 }
 

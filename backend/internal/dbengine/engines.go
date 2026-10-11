@@ -68,8 +68,8 @@ func catalog() []Engine {
 		{
 			Name: "mongodb", Label: "MongoDB", Kind: "database",
 			Versions: []string{"7.0", "6.0"}, DefaultPort: 27017,
-			Client: "mongosh", Daemon: "mongod", Automated: false,
-			Note: "Provisioning MongoDB is not automated yet: the panel records the credential and reports what is missing.",
+			Client: "mongosh", Daemon: "mongod", Automated: true,
+			Note: "The panel administers MongoDB through its own driver: a database's user is created inside the container, and its role is granted or withheld for the recycle bin.",
 		},
 		{
 			Name: "redis", Label: "Redis", Kind: "cache",

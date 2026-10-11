@@ -79,6 +79,10 @@ func PlanFor(step Step, resource Resource) (Plan, error) {
 		return mysqlPlan(step, resource)
 	case "redis":
 		return redisPlan(step, resource)
+	case "mongodb":
+		// MongoDB speaks no SQL and has no client on the host: the panel administers
+		// it through its own driver, so there is no command line to plan here.
+		return Plan{Note: "MongoDB is administered by the panel's own driver."}, nil
 	}
 	return Plan{}, fmt.Errorf("dbengine: no plan for %q", engine.Name)
 }

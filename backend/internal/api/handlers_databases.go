@@ -426,6 +426,14 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 		if credential != nil {
 			record.Host, record.Port = credential.Host, credential.Port
 		}
+		if engine.Name == "mongodb" {
+			// MongoDB is administered through the panel's driver, not a client: the
+			// user is created inside the running container. The engine-side user is
+			// the record's own name (set below for the SQL engines), so it is named
+			// here before the createUser command is built.
+			record.User = record.Name
+			return s.provisionMongo(ctx, user, record, password, engine)
+		}
 	case !engine.Available:
 		record.Status = "pending"
 		record.Note = fmt.Sprintf("%s is not installed on this host, so the %s was recorded but not created. Install it and rotate the password to finish.",
@@ -632,7 +640,12 @@ func (s *Server) handleRotateDatabasePassword(kind string) authedHandler {
 		}
 
 		engine, _ := s.engineFor(r.Context(), record.Engine)
-		if !engine.FileBased && engine.Available && s.host.Materialises() {
+		if engine.Name == "mongodb" && engine.Mode == dbengine.ModeDocker && s.host.Materialises() {
+			if err := s.rotateMongo(r.Context(), record, password, engine); err != nil {
+				writeError(w, http.StatusBadGateway, "service_error", fmt.Sprintf("the password was not changed in MongoDB: %v", err))
+				return
+			}
+		} else if !engine.FileBased && engine.Available && s.host.Materialises() {
 			plan, err := dbengine.PlanFor(dbengine.StepRotate, s.resourceFor(record, password))
 			if err != nil {
 				writeError(w, http.StatusBadRequest, "validation_error", err.Error())
@@ -854,6 +867,9 @@ func (s *Server) suspendDatabase(ctx context.Context, record *store.Database) er
 		// never loses the data.
 		return s.moveSQLiteFile(ctx, record, true)
 	}
+	if engine.Name == "mongodb" && engine.Mode == dbengine.ModeDocker && s.host.Materialises() {
+		return s.suspendMongo(ctx, record, engine)
+	}
 	if !engine.Available || !s.host.Materialises() {
 		record.Note = "Suspended in the panel; the engine was not told because its client is unavailable on this host."
 		return nil
@@ -875,6 +891,16 @@ func (s *Server) handleRestoreDatabase(kind string) authedHandler {
 		engine, _ := s.engineFor(r.Context(), record.Engine)
 		if engine.FileBased {
 			if err := s.moveSQLiteFile(r.Context(), record, false); err != nil {
+				writeError(w, http.StatusBadGateway, "service_error", err.Error())
+				return
+			}
+		} else if engine.Name == "mongodb" && engine.Mode == dbengine.ModeDocker && s.host.Materialises() {
+			password, derr := secrets.Decrypt(s.key, record.PasswordCipher)
+			if derr != nil {
+				writeError(w, http.StatusInternalServerError, "internal", "Could not decrypt the credential")
+				return
+			}
+			if err := s.restoreMongo(r.Context(), record, password, engine); err != nil {
 				writeError(w, http.StatusBadGateway, "service_error", err.Error())
 				return
 			}
@@ -922,6 +948,10 @@ func (s *Server) purgeDatabase(ctx context.Context, record *store.Database) erro
 	engine, _ := s.engineFor(ctx, record.Engine)
 	if engine.FileBased {
 		if err := s.purgeSQLite(ctx, record); err != nil {
+			return err
+		}
+	} else if engine.Name == "mongodb" && engine.Mode == dbengine.ModeDocker && s.host.Materialises() {
+		if err := s.purgeMongo(ctx, record, engine); err != nil {
 			return err
 		}
 	} else if engine.Available && s.host.Materialises() {
