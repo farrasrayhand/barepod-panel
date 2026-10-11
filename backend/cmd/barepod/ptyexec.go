@@ -52,7 +52,7 @@ func runPTYExec(args []string) error {
 	// Where the shell starts: with the home overlay it is the home path (which now
 	// *is* the site), otherwise the site's own directory.
 	shellDir := spec.SiteDir()
-	homeOverlaid := false
+	appsConfined := false
 
 	// Masking, or overlaying, in the daemon's own namespace would change the real
 	// directories for every process on the machine, so refuse that outright.
@@ -61,12 +61,10 @@ func runPTYExec(args []string) error {
 	if *parentNS != "" && terminal.SharesMountNamespace(*parentNS) {
 		jailErr = errors.New("this shell shares the daemon's mount namespace, so confining it is unsafe")
 	} else if spec.SiteInsideHome() {
-		// The strongest and simplest shape: the account's home is the website.
-		jailErr = terminal.Confine(spec.Home(), spec.SiteDir())
-		homeOverlaid = jailErr == nil
-		if homeOverlaid {
-			shellDir = spec.Home()
-		}
+		// The account's `apps` directory becomes a private one holding only this
+		// site: the project path stays, the neighbours disappear.
+		jailErr = terminal.ConfineApps(spec.Home(), spec.SiteDir(), spec.Slug, *uid, *gid)
+		appsConfined = jailErr == nil
 	} else {
 		siblings, err := spec.Siblings()
 		if err != nil {
@@ -79,9 +77,9 @@ func runPTYExec(args []string) error {
 		// The shell still opens, but it is not confined and the daemon is told so.
 		reportJailStatus(*statusFD, "jailed=0 masked=%d reason=%q", len(masked), jailErr.Error())
 		fmt.Fprintf(os.Stderr, "barepod: this shell could not be confined: %v\r\n", jailErr)
-	} else if homeOverlaid {
-		reportJailStatus(*statusFD, "jailed=1 home=%s", spec.Home())
-		fmt.Fprintf(os.Stderr, "barepod: confined to %s — the account's home in this shell is the website itself\r\n", spec.Home())
+	} else if appsConfined {
+		reportJailStatus(*statusFD, "jailed=1 apps=%s", spec.SiteDir())
+		fmt.Fprintf(os.Stderr, "barepod: confined to %s — the account's other websites are not reachable from this shell\r\n", spec.SiteDir())
 	} else {
 		reportJailStatus(*statusFD, "jailed=1 masked=%d", len(masked))
 		if len(masked) > 0 {

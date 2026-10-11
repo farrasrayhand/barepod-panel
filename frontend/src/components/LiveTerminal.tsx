@@ -95,8 +95,8 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({ slug, title, subtitl
               // namespaces it is not, and that changes what the tenant can reach.
               const confinement = !control.jailed
                 ? 'not confined to this site'
-                : control.jailMode === 'home'
-                  ? 'confined to this site (its home here is the website)'
+                : control.jailMode === 'apps'
+                  ? "confined to this site (the account's other websites are unreachable)"
                   : `confined to this site (${control.masked ?? 0} paths hidden)`;
               setIdentity(`${control.shell ?? 'shell'} · ${control.user ?? ''} · ${confinement}`.trim());
               setMode(control.mode ?? '');
