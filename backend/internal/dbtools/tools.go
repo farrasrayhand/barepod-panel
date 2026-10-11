@@ -130,7 +130,7 @@ func Registry() map[string]Spec {
 			// is multiplied. The image is DbGate's community edition, the only edition there
 			// is: its "premium" items are license upsells inside that same image, and no
 			// setting removes them.
-			Image:         "dbgate/dbgate:7.3.1-alpine",
+			Image:         "dbgate/dbgate:7.3.1",
 			ContainerName: "barepod-dbgate",
 			// The API names each instance after its record and takes a port from this
 			// range, so several databases can have DbGate open at once.

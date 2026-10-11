@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"html"
@@ -102,8 +104,15 @@ const (
 
 // dbgateContainerName is the per-database container name, which is also the
 // supervisor's instance key.
+//
+// The record id cannot be used as-is: Docker allows only [a-zA-Z0-9][a-zA-Z0-9_.-] in a
+// name, and a detected SQLite record's id is "det:sqlite:<base64>" — its colons made
+// docker refuse the container outright ("Invalid container name …"), and the panel's
+// waiting page reported that verbatim. A short digest of the id is stable, valid for
+// every kind of id, and short enough for a name.
 func dbgateContainerName(recordID string) string {
-	return "barepod-dbgate-" + strings.ToLower(recordID)
+	sum := sha256.Sum256([]byte(recordID))
+	return "barepod-dbgate-" + hex.EncodeToString(sum[:])[:12]
 }
 
 // guiToolInstallDir is the subdirectory under DbtoolsDir where a tool that needs
@@ -406,25 +415,6 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 		}
 		mount := fmt.Sprintf("/api/v1/%s/%s/gui/%s", guiKindPath(kind), record.ID, tool)
 
-		// The engine is detected once here and carried through: a manager is told
-		// exactly where to connect, and a record can predate the engine's current mode
-		// (a host install that is now a container publishes on another port), so the
-		// address it hands out is corrected — and remembered — before anything uses it.
-		engine, engineFound := s.engineFor(r.Context(), record.Engine)
-		if engineFound {
-			if host, port, changed := engineAddress(engine, record); changed {
-				if err := s.store.SetDatabaseAddress(record.ID, host, port); err == nil {
-					record.Host, record.Port = host, port
-				}
-			}
-			if tool == "dbgate" {
-				if reason, unreachable := dbgateReach(engine); unreachable {
-					writeError(w, http.StatusConflict, "not_reachable", reason)
-					return
-				}
-			}
-		}
-
 		// The page load (the mount root) issues the anti-CSRF cookie; every other
 		// request under the mount must present it. The tool's own client cannot
 		// carry our CSRF header, but a cross-site request does not carry this
@@ -447,13 +437,41 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 		}
 
 		spec.Prefix = mount
-		if spec.Name == "phpmyadmin" {
-			dir, err := s.preparePhpMyAdmin(record, password, mount, r)
-			if err != nil {
-				writeError(w, http.StatusBadGateway, "service_error", err.Error())
-				return
+		engine, engineFound := dbengine.Engine{}, false
+		// The work a *start* needs — detecting the engine and its real address, writing the
+		// tool's own config or env file, taking its loopback port — is done only when this
+		// manager may actually have to start: on the page load, or when the instance is not
+		// already serving this record. Doing it on every asset request is what made a page
+		// crawl while another manager was in use (an engine detection and a file write per
+		// asset, each of them seconds apart under load).
+		starting := guiMountRoot(r) || s.guiServedFor(spec.Key()) != record.ID
+		if starting {
+			// A manager is told exactly where to connect, and a record can predate the
+			// engine's current mode (a host install that is now a container publishes on
+			// another port), so the address it hands out is corrected — and remembered —
+			// before anything uses it.
+			engine, engineFound = s.engineFor(r.Context(), record.Engine)
+			if engineFound {
+				if host, port, changed := engineAddress(engine, record); changed {
+					if err := s.store.SetDatabaseAddress(record.ID, host, port); err == nil {
+						record.Host, record.Port = host, port
+					}
+				}
+				if tool == "dbgate" {
+					if reason, unreachable := dbgateReach(engine); unreachable {
+						writeError(w, http.StatusConflict, "not_reachable", reason)
+						return
+					}
+				}
 			}
-			spec.DocRoot = dir
+			if spec.Name == "phpmyadmin" {
+				dir, err := s.preparePhpMyAdmin(record, password, mount, r)
+				if err != nil {
+					writeError(w, http.StatusBadGateway, "service_error", err.Error())
+					return
+				}
+				spec.DocRoot = dir
+			}
 		}
 		if spec.Name == "dbgate" {
 			// One container per database, named after the record and listening on its own
@@ -471,14 +489,18 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 				return
 			}
 			spec.Port = port
-			plan, err := s.prepareDbGate(r.Context(), record, mount, engine)
-			if err != nil {
-				writeError(w, http.StatusBadGateway, "service_error", err.Error())
-				return
+			if starting {
+				// The env file only matters to a container that is about to start; an asset
+				// request for one already running must not rewrite it.
+				plan, err := s.prepareDbGate(r.Context(), record, mount, engine)
+				if err != nil {
+					writeError(w, http.StatusBadGateway, "service_error", err.Error())
+					return
+				}
+				spec.EnvFile = plan.envPath
+				spec.Volumes = plan.volumes
+				spec.User = plan.user
 			}
-			spec.EnvFile = plan.envPath
-			spec.Volumes = plan.volumes
-			spec.User = plan.user
 		}
 		if err := s.ensureGuiTool(r.Context(), spec, record, guiConnectionString(*record, password), engine, engineFound); err != nil {
 			// Starting a manager is a `docker run` plus a server boot, and the first open is
