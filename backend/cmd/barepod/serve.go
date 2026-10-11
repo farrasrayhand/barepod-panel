@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
@@ -41,6 +43,67 @@ func httpsPort(listen string) string {
 	}
 	return port
 }
+
+// redirectingListener serves the panel's HTTPS port and turns a plain-HTTP request
+// on that same port into a redirect: a browser that typed http://host:8443 is sent
+// to https://host:8443 instead of Go's "Client sent an HTTP request to an HTTPS
+// server". A real TLS handshake is passed through untouched.
+type redirectingListener struct {
+	net.Listener
+	tlsConfig *tls.Config
+	httpsPort string
+}
+
+func (l *redirectingListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		wrapped := &peekedConn{Conn: conn, reader: bufio.NewReader(conn)}
+		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		first, err := wrapped.reader.Peek(1)
+		_ = conn.SetReadDeadline(time.Time{})
+		if err != nil {
+			_ = conn.Close()
+			continue
+		}
+		if first[0] == 0x16 { // a TLS ClientHello: let the TLS server take it
+			return tls.Server(wrapped, l.tlsConfig), nil
+		}
+		go l.answerRedirect(wrapped)
+	}
+}
+
+// answerRedirect reads just enough of the plain request to name the host and path,
+// then answers 308 to the matching https URL and closes.
+func (l *redirectingListener) answerRedirect(conn *peekedConn) {
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	req, err := http.ReadRequest(conn.reader)
+	if err != nil {
+		return
+	}
+	host := req.Host
+	if h, _, err := net.SplitHostPort(req.Host); err == nil {
+		host = h
+	}
+	target := "https://" + host
+	if l.httpsPort != "" && l.httpsPort != "443" {
+		target += ":" + l.httpsPort
+	}
+	target += req.URL.RequestURI()
+	_, _ = fmt.Fprintf(conn, "HTTP/1.1 308 Permanent Redirect\r\nLocation: %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", target)
+}
+
+// peekedConn keeps the bytes the first-byte probe buffered, so whatever reads the
+// connection next (the TLS server) sees the whole stream from the start.
+type peekedConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (c *peekedConn) Read(p []byte) (int, error) { return c.reader.Read(p) }
 
 // runServe starts the daemon.
 func runServe(args []string) error {
@@ -181,15 +244,33 @@ func runServe(args []string) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		if cfg.TLS {
-			log.Printf("listening on https://%s (certificate %s) (version %s)", cfg.Listen, certPath, version)
-			if err := srv.ListenAndServeTLS(certPath, keyPath); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if !cfg.TLS {
+			log.Printf("listening on http://%s (version %s)", cfg.Listen, version)
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 			}
 			return
 		}
-		log.Printf("listening on http://%s (version %s)", cfg.Listen, version)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		certificate, err := tls.LoadX509KeyPair(certPath, keyPath)
+		if err != nil {
+			errCh <- fmt.Errorf("load the panel certificate: %w", err)
+			return
+		}
+		listener, err := net.Listen("tcp", cfg.Listen)
+		if err != nil {
+			errCh <- fmt.Errorf("listen on %s: %w", cfg.Listen, err)
+			return
+		}
+		log.Printf("listening on https://%s (certificate %s) (version %s)", cfg.Listen, certPath, version)
+		// A plain-HTTP request on this same port is answered with a redirect to
+		// HTTPS, instead of Go's bare "Client sent an HTTP request to an HTTPS
+		// server" — typing http://host:8443 lands you on https://host:8443.
+		redirector := &redirectingListener{
+			Listener:  listener,
+			httpsPort: httpsPort(cfg.Listen),
+			tlsConfig: &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12},
+		}
+		if err := srv.Serve(redirector); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()
