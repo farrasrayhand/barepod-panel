@@ -647,6 +647,7 @@ export function App() {
             <UsersView
               onShowToast={showToast}
               onOpenTerminal={() => navigate('terminal')}
+              currentUsername={session.user?.username ?? MOCK_USER.username}
             />
           )}
 

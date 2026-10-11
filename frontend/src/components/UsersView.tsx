@@ -25,9 +25,12 @@ import { CreateGroupModal } from './CreateGroupModal';
 interface UsersViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   onOpenTerminal?: () => void;
+  /** The signed-in account — it may not change its own role or status. */
+  currentUsername?: string;
 }
 
-export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTerminal }) => {
+export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTerminal, currentUsername }) => {
+  const selfUsername = currentUsername ?? 'farras';
   const [activeTab, setActiveTab] = useSubRoute<'users' | 'groups'>('users');
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<TenantUser | null>(null);
@@ -133,13 +136,30 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
   };
 
   const handleUpdateUser = (updated: TenantUser) => {
+    // An account may never grant itself a different role, package or status — that
+    // is the one edit that must not be available, prototype or not. Changing your
+    // own contact details is fine.
+    const existing = tenants.find(t => t.id === updated.id);
+    if (existing && updated.username === selfUsername) {
+      const escalates =
+        updated.role !== existing.role ||
+        updated.groupName !== existing.groupName ||
+        updated.status !== existing.status ||
+        updated.maxSites !== existing.maxSites ||
+        updated.diskLimit !== existing.diskLimit ||
+        updated.maxDatabases !== existing.maxDatabases;
+      if (escalates) {
+        onShowToast?.('Not allowed', 'You cannot change your own role, package or status. Ask another administrator.', 'error');
+        return;
+      }
+    }
     setTenants(tenants.map(t => t.id === updated.id ? updated : t));
     onShowToast?.('User Updated', `Account ${updated.username} updated (role: ${updated.role}, status: ${updated.status}).`, 'success');
   };
 
   const handleDeleteUser = (userId: string, username: string) => {
-    if (username === 'farras') {
-      onShowToast?.('Protected Account', 'Primary root administrator cannot be deleted.', 'error');
+    if (username === selfUsername) {
+      onShowToast?.('Protected Account', 'You cannot delete the account you are signed in as.', 'error');
       return;
     }
     setTenants(tenants.filter(t => t.id !== userId));
@@ -160,6 +180,11 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Tenants & User Groups</h1>
             <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5" /> cgroups v2 Quotas
+            </span>
+            {/* The users & groups CRUD is not implemented in the daemon yet, so this
+                screen is mock data — say so rather than presenting it as real. */}
+            <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">
+              Simulation (mock data)
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
