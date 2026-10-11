@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -22,6 +23,40 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
+
+// writeManagerStarting answers a page load with "still preparing" instead of an error:
+// the browser reloads itself until the manager answers, and the reason for the wait is
+// on the page. Only the page load gets this — an asset request must never receive HTML.
+func writeManagerStarting(w http.ResponseWriter, tool, mount string, cause error) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Retry-After", "2")
+	_, _ = fmt.Fprintf(w, `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="2">
+<title>Preparing %[1]s…</title>
+<style>
+ body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center}
+ .card{background:#1e293b;border:1px solid #334155;border-radius:14px;padding:1.75rem 2rem;max-width:34rem}
+ h1{margin:0 0 .35rem;font-size:1.05rem}
+ p{margin:.35rem 0;color:#94a3b8;font-size:.9rem}
+ .spin{display:inline-block;width:.7rem;height:.7rem;margin-right:.5rem;border:2px solid #38bdf8;
+       border-top-color:transparent;border-radius:50%%;animation:spin .9s linear infinite}
+ @keyframes spin{to{transform:rotate(360deg)}}
+ code{display:block;margin-top:.75rem;background:#0b1220;border:1px solid #263449;border-radius:8px;
+      padding:.6rem .7rem;font-size:.78rem;color:#cbd5e1;white-space:pre-wrap;word-break:break-word}
+ a{color:#7dd3fc}
+</style></head><body>
+ <main class="card">
+  <h1><span class="spin"></span>Preparing %[1]s for this database…</h1>
+  <p>The manager is starting on demand — one container, loopback only, this database only. This page reloads itself; it will appear as soon as it answers.</p>
+  <p>Nothing needs to be clicked. If it stays here, the reason is below — <a href="%[2]s/">reload now</a>.</p>
+  <code>%[3]s</code>
+ </main>
+</body></html>
+`, html.EscapeString(tool), html.EscapeString(mount), html.EscapeString(cause.Error()))
+}
 
 // guiMountRoot reports whether this request is the mount root — the page a browser is
 // given. The wildcard segment captures the trailing slash, so the path is "" or "/"
@@ -446,6 +481,14 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 			spec.User = plan.user
 		}
 		if err := s.ensureGuiTool(r.Context(), spec, record, guiConnectionString(*record, password), engine, engineFound); err != nil {
+			// Starting a manager is a `docker run` plus a server boot, and the first open is
+			// exactly when that is felt. For the page load, a screen that says so and
+			// reloads itself is the honest answer — the reload finds it ready — and the
+			// reason the start gave is printed on it rather than swallowed by a JSON error.
+			if guiMountRoot(r) {
+				writeManagerStarting(w, tool, mount, err)
+				return
+			}
 			writeError(w, http.StatusBadGateway, "service_error", err.Error())
 			return
 		}
@@ -602,10 +645,18 @@ func (s *Server) proxyGuiTool(w http.ResponseWriter, r *http.Request, spec dbtoo
 			rewriteGuiResponse(resp, mount)
 			return nil
 		},
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			// The tool is not answering: forget it, so the next request starts it
 			// again instead of retrying a process that is gone.
 			s.forgetGuiTool(spec.Key())
+			// This is the refusal an operator reported on the first open — the dial to the
+			// loopback port failed while the container was still coming up. The page load
+			// gets the waiting screen, which reloads itself and finds it ready; an asset
+			// request still gets the honest error, because it must not receive HTML.
+			if guiMountRoot(r) {
+				writeManagerStarting(w, spec.Name, mount, err)
+				return
+			}
 			writeError(w, http.StatusBadGateway, "service_error",
 				fmt.Sprintf("%s did not answer on loopback: %v", spec.Name, err))
 		},

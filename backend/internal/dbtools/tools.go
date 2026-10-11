@@ -363,15 +363,24 @@ func (s *Supervisor) logTail(spec Spec) string {
 
 // running asks the tool whether it answers on its loopback port.
 //
-// Any HTTP answer counts, not only a 2xx: a tool served under a per-database
-// prefix answers 404 at "/", and the probe must not depend on a path (curl -f
-// would report a running tool as down).
+// Any HTTP status counts, not only a 2xx: a tool served under a per-database prefix
+// answers 404 at "/", so the test must not depend on the status — but it must be a
+// *status*. This used to accept anything that was not literally "connection refused",
+// and a published container port accepts a TCP connection before the application inside
+// it is listening: the probe collected a reset, called the tool up, and the request that
+// followed was refused — the "dbgate did not answer on loopback: dial tcp 127.0.0.1:8794:
+// connect: connection refused" an operator saw on the first open. curl prints 000 and
+// fails when no response arrived, which is the honest answer.
 func (s *Supervisor) running(ctx context.Context, spec Spec) bool {
 	probe, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	out, err := s.runner.Run(probe, "", "curl", "-sS", "-o", "/dev/null",
+	out, err := s.runner.Run(probe, "", "curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}",
 		fmt.Sprintf("http://127.0.0.1:%d%s", spec.Port, spec.HealthPath))
-	return err == nil && !strings.Contains(out, "refused")
+	if err != nil {
+		return false
+	}
+	code := strings.TrimSpace(out)
+	return len(code) == 3 && code != "000"
 }
 
 // containerMatches reports whether the running container is scoped to this spec's
