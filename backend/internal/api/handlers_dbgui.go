@@ -33,30 +33,54 @@ func writeManagerStarting(w http.ResponseWriter, tool, mount string, cause error
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Retry-After", "2")
+	// The look is the maintenance page's own (light card, amber status dot with the ping
+	// animation, a bouncing icon, prefers-reduced-motion honoured) so a visitor sees one
+	// panel, not two designs. Keep the two in step when either changes.
 	_, _ = fmt.Fprintf(w, `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="2">
-<title>Preparing %[1]s…</title>
+<title>Preparing %[1]s · BarePod Panel</title>
 <style>
- body{margin:0;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-      background:#0f172a;color:#e2e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center}
- .card{background:#1e293b;border:1px solid #334155;border-radius:14px;padding:1.75rem 2rem;max-width:34rem}
- h1{margin:0 0 .35rem;font-size:1.05rem}
- p{margin:.35rem 0;color:#94a3b8;font-size:.9rem}
- .spin{display:inline-block;width:.7rem;height:.7rem;margin-right:.5rem;border:2px solid #38bdf8;
-       border-top-color:transparent;border-radius:50%%;animation:spin .9s linear infinite}
- @keyframes spin{to{transform:rotate(360deg)}}
- code{display:block;margin-top:.75rem;background:#0b1220;border:1px solid #263449;border-radius:8px;
-      padding:.6rem .7rem;font-size:.78rem;color:#cbd5e1;white-space:pre-wrap;word-break:break-word}
- a{color:#7dd3fc}
-</style></head><body>
- <main class="card">
-  <h1><span class="spin"></span>Preparing %[1]s for this database…</h1>
-  <p>The manager is starting on demand — one container, loopback only, this database only. This page reloads itself; it will appear as soon as it answers.</p>
-  <p>Nothing needs to be clicked. If it stays here, the reason is below — <a href="%[2]s/">reload now</a>.</p>
-  <code>%[3]s</code>
- </main>
-</body></html>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f1f5f9;color:#0f172a;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px}
+.card{width:100%%;max-width:34rem;background:#fff;border:1px solid #e2e8f0;border-radius:20px;box-shadow:0 10px 30px rgba(15,23,42,.06);padding:40px 36px;text-align:center}
+@keyframes bounce{0%%,100%%{transform:translateY(-18%%);animation-timing-function:cubic-bezier(.8,0,1,1)}50%%{transform:none;animation-timing-function:cubic-bezier(0,0,.2,1)}}
+@keyframes ping{75%%,100%%{transform:scale(2.4);opacity:0}}
+.icon{position:relative;width:80px;height:80px;border-radius:24px;background:#eef2ff;border:1px solid #c7d2fe;color:#4f46e5;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;animation:bounce 1.6s infinite}
+.icon svg{width:40px;height:40px}
+.pill{position:absolute;top:-8px;right:-10px;background:#6366f1;color:#fff;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:999px}
+h1{margin:0 0 8px;font-size:24px;font-weight:900;letter-spacing:-.02em}
+p{margin:0;color:#475569}
+.box{margin-top:24px;text-align:left;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden}
+.row{display:flex;justify-content:space-between;gap:12px;padding:12px 16px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0}
+.row:last-child{border-bottom:0}
+.row b,.row code{color:#0f172a;font-weight:700}
+.row code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:500;word-break:break-word}
+.dot{position:relative;display:inline-block;width:8px;height:8px;border-radius:999px;background:#f59e0b;margin-right:6px}
+.dot::after{content:"";position:absolute;inset:0;border-radius:999px;background:#f59e0b;animation:ping 1.4s cubic-bezier(0,0,.2,1) infinite}
+.amber{color:#b45309;font-weight:700}
+.reason{margin-top:16px;text-align:left;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:#92400e;white-space:pre-wrap;word-break:break-word}
+a{color:#2563eb;font-weight:600;text-decoration:none}
+a:hover{text-decoration:underline}
+.footer{margin-top:20px;font-size:11px;color:#94a3b8}
+@media (prefers-reduced-motion: reduce){.icon,.dot::after{animation:none}}
+</style></head>
+<body><main class="card">
+<div class="icon">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+<span class="pill">Starting</span>
+</div>
+<h1>Preparing %[1]s…</h1>
+<p>The manager is starting on demand — one container, loopback only, scoped to this database. This page reloads itself; it will appear as soon as it answers.</p>
+<div class="box">
+<div class="row"><span>Manager</span><b>%[1]s</b></div>
+<div class="row"><span>Server</span><b>BarePod Panel</b></div>
+<div class="row"><span>Status</span><span class="amber"><span class="dot"></span>Starting on demand</span></div>
+<div class="row"><span>Panel</span><a href="%[2]s/">reload now</a></div>
+</div>
+<p class="reason">%[3]s</p>
+<p class="footer">Nothing needs to be clicked — this page reloads itself until the manager answers.</p>
+</main></body></html>
 `, html.EscapeString(tool), html.EscapeString(mount), html.EscapeString(cause.Error()))
 }
 
