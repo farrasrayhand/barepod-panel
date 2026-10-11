@@ -38,6 +38,9 @@ Commands:
   user activate <user>  re-activate a suspended account
   group list            show packages with their permissions and resource limits
   tenant provision      create/repair the Linux account for a panel user
+  service install       install the daemon as a systemd service (serve flags apply)
+  service status        show whether barepod.service is installed/active/enabled
+  service uninstall     stop, disable and remove the daemon's unit
   version               print the version
   help                  print this help
 
@@ -64,6 +67,8 @@ func main() {
 		err = runGroup(os.Args[2:])
 	case "tenant":
 		err = runTenant(os.Args[2:])
+	case "service":
+		err = runService(os.Args[2:])
 	case "fs-exec":
 		// Hidden helper: one file operation, run as the tenant (see internal/files).
 		err = runFSExec()

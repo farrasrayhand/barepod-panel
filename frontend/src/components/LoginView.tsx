@@ -7,6 +7,8 @@ interface LoginViewProps {
   error: string;
   busy: boolean;
   mode: 'checking' | 'live' | 'mock';
+  /** Path the browser asked for; kept in the URL so signing in lands there. */
+  redirectTo?: string;
 }
 
 /**
@@ -16,7 +18,7 @@ interface LoginViewProps {
  * `barepod admin create` at install time. When the daemon is not running the
  * prototype can continue with its simulation instead.
  */
-export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, error, busy, mode }) => {
+export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, error, busy, mode, redirectTo }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
 
@@ -40,6 +42,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
           <p className="text-xs text-slate-500">
             {mode === 'checking' ? 'Looking for the daemon…' : 'Enter your panel account.'}
           </p>
+          {redirectTo && (
+            <p className="text-[11px] text-slate-500">
+              You asked for <code className="px-1 py-0.5 rounded bg-slate-100 font-mono">{redirectTo}</code> — signing
+              in takes you there.
+            </p>
+          )}
         </div>
 
         <form onSubmit={submit} className="space-y-3">

@@ -20,8 +20,17 @@ make install                 # -> /usr/local/bin/barepod (sudo if needed)
 barepod admin create --username <you>
 
 # 3. start the panel
-barepod serve -listen 127.0.0.1:8080 -db ./data/barepod.db -key ./data/secret.key
+barepod service install -listen 127.0.0.1:8080 -db ./data/barepod.db -key ./data/secret.key
+#    …or foreground:  barepod serve <same flags>
 ```
+
+`barepod service install` writes `/etc/systemd/system/barepod.service` from the
+`serve` flags you pass, reloads systemd and enables + starts it, so the panel
+survives an SSH session and comes back after a crash (`Restart=always`) and on
+boot. `barepod service status` reports it, `journalctl -u barepod -f` shows the
+logs. The unit is intentionally unsandboxed (no `ProtectSystem`/`PrivateTmp`/
+`NoNewPrivileges`): the daemon writes units, creates Linux accounts and drops
+privileges per request, so those options would break it rather than protect it.
 
 ## CLI
 
@@ -35,6 +44,8 @@ barepod serve -listen 127.0.0.1:8080 -db ./data/barepod.db -key ./data/secret.ke
 | `barepod user suspend\|activate <username>` | Disable/enable an account (also locks/unlocks the Linux user) |
 | `barepod group list` | Show packages with their capabilities and resource limits |
 | `barepod tenant provision --username X` | Create/repair the Linux account for a panel user |
+| `barepod service install` | Install the daemon as a systemd service (the `serve` flags apply) |
+| `barepod service status\|uninstall` | Check / remove that unit |
 | `barepod version` | Print the version |
 
 Use `--db <path>` on any command to point at a non-default database.

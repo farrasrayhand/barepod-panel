@@ -450,6 +450,9 @@ export function App() {
   }
 
   if (session.mode === 'live' && !session.user) {
+    // The URL is left alone while signed out so a bookmark or a shared link
+    // still works after signing in; the screen just says where you were going.
+    const requested = window.location.pathname;
     return (
       <LoginView
         onSignIn={session.signIn}
@@ -457,6 +460,7 @@ export function App() {
         error={session.error}
         busy={session.busy}
         mode={session.mode}
+        redirectTo={requested === '/' ? undefined : requested}
       />
     );
   }
