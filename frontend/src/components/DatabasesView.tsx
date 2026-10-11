@@ -214,6 +214,8 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
   const [engines, setEngines] = useState<DbEngineRow[]>([]);
   const [websites, setWebsites] = useState<{ slug: string; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
+  // The account's package allowance, when it is under one (see the list response).
+  const [quota, setQuota] = useState<{ maxDatabases: number; usedDatabases: number } | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((value) => value + 1);
 
@@ -237,6 +239,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         if (cancelled) return;
         setEngines(engineList.items);
         setWebsites(sites.items.map((site) => ({ slug: site.slug, name: `${site.slug} (${site.domain})` })));
+        setQuota(dbList.quota ?? null);
         setDatabases([...dbList.items, ...cacheList.items, ...dbBin.items, ...cacheBin.items].map(toDatabaseItem));
       } catch (err) {
         if (!cancelled) onShowToast?.('Could not load the databases', describeError(err), 'error');
@@ -468,9 +471,26 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
             <RefreshCw className="w-4 h-4 text-slate-500" />
             <span>Refresh</span>
           </button>
+          {quota && (
+            <span
+              className={`text-xs font-semibold px-2.5 py-1.5 rounded-lg ${
+                quota.usedDatabases >= quota.maxDatabases
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-slate-100 text-slate-600'
+              }`}
+              title={
+                quota.usedDatabases >= quota.maxDatabases
+                  ? 'This account has reached its package limit — delete one or ask for a bigger package'
+                  : 'Databases this account may own, from its package'
+              }
+            >
+              {quota.usedDatabases} / {quota.maxDatabases} databases
+            </span>
+          )}
           <button
             onClick={() => setIsCreateModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25 cursor-pointer"
+            disabled={!!quota && quota.usedDatabases >= quota.maxDatabases}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
           >
             <Plus className="w-4 h-4" />
             <span>Create Database</span>

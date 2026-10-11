@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -19,11 +20,18 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
 
+// databaseUserPattern is what a requested engine account may look like: it becomes an
+// identifier in the engine's own namespace, so it is validated instead of trusted.
+var databaseUserPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+
 // databaseRequest is the create payload for a database or a cache.
 type databaseRequest struct {
-	Engine         string `json:"engine"`
-	Version        string `json:"version"`
-	Alias          string `json:"alias"`
+	Engine  string `json:"engine"`
+	Version string `json:"version"`
+	Alias   string `json:"alias"`
+	// Username is the engine account the operator asked for. Empty means the panel
+	// derives one from the database name.
+	Username       string `json:"username"`
 	WebsiteSlug    string `json:"websiteSlug"`
 	Password       string `json:"password"`
 	MaxConnections int    `json:"maxConnections"`
@@ -253,12 +261,47 @@ func (s *Server) handleListDatabases(kind string) authedHandler {
 			items = append(items, s.detectedFor(user, kind)...)
 			sort.SliceStable(items, func(i, j int) bool { return items[i].Alias < items[j].Alias })
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		response := map[string]any{
 			"items":         withSizes(items),
 			"bin":           binned,
 			"retentionDays": 30,
-		})
+		}
+		// An account under a package limit is told what it is: the panel's own screens
+		// can then say "2 of 2 used" instead of letting a create fail unexplained.
+		if !binned {
+			if tenant := databaseScope(user); tenant != "" {
+				if limits := s.limitsForTenant(tenant); limits.MaxDatabases > 0 {
+					if used, err := s.store.CountDatabasesByTenant(tenant); err == nil {
+						response["quota"] = map[string]int{"maxDatabases": limits.MaxDatabases, "usedDatabases": used}
+					}
+				}
+			}
+		}
+		writeJSON(w, http.StatusOK, response)
 	}
+}
+
+// enforceDatabaseQuota applies the account's package limit before another record is
+// created or restored: the group's MaxDatabases, where 0 means unlimited and an admin's
+// group has no ceiling. Only live records count — a binned one is not in use — so a
+// restore is checked too, or the recycle bin would be a way around the limit.
+func (s *Server) enforceDatabaseQuota(w http.ResponseWriter, tenant string) bool {
+	limits := s.limitsForTenant(tenant)
+	if limits.MaxDatabases <= 0 {
+		return true
+	}
+	used, err := s.store.CountDatabasesByTenant(tenant)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Could not check the package limits")
+		return false
+	}
+	if used >= limits.MaxDatabases {
+		writeError(w, http.StatusConflict, "quota_exceeded", fmt.Sprintf(
+			"this account may own at most %d databases and it already has %d — the package limit for this account has been reached",
+			limits.MaxDatabases, used))
+		return false
+	}
+	return true
 }
 
 // handleListRecycleBin is the same listing, forced to binned items.
@@ -334,10 +377,27 @@ func (s *Server) handleCreateDatabase(kind string) authedHandler {
 			writeError(w, http.StatusConflict, "already_exists", "That name is already in use")
 			return
 		}
+		// Package guard, exactly as for websites: the account's group may cap how many
+		// databases it owns, and it is checked before anything is provisioned.
+		if !s.enforceDatabaseQuota(w, record.TenantUser) {
+			return
+		}
 
 		// The engine-side name is prefixed with the account, so two accounts can
 		// both call their database "shop" without colliding.
 		record.Name = s.uniqueDatabaseName(record.TenantUser, alias)
+
+		// A username the form offered is honoured rather than ignored (it used to be, for
+		// every engine): the engine account is what the operator asked for, and the name
+		// the panel derived is only the fallback.
+		if requested := strings.TrimSpace(req.Username); requested != "" {
+			if !databaseUserPattern.MatchString(requested) {
+				writeError(w, http.StatusBadRequest, "validation_error",
+					"A username may use lower-case letters, digits and underscores, must start with a letter, and is at most 32 characters")
+				return
+			}
+			record.User = requested
+		}
 
 		if err := s.provisionDatabase(r.Context(), user, record, req.Password, engine); err != nil {
 			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
@@ -445,10 +505,11 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 		}
 		if engine.Name == "mongodb" {
 			// MongoDB is administered through the panel's driver, not a client: the
-			// user is created inside the running container. The engine-side user is
-			// the record's own name (set below for the SQL engines), so it is named
-			// here before the createUser command is built.
-			record.User = record.Name
+			// user is created inside the running container. A username the form asked
+			// for is kept; otherwise the engine-side name is the record's own.
+			if record.User == "" {
+				record.User = record.Name
+			}
 			return s.provisionMongo(ctx, user, record, password, engine)
 		}
 	case !engine.Available:
@@ -463,7 +524,9 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 		return nil
 	}
 
-	record.User = record.Name
+	if record.User == "" {
+		record.User = record.Name
+	}
 	record.Host = "127.0.0.1"
 	if engine.Name == "redis" && engine.Mode != dbengine.ModeDocker {
 		// A host cache reports the address a client should use, which the admin URL
@@ -919,6 +982,10 @@ func (s *Server) handleRestoreDatabase(kind string) authedHandler {
 	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 		record, ok := s.findDatabase(w, r, user, kind)
 		if !ok {
+			return
+		}
+		// Restoring puts the record back in use, so the package limit applies here too.
+		if !s.enforceDatabaseQuota(w, record.TenantUser) {
 			return
 		}
 		engine, _ := s.engineFor(r.Context(), record.Engine)

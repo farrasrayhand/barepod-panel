@@ -503,6 +503,11 @@ func guiConnectionString(record store.Database, password string) string {
 		Host:   net.JoinHostPort(record.Host, strconv.Itoa(record.Port)),
 		Path:   "/" + record.Name,
 	}
+	if record.Engine == "mongodb" {
+		// The account lives in `admin`, so the DSN has to say so — otherwise the driver
+		// takes the database in the path as the auth source and refuses the connection.
+		u.RawQuery = "authSource=" + mongoUserDB
+	}
 	return u.String()
 }
 

@@ -105,6 +105,10 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
           engine: API_ENGINE[type] ?? type,
           version: chosen.version,
           alias: name.trim(),
+          // Both fields are sent when they were filled in: the daemon honours the
+          // username and the password instead of quietly deriving its own.
+          username: type === 'sqlite' ? undefined : username.trim() || undefined,
+          password: type === 'sqlite' ? undefined : password.trim() || undefined,
           websiteSlug: websiteSlug || undefined,
           maxConnections: type === 'sqlite' ? undefined : maxConnections,
         });
@@ -291,6 +295,10 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
               />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Used exactly as typed. The <b>database name</b> is prefixed with your account
+                (e.g. <code>{`<account>_${name.trim().toLowerCase() || 'name'}`}</code>), so two accounts can use the same name.
+              </p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">

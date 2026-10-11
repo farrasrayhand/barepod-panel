@@ -55,6 +55,14 @@ func (s *Server) mongoAdmin(ctx context.Context, engine dbengine.Engine) (*mongo
 	return client, nil
 }
 
+// mongoUserDB is the database a MongoDB account is created in. It is `admin`, not the
+// database the account works on: every client — mongosh, the Go driver, DbGate,
+// Compass — authenticates against `admin` unless it is told another authSource, and
+// most never are. An account created in its own database therefore could not connect
+// from a manager ("Authentication failed") even though the panel's own rotate worked,
+// which is exactly what the operator hit.
+const mongoUserDB = "admin"
+
 // mongoAccess is the role a database's own user is given on its own database.
 func mongoAccess(record *store.Database) bson.A {
 	return bson.A{bson.D{{Key: "role", Value: "readWrite"}, {Key: "db", Value: record.Name}}}
@@ -76,7 +84,7 @@ func (s *Server) provisionMongo(ctx context.Context, user *store.User, record *s
 		{Key: "pwd", Value: password},
 		{Key: "roles", Value: mongoAccess(record)},
 	}
-	if err := client.Database(record.Name).RunCommand(ctx, command).Err(); err != nil {
+	if err := client.Database(mongoUserDB).RunCommand(ctx, command).Err(); err != nil {
 		record.Status = "failed"
 		record.Note = fmt.Sprintf("MongoDB refused to create the user: %s", err)
 		return nil
@@ -97,7 +105,7 @@ func (s *Server) rotateMongo(ctx context.Context, record *store.Database, passwo
 	}
 	defer func() { _ = client.Disconnect(context.Background()) }()
 
-	db := client.Database(record.Name)
+	db := client.Database(mongoUserDB)
 	err = db.RunCommand(ctx, bson.D{{Key: "updateUser", Value: record.User}, {Key: "pwd", Value: password}}).Err()
 	if err != nil && strings.Contains(err.Error(), "UserNotFound") {
 		create := bson.D{
@@ -121,7 +129,7 @@ func (s *Server) suspendMongo(ctx context.Context, record *store.Database, engin
 	}
 	defer func() { _ = client.Disconnect(context.Background()) }()
 
-	err = client.Database(record.Name).RunCommand(ctx, bson.D{{Key: "dropUser", Value: record.User}}).Err()
+	err = client.Database(mongoUserDB).RunCommand(ctx, bson.D{{Key: "dropUser", Value: record.User}}).Err()
 	if err != nil && strings.Contains(err.Error(), "UserNotFound") {
 		return nil // already gone
 	}
@@ -142,7 +150,7 @@ func (s *Server) restoreMongo(ctx context.Context, record *store.Database, passw
 		{Key: "pwd", Value: password},
 		{Key: "roles", Value: mongoAccess(record)},
 	}
-	err = client.Database(record.Name).RunCommand(ctx, command).Err()
+	err = client.Database(mongoUserDB).RunCommand(ctx, command).Err()
 	if err != nil && strings.Contains(err.Error(), "already exists") {
 		return nil
 	}
@@ -158,6 +166,6 @@ func (s *Server) purgeMongo(ctx context.Context, record *store.Database, engine 
 	defer func() { _ = client.Disconnect(context.Background()) }()
 
 	// The user may already be gone; the database is what matters.
-	_ = client.Database(record.Name).RunCommand(ctx, bson.D{{Key: "dropUser", Value: record.User}}).Err()
+	_ = client.Database(mongoUserDB).RunCommand(ctx, bson.D{{Key: "dropUser", Value: record.User}}).Err()
 	return client.Database(record.Name).Drop(ctx)
 }

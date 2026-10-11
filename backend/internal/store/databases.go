@@ -164,6 +164,17 @@ func (s *Store) SetDatabaseAddress(databaseID, host string, port int) error {
 	return err
 }
 
+// CountDatabasesByTenant counts the live records an account owns — both families,
+// because a package's database allowance is one number. Binned records are not counted:
+// they are not in use, and a restore is checked against the allowance again.
+func (s *Store) CountDatabasesByTenant(tenant string) (int, error) {
+	var n int
+	err := s.DB.QueryRow(
+		`SELECT COUNT(*) FROM databases WHERE tenant_user = ? AND deleted_at = ''`, tenant,
+	).Scan(&n)
+	return n, err
+}
+
 // AllDatabases lists every record whatever the kind or the account, which the
 // daemon reads at start to repair an address that predates the engine's mode.
 func (s *Store) AllDatabases() ([]Database, error) {

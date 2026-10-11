@@ -682,9 +682,17 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                   </span>
                 </div>
                 <div className="p-2 bg-white rounded border border-slate-200">
-                  <span className="text-[10px] text-slate-400 font-sans block">SQL Privilege Scope</span>
-                  <span className="text-slate-800 font-semibold truncate block" title={`GRANT ALL ON ${database.name}.*`}>
-                    GRANT ON {database.name}.*
+                  {/* The engine-side name, not the account: the account is the username the
+                      form asked for, and the two are easy to confuse (a prefix like
+                      admin_gg is the database's name, gg is its user). */}
+                  <span className="text-[10px] text-slate-400 font-sans block">
+                    Database Name {database.username && <>· user <b>{database.username}</b></>}
+                  </span>
+                  <span
+                    className="text-slate-800 font-semibold truncate block"
+                    title={`GRANT ALL ON ${database.name}.* — the engine-side database name (your account prefixes it)`}
+                  >
+                    {database.name}
                   </span>
                 </div>
                 {isEditingMaxConn ? (

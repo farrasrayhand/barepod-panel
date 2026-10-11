@@ -237,6 +237,8 @@ export interface CreateDatabasePayload {
   engine: string;
   version?: string;
   alias: string;
+  /** The engine account the form asked for; the daemon derives one when it is empty. */
+  username?: string;
   websiteSlug?: string;
   password?: string;
   maxConnections?: number;
@@ -246,7 +248,13 @@ export interface CreateDatabasePayload {
 /** Databases and caches are the same resource with different commands. */
 const databaseFamily = (base: string) => ({
   list: (bin = false) =>
-    request<{ items: DatabaseRow[]; bin: boolean; retentionDays: number }>(`${base}${bin ? '?bin=true' : ''}`),
+    request<{
+      items: DatabaseRow[];
+      bin: boolean;
+      retentionDays: number;
+      /** The account's package allowance, present only when it is under one. */
+      quota?: { maxDatabases: number; usedDatabases: number };
+    }>(`${base}${bin ? '?bin=true' : ''}`),
 
   recycleBin: () => request<{ items: DatabaseRow[]; retentionDays: number }>(`${base}/recycle-bin`),
 
