@@ -109,6 +109,29 @@ else
     || note "could not create the 'root' role — create it yourself: su postgres -c \"psql -c 'CREATE ROLE root SUPERUSER LOGIN'\""
 fi
 
+# A manager that runs as a container (DbGate) reaches PostgreSQL over the mounted
+# unix socket, where it cannot be the OS user `postgres`: peer authentication refuses
+# a requested database user that is not the connecting OS user, so its credential
+# would be unusable. The `postgres` line stays peer (that is how the panel administers
+# it), a `root` line stays peer (the legacy account above), and every other socket
+# login is asked for the database password — which is what makes a manager work.
+say "Allowing password logins over the PostgreSQL socket (managers run in a container)"
+HBA="$(su postgres -c "psql -tAc 'SHOW hba_file'" 2>/dev/null)"
+if [[ -n "$HBA" && -f "$HBA" ]]; then
+  cp -n "$HBA" "$HBA.barepod.bak" 2>/dev/null || true
+  if grep -qE '^local[[:space:]]+all[[:space:]]+all[[:space:]]+peer' "$HBA"; then
+    sed -i -E 's#^(local[[:space:]]+all[[:space:]]+all[[:space:]]+)peer#\1scram-sha-256#' "$HBA"
+    grep -qE '^local[[:space:]]+all[[:space:]]+root[[:space:]]+peer' "$HBA" || \
+      sed -i -E '0,/^(local[[:space:]]+all[[:space:]]+postgres[[:space:]]+peer)/s//&\nlocal   all             root                                    peer/' "$HBA"
+    systemctl reload postgresql >/dev/null 2>&1 || systemctl restart postgresql >/dev/null 2>&1 || true
+    note "socket logins other than postgres/root now use a password (backup: $HBA.barepod.bak)"
+  else
+    note "the PostgreSQL socket rules already allow passwords"
+  fi
+else
+  note "could not find pg_hba.conf — a manager may not reach PostgreSQL over the socket"
+fi
+
 # ---------------------------------------------------------------- optional managers
 # pgweb is one Go binary with no runtime of its own, and the panel starts it only
 # when someone opens it and stops it when it goes idle — so having it installed

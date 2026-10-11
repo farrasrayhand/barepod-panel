@@ -113,6 +113,13 @@ func (s *Server) guiToolAvailability(kind string, record *store.Database, tool g
 	if reason, blocked := guiRecordBlocked(record); blocked {
 		return "", false, reason
 	}
+	if tool.name == "dbgate" {
+		if engine, found := s.engineFor(context.Background(), record.Engine); found {
+			if reason, unreachable := dbgateReach(engine); unreachable {
+				return "", false, reason
+			}
+		}
+	}
 	if reason, runnable := s.guiToolRunnable(spec); !runnable {
 		return "", false, reason
 	}
@@ -318,6 +325,25 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 		}
 		mount := fmt.Sprintf("/api/v1/%s/%s/gui/%s", guiKindPath(kind), record.ID, tool)
 
+		// The engine is detected once here and carried through: a manager is told
+		// exactly where to connect, and a record can predate the engine's current mode
+		// (a host install that is now a container publishes on another port), so the
+		// address it hands out is corrected — and remembered — before anything uses it.
+		engine, engineFound := s.engineFor(r.Context(), record.Engine)
+		if engineFound {
+			if host, port, changed := engineAddress(engine, record); changed {
+				if err := s.store.SetDatabaseAddress(record.ID, host, port); err == nil {
+					record.Host, record.Port = host, port
+				}
+			}
+			if tool == "dbgate" {
+				if reason, unreachable := dbgateReach(engine); unreachable {
+					writeError(w, http.StatusConflict, "not_reachable", reason)
+					return
+				}
+			}
+		}
+
 		// The page load (the mount root) issues the anti-CSRF cookie; every other
 		// request under the mount must present it. The tool's own client cannot
 		// carry our CSRF header, but a cross-site request does not carry this
@@ -343,7 +369,7 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 			spec.DocRoot = dir
 		}
 		if spec.Name == "dbgate" {
-			plan, err := s.prepareDbGate(r.Context(), record, mount)
+			plan, err := s.prepareDbGate(r.Context(), record, mount, engine)
 			if err != nil {
 				writeError(w, http.StatusBadGateway, "service_error", err.Error())
 				return
@@ -352,7 +378,7 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 			spec.Volumes = plan.volumes
 			spec.User = plan.user
 		}
-		if err := s.ensureGuiTool(r.Context(), spec, record, guiConnectionString(*record, password)); err != nil {
+		if err := s.ensureGuiTool(r.Context(), spec, record, guiConnectionString(*record, password), engine, engineFound); err != nil {
 			writeError(w, http.StatusBadGateway, "service_error", err.Error())
 			return
 		}
@@ -371,7 +397,7 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 // Once it is serving, every further request just slides the idle window in
 // memory (Touch) instead of probing: a page makes many asset requests, and a
 // probe (and, worse, an engine detection) per request would make it crawl.
-func (s *Server) ensureGuiTool(ctx context.Context, spec dbtools.Spec, record *store.Database, dsn string) error {
+func (s *Server) ensureGuiTool(ctx context.Context, spec dbtools.Spec, record *store.Database, dsn string, engine dbengine.Engine, engineFound bool) error {
 	s.guiMu.Lock()
 	defer s.guiMu.Unlock()
 	if s.guiServed == nil {
@@ -388,7 +414,7 @@ func (s *Server) ensureGuiTool(ctx context.Context, spec dbtools.Spec, record *s
 		delete(s.guiServed, spec.Name)
 	}
 	// A containerised engine is brought up before the tool connects at start.
-	if engine, found := s.engineFor(ctx, record.Engine); found && engine.Mode == dbengine.ModeDocker {
+	if engineFound && engine.Mode == dbengine.ModeDocker {
 		if _, err := s.ensureEngineRunning(ctx, engine); err != nil {
 			return err
 		}

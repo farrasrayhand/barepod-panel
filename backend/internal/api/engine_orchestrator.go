@@ -188,3 +188,74 @@ func containerPort(engine string) int {
 	}
 	return spec.HostPort
 }
+
+// engineAddress is where an engine's records really live. An engine the panel runs
+// as a container answers on the port that container publishes, not on the engine's
+// standard one, and a record created while the engine was a host install keeps the
+// standard port — so the stored address cannot be trusted on its own. A MongoDB
+// record saying 27017 while mongod listened on 27018 was exactly this, and every
+// connection handed out for it was refused.
+func engineAddress(engine dbengine.Engine, record *store.Database) (host string, port int, changed bool) {
+	if record.FileBased {
+		return "", 0, false
+	}
+	host = record.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port = record.Port
+	if engine.Mode == dbengine.ModeDocker {
+		if published := containerPort(engine.Name); published != 0 {
+			port = published
+		}
+	}
+	return host, port, host != record.Host || port != record.Port
+}
+
+// ReconcileDatabaseAddresses repairs records whose stored address predates the
+// engine's current mode. It runs once at daemon start (the detection behind it is
+// too expensive to repeat per request) and returns how many records it corrected.
+func (s *Server) ReconcileDatabaseAddresses(ctx context.Context) int {
+	records, err := s.store.AllDatabases()
+	if err != nil {
+		return 0
+	}
+	engines := map[string]dbengine.Engine{}
+	fixed := 0
+	for i := range records {
+		record := &records[i]
+		if record.FileBased {
+			continue
+		}
+		engine, seen := engines[record.Engine]
+		if !seen {
+			engine, _ = s.engineFor(ctx, record.Engine)
+			engines[record.Engine] = engine
+		}
+		if engine.Name == "" {
+			continue
+		}
+		host, port, changed := engineAddress(engine, record)
+		if !changed {
+			continue
+		}
+		if err := s.store.SetDatabaseAddress(record.ID, host, port); err == nil {
+			fixed++
+		}
+	}
+	return fixed
+}
+
+// containerGateway is the address a container reaches the host on: the docker bridge
+// gateway. DbGate is a container, so 127.0.0.1 inside it is its own loopback, not the
+// host's — an engine running as a container (which shares the host network) is
+// reached there.
+func (s *Server) containerGateway(ctx context.Context) string {
+	probe, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := s.host.Runner.Run(probe, "", "docker", "network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}

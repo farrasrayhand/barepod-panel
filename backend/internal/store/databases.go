@@ -155,6 +155,34 @@ func (s *Store) SetDatabaseStatus(databaseID, status, note string) error {
 	return err
 }
 
+// SetDatabaseAddress corrects where a record says its engine lives. It is used when
+// the engine's mode changed under an older record (a host install that is now a
+// container publishes on another port), so the port the panel hands out is the one
+// something is really listening on.
+func (s *Store) SetDatabaseAddress(databaseID, host string, port int) error {
+	_, err := s.DB.Exec(`UPDATE databases SET host = ?, port = ? WHERE id = ?`, host, port, databaseID)
+	return err
+}
+
+// AllDatabases lists every record whatever the kind or the account, which the
+// daemon reads at start to repair an address that predates the engine's mode.
+func (s *Store) AllDatabases() ([]Database, error) {
+	rows, err := s.DB.Query(`SELECT ` + databaseColumns + ` FROM databases`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Database{}
+	for rows.Next() {
+		record, err := scanDatabase(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *record)
+	}
+	return out, rows.Err()
+}
+
 // RenameDatabaseFile records where a file-based database lives now, which is how
 // a SQLite suspend/restore moves it into and out of the recycle bin.
 func (s *Store) RenameDatabaseFile(databaseID, path string) error {
