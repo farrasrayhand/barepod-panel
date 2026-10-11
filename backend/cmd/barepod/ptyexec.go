@@ -49,24 +49,39 @@ func runPTYExec(args []string) error {
 	}
 	spec := terminal.JailSpec{SitesRoot: terminal.Abs(root), Tenant: *tenant, Slug: *site}
 
-	siblings, err := spec.Siblings()
-	if err != nil {
-		return fmt.Errorf("pty-exec: %w", err)
-	}
+	// Where the shell starts: with the home overlay it is the home path (which now
+	// *is* the site), otherwise the site's own directory.
+	shellDir := spec.SiteDir()
+	homeOverlaid := false
 
-	// Masking in the daemon's own namespace would hide the tenant's real
+	// Masking, or overlaying, in the daemon's own namespace would change the real
 	// directories for every process on the machine, so refuse that outright.
-	var maskErr error
+	var jailErr error
 	masked := []string{}
 	if *parentNS != "" && terminal.SharesMountNamespace(*parentNS) {
-		maskErr = errors.New("this shell shares the daemon's mount namespace, so masking is unsafe")
+		jailErr = errors.New("this shell shares the daemon's mount namespace, so confining it is unsafe")
+	} else if spec.SiteInsideHome() {
+		// The strongest and simplest shape: the account's home is the website.
+		jailErr = terminal.Confine(spec.Home(), spec.SiteDir())
+		homeOverlaid = jailErr == nil
+		if homeOverlaid {
+			shellDir = spec.Home()
+		}
 	} else {
-		masked, maskErr = terminal.Mask(siblings)
+		siblings, err := spec.Siblings()
+		if err != nil {
+			return fmt.Errorf("pty-exec: %w", err)
+		}
+		masked, jailErr = terminal.Mask(siblings)
 	}
-	if maskErr != nil {
+
+	if jailErr != nil {
 		// The shell still opens, but it is not confined and the daemon is told so.
-		reportJailStatus(*statusFD, "jailed=0 masked=%d reason=%q", len(masked), maskErr.Error())
-		fmt.Fprintf(os.Stderr, "barepod: this shell could not be confined: %v\r\n", maskErr)
+		reportJailStatus(*statusFD, "jailed=0 masked=%d reason=%q", len(masked), jailErr.Error())
+		fmt.Fprintf(os.Stderr, "barepod: this shell could not be confined: %v\r\n", jailErr)
+	} else if homeOverlaid {
+		reportJailStatus(*statusFD, "jailed=1 home=%s", spec.Home())
+		fmt.Fprintf(os.Stderr, "barepod: confined to %s — the account's home in this shell is the website itself\r\n", spec.Home())
 	} else {
 		reportJailStatus(*statusFD, "jailed=1 masked=%d", len(masked))
 		if len(masked) > 0 {
@@ -86,7 +101,7 @@ func runPTYExec(args []string) error {
 	if *command != "" {
 		argv = []string{sh, "-c", *command}
 	}
-	return terminal.Exec(sh, argv, terminal.ShellEnv(spec.SiteDir(), *tenant), spec.SiteDir())
+	return terminal.Exec(sh, argv, terminal.ShellEnv(shellDir, *tenant), shellDir)
 }
 
 // reportJailStatus writes the one line the daemon reads, then closes the pipe so

@@ -107,3 +107,29 @@ func TestMountNamespaceDetection(t *testing.T) {
 		t.Error("an empty namespace must never match (the daemon may not pass one)")
 	}
 }
+
+func TestSiteInsideHomeDecidesTheOverlay(t *testing.T) {
+	spec := JailSpec{SitesRoot: "/home", Tenant: "bptest", Slug: "own-check"}
+	if !spec.SiteInsideHome() {
+		t.Error("a site under the tenant's home can use the home overlay")
+	}
+	if spec.Home() != "/home/bptest" || spec.SiteDir() != "/home/bptest/apps/own-check" {
+		t.Errorf("unexpected layout: %s / %s", spec.Home(), spec.SiteDir())
+	}
+
+	// The guard exists for a reason: a slug that climbs out of the home (or a
+	// layout that puts sites elsewhere) must fall back to masking, never overlay
+	// an unrelated directory on top of the account's home.
+	// `..` that stays inside the home still resolves inside it, which is safe (and
+	// slugs like that are refused when a website is created anyway).
+	inside := JailSpec{SitesRoot: "/home", Tenant: "bptest", Slug: "sub/site"}
+	if !inside.SiteInsideHome() {
+		t.Error("a nested site inside the home is still inside the home")
+	}
+	// Climbing out of the home must never trigger the overlay: it would hide an
+	// unrelated directory (here another account's home) behind the account's own.
+	escaping := JailSpec{SitesRoot: "/home", Tenant: "bptest", Slug: "../../bptest2"}
+	if escaping.SiteInsideHome() {
+		t.Errorf("a site that leaves the home (%s) must not use the overlay", escaping.SiteDir())
+	}
+}

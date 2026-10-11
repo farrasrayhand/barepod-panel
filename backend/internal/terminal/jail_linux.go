@@ -47,6 +47,22 @@ func makePrivate() error {
 	return nil
 }
 
+// Confine replaces the tenant's home with the site directory inside this mount
+// namespace, which is stricter and tidier than masking each sibling: the shell's
+// home *is* the website, so `cd ..` lands in /home (root's directory) and the
+// account's other sites are not even names in a listing.
+//
+// Only valid when the site lives inside the home, which the caller checks.
+func Confine(home, siteDir string) error {
+	if err := makePrivate(); err != nil {
+		return err
+	}
+	if err := syscall.Mount(siteDir, home, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		return fmt.Errorf("terminal: cannot put %s over %s (%v)", siteDir, home, err)
+	}
+	return nil
+}
+
 // Mask hides each path inside the current mount namespace: a tmpfs over a
 // directory (mode 0000, so the tenant cannot even enter it) and /dev/null over a
 // file. Because the mounts belong to this namespace only, the host is untouched

@@ -52,15 +52,16 @@ type Options struct {
 
 // Session is a running shell attached to a pseudo-terminal.
 type Session struct {
-	ptyFile *os.File
-	cmd     *exec.Cmd
-	shell   string
-	uid     int
-	gid     int
-	jailed  bool
-	masked  int
-	mu      sync.Mutex
-	closed  bool
+	ptyFile  *os.File
+	cmd      *exec.Cmd
+	shell    string
+	uid      int
+	gid      int
+	jailed   bool
+	masked   int
+	jailMode string
+	mu       sync.Mutex
+	closed   bool
 }
 
 // DefaultShell picks the first available allow-listed shell.
@@ -146,7 +147,7 @@ func Start(opts Options) (*Session, error) {
 
 	session := &Session{ptyFile: ptyFile, cmd: cmd, shell: shell, uid: opts.UID, gid: opts.GID}
 	if statusReader != nil {
-		session.jailed, session.masked = readJailStatus(statusReader)
+		session.jailed, session.masked, session.jailMode = readJailStatus(statusReader)
 		_ = statusReader.Close()
 	}
 	return session, nil
@@ -164,12 +165,12 @@ func (o Options) jailable() bool {
 
 // readJailStatus waits briefly for the helper's one-line report. A helper that
 // says nothing (it crashed, or the feature is off) means "not confined".
-func readJailStatus(reader *os.File) (bool, int) {
+func readJailStatus(reader *os.File) (bool, int, string) {
 	_ = reader.SetReadDeadline(time.Now().Add(750 * time.Millisecond))
-	buf := make([]byte, 128)
+	buf := make([]byte, 256)
 	n, err := reader.Read(buf)
 	if err != nil && n == 0 {
-		return false, 0
+		return false, 0, ""
 	}
 	line := strings.TrimSpace(string(buf[:n]))
 	jailed := strings.Contains(line, "jailed=1")
@@ -177,7 +178,15 @@ func readJailStatus(reader *os.File) (bool, int) {
 	if _, value, found := strings.Cut(line, "masked="); found {
 		fmt.Sscanf(value, "%d", &masked)
 	}
-	return jailed, masked
+	mode := ""
+	switch {
+	case strings.Contains(line, "home="):
+		// The account's home *is* the website inside this shell.
+		mode = "home"
+	case masked > 0:
+		mode = "mask"
+	}
+	return jailed, masked, mode
 }
 
 // ShellEnv is the environment of a tenant shell: the daemon's PATH and tooling,
@@ -270,7 +279,8 @@ func (s *Session) User() string {
 // Shell reports the interpreter that was started.
 func (s *Session) Shell() string { return filepath.Base(s.shell) }
 
-// Jailed reports whether the shell is confined to its site directory, and how
-// many other paths were hidden from it. It is false on a host that cannot build
-// the namespace, which the audit line and the UI both say out loud.
-func (s *Session) Jailed() (bool, int) { return s.jailed, s.masked }
+// Jailed reports whether the shell is confined to its site directory, how many
+// paths were hidden, and which shape was used: "home" (the account's home is the
+// website) or "mask" (the neighbours were hidden). It is false on a host that
+// cannot build the namespace, which the audit line and the UI both say out loud.
+func (s *Session) Jailed() (bool, int, string) { return s.jailed, s.masked, s.jailMode }

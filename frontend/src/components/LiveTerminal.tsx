@@ -88,13 +88,16 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({ slug, title, subtitl
               shell?: string;
               jailed?: boolean;
               masked?: number;
+              jailMode?: string;
             };
             if (control.type === 'ready') {
               // Say whether the shell is confined: on a host without mount
               // namespaces it is not, and that changes what the tenant can reach.
-              const confinement = control.jailed
-                ? `confined to this site (${control.masked ?? 0} paths hidden)`
-                : 'not confined to this site';
+              const confinement = !control.jailed
+                ? 'not confined to this site'
+                : control.jailMode === 'home'
+                  ? 'confined to this site (its home here is the website)'
+                  : `confined to this site (${control.masked ?? 0} paths hidden)`;
               setIdentity(`${control.shell ?? 'shell'} · ${control.user ?? ''} · ${confinement}`.trim());
               setMode(control.mode ?? '');
               if (control.note) term.writeln(`\x1b[90m# ${control.note}\x1b[0m`);

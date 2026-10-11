@@ -210,28 +210,29 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request, user *store.Us
 	}
 	defer func() { _ = session.Close() }()
 
-	jailed, masked := session.Jailed()
+	jailed, masked, jailMode := session.Jailed()
 	_ = s.store.Audit(user.ID, "terminal.open", auditTarget, clientIP(r),
-		fmt.Sprintf("shell=%s as %s jailed=%t masked=%d", session.Shell(), session.User(), jailed, masked))
+		fmt.Sprintf("shell=%s as %s jailed=%t mode=%s masked=%d", session.Shell(), session.User(), jailed, jailMode, masked))
 
 	note := "This shell runs as the website's owner account."
 	if target.Host {
 		note = "This is a host shell: commands run with the daemon's privileges (root)."
-	} else if jailed {
-		note = fmt.Sprintf("This shell runs as the website's owner and is confined to %s — the account's other folders (%d) are hidden.", target.Dir, masked)
+	} else if jailed && jailMode == "home" {
+		note = fmt.Sprintf("This shell runs as the website's owner: %s is the website itself, so `cd ..` leaves the account's own files behind and the other sites are not even names here.", target.Dir)
 	} else {
 		note = "This shell runs as the website's owner, but this host cannot confine it (no mount namespaces), so it can also reach the account's other folders."
 	}
 	_ = ws.json(map[string]any{
-		"type":   "ready",
-		"target": target.Title,
-		"dir":    target.Dir,
-		"jailed": jailed,
-		"masked": masked,
-		"shell":  session.Shell(),
-		"user":   session.User(),
-		"mode":   s.host.Mode(),
-		"note":   note,
+		"type":     "ready",
+		"target":   target.Title,
+		"dir":      target.Dir,
+		"jailed":   jailed,
+		"masked":   masked,
+		"jailMode": jailMode,
+		"shell":    session.Shell(),
+		"user":     session.User(),
+		"mode":     s.host.Mode(),
+		"note":     note,
 	})
 
 	conn.SetReadLimit(ptyReadLimit)

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -24,6 +25,14 @@ func (s JailSpec) AppsDir() string { return filepath.Join(s.Home(), "apps") }
 
 // SiteDir is the one directory the shell is meant to work in.
 func (s JailSpec) SiteDir() string { return filepath.Join(s.AppsDir(), s.Slug) }
+
+// SiteInsideHome reports whether the site lives inside the tenant's home, which
+// is what makes the home overlay possible.
+func (s JailSpec) SiteInsideHome() bool {
+	home := filepath.Clean(s.Home())
+	site := filepath.Clean(s.SiteDir())
+	return site != home && strings.HasPrefix(site, home+string(filepath.Separator))
+}
 
 // Siblings lists what a shell opened for one site must not see: the entries of
 // the tenant's home other than apps/, and every other site under apps/. This is
