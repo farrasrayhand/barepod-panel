@@ -29,9 +29,13 @@ type Config struct {
 	TLS     bool
 	TLSCert string
 	TLSKey  string
-	// HTTPListen is a plain-HTTP address that only redirects to https. Empty turns
-	// the redirect off.
+	// HTTPListen is a plain-HTTP address that serves the server's default page, so a
+	// bare visit answers ("no website here", and where the panel is) instead of a
+	// browser's "connection refused" — until the web-server module owns the port.
 	HTTPListen string
+	// HTTPSListen is the same default page over TLS, so https://<server>/ answers
+	// too. Empty disables it.
+	HTTPSListen string
 
 	MetricsInterval time.Duration
 	MetricsHistory  int
@@ -118,7 +122,8 @@ func Load(args []string) (Config, error) {
 	tls := fs.Bool("tls", envBool("BAREPOD_TLS", true), "serve the panel over HTTPS (a self-signed certificate is generated when none is given)")
 	tlsCert := fs.String("tls-cert", env("BAREPOD_TLS_CERT", ""), "TLS certificate path (default: a self-signed pair beside the panel database)")
 	tlsKey := fs.String("tls-key", env("BAREPOD_TLS_KEY", ""), "TLS private key path")
-	httpListen := fs.String("http-listen", env("BAREPOD_HTTP_LISTEN", ""), "panel-only plain-HTTP address that redirects to https; leave empty (default) so port 80 stays free for websites")
+	httpListen := fs.String("http-listen", env("BAREPOD_HTTP_LISTEN", ":80"), "plain-HTTP address that serves the server's default page (empty disables it); the web-server module will take this port over")
+	httpsListen := fs.String("https-listen", env("BAREPOD_HTTPS_LISTEN", ":443"), "HTTPS address that serves the same default page over TLS (empty disables it)")
 	dbPath := fs.String("db", DefaultDBPath(), "path to the panel SQLite database")
 	keyPath := fs.String("key", DefaultKeyPath(), "path to the secrets encryption key")
 	staticDir := fs.String("static", env("BAREPOD_STATIC", "./dist"), "path to the built frontend (SPA)")
@@ -152,6 +157,7 @@ func Load(args []string) (Config, error) {
 		TLSCert:         strings.TrimSpace(*tlsCert),
 		TLSKey:          strings.TrimSpace(*tlsKey),
 		HTTPListen:      strings.TrimSpace(*httpListen),
+		HTTPSListen:     strings.TrimSpace(*httpsListen),
 		MetricsInterval: *metricsInterval,
 		MetricsHistory:  *metricsHistory,
 		DbtoolsIdle:     *dbtoolsIdle,

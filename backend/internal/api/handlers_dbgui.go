@@ -48,7 +48,7 @@ var databaseGuiTools = []guiTool{
 	{name: "browser", description: "The panel's own table browser: it reads SQLite itself, lists a cache's keys and runs SQL.", hosted: true},
 	{name: "pgweb", description: "A small PostgreSQL browser (one Go binary): started on demand, this database's credential injected server-side, stopped when idle.", engines: []string{"postgresql"}, hosted: true},
 	{name: "phpmyadmin", description: "The familiar MySQL/MariaDB manager, run by PHP's own small server: one process, no Apache or PHP-FPM, no login (the credential is injected server-side), stopped when idle.", engines: []string{"mysql", "mariadb"}, hosted: true},
-	{name: "dbgate", description: "A click-and-browse manager for SQLite, MongoDB and Redis (one container, started on demand, its port on loopback only and scoped to this one database).", engines: []string{"sqlite", "mongodb", "redis"}, hosted: true},
+	{name: "dbgate", description: "A click-and-browse manager for every engine here — PostgreSQL, MySQL/MariaDB, SQLite, MongoDB and Redis (one container, started on demand, its port on loopback only and scoped to this one database).", hosted: true},
 }
 
 // guiToolInstallDir is the subdirectory under DbtoolsDir where a tool that needs

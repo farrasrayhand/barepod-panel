@@ -57,7 +57,8 @@ Use `--db <path>` on any command to point at a non-default database.
 | `-listen` | `BAREPOD_LISTEN` | `:8443` | Panel listen address (HTTPS) |
 | `-tls` | `BAREPOD_TLS` | `true` | Serve the panel over HTTPS; with no cert given, a self-signed pair is generated beside the panel database |
 | `-tls-cert` / `-tls-key` | `BAREPOD_TLS_CERT` / `BAREPOD_TLS_KEY` | (generated) | Certificate and key to use instead of the self-signed pair |
-| `-http-listen` | `BAREPOD_HTTP_LISTEN` | (empty) | Panel-only plain-HTTP address that redirects to HTTPS; empty by default so port 80 stays free for websites |
+| `-http-listen` | `BAREPOD_HTTP_LISTEN` | `:80` | Plain-HTTP address that serves the server's default page (a bare visit answers instead of "connection refused"); the web-server module takes this port over later |
+| `-https-listen` | `BAREPOD_HTTPS_LISTEN` | `:443` | The same default page over TLS (self-signed), so `https://<server>/` answers too |
 | `-db` | `BAREPOD_DB` | `/var/lib/barepod/barepod.db` | Panel SQLite database (WAL) |
 | `-key` | `BAREPOD_KEY` | `/etc/barepod/secret.key` | AES-256-GCM key (created `0600`) |
 | `-static` | `BAREPOD_STATIC` | `./dist` | Built frontend for the SPA fallback |

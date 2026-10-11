@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"html"
 	"log"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -42,6 +44,70 @@ func httpsPort(listen string) string {
 		return ""
 	}
 	return port
+}
+
+// defaultPage is what a web port answers with while nothing is hosted there: a bare
+// visit gets a real page ("nothing here yet, the panel is on …") instead of the
+// browser's "This site can't be reached". The web-server module replaces it with a
+// default vhost of its own once a site owns the port.
+const defaultPage = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BarePod Panel</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f1f5f9;color:#0f172a;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px}
+.card{width:100%;max-width:34rem;background:#fff;border:1px solid #e2e8f0;border-radius:20px;box-shadow:0 10px 30px rgba(15,23,42,.06);padding:40px 36px;text-align:center}
+.icon{position:relative;width:80px;height:80px;border-radius:24px;background:#eef2ff;border:1px solid #c7d2fe;color:#4f46e5;display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
+.icon svg{width:40px;height:40px}
+.pill{position:absolute;top:-8px;right:-10px;background:#6366f1;color:#fff;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:999px}
+h1{margin:0 0 8px;font-size:24px;font-weight:900;letter-spacing:-.02em}
+p{margin:0;color:#475569}
+.box{margin-top:24px;text-align:left;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden}
+.row{display:flex;justify-content:space-between;gap:12px;padding:12px 16px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0}
+.row:last-child{border-bottom:0}
+.row b,.row code{color:#0f172a;font-weight:700}
+.row code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:500}
+.dot{display:inline-block;width:8px;height:8px;border-radius:999px;background:#f59e0b;margin-right:6px}
+.amber{color:#b45309;font-weight:700}
+a{color:#2563eb;font-weight:600;text-decoration:none}
+a:hover{text-decoration:underline}
+.footer{margin-top:20px;font-size:11px;color:#94a3b8}
+</style></head>
+<body><main class="card">
+<div class="icon">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+<span class="pill">No site</span>
+</div>
+<h1>Nothing is hosted here yet</h1>
+<p>This server is running <b>BarePod Panel</b>, but no website is configured for <b>{{host}}</b>.</p>
+<div class="box">
+<div class="row"><span>Server</span><b>BarePod Web Engine</b></div>
+<div class="row"><span>Requested host</span><code>{{host}}</code></div>
+<div class="row"><span>Status</span><span class="amber"><span class="dot"></span>404 — no website configured</span></div>
+<div class="row"><span>Panel</span>{{panel}}</div>
+</div>
+<p class="footer">Add a website from the panel and it will answer on this address.</p>
+</main></body></html>`
+
+// defaultPageHandler serves that page for every request on a web port, with the
+// request's host and the panel's address filled in.
+func defaultPageHandler(panelPort string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(r.Host); err == nil {
+			host = h
+		}
+		escaped := html.EscapeString(host)
+		panel := "its own port"
+		if panelPort != "" && panelPort != "443" {
+			url := "https://" + escaped + ":" + panelPort
+			panel = `<a href="` + url + `">` + url + `</a>`
+		}
+		page := strings.NewReplacer("{{host}}", escaped, "{{panel}}", panel).Replace(defaultPage)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(page))
+	})
 }
 
 // redirectingListener serves the panel's HTTPS port and turns a plain-HTTP request
@@ -242,6 +308,15 @@ func runServe(args []string) error {
 		certPath, keyPath = generatedCert, generatedKey
 	}
 
+	var certificate tls.Certificate
+	if cfg.TLS {
+		loaded, err := tls.LoadX509KeyPair(certPath, keyPath)
+		if err != nil {
+			return fmt.Errorf("load the panel certificate: %w", err)
+		}
+		certificate = loaded
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		if !cfg.TLS {
@@ -249,11 +324,6 @@ func runServe(args []string) error {
 			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 			}
-			return
-		}
-		certificate, err := tls.LoadX509KeyPair(certPath, keyPath)
-		if err != nil {
-			errCh <- fmt.Errorf("load the panel certificate: %w", err)
 			return
 		}
 		listener, err := net.Listen("tcp", cfg.Listen)
@@ -275,25 +345,36 @@ func runServe(args []string) error {
 		}
 	}()
 
-	// A plain-HTTP request is not answered but sent to HTTPS: the session cookie is
-	// Secure, so serving the panel in the clear would be a lie.
-	if cfg.TLS && cfg.HTTPListen != "" {
-		port := httpsPort(cfg.Listen)
+	// The server's default page: a bare visit to its address answers — "nothing is
+	// hosted on this port yet, the panel is here" — instead of a browser's "This
+	// site can't be reached". The web-server module takes this port over later and
+	// serves a default vhost of its own.
+	if cfg.HTTPListen != "" {
 		go func() {
-			log.Printf("redirecting http://%s to https://%s", cfg.HTTPListen, cfg.Listen)
-			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				host := r.Host
-				if h, _, err := net.SplitHostPort(r.Host); err == nil {
-					host = h
-				}
-				target := "https://" + host
-				if port != "" && port != "443" {
-					target += ":" + port
-				}
-				http.Redirect(w, r, target+r.URL.RequestURI(), http.StatusPermanentRedirect)
-			})
-			if err := http.ListenAndServe(cfg.HTTPListen, handler); err != nil {
-				log.Printf("the HTTP redirect listener on %s stopped: %v", cfg.HTTPListen, err)
+			log.Printf("serving the default page on http://%s (no website is configured there yet)", cfg.HTTPListen)
+			if err := http.ListenAndServe(cfg.HTTPListen, defaultPageHandler(httpsPort(cfg.Listen))); err != nil {
+				log.Printf("the default-page listener on %s stopped: %v", cfg.HTTPListen, err)
+			}
+		}()
+	}
+
+	// The same default page over TLS, so https://<server>/ answers too.
+	if cfg.TLS && cfg.HTTPSListen != "" {
+		go func() {
+			log.Printf("serving the default page on https://%s", cfg.HTTPSListen)
+			listener, err := net.Listen("tcp", cfg.HTTPSListen)
+			if err != nil {
+				log.Printf("the default-page listener on %s stopped: %v", cfg.HTTPSListen, err)
+				return
+			}
+			page := &http.Server{Handler: defaultPageHandler(httpsPort(cfg.Listen)), ReadHeaderTimeout: 10 * time.Second}
+			redirector := &redirectingListener{
+				Listener:  listener,
+				httpsPort: "443",
+				tlsConfig: &tls.Config{Certificates: []tls.Certificate{certificate}, MinVersion: tls.VersionTLS12},
+			}
+			if err := page.Serve(redirector); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("the default-page listener on %s stopped: %v", cfg.HTTPSListen, err)
 			}
 		}()
 	}

@@ -26,6 +26,12 @@ type dbgatePlan struct {
 // dbgateEngineRef maps our engine name to the DbGate plugin that opens it.
 func dbgateEngineRef(engine string) (string, error) {
 	switch engine {
+	case "postgresql":
+		return "postgres@dbgate-plugin-postgres", nil
+	case "mysql":
+		return "mysql@dbgate-plugin-mysql", nil
+	case "mariadb":
+		return "mariadb@dbgate-plugin-mysql", nil
 	case "sqlite":
 		return "sqlite@dbgate-plugin-sqlite", nil
 	case "mongodb":
