@@ -73,6 +73,13 @@ else
   warn "Docker not found — required for container pods at runtime (Phase 3)."
 fi
 
+# --- Database engines ---
+# Without this step every engine says "not installed": the panel can only offer
+# what the host has. Skip it with --no-engines.
+if [[ -x "$(dirname "$0")/install-engines.sh" ]]; then
+  "$(dirname "$0")/install-engines.sh" "$@" || echo "   (engine installation reported a problem; the panel will show each engine honestly)"
+fi
+
 # --- BarePod daemon (Go) ---
 INSTALL_DIR="${BAREPOD_INSTALL_DIR:-/usr/local/bin}"
 DATA_DIR="${BAREPOD_DATA_DIR:-/var/lib/barepod}"

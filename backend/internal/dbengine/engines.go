@@ -205,7 +205,10 @@ func probeCommand(engine Engine) []string {
 		}
 		return []string{"psql", "-h", "127.0.0.1", "-c", "SELECT 1"}
 	case "mysql", "mariadb":
-		return []string{engine.Client, "--protocol=TCP", "-h", "127.0.0.1", "-e", "SELECT 1"}
+		// Over the unix socket, as root: a fresh MariaDB/MySQL uses unix_socket
+		// authentication, so probing over TCP without a password would report
+		// "not running" for a server that is plainly up (it did).
+		return []string{engine.Client, "-e", "SELECT 1"}
 	case "mongodb":
 		return []string{"mongosh", "--quiet", "--eval", "db.runCommand({ping:1})"}
 	case "redis":
