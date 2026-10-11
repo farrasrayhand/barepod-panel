@@ -122,20 +122,42 @@ func ContainerFor(engine, adminUser, adminPassword, envDir string) (ContainerSpe
 	return spec, extraArgv, nil
 }
 
-// RunArgv is the command that starts the container: bound to loopback so the only
-// way in is through the panel or the tenant's own application on this host.
+// RunArgv is the command that starts the container.
+//
+// It uses the host's network namespace on purpose. Publishing a port
+// (`-p 127.0.0.1:5433:5432`) needs the docker bridge and iptables, and an
+// unprivileged LXC has neither — while running on the host network puts the engine
+// directly on the host's loopback, which is where the tenant's application expects
+// it anyway. Each engine is therefore told to listen on its own port.
 func (c ContainerSpec) RunArgv() []string {
 	argv := []string{
 		"docker", "run", "-d", "--restart", "unless-stopped",
 		"--name", c.Name,
-		"-p", fmt.Sprintf("127.0.0.1:%d:%d", c.HostPort, c.ContainerPort),
+		"--network", "host",
 		"-v", c.Volume + ":/var/lib/" + c.Engine,
 	}
 	if c.EnvPath != "" {
 		argv = append(argv, "--env-file", c.EnvPath)
 	}
 	argv = append(argv, c.Image)
+	argv = append(argv, c.engineArgs()...)
 	return argv
+}
+
+// engineArgs tells the engine inside the container which port to use, so several
+// engines can share the host's loopback without colliding with the host's own.
+func (c ContainerSpec) engineArgs() []string {
+	switch c.Engine {
+	case "postgresql":
+		return []string{"-c", fmt.Sprintf("port=%d", c.HostPort)}
+	case "mysql":
+		return []string{"--port", fmt.Sprint(c.HostPort)}
+	case "mongodb":
+		return []string{"--port", fmt.Sprint(c.HostPort)}
+	case "redis":
+		return []string{"--port", fmt.Sprint(c.HostPort)}
+	}
+	return nil
 }
 
 // LifecycleArgv are the other verbs the panel needs.

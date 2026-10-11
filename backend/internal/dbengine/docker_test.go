@@ -18,9 +18,17 @@ func TestContainerBindsLoopbackAndKeepsCredentialsOutOfArgv(t *testing.T) {
 	if !strings.Contains(argv, "postgres:16-alpine") {
 		t.Errorf("the image is missing: %s", argv)
 	}
-	// Loopback only: a database container must never be reachable from outside.
-	if !strings.Contains(argv, "-p 127.0.0.1:5433:5432") {
-		t.Errorf("the port is not bound to loopback: %s", argv)
+	// The host's network namespace, not a published port: publishing needs the
+	// bridge and iptables, which an unprivileged LXC does not have, and this way the
+	// engine lands on the host's own loopback.
+	if !strings.Contains(argv, "--network host") {
+		t.Errorf("the container does not use the host network: %s", argv)
+	}
+	if strings.Contains(argv, "-p ") {
+		t.Errorf("a published port needs iptables, which this target cannot provide: %s", argv)
+	}
+	if !strings.Contains(argv, "-c port=5433") {
+		t.Errorf("the engine was not told its port: %s", argv)
 	}
 	if !strings.Contains(argv, "-v barepod-postgres-data:/var/lib/postgresql") {
 		t.Errorf("the volume is missing: %s", argv)
@@ -56,8 +64,8 @@ func TestContainerBindsLoopbackAndKeepsCredentialsOutOfArgv(t *testing.T) {
 	if redis.EnvPath != "" {
 		t.Errorf("redis should need no env file")
 	}
-	if !strings.Contains(strings.Join(redis.RunArgv(), " "), "-p 127.0.0.1:6380:6379") {
-		t.Errorf("redis port = %v", redis.RunArgv())
+	if !strings.Contains(strings.Join(redis.RunArgv(), " "), "--port 6380") {
+		t.Errorf("redis was not told its port: %v", redis.RunArgv())
 	}
 }
 
@@ -89,8 +97,13 @@ func TestContainerLifecycleAndPurge(t *testing.T) {
 
 	// Every engine the panel offers as a database or cache has a recipe.
 	for _, engine := range []string{"postgresql", "mysql", "mongodb", "redis"} {
-		if _, _, err := ContainerFor(engine, "u", "p", t.TempDir()); err != nil {
+		spec, _, err := ContainerFor(engine, "u", "p", t.TempDir())
+		if err != nil {
 			t.Errorf("%s has no container recipe: %v", engine, err)
+			continue
+		}
+		if len(spec.engineArgs()) == 0 {
+			t.Errorf("%s does not say which port to listen on", engine)
 		}
 	}
 	if _, _, err := ContainerFor("sqlite", "u", "p", t.TempDir()); err == nil {
