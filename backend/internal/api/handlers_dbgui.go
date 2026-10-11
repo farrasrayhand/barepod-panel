@@ -98,7 +98,27 @@ func (s *Server) guiToolAvailability(kind string, record *store.Database, tool g
 	if !s.host.Materialises() {
 		return "", false, "the daemon is in dry-run mode, so no manager can be started"
 	}
+	if reason, blocked := guiRecordBlocked(record); blocked {
+		return "", false, reason
+	}
 	return mount + "/", true, ""
+}
+
+// guiRecordBlocked answers why a server manager cannot be opened for a record: a
+// database that was never actually created (a create whose client was missing),
+// one that failed, or one in the recycle bin has no server to connect to — better
+// to say so at once than to start a tool that dies and waits out its timeout.
+func guiRecordBlocked(record *store.Database) (string, bool) {
+	if record.DeletedAt != "" {
+		return "it is in the recycle bin — restore it before opening a manager", true
+	}
+	if record.Status != "" && record.Status != "ready" {
+		if note := strings.TrimSpace(record.Note); note != "" {
+			return note, true
+		}
+		return "its status is " + record.Status, true
+	}
+	return "", false
 }
 
 // handleDatabaseGui is the gate: GET .../gui lists the managers, and
@@ -217,6 +237,10 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 		if s.tools == nil {
 			writeError(w, http.StatusServiceUnavailable, "service_error",
 				"The database-tool supervisor is not configured on this daemon")
+			return
+		}
+		if reason, blocked := guiRecordBlocked(record); blocked {
+			writeError(w, http.StatusConflict, "not_ready", "This database is not ready to open — "+reason)
 			return
 		}
 

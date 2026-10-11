@@ -1121,6 +1121,28 @@ func TestDatabaseGuiNeedsThePanelSession(t *testing.T) {
 	}
 }
 
+// A record that was never actually created (a create whose client was missing),
+// or one in the recycle bin, has no server to open — the panel says so at once,
+// with the record's own note, instead of starting a tool that dies and waits out
+// its timeout.
+func TestGuiRecordBlockedExplainsWhy(t *testing.T) {
+	if reason, blocked := guiRecordBlocked(&store.Database{Status: "ready"}); blocked {
+		t.Errorf("a ready database must not be blocked: %q", reason)
+	}
+	reason, blocked := guiRecordBlocked(&store.Database{Status: "pending", Note: "psql is not installed on this host"})
+	if !blocked || reason != "psql is not installed on this host" {
+		t.Errorf("pending: blocked=%v reason=%q", blocked, reason)
+	}
+	reason, blocked = guiRecordBlocked(&store.Database{Status: "failed"})
+	if !blocked || !strings.Contains(reason, "failed") {
+		t.Errorf("failed: blocked=%v reason=%q", blocked, reason)
+	}
+	reason, blocked = guiRecordBlocked(&store.Database{Status: "ready", DeletedAt: "now"})
+	if !blocked || !strings.Contains(reason, "recycle bin") {
+		t.Errorf("binned: blocked=%v reason=%q", blocked, reason)
+	}
+}
+
 // A PostgreSQL database is what pgweb can open: with the binary missing the panel
 // says so (both at the gate and on the proxied path) instead of pretending.
 func TestDatabaseGuiProxyRefusesWhenTheToolIsMissing(t *testing.T) {

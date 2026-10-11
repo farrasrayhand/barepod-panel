@@ -3,6 +3,7 @@ package dbtools
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -107,7 +108,7 @@ func TestStartArgvCarriesTheMountPrefix(t *testing.T) {
 // positionally, so a password with shell metacharacters cannot change the command.
 func TestDetachedArgvDoesNotLetTheCredentialChangeTheCommand(t *testing.T) {
 	argv := StartArgv(Registry()["pgweb"], "postgres://u:p'w&d@127.0.0.1:5432/db")
-	wrapped := DetachedArgv(argv)
+	wrapped := DetachedArgv(argv, "/var/lib/barepod/dbtools-pgweb.log")
 	if len(wrapped) != 4+len(argv) || wrapped[0] != "sh" || wrapped[1] != "-c" {
 		t.Fatalf("the wrapper is wrong: %v", wrapped)
 	}
@@ -117,11 +118,17 @@ func TestDetachedArgvDoesNotLetTheCredentialChangeTheCommand(t *testing.T) {
 	if strings.Contains(wrapped[2], `'w&d`) {
 		t.Errorf("the credential was inlined into the script: %s", wrapped[2])
 	}
+	if !strings.Contains(wrapped[2], "/var/lib/barepod/dbtools-pgweb.log") {
+		t.Errorf("the output is not captured where the panel can read it: %s", wrapped[2])
+	}
 	if wrapped[4] != argv[0] {
 		t.Errorf("the tool command is not passed positionally: %v", wrapped)
 	}
-	if DetachedArgv(nil) != nil {
+	if DetachedArgv(nil, "x") != nil {
 		t.Error("nothing must wrap to nothing")
+	}
+	if wrapped := DetachedArgv([]string{"pgweb"}, ""); !strings.Contains(wrapped[2], os.DevNull) {
+		t.Errorf("an empty log path must discard the output: %s", wrapped[2])
 	}
 }
 

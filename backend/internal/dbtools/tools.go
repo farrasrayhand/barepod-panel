@@ -11,6 +11,8 @@ package dbtools
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -71,8 +73,11 @@ func Available(spec Spec, lookPath func(string) (string, error)) (string, bool) 
 
 // Supervisor starts tools on demand and stops the idle ones.
 type Supervisor struct {
-	runner        host.Runner
-	idleTimeout   time.Duration
+	runner      host.Runner
+	idleTimeout time.Duration
+	// LogDir is where a tool's output is captured (one small file per tool), so a
+	// start that fails can say why. Empty discards it (/dev/null).
+	LogDir        string
 	now           func() time.Time
 	mu            sync.Mutex
 	locks         map[string]*sync.Mutex
@@ -134,7 +139,7 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 	if len(argv) == 0 {
 		return fmt.Errorf("no recipe for %q", spec.Name)
 	}
-	start := DetachedArgv(argv)
+	start := DetachedArgv(argv, s.logPathFor(spec))
 	if out, err := s.runner.Run(ctx, "", start[0], start[1:]...); err != nil {
 		return fmt.Errorf("%s could not be started: %s", spec.Name, strings.TrimSpace(out))
 	}
@@ -145,7 +150,7 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 	s.mu.Unlock()
 
 	// A started process is not yet a usable page.
-	deadline := s.now().Add(20 * time.Second)
+	deadline := s.now().Add(startupWait)
 	for s.now().Before(deadline) {
 		if s.running(ctx, spec) {
 			return nil
@@ -156,7 +161,42 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 		case <-time.After(300 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("%s did not answer within 20s on 127.0.0.1:%d", spec.Name, spec.Port)
+	// The tool started and then died (a database that was never created, a server
+	// that is down): its own output is the reason, so it is reported rather than
+	// left as a bare timeout.
+	if detail := s.logTail(spec); detail != "" {
+		return fmt.Errorf("%s did not answer within %s on 127.0.0.1:%d: %s", spec.Name, startupWait, spec.Port, detail)
+	}
+	return fmt.Errorf("%s did not answer within %s on 127.0.0.1:%d", spec.Name, startupWait, spec.Port)
+}
+
+// startupWait is how long a freshly started tool may take to answer.
+const startupWait = 20 * time.Second
+
+// logPathFor is where a tool's output is captured: one small file per tool, so a
+// start that fails can say why. An empty LogDir discards it.
+func (s *Supervisor) logPathFor(spec Spec) string {
+	if s.LogDir == "" {
+		return os.DevNull
+	}
+	return filepath.Join(s.LogDir, "dbtools-"+spec.Name+".log")
+}
+
+// logTail is the end of a tool's output, which is where the reason usually is.
+func (s *Supervisor) logTail(spec Spec) string {
+	if s.LogDir == "" {
+		return ""
+	}
+	data, err := os.ReadFile(s.logPathFor(spec))
+	if err != nil {
+		return ""
+	}
+	text := strings.TrimSpace(string(data))
+	const limit = 400
+	if len(text) > limit {
+		text = "…" + text[len(text)-limit:]
+	}
+	return text
 }
 
 // running asks the tool whether it answers on its loopback port.
@@ -241,15 +281,18 @@ func (s *Supervisor) Reconcile(ctx context.Context) {
 // DetachedArgv wraps a tool's command so the daemon does not wait for it. A
 // manager runs until it is stopped, while the host runner waits for the command
 // it runs to finish — starting one with the plain argv would block the request
-// until it exits (forever). The tool is put in its own session and its output
-// discarded, and the arguments are passed positionally after a shell script that
-// only refers to them as "$@", so a credential with shell metacharacters cannot
-// change the command.
-func DetachedArgv(argv []string) []string {
+// until it exits (forever). The tool is put in its own session, its output goes
+// to logPath (which the panel reads back when a start fails), and the arguments
+// are passed positionally after a shell script that only refers to them as "$@",
+// so a credential with shell metacharacters cannot change the command.
+func DetachedArgv(argv []string, logPath string) []string {
 	if len(argv) == 0 {
 		return nil
 	}
-	return append([]string{"sh", "-c", `setsid "$@" >/dev/null 2>&1 &`, "dbtools"}, argv...)
+	if logPath == "" {
+		logPath = os.DevNull
+	}
+	return append([]string{"sh", "-c", fmt.Sprintf(`setsid "$@" >%s 2>&1 &`, logPath), "dbtools"}, argv...)
 }
 
 // StartArgv is the command line for a tool, which is also what the tests assert.

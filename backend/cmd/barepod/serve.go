@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -82,6 +83,9 @@ func runServe(args []string) error {
 	// running and nothing knows how long it has been idle, so leftovers are
 	// cleared at start; a sweeper then stops the ones that go idle.
 	tools := dbtools.New(runner, cfg.DbtoolsIdle)
+	// A manager's output is kept beside the panel database (a root-only directory),
+	// so a start that fails reports the tool's own reason instead of a bare timeout.
+	tools.LogDir = filepath.Dir(cfg.DBPath)
 	reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), 15*time.Second)
 	tools.Reconcile(reconcileCtx)
 	cancelReconcile()
