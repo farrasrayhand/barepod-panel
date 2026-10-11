@@ -918,3 +918,117 @@ func TestStaticFilesTellTheBrowserHowToCacheThem(t *testing.T) {
 		t.Errorf("an unknown API route = %d, want 404", recorder.Code)
 	}
 }
+
+func TestSQLiteDataBrowserReadsTheFileItself(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	_, body := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
+		"engine": "sqlite", "alias": "Browser DB", "websiteSlug": "admin-site",
+	})
+	var created struct {
+		Database struct {
+			ID string `json:"id"`
+		} `json:"database"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	id := created.Database.ID
+
+	// A statement creates a table and fills it — the daemon runs it itself, so no
+	// client has to be installed for SQLite.
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/databases/"+id+"/query", map[string]string{
+		"sql": "CREATE TABLE posts (id INTEGER PRIMARY KEY, title TEXT)",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create table = %d (%s)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"kind":"exec"`) {
+		t.Errorf("a non-select should report itself as exec: %s", body)
+	}
+	if _, body = panel.do(t, http.MethodPost, "/api/v1/databases/"+id+"/query", map[string]string{
+		"sql": "INSERT INTO posts (title) VALUES ('halo'), ('dunia')",
+	}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("insert = %d (%s)", resp.StatusCode, body)
+	}
+
+	// Tables list.
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/databases/"+id+"/tables", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("tables = %d (%s)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"posts"`) || !strings.Contains(string(body), `"browser":"daemon"`) {
+		t.Errorf("the table list is wrong: %s", body)
+	}
+
+	// A SELECT comes back as a grid, with NULLs made explicit.
+	resp, body = panel.do(t, http.MethodPost, "/api/v1/databases/"+id+"/query", map[string]string{
+		"sql": "SELECT id, title, NULL AS kosong FROM posts ORDER BY id",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("select = %d (%s)", resp.StatusCode, body)
+	}
+	var grid struct {
+		Columns []string   `json:"columns"`
+		Rows    [][]string `json:"rows"`
+		Kind    string     `json:"kind"`
+	}
+	if err := json.Unmarshal(body, &grid); err != nil {
+		t.Fatal(err)
+	}
+	if grid.Kind != "select" || len(grid.Columns) != 3 || len(grid.Rows) != 2 {
+		t.Fatalf("the grid is wrong: %s", body)
+	}
+	if grid.Rows[0][1] != "halo" || grid.Rows[1][1] != "dunia" || grid.Rows[0][2] != "NULL" {
+		t.Errorf("the values are wrong: %v", grid.Rows)
+	}
+
+	// A broken statement is a clear error, not a 200 with nothing in it.
+	resp, body = panel.do(t, http.MethodPost, "/api/v1/databases/"+id+"/query", map[string]string{
+		"sql": "SELECT FROM WHERE",
+	})
+	if resp.StatusCode == http.StatusOK {
+		t.Errorf("a broken statement was accepted: %s", body)
+	}
+
+	// The query is audited, and the statement text is not stored.
+	_, auditBody := panel.do(t, http.MethodGet, "/api/v1/audit?limit=20", nil)
+	if !strings.Contains(string(auditBody), "database.query") {
+		t.Errorf("the query was not audited: %s", auditBody)
+	}
+	if strings.Contains(string(auditBody), "CREATE TABLE posts") {
+		t.Errorf("the statement text was stored in the audit trail: %s", auditBody)
+	}
+}
+
+func TestDataBrowserRefusesWhatItCannotDoYet(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	// A daemon engine: no browsing until the panel can scope arbitrary SQL.
+	_, body := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
+		"engine": "postgresql", "version": "16", "alias": "Reports",
+	})
+	var created struct {
+		Database struct {
+			ID string `json:"id"`
+		} `json:"database"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/databases/"+created.Database.ID+"/query", map[string]string{
+		"sql": "SELECT 1",
+	})
+	if resp.StatusCode != http.StatusNotImplemented {
+		t.Errorf("a daemon engine accepted arbitrary SQL: %d (%s)", resp.StatusCode, body)
+	}
+
+	// Another account's database is still a 404.
+	panel.login(t, "alex")
+	resp, _ = panel.do(t, http.MethodGet, "/api/v1/databases/"+created.Database.ID+"/tables", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("a tenant browsed another account's database: %d", resp.StatusCode)
+	}
+}

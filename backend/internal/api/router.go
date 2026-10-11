@@ -180,6 +180,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/databases/{id}/connection-string", databases(s.handleConnectionString(store.KindDatabase)))
 	mux.HandleFunc("POST /api/v1/databases/{id}/restore", databases(s.handleRestoreDatabase(store.KindDatabase)))
 	mux.HandleFunc("POST /api/v1/databases/{id}/purge", databases(s.handlePurgeDatabase(store.KindDatabase)))
+	// Data browsing, served by the daemon itself: no extra port, no GUI process —
+	// the panel's own session, capability and audit apply.
+	mux.HandleFunc("GET /api/v1/databases/{id}/tables", databases(s.handleListTables(store.KindDatabase)))
+	mux.HandleFunc("POST /api/v1/databases/{id}/query", databases(s.handleDatabaseQuery(store.KindDatabase)))
 
 	mux.HandleFunc("GET /api/v1/caches", databases(s.handleListDatabases(store.KindCache)))
 	mux.HandleFunc("POST /api/v1/caches", databases(s.handleCreateDatabase(store.KindCache)))
@@ -193,6 +197,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/caches/{id}/connection-string", databases(s.handleConnectionString(store.KindCache)))
 	mux.HandleFunc("POST /api/v1/caches/{id}/restore", databases(s.handleRestoreDatabase(store.KindCache)))
 	mux.HandleFunc("POST /api/v1/caches/{id}/purge", databases(s.handlePurgeDatabase(store.KindCache)))
+	mux.HandleFunc("GET /api/v1/caches/{id}/tables", databases(s.handleListTables(store.KindCache)))
+	mux.HandleFunc("POST /api/v1/caches/{id}/query", databases(s.handleDatabaseQuery(store.KindCache)))
 
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)
