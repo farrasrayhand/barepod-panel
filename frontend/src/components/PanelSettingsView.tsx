@@ -735,7 +735,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 <input
                   type={jwtSecretMasked ? "password" : "text"}
                   readOnly
-                  value="barepod_jwt_sec_9941a87b20f4c01e5491aa"
+                  value="kept in /etc/barepod/secret.key (0600) — never shown in the panel"
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-700"
                 />
               </div>
