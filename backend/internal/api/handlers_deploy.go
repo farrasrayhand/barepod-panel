@@ -525,13 +525,27 @@ func (s *Server) handleDeleteWebsite(w http.ResponseWriter, r *http.Request, use
 // file that no longer existed).
 func (s *Server) detachDatabase(ctx context.Context, record *store.Database) error {
 	if record.FileBased && record.FilePath != "" {
-		dir := filepath.Join(filepath.Dir(s.cfg.DBPath), "detached")
+		// The tenant's own home, not the daemon's data directory: the file is theirs, it
+		// stays reachable through the panel's File Manager (and by them), and it is where
+		// they would look for it. Ownership is handed back after the move so nothing in
+		// their home is left root-owned.
+		dir := filepath.Join(s.cfg.SitesRoot, record.TenantUser, "detached")
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return err
 		}
-		target := filepath.Join(dir, record.ID+".sqlite")
+		if ids := s.tenantIDs(ctx, record.TenantUser); ids != "" {
+			if out, err := s.host.Run(ctx, []string{"chown", ids, dir}); err != nil {
+				return fmt.Errorf("chown %s: %w (%s)", dir, err, strings.TrimSpace(out))
+			}
+		}
+		target := filepath.Join(dir, filepath.Base(record.FilePath))
 		if err := os.Rename(record.FilePath, target); err != nil {
 			return err
+		}
+		if ids := s.tenantIDs(ctx, record.TenantUser); ids != "" {
+			if out, err := s.host.Run(ctx, []string{"chown", ids, target}); err != nil {
+				return fmt.Errorf("chown %s: %w (%s)", target, err, strings.TrimSpace(out))
+			}
 		}
 		if err := s.store.RenameDatabaseFile(record.ID, target); err != nil {
 			return err
