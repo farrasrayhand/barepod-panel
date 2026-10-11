@@ -206,6 +206,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/caches/{id}/query", databases(s.handleDatabaseQuery(store.KindCache)))
 	mux.HandleFunc("GET /api/v1/caches/{id}/gui", databases(s.handleDatabaseGui(store.KindCache)))
 	mux.HandleFunc("GET /api/v1/caches/{id}/gui/{tool}", databases(s.handleDatabaseGui(store.KindCache)))
+	// The cache browser is ours: keys are read with the pure-Go client, so no
+	// redis-cli (and no redis-commander) has to exist anywhere.
+	mux.HandleFunc("GET /api/v1/caches/{id}/key", databases(s.handleRedisKey(store.KindCache)))
 
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)

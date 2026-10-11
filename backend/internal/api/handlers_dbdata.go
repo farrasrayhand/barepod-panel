@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
@@ -58,14 +61,16 @@ func (s *Server) handleListTables(kind string) authedHandler {
 			return
 		}
 
-		engine, _ := s.engineFor(r.Context(), record.Engine)
-		if !engine.Available {
-			writeError(w, http.StatusConflict, "not_available",
-				fmt.Sprintf("%s is not installed on this host, so the panel cannot browse this database", engine.Client))
+		// The daemon reaches the engine with a driver of its own: no client binary
+		// has to exist on the host, and there is no port of its own either.
+		tables, err := s.engineTables(r.Context(), record)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "service_error", err.Error())
 			return
 		}
-		writeError(w, http.StatusNotImplemented, "not_implemented",
-			"Browsing a daemon engine is not wired yet: use the terminal or a client for now")
+		writeJSON(w, http.StatusOK, map[string]any{
+			"engine": record.Engine, "tables": tables, "browser": "daemon-driver",
+		})
 	}
 }
 
@@ -102,55 +107,28 @@ func (s *Server) handleDatabaseQuery(kind string) authedHandler {
 					"There is nothing to query yet (%s): %s", record.Status, reason))
 				return
 			}
-			engine, _ := s.engineFor(r.Context(), record.Engine)
-			if !engine.Available {
-				writeError(w, http.StatusConflict, "not_available", fmt.Sprintf(
-					"%s is not installed on this host, so the panel cannot run statements here", engine.Client))
-				return
-			}
+			// The statement runs through a driver as this database's own user, so the
+			// panel can do no more than that user could — and no client binary has to
+			// exist on the host.
 			if !s.host.Materialises() {
 				writeError(w, http.StatusNotImplemented, "dry_run",
 					"The daemon is in dry-run mode: statements are not run against a real server")
 				return
 			}
-			password, err := secrets.Decrypt(s.key, record.PasswordCipher)
+			result, err := s.engineQuery(r.Context(), record, statement)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal", "Could not decrypt the credential")
-				return
-			}
-			command, err := dbengine.QueryCommand(record.Engine, s.resourceFor(record, password), statement)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, "validation_error", err.Error())
-				return
-			}
-			out, runErr := s.host.Runner.RunEnv(r.Context(), "", command.Env, command.Argv[0], command.Argv[1:]...)
-			// The client exits non-zero when the engine refuses (a permission error,
-			// a syntax error): that is an error to report, never a one-column grid
-			// with "ERROR: …" in it (the first version did exactly that).
-			if runErr != nil {
-				message := strings.TrimSpace(out)
-				if message == "" {
-					message = runErr.Error()
+				// The engine's own message, with any credential redacted in case a
+				// driver ever echoes it back.
+				message := strings.ReplaceAll(err.Error(), record.Name, record.Name)
+				if password, derr := secrets.Decrypt(s.key, record.PasswordCipher); derr == nil {
+					message = strings.ReplaceAll(message, password, "***")
 				}
-				message = strings.ReplaceAll(message, password, "***")
 				writeError(w, http.StatusBadGateway, "service_error", message)
 				return
 			}
-			grid, parseErr := dbengine.ParseQueryOutput(record.Engine, out)
-			if parseErr != nil {
-				writeError(w, http.StatusBadGateway, "service_error", parseErr.Error())
-				return
-			}
-			kind := "exec"
-			if len(grid.Columns) > 0 {
-				kind = "select"
-			}
 			_ = s.store.Audit(user.ID, "database.query", record.Name, clientIP(r),
-				fmt.Sprintf("%s via %s, %d row(s)", record.Engine, engine.Client, len(grid.Rows)))
-			writeJSON(w, http.StatusOK, map[string]any{
-				"columns": grid.Columns, "rows": grid.Rows,
-				"truncated": grid.Truncated, "kind": kind,
-			})
+				fmt.Sprintf("%s via driver, %d row(s)", record.Engine, len(result.Rows)))
+			writeJSON(w, http.StatusOK, result)
 			return
 		}
 
@@ -288,40 +266,194 @@ func openSQLiteReadOnly(path string) (*sql.DB, error) {
 	return sql.Open("sqlite", "file:"+path+"?mode=ro")
 }
 
-// redisKeys lists a sample of the cache's own keys (its user is scoped to the
-// prefix, so this cannot see another cache).
-func (s *Server) redisKeys(ctx context.Context, record *store.Database) ([]string, int, error) {
+// redisKeys lists a sample of the cache's own keys — read through the pure-Go
+// client, so no redis-cli has to exist on the host and there is no text output to
+// parse back.
+func (s *Server) redisClient(record *store.Database) (*redis.Client, error) {
 	password, err := secrets.Decrypt(s.key, record.PasswordCipher)
 	if err != nil {
-		return nil, 0, errors.New("the credential could not be decrypted")
+		return nil, errors.New("the credential could not be decrypted")
 	}
-	host, port, _, _ := dbengine.ParseRedisURL(s.cfg.RedisURL)
-	base := []string{"redis-cli", "-h", host, "-p", fmt.Sprint(port), "--no-auth-warning",
-		"--user", record.User, "--pass", password, "--raw"}
-
-	countOut, err := s.host.Run(ctx, append(append([]string{}, base...), "DBSIZE"))
+	host, port, _, err := dbengine.ParseRedisURL(s.cfg.RedisURL)
 	if err != nil {
-		return nil, 0, fmt.Errorf("the cache did not answer: %s", strings.TrimSpace(countOut))
+		return nil, err
 	}
+	return redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", host, port),
+		Username: record.User,
+		Password: password,
+	}), nil
+}
 
-	keysOut, err := s.host.Run(ctx, append(append([]string{}, base...), "SCAN", "0", "COUNT", fmt.Sprint(maxQueryRows)))
+// redisKeys lists the cache's own keys. The ACL user is scoped to its prefix, so
+// this cannot see another cache even if the panel asked it to.
+func (s *Server) redisKeys(ctx context.Context, record *store.Database) ([]string, int, error) {
+	client, err := s.redisClient(record)
 	if err != nil {
-		return nil, 0, fmt.Errorf("the cache did not answer: %s", strings.TrimSpace(keysOut))
+		return nil, 0, err
 	}
+	defer func() { _ = client.Close() }()
 
 	keys := []string{}
-	for _, line := range strings.Split(keysOut, "\n") {
-		line = strings.TrimSpace(line)
-		// The output is "<cursor>" then one key per line.
-		if line == "" || line == "0" || strings.HasPrefix(strings.ToLower(line), record.User+":") == false {
-			continue
+	var cursor uint64
+	for {
+		batch, next, err := client.Scan(ctx, cursor, "*", int64(maxQueryRows)).Result()
+		if err != nil {
+			return nil, 0, fmt.Errorf("the cache did not answer: %w", err)
 		}
-		keys = append(keys, line)
-		if len(keys) >= maxQueryRows {
+		keys = append(keys, batch...)
+		cursor = next
+		if cursor == 0 || len(keys) >= maxQueryRows {
 			break
 		}
 	}
-	total := 0
-	fmt.Sscanf(strings.TrimSpace(countOut), "%d", &total)
-	return keys, total, nil
+	if len(keys) > maxQueryRows {
+		keys = keys[:maxQueryRows]
+	}
+	size, err := client.DBSize(ctx).Result()
+	if err != nil {
+		size = int64(len(keys))
+	}
+	return keys, int(size), nil
+}
+
+// redisKey is one key's shape, which is what a cache browser needs to be useful.
+type redisKey struct {
+	Key  string `json:"key"`
+	Type string `json:"type"`
+	TTL  int64  `json:"ttlSeconds"`
+	Size int64  `json:"sizeBytes"`
+	// Value is the rendered content for the readable types (string, list, set,
+	// hash, zset); a huge value comes back truncated.
+	Value     string `json:"value,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+// handleRedisKey inspects one key of a cache.
+func (s *Server) handleRedisKey(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
+			return
+		}
+		if record.Engine != "redis" {
+			writeError(w, http.StatusConflict, "not_applicable", "Only a cache has keys")
+			return
+		}
+		key := r.URL.Query().Get("key")
+		if strings.TrimSpace(key) == "" {
+			writeError(w, http.StatusBadRequest, "bad_request", "A key is required")
+			return
+		}
+
+		client, err := s.redisClient(record)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		defer func() { _ = client.Close() }()
+
+		ctx := r.Context()
+		keyType, err := client.Type(ctx, key).Result()
+		if err != nil {
+			// A key outside this cache's prefix answers NOPERM, and that must look
+			// exactly like a key that does not exist — the panel never confirms that
+			// another cache's key is there. A real connection problem is different.
+			message := err.Error()
+			if strings.Contains(message, "NOPERM") || strings.Contains(message, "no permissions") {
+				writeError(w, http.StatusNotFound, "not_found", "No such key in this cache")
+				return
+			}
+			writeError(w, http.StatusBadGateway, "service_error", fmt.Sprintf("the cache did not answer: %v", err))
+			return
+		}
+		if keyType == "none" {
+			writeError(w, http.StatusNotFound, "not_found", "No such key in this cache")
+			return
+		}
+		ttl, _ := client.TTL(ctx, key).Result()
+
+		detail := redisKey{Key: key, Type: keyType, TTL: int64(ttl.Seconds())}
+		detail.Value, detail.Truncated = s.renderRedisValue(ctx, client, key, keyType)
+
+		_ = s.store.Audit(user.ID, "database.key_read", record.Name, clientIP(r), key)
+		writeJSON(w, http.StatusOK, detail)
+	}
+}
+
+// renderRedisValue prints a key's content, capped so a 100 MB list cannot be sent
+// to a browser by accident.
+func (s *Server) renderRedisValue(ctx context.Context, client *redis.Client, key, keyType string) (string, bool) {
+	const capItems = 200
+	truncated := false
+
+	switch keyType {
+	case "string":
+		value, err := client.Get(ctx, key).Result()
+		if err != nil {
+			return "", false
+		}
+		if len(value) > 4000 {
+			return value[:4000], true
+		}
+		return value, false
+	case "list":
+		values, err := client.LRange(ctx, key, 0, capItems-1).Result()
+		if err != nil {
+			return "", false
+		}
+		length, _ := client.LLen(ctx, key).Result()
+		truncated = length > int64(len(values))
+		return strings.Join(quoteAll(values), "\n"), truncated
+	case "set":
+		values, _, err := client.SScan(ctx, key, 0, "", capItems).Result()
+		if err != nil {
+			return "", false
+		}
+		cardinality, _ := client.SCard(ctx, key).Result()
+		truncated = cardinality > int64(len(values))
+		return strings.Join(quoteAll(values), "\n"), truncated
+	case "zset":
+		values, err := client.ZRangeWithScores(ctx, key, 0, capItems-1).Result()
+		if err != nil {
+			return "", false
+		}
+		cardinality, _ := client.ZCard(ctx, key).Result()
+		truncated = cardinality > int64(len(values))
+		lines := make([]string, 0, len(values))
+		for _, item := range values {
+			lines = append(lines, fmt.Sprintf("%v = %s", item.Score, item.Member))
+		}
+		return strings.Join(lines, "\n"), truncated
+	case "hash":
+		values, err := client.HGetAll(ctx, key).Result()
+		if err != nil {
+			return "", false
+		}
+		truncated = len(values) > capItems
+		lines := make([]string, 0, len(values))
+		names := make([]string, 0, len(values))
+		for name := range values {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for i, name := range names {
+			if i >= capItems {
+				break
+			}
+			lines = append(lines, name+" = "+values[name])
+		}
+		return strings.Join(lines, "\n"), truncated
+	case "stream":
+		return "(a stream: open it with a client for full detail)", false
+	}
+	return "", false
+}
+
+func quoteAll(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		out = append(out, value)
+	}
+	return out
 }
