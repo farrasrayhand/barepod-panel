@@ -92,14 +92,16 @@ func (s *Server) guiToolAvailability(kind string, record *store.Database, tool g
 	if !ok || !tool.hosted {
 		return "", false, fmt.Sprintf("%s is decided but not hosted by this daemon yet", tool.name)
 	}
+	// The database being the blocker is reported before the tool's install state:
+	// a manager that cannot connect is the more useful thing to say.
+	if reason, blocked := guiRecordBlocked(record); blocked {
+		return "", false, reason
+	}
 	if _, ok := dbtools.Available(spec, s.lookPath); !ok {
 		return "", false, fmt.Sprintf("%s is not installed on this host", spec.Binary)
 	}
 	if !s.host.Materialises() {
 		return "", false, "the daemon is in dry-run mode, so no manager can be started"
-	}
-	if reason, blocked := guiRecordBlocked(record); blocked {
-		return "", false, reason
 	}
 	return mount + "/", true, ""
 }
@@ -172,6 +174,12 @@ func (s *Server) handleDatabaseGui(kind string) authedHandler {
 		path, available, reason := s.guiToolAvailability(kind, record, known)
 		if !available {
 			_ = s.store.Audit(user.ID, "database.gui_open", record.Name, clientIP(r), tool+": "+reason)
+			// The tool may exist and be installed; if the database itself is what is
+			// blocking, say that instead of "not hosted", which would blame the tool.
+			if blocked, isRecord := guiRecordBlocked(record); isRecord {
+				writeError(w, http.StatusConflict, "not_ready", "This database is not ready to open — "+blocked)
+				return
+			}
 			writeError(w, http.StatusNotImplemented, "not_installed", fmt.Sprintf(
 				"%s is not hosted here yet (%s). When it is, it will run behind this same path — loopback only, credentials injected server-side, closed when idle — and never on a port of its own.",
 				tool, reason))
@@ -214,6 +222,11 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 				tool))
 			return
 		}
+		// The database being the blocker is reported before the tool's install state.
+		if reason, blocked := guiRecordBlocked(record); blocked {
+			writeError(w, http.StatusConflict, "not_ready", "This database is not ready to open — "+reason)
+			return
+		}
 		if !guiToolSupportsEngine(known, record.Engine) {
 			writeError(w, http.StatusConflict, "not_applicable",
 				fmt.Sprintf("%s does not open %s databases", tool, record.Engine))
@@ -239,11 +252,6 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 				"The database-tool supervisor is not configured on this daemon")
 			return
 		}
-		if reason, blocked := guiRecordBlocked(record); blocked {
-			writeError(w, http.StatusConflict, "not_ready", "This database is not ready to open — "+reason)
-			return
-		}
-
 		password, err := secrets.Decrypt(s.key, record.PasswordCipher)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not decrypt the credential")

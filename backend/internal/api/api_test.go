@@ -1149,15 +1149,19 @@ func TestDatabaseGuiProxyRefusesWhenTheToolIsMissing(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")
 
-	_, created := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
-		"engine": "postgresql", "alias": "Proxy PG",
-	})
-	id := databaseIDFrom(t, created)
+	// A record that really is ready: the tool's install state is what is under test.
+	record := &store.Database{
+		Kind: store.KindDatabase, Engine: "postgresql", Alias: "Ready PG", Name: "admin_ready_pg",
+		TenantUser: "admin", Status: "ready", Host: "127.0.0.1", Port: 5432,
+	}
+	if err := panel.store.CreateDatabase(record); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, path := range []string{
-		"/api/v1/databases/" + id + "/gui/pgweb",
-		"/api/v1/databases/" + id + "/gui/pgweb/",
-		"/api/v1/databases/" + id + "/gui/pgweb/static/js/app.js",
+		"/api/v1/databases/" + record.ID + "/gui/pgweb",
+		"/api/v1/databases/" + record.ID + "/gui/pgweb/",
+		"/api/v1/databases/" + record.ID + "/gui/pgweb/static/js/app.js",
 	} {
 		resp, body := panel.do(t, http.MethodGet, path, nil)
 		if resp.StatusCode != http.StatusNotImplemented {
@@ -1169,18 +1173,46 @@ func TestDatabaseGuiProxyRefusesWhenTheToolIsMissing(t *testing.T) {
 	}
 }
 
+// A database that was never actually created is refused with its own note, at the
+// gate and on the proxied path — "not hosted" would wrongly blame the tool.
+func TestDatabaseGuiRefusesANotReadyRecord(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	record := &store.Database{
+		Kind: store.KindDatabase, Engine: "postgresql", Alias: "Not Ready", Name: "admin_not_ready",
+		TenantUser: "admin", Status: "pending", Note: "psql is not installed on this host",
+	}
+	if err := panel.store.CreateDatabase(record); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/gui/pgweb", "/gui/pgweb/"} {
+		resp, body := panel.do(t, http.MethodGet, "/api/v1/databases/"+record.ID+path, nil)
+		if resp.StatusCode != http.StatusConflict {
+			t.Errorf("%s = %d (%s), want 409", path, resp.StatusCode, body)
+		}
+		if !strings.Contains(string(body), "not_ready") || !strings.Contains(string(body), "psql is not installed") {
+			t.Errorf("%s should carry not_ready and the note: %s", path, body)
+		}
+	}
+}
+
 // A manager the daemon cannot run for this engine is refused with that reason,
 // and a file database is never mistaken for a server.
 func TestDatabaseGuiProxyRefusesTheWrongEngine(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")
 
-	_, created := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
-		"engine": "sqlite", "alias": "Proxy SQLite", "websiteSlug": "admin-site",
-	})
-	id := databaseIDFrom(t, created)
+	record := &store.Database{
+		Kind: store.KindDatabase, Engine: "sqlite", Alias: "SQLite", Name: "admin_sqlite",
+		TenantUser: "admin", Status: "ready", FileBased: true, FilePath: "/tmp/admin.sqlite",
+	}
+	if err := panel.store.CreateDatabase(record); err != nil {
+		t.Fatal(err)
+	}
 
-	resp, body := panel.do(t, http.MethodGet, "/api/v1/databases/"+id+"/gui/pgweb/", nil)
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/databases/"+record.ID+"/gui/pgweb/", nil)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("pgweb on sqlite = %d (%s), want 409", resp.StatusCode, body)
 	}

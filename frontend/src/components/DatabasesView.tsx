@@ -362,7 +362,9 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
       }
       onShowToast?.('Not hosted yet', answer.note ?? 'This manager is not hosted by the panel yet.', 'info');
     } catch (err) {
-      onShowToast?.('Not hosted yet', describeError(err), 'info');
+      // The daemon's own reason (a database that is not ready, a tool not hosted)
+      // is more useful than a fixed title that would blame the wrong thing.
+      onShowToast?.('Could not open the manager', describeError(err), 'info');
     }
   };
 
