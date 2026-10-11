@@ -454,6 +454,13 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 		record.Note = err.Error()
 		return nil
 	}
+	// The connection limit asked for at create time is applied with the engine, not
+	// only stored: the provision plan creates the role, this is what limits it.
+	if record.MaxConns > 0 {
+		if err := s.applyConnectionLimit(ctx, record, record.MaxConns); err != nil {
+			record.Note = "The connection limit was not applied: " + err.Error()
+		}
+	}
 	_ = s.store.Audit(user.ID, "database.provision", record.Name, "", fmt.Sprintf("%s %s", engine.Name, record.Version))
 	return nil
 }
