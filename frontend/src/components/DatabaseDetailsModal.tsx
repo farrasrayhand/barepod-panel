@@ -18,10 +18,15 @@ import {
   Terminal,
   Layers,
   Trash2,
-  Download
+  Download,
+  Table,
+  Play,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import type { DatabaseItem } from '../types';
 import type { DatabaseManagerTool } from './DatabaseGuiModal';
+import { api } from '../api/client';
 
 interface DatabaseDetailsModalProps {
   isOpen: boolean;
@@ -54,6 +59,23 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   const [selectedMaxConn, setSelectedMaxConn] = useState<number>(database?.maxConnections || 25);
   const [autoLockSeconds, setAutoLockSeconds] = useState(60);
 
+  // Data Browser & SQL Tab States
+  const [dataTabActive, setDataTabActive] = useState<'overview' | 'data'>('overview');
+  const [tableList, setTableList] = useState<string[]>([]);
+  const [redisKeys, setRedisKeys] = useState<{ keys: string[]; count: number } | null>(null);
+  const [loadingTables, setLoadingTables] = useState(false);
+  const [tablesError, setTablesError] = useState<string | null>(null);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [sqlQuery, setSqlQuery] = useState<string>('');
+  const [queryRunning, setQueryRunning] = useState(false);
+  const [queryResult, setQueryResult] = useState<{
+    columns: string[];
+    rows: (string | null)[][];
+    affected: number;
+    truncated: boolean;
+  } | null>(null);
+  const [queryError, setQueryError] = useState<string | null>(null);
+
   React.useEffect(() => {
     if (database) {
       setSelectedMaxConn(database.maxConnections || 25);
@@ -64,8 +86,60 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
       setAutoLockSeconds(60);
       setRevealedPassword(null);
       setBusy(false);
+      setDataTabActive('overview');
+      setTableList([]);
+      setRedisKeys(null);
+      setSelectedTable(null);
+      setSqlQuery('');
+      setQueryResult(null);
+      setQueryError(null);
+      setTablesError(null);
     }
   }, [database]);
+
+  const loadTables = async () => {
+    if (!database) return;
+    setLoadingTables(true);
+    setTablesError(null);
+    try {
+      const family = database.type === 'redis' ? api.caches : api.databases;
+      const res = await family.tables(database.id);
+      if (res.tables) {
+        setTableList(res.tables);
+        if (res.tables.length > 0 && !selectedTable) {
+          const first = res.tables[0];
+          setSelectedTable(first);
+          const initialSql = `SELECT * FROM "${first}" LIMIT 50;`;
+          setSqlQuery(initialSql);
+          runQuery(initialSql);
+        }
+      }
+      if (res.keys) {
+        setRedisKeys({ keys: res.keys, count: res.keyCount ?? res.keys.length });
+      }
+    } catch (err: any) {
+      setTablesError(err?.message || 'Could not load tables from daemon');
+    } finally {
+      setLoadingTables(false);
+    }
+  };
+
+  const runQuery = async (queryToRun?: string) => {
+    const q = (queryToRun ?? sqlQuery).trim();
+    if (!q || !database) return;
+    setQueryRunning(true);
+    setQueryError(null);
+    try {
+      const family = database.type === 'redis' ? api.caches : api.databases;
+      const res = await family.query(database.id, q);
+      setQueryResult(res);
+    } catch (err: any) {
+      setQueryError(err?.message || 'Query failed');
+      setQueryResult(null);
+    } finally {
+      setQueryRunning(false);
+    }
+  };
 
   // Password Vault auto-lock: re-encrypt credential after 60 seconds unlocked
   React.useEffect(() => {
@@ -220,7 +294,7 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[92vh]">
+      <div className={`bg-white rounded-2xl border border-slate-200 shadow-2xl ${dataTabActive === 'data' ? 'max-w-4xl' : 'max-w-2xl'} w-full overflow-hidden flex flex-col max-h-[92vh] transition-all duration-200`}>
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
           <div className="flex items-center gap-3">
@@ -244,14 +318,54 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {/* Navigation Tabs */}
+        <div className="px-6 bg-slate-50 border-b border-slate-200 flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setDataTabActive('overview')}
+            className={`px-3 py-2 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+              dataTabActive === 'overview'
+                ? 'border-blue-600 text-blue-600 bg-white'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Server className="w-3.5 h-3.5" />
+            <span>Connection & Credentials</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDataTabActive('data');
+              if (tableList.length === 0 && !redisKeys && !tablesError) {
+                loadTables();
+              }
+            }}
+            className={`px-3 py-2 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+              dataTabActive === 'data'
+                ? 'border-blue-600 text-blue-600 bg-white'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Table className="w-3.5 h-3.5" />
+            <span>Data Browser & SQL</span>
+            {database.type === 'sqlite' && (
+              <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-700 text-[10px] rounded font-mono font-bold">
+                Direct
+              </span>
+            )}
+          </button>
+        </div>
+
         {/* Modal Scrollable Body */}
-        <div className="p-6 space-y-5 overflow-y-auto">
+        <div className="p-6 space-y-5 overflow-y-auto flex-1">
+          {dataTabActive === 'overview' ? (
+            <>
           {/* Direct SSO Web GUI Launcher Section */}
           <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 to-indigo-950 text-white shadow-md">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -646,6 +760,326 @@ USE \`${database.name}\`;
               {getEnvSnippet(true)}
             </pre>
           </div>
+          </>
+          ) : (
+            <div className="space-y-4">
+              {/* Header toolbar */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-slate-800">
+                      {database.type === 'sqlite'
+                        ? 'SQLite In-Process Browser & Query'
+                        : database.type === 'redis'
+                        ? 'Redis Prefix Key Browser'
+                        : `${badge.label} Data Access`}
+                    </h3>
+                    <span className="text-[10px] px-2 py-0.5 bg-slate-100 border border-slate-200 text-slate-600 rounded font-mono font-semibold">
+                      same-origin /api/v1/
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {database.type === 'sqlite'
+                      ? 'Reads the file directly in-process via daemon driver — no open network ports or credentials needed.'
+                      : database.type === 'redis'
+                      ? 'Scoped to prefix ~' + database.name + ':* — zero tenant cross-contamination.'
+                      : 'Daemon engine — accessed safely behind the panel session proxy.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadTables}
+                  disabled={loadingTables}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Reload tables"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingTables ? 'animate-spin text-blue-600' : ''}`} />
+                  <span>{loadingTables ? 'Loading...' : 'Refresh'}</span>
+                </button>
+              </div>
+
+              {/* Error banner if loading tables failed */}
+              {tablesError && (
+                <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-semibold">Notice: {tablesError}</p>
+                    {database.type !== 'sqlite' && (
+                      <p className="text-[11px] text-amber-700 mt-1">
+                        Use the Web GUI launcher in Overview or connect your favorite DB client using the credentials shown in Connection & Credentials.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* SQLite: Table list + SQL Editor + Results */}
+              {database.type === 'sqlite' && (
+                <div className="space-y-4">
+                  {/* Table selector pills */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                        Tables ({tableList.length})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const demoTbl = `notes_${Date.now().toString().slice(-4)}`;
+                          const createSql = `CREATE TABLE IF NOT EXISTS "${demoTbl}" (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  title TEXT NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);`;
+                          setSqlQuery(createSql);
+                        }}
+                        className="text-[11px] text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
+                      >
+                        + Insert CREATE TABLE template
+                      </button>
+                    </div>
+
+                    {tableList.length === 0 ? (
+                      <div className="p-4 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500">
+                        No user tables found in this SQLite database file yet. Run a <code className="font-mono text-slate-700">CREATE TABLE</code> statement below.
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {tableList.map((tbl) => (
+                          <button
+                            key={tbl}
+                            type="button"
+                            onClick={() => {
+                              setSelectedTable(tbl);
+                              const q = `SELECT * FROM "${tbl}" LIMIT 50;`;
+                              setSqlQuery(q);
+                              runQuery(q);
+                            }}
+                            className={`px-3 py-1 text-xs font-mono rounded-lg border transition-all cursor-pointer flex items-center gap-1.5 ${
+                              selectedTable === tbl
+                                ? 'bg-blue-50 border-blue-300 text-blue-700 font-bold shadow-2xs'
+                                : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                            }`}
+                          >
+                            <Table className="w-3 h-3 text-slate-400" />
+                            <span>{tbl}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* SQL query input */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Terminal className="w-3.5 h-3.5 text-blue-600" />
+                        <span>SQL Statement</span>
+                        <span className="text-[10px] text-slate-400 font-normal font-sans">
+                          (Press Ctrl+Enter / Cmd+Enter to execute)
+                        </span>
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (selectedTable) {
+                              const q = `SELECT * FROM "${selectedTable}" LIMIT 50;`;
+                              setSqlQuery(q);
+                              runQuery(q);
+                            }
+                          }}
+                          className="px-2 py-0.5 text-[10px] font-mono text-slate-600 hover:bg-slate-100 rounded border border-slate-200 cursor-pointer"
+                        >
+                          SELECT 50
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (selectedTable) {
+                              setSqlQuery(`SELECT COUNT(*) AS total FROM "${selectedTable}";`);
+                              runQuery(`SELECT COUNT(*) AS total FROM "${selectedTable}";`);
+                            }
+                          }}
+                          className="px-2 py-0.5 text-[10px] font-mono text-slate-600 hover:bg-slate-100 rounded border border-slate-200 cursor-pointer"
+                        >
+                          COUNT(*)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <textarea
+                        value={sqlQuery}
+                        onChange={(e) => setSqlQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                            e.preventDefault();
+                            runQuery();
+                          }
+                        }}
+                        placeholder="SELECT * FROM table LIMIT 50;"
+                        rows={3}
+                        className="w-full font-mono text-xs p-3 bg-slate-900 text-slate-100 rounded-xl border border-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500 selection:bg-blue-600"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-slate-400">
+                        Audit: database.query is logged. Results capped at 500 rows.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => runQuery()}
+                        disabled={queryRunning || !sqlQuery.trim()}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        <Play className={`w-3.5 h-3.5 ${queryRunning ? 'animate-spin' : ''}`} />
+                        <span>{queryRunning ? 'Executing...' : 'Run Query'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Query Error */}
+                  {queryError && (
+                    <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <pre className="font-mono text-[11px] whitespace-pre-wrap">{queryError}</pre>
+                    </div>
+                  )}
+
+                  {/* Query Results Grid */}
+                  {queryResult && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs text-slate-500">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-700">
+                            {queryResult.affected > 0
+                              ? `${queryResult.affected} row(s) affected`
+                              : `${queryResult.rows.length} row(s) returned`}
+                          </span>
+                          {queryResult.truncated && (
+                            <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">
+                              Truncated (500 max)
+                            </span>
+                          )}
+                        </div>
+                        {queryResult.columns.length > 0 && (
+                          <span className="text-[11px] font-mono text-slate-400">
+                            {queryResult.columns.length} columns
+                          </span>
+                        )}
+                      </div>
+
+                      {queryResult.columns.length > 0 ? (
+                        <div className="border border-slate-200 rounded-xl overflow-hidden max-h-64 overflow-y-auto overflow-x-auto shadow-2xs bg-white">
+                          <table className="w-full text-xs text-left border-collapse">
+                            <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] font-bold border-b border-slate-200 sticky top-0">
+                              <tr>
+                                {queryResult.columns.map((col, idx) => (
+                                  <th key={idx} className="px-3 py-2 font-mono border-r border-slate-200 last:border-r-0 whitespace-nowrap">
+                                    {col}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                              {queryResult.rows.length === 0 ? (
+                                <tr>
+                                  <td colSpan={queryResult.columns.length} className="px-3 py-6 text-center text-slate-400 italic">
+                                    Query returned zero rows.
+                                  </td>
+                                </tr>
+                              ) : (
+                                queryResult.rows.map((row, rIdx) => (
+                                  <tr key={rIdx} className="hover:bg-slate-50/70">
+                                    {row.map((val, cIdx) => (
+                                      <td key={cIdx} className="px-3 py-1.5 border-r border-slate-100 last:border-r-0 whitespace-nowrap text-slate-800">
+                                        {val === null ? (
+                                          <span className="text-slate-400 italic text-[10px]">NULL</span>
+                                        ) : (
+                                          val
+                                        )}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-medium">
+                          Statement executed successfully. ({queryResult.affected} rows affected)
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Redis: Key viewer */}
+              {database.type === 'redis' && (
+                <div className="space-y-3">
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-slate-700 block">
+                        Redis Key Store ({redisKeys ? redisKeys.count : '...'} keys)
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-mono">
+                        Prefix: ~{database.name}:*
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-bold rounded">
+                      ACL Tenant User
+                    </span>
+                  </div>
+
+                  {redisKeys && redisKeys.keys.length > 0 ? (
+                    <div className="border border-slate-200 rounded-xl p-3 bg-white space-y-2">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        Sample Keys:
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {redisKeys.keys.map((k, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-800 font-mono text-xs rounded-md"
+                          >
+                            {k}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500">
+                      No keys found in this cache prefix yet. Once your application writes data using REDIS_URL, keys will appear here.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Non-sqlite/redis message */}
+              {database.type !== 'sqlite' && database.type !== 'redis' && (
+                <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-2xl text-center space-y-3">
+                  <Database className="w-8 h-8 text-slate-400 mx-auto" />
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">
+                      {badge.label} Visual Management
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                      For security and strict privilege scoping, server engines run through the Web GUI manager or direct connection strings without arbitrary root queries.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setDataTabActive('overview')}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-2xs cursor-pointer"
+                    >
+                      View Credentials & Launch GUI
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}

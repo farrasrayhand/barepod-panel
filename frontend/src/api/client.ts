@@ -281,6 +281,37 @@ const databaseFamily = (base: string) => ({
     }),
 
   connectionString: (id: string) => request<{ string: string; engine: string }>(`${base}/${id}/connection-string`),
+
+  tables: (id: string) =>
+    request<{
+      engine: string;
+      tables?: string[];
+      keys?: string[];
+      keyCount?: number;
+      browser?: string;
+      note?: string;
+    }>(`${base}/${id}/tables`),
+
+  query: (id: string, sql: string) =>
+    request<{
+      columns: string[];
+      rows: (string | null)[][];
+      affected: number;
+      truncated: boolean;
+    }>(`${base}/${id}/query`, {
+      method: 'POST',
+      body: JSON.stringify({ sql }),
+    }),
+
+  gui: (id: string, tool?: string) =>
+    request<{
+      database?: string;
+      tool?: string;
+      tools?: { tool: string; description: string; available: boolean; path: string }[];
+      tables?: string;
+      query?: string;
+      note?: string;
+    }>(`${base}/${id}/gui${tool ? `/${tool}` : ''}`),
 });
 
 export const api = {
