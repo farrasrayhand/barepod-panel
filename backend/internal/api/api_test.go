@@ -881,3 +881,40 @@ func TestFileUploadIsConfinedToTheDirectory(t *testing.T) {
 		t.Error("upload escaped the site directory")
 	}
 }
+
+func TestStaticFilesTellTheBrowserHowToCacheThem(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<html>app</html>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "assets", "index-abc123.js"), []byte("console.log(1)"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{cfg: config.Config{StaticDir: dir}}
+
+	// The SPA shell (and any deep link that falls back to it) must be revalidated.
+	for _, target := range []string{"/", "/files", "/apps/web-flask2/files"} {
+		recorder := httptest.NewRecorder()
+		server.handleSPA(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+		if got := recorder.Header().Get("Cache-Control"); !strings.Contains(got, "no-cache") {
+			t.Errorf("%s -> Cache-Control %q, want no-cache", target, got)
+		}
+	}
+
+	// A fingerprinted asset may be cached for a year.
+	recorder := httptest.NewRecorder()
+	server.handleSPA(recorder, httptest.NewRequest(http.MethodGet, "/assets/index-abc123.js", nil))
+	if got := recorder.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
+		t.Errorf("an asset -> Cache-Control %q, want immutable", got)
+	}
+
+	// An unknown /api route still answers JSON, never the SPA.
+	recorder = httptest.NewRecorder()
+	server.handleSPA(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/nope", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Errorf("an unknown API route = %d, want 404", recorder.Code)
+	}
+}

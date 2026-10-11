@@ -246,10 +246,19 @@ func (s *Server) handleSPA(w http.ResponseWriter, r *http.Request) {
 	candidate := filepath.Join(s.cfg.StaticDir, filepath.FromSlash(clean))
 	if clean != "/" {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			// A build fingerprints everything it emits under /assets, so those
+			// files can be cached hard: a new build never reuses a name.
+			if strings.HasPrefix(clean, string(filepath.Separator)+"assets"+string(filepath.Separator)) {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
 			http.ServeFile(w, r, candidate)
 			return
 		}
 	}
+	// index.html must always be revalidated: it names the hashed bundle, and a
+	// cached copy pins the browser to an old build, which makes a deploy look as
+	// though it changed nothing.
+	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
 	http.ServeFile(w, r, index)
 }
 
