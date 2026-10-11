@@ -117,20 +117,24 @@ func JailRoot(home, siteDir, slug string, uid, gid int) (string, error) {
 	if err := syscall.Mount(siteDir, insideSite, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
 		return "", fmt.Errorf("terminal: cannot bind the website into the jail (%v)", err)
 	}
-	// Every parent on the way in has to be traversable by the tenant, and the last
-	// three belong to them (the first attempt failed exactly here: /home inside the
-	// jail was root-owned 0750).
+	// The way in has to be traversable, and *only the website* belongs to the
+	// tenant: the directories above it stay root-owned and read-only, so `mkdir` out
+	// there fails even if the shell's own guard is bypassed. (The site is a bind of
+	// the real directory, so it keeps its own ownership and stays writable.)
 	if err := os.Chmod(filepath.Dir(tenantRoot), 0o755); err != nil {
 		return "", err
 	}
-	for _, dir := range []string{tenantRoot, filepath.Join(tenantRoot, "apps"), insideSite} {
-		if err := os.Chmod(dir, 0o750); err != nil {
+	for _, dir := range []string{tenantRoot, filepath.Join(tenantRoot, "apps")} {
+		if err := os.Chmod(dir, 0o755); err != nil {
 			return "", err
 		}
-		if err := os.Chown(dir, uid, gid); err != nil {
+		if err := os.Chown(dir, 0, 0); err != nil {
 			return "", err
 		}
 	}
+	// insideSite is deliberately left alone: the bind mount carries the website's
+	// own ownership, and chowning the mount point would reach through it and change
+	// the real directory on the host (it did, once).
 
 	if err := syscall.Chroot(root); err != nil {
 		return "", fmt.Errorf("terminal: cannot enter the jail (%v)", err)
