@@ -111,12 +111,18 @@ func Registry() map[string]Spec {
 			Note:       "The familiar PHP manager for MySQL/MariaDB, run by PHP's own small server — one process, no Apache or PHP-FPM, loopback only.",
 		},
 		"dbgate": {
-			Name:          "dbgate",
-			Engines:       []string{"sqlite", "mongodb", "redis", "postgresql", "mysql", "mariadb"},
-			Port:          8793, // the first port of the range below, and the default
-			HealthPath:    "/",
-			Container:     true,
-			Image:         "dbgate/dbgate:latest",
+			Name:       "dbgate",
+			Engines:    []string{"sqlite", "mongodb", "redis", "postgresql", "mysql", "mariadb"},
+			Port:       8793, // the first port of the range below, and the default
+			HealthPath: "/",
+			Container:  true,
+			// Pinned, not `latest`: the manager starts on demand for whoever opens it, and a
+			// surprise major the moment upstream publishes one is not something an operator
+			// should discover through their databases. 7.2.6 is the last patch of the 7.2
+			// line — a settled release. The image is DbGate's community edition, which is the
+			// only edition there is: its "premium" items are license upsells inside that same
+			// image, and no setting removes them.
+			Image:         "dbgate/dbgate:7.2.6",
 			ContainerName: "barepod-dbgate",
 			// The API names each instance after its record and takes a port from this
 			// range, so several databases can have DbGate open at once.

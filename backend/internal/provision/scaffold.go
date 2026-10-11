@@ -5,6 +5,7 @@ package provision
 
 import (
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 )
@@ -90,6 +91,38 @@ func DefaultPort(runtime string) int {
 	default:
 		return 8080
 	}
+}
+
+// DefaultPage is the placeholder a website starts with when its source is "default":
+// a website can then exist and answer on its address before an application does. It is
+// deliberately one self-contained file — the site type that serves a directory serves
+// it as-is, with no runtime, no dependency and nothing to build.
+func DefaultPage(slug, domain string) string {
+	title := html.EscapeString(domain)
+	if domain == "" {
+		title = html.EscapeString(slug)
+	}
+	return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>` + title + `</title>
+<style>
+ :root{color-scheme:light}
+ body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      background:#f8fafc;color:#0f172a;display:flex;min-height:100vh;align-items:center;justify-content:center}
+ .card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:2rem 2.25rem;max-width:34rem;
+       box-shadow:0 1px 3px rgba(15,23,42,.08)}
+ h1{margin:0 0 .5rem;font-size:1.35rem}
+ p{margin:.5rem 0;color:#475569}
+ code{background:#f1f5f9;border-radius:6px;padding:.1rem .35rem;font-size:.9em}
+ .dot{display:inline-block;width:.5rem;height:.5rem;border-radius:50%;background:#22c55e;margin-right:.5rem}
+</style></head><body>
+ <main class="card">
+  <h1><span class="dot"></span>` + title + `</h1>
+  <p>This website is published. Its application has not been deployed yet — the panel wrote this page so the address answers something useful in the meantime.</p>
+  <p>Deploy your code from the panel (Scaffold, GitHub, Upload or Existing files), or keep this site as a plain static page under <code>` + html.EscapeString(slug) + `</code>.</p>
+ </main>
+</body></html>
+`
 }
 
 // StarterFiles returns the entrypoint a framework needs to actually run.

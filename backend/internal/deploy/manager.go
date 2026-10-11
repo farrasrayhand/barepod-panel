@@ -32,7 +32,7 @@ const keepRecentJobs = 10
 
 // SourceSpec describes where the code comes from.
 type SourceSpec struct {
-	Kind   string // scaffold | github | upload | existing
+	Kind   string // scaffold | github | upload | existing | default
 	Repo   string
 	Branch string
 }
@@ -262,6 +262,11 @@ func stepPrepareDirs(ctx context.Context, s *state) error {
 }
 
 func stepFetchSource(ctx context.Context, s *state) error {
+	// "default" has no code to fetch: the panel writes one placeholder page, so a website
+	// can be created (and answer on its address) before its application exists.
+	if s.req.Source.Kind == "default" {
+		return s.writeDefaultPage(ctx)
+	}
 	cmds, err := s.m.host.FetchSource(ctx, s.req.Tenant, s.req.Slug, s.req.Source.Kind, s.req.Source.Repo, s.req.Source.Branch)
 	for _, c := range cmds {
 		s.log("stdout", "run: "+c)
@@ -300,6 +305,28 @@ func stepFetchSource(ctx context.Context, s *state) error {
 	}
 	// Starter files are written by the daemon itself (as root), so hand them over.
 	return s.m.host.ChownSite(ctx, s.req.Tenant, s.req.Slug)
+}
+
+// writeDefaultPage puts a single index.html in the site directory: the web server that
+// serves a directory answers it, so a site that has no application yet answers
+// something that says so — instead of the server's own error page, or nothing at all.
+func (s *state) writeDefaultPage(ctx context.Context) error {
+	page := provision.DefaultPage(s.req.Slug, s.req.Domain)
+	target := filepath.Join(s.siteDir, "index.html")
+	if _, err := os.Stat(target); err == nil {
+		s.log("stdout", "kept the existing index.html")
+		return nil
+	}
+	if err := os.WriteFile(target, []byte(page), 0o644); err != nil {
+		return fmt.Errorf("could not write the default page: %w", err)
+	}
+	if s.m.host.Materialises() {
+		if out, err := s.m.host.Run(ctx, []string{"chown", s.req.Tenant + ":" + s.req.Tenant, target}); err != nil {
+			return fmt.Errorf("chown index.html: %w (%s)", err, strings.TrimSpace(out))
+		}
+	}
+	s.log("stdout", "wrote the default page index.html")
+	return nil
 }
 
 // writeStarterFiles places the framework's entrypoint inside the site.

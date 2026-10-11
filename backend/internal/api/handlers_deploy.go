@@ -86,7 +86,9 @@ func validateCreate(r *createWebsiteRequest) map[string]string {
 	if !validate.Runtime(r.Runtime) {
 		fields["runtime"] = "unsupported runtime"
 	}
-	if r.Version == "" {
+	// A static site and a reverse proxy run no runtime, so there is no version to pick:
+	// requiring one would refuse the two site types that have none.
+	if r.Version == "" && !validate.Versionless(r.Runtime) {
 		fields["version"] = "select a runtime version"
 	}
 	if !validate.WebServer(r.WebServer) {

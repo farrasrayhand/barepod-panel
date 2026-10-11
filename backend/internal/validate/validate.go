@@ -59,6 +59,16 @@ var runtimes = map[string]bool{
 // Runtime reports whether a runtime name is supported.
 func Runtime(s string) bool { return runtimes[strings.ToLower(s)] }
 
+// Versionless reports whether a site type has no runtime version to choose: a static
+// site is files served by the web server, and a reverse proxy forwards to an upstream.
+func Versionless(runtime string) bool {
+	switch strings.ToLower(runtime) {
+	case "static", "proxy":
+		return true
+	}
+	return false
+}
+
 // HasRuntime reports whether a site type runs a process of its own. A reverse
 // proxy does not, so shell/file/CI endpoints must refuse it.
 func HasRuntime(runtime string) bool {
@@ -87,7 +97,9 @@ func Engine(s string) bool { return engines[strings.ToLower(s)] }
 // SourceKind reports whether a deployment source is supported.
 func SourceKind(s string) bool {
 	switch strings.ToLower(s) {
-	case "scaffold", "github", "upload", "existing":
+	// "default" has no code behind it: the panel writes one placeholder page, so a
+	// website can exist before its application does.
+	case "scaffold", "github", "upload", "existing", "default":
 		return true
 	}
 	return false
