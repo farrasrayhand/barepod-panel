@@ -48,7 +48,20 @@ var databaseGuiTools = []guiTool{
 	{name: "browser", description: "The panel's own table browser: it reads SQLite itself, lists a cache's keys and runs SQL.", hosted: true},
 	{name: "pgweb", description: "A small PostgreSQL browser (one Go binary): started on demand, this database's credential injected server-side, stopped when idle.", engines: []string{"postgresql"}, hosted: true},
 	{name: "phpmyadmin", description: "The familiar MySQL/MariaDB manager, run by PHP's own small server: one process, no Apache or PHP-FPM, no login (the credential is injected server-side), stopped when idle.", engines: []string{"mysql", "mariadb"}, hosted: true},
-	{name: "dbgate", description: "A click-and-browse manager for every engine here — PostgreSQL, MySQL/MariaDB, SQLite, MongoDB and Redis (one container, started on demand, its port on loopback only and scoped to this one database).", hosted: true},
+	{name: "dbgate", description: "A click-and-browse manager for every engine here — PostgreSQL, MySQL/MariaDB, SQLite and MongoDB. Each database gets its own container on its own loopback port (never published), started on first access and removed when idle, so several databases — and several accounts — can have it open at once.", hosted: true},
+}
+
+// dbgatePortMin/Max is the loopback range DbGate instances are given: one port per
+// database that has the manager open, never a published or public one.
+const (
+	dbgatePortMin = 8793
+	dbgatePortMax = 8892
+)
+
+// dbgateContainerName is the per-database container name, which is also the
+// supervisor's instance key.
+func dbgateContainerName(recordID string) string {
+	return "barepod-dbgate-" + strings.ToLower(recordID)
 }
 
 // guiToolInstallDir is the subdirectory under DbtoolsDir where a tool that needs
@@ -186,6 +199,27 @@ func guiRecordBlocked(record *store.Database) (string, bool) {
 	return "", false
 }
 
+// guiNotReadyNote is what the panel says about a record that cannot be opened. The
+// note stored on a record can be stale — it was written when the engine's client was
+// missing or the engine could not be provisioned yet, and neither may be true now —
+// so an engine that is available and automated gets the sentence that says what to do
+// instead, and the record is corrected so the list stops repeating an old failure.
+func (s *Server) guiNotReadyNote(record *store.Database, engine dbengine.Engine, engineFound bool) (string, bool) {
+	reason, blocked := guiRecordBlocked(record)
+	if !blocked {
+		return "", false
+	}
+	if record.DeletedAt == "" && engineFound && engine.Available && engine.Automated && !engine.FileBased {
+		actionable := fmt.Sprintf("it was recorded but never created — %s is installed on this host now, so rotate the password to finish creating it", engine.Label)
+		if strings.TrimSpace(record.Note) != actionable {
+			_ = s.store.SetDatabaseStatus(record.ID, record.Status, actionable)
+			record.Note = actionable
+		}
+		return actionable, true
+	}
+	return reason, true
+}
+
 // handleDatabaseGui is the gate: GET .../gui lists the managers, and
 // GET .../gui/<tool> answers where to open one.
 //
@@ -239,8 +273,10 @@ func (s *Server) handleDatabaseGui(kind string) authedHandler {
 			_ = s.store.Audit(user.ID, "database.gui_open", record.Name, clientIP(r), tool+": "+reason)
 			// The tool may exist and be installed; if the database itself is what is
 			// blocking, say that instead of "not hosted", which would blame the tool.
-			if blocked, isRecord := guiRecordBlocked(record); isRecord {
-				writeError(w, http.StatusConflict, "not_ready", "This database is not ready to open — "+blocked)
+			if _, isRecord := guiRecordBlocked(record); isRecord {
+				engine, engineFound := s.engineFor(r.Context(), record.Engine)
+				note, _ := s.guiNotReadyNote(record, engine, engineFound)
+				writeError(w, http.StatusConflict, "not_ready", "This database is not ready to open — "+note)
 				return
 			}
 			writeError(w, http.StatusNotImplemented, "not_installed", fmt.Sprintf(
@@ -286,8 +322,11 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 			return
 		}
 		// The database being the blocker is reported before the tool's install state.
-		if reason, blocked := guiRecordBlocked(record); blocked {
-			writeError(w, http.StatusConflict, "not_ready", "This database is not ready to open — "+reason)
+		if _, blocked := guiRecordBlocked(record); blocked {
+			engine, engineFound := s.engineFor(r.Context(), record.Engine)
+			note, _ := s.guiNotReadyNote(record, engine, engineFound)
+			_ = s.store.Audit(user.ID, "database.gui_open", record.Name, clientIP(r), tool+": "+note)
+			writeError(w, http.StatusConflict, "not_ready", "This database is not ready to open — "+note)
 			return
 		}
 		if !guiToolSupportsEngine(known, record.Engine) {
@@ -369,6 +408,21 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 			spec.DocRoot = dir
 		}
 		if spec.Name == "dbgate" {
+			// One container per database, named after the record and listening on its own
+			// loopback port, so two databases — or two accounts — can have DbGate open at
+			// once. A single shared container would have to be restarted for the second
+			// one, which closes the page the first one already has open (DbGate's own
+			// "Database connection closed").
+			spec.ContainerName = dbgateContainerName(record.ID)
+			spec.PortMin, spec.PortMax = dbgatePortMin, dbgatePortMax
+			port, ok := s.tools.Port(spec)
+			if !ok {
+				writeError(w, http.StatusConflict, "busy", fmt.Sprintf(
+					"all %d DbGate containers are in use — close one manager or wait for it to go idle (%d–%d)",
+					dbgatePortMax-dbgatePortMin+1, dbgatePortMin, dbgatePortMax))
+				return
+			}
+			spec.Port = port
 			plan, err := s.prepareDbGate(r.Context(), record, mount, engine)
 			if err != nil {
 				writeError(w, http.StatusBadGateway, "service_error", err.Error())
@@ -403,15 +457,16 @@ func (s *Server) ensureGuiTool(ctx context.Context, spec dbtools.Spec, record *s
 	if s.guiServed == nil {
 		s.guiServed = map[string]string{}
 	}
-	if current, ok := s.guiServed[spec.Name]; ok {
+	key := spec.Key()
+	if current, ok := s.guiServed[key]; ok {
 		if current == record.ID {
-			s.tools.Touch(spec.Name)
+			s.tools.Touch(key)
 			return nil
 		}
 		if err := s.tools.Stop(ctx, spec); err != nil {
 			return err
 		}
-		delete(s.guiServed, spec.Name)
+		delete(s.guiServed, key)
 	}
 	// A containerised engine is brought up before the tool connects at start.
 	if engineFound && engine.Mode == dbengine.ModeDocker {
@@ -422,7 +477,7 @@ func (s *Server) ensureGuiTool(ctx context.Context, spec dbtools.Spec, record *s
 	if err := s.tools.Ensure(ctx, spec, dsn); err != nil {
 		return err
 	}
-	s.guiServed[spec.Name] = record.ID
+	s.guiServed[key] = record.ID
 	return nil
 }
 
@@ -514,7 +569,7 @@ func (s *Server) proxyGuiTool(w http.ResponseWriter, r *http.Request, spec dbtoo
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			// The tool is not answering: forget it, so the next request starts it
 			// again instead of retrying a process that is gone.
-			s.forgetGuiTool(spec.Name)
+			s.forgetGuiTool(spec.Key())
 			writeError(w, http.StatusBadGateway, "service_error",
 				fmt.Sprintf("%s did not answer on loopback: %v", spec.Name, err))
 		},

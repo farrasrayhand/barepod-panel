@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/files"
@@ -188,12 +189,28 @@ func refuseDetected(w http.ResponseWriter, record *store.Database) bool {
 // engineFor answers with the engine as this host really has it. The catalog entry
 // never knows what is installed, so every lifecycle decision goes through here.
 func (s *Server) engineFor(ctx context.Context, name string) (dbengine.Engine, bool) {
+	s.engineMu.Lock()
+	if entry, ok := s.engineCache[name]; ok && time.Since(entry.at) < engineCacheTTL {
+		s.engineMu.Unlock()
+		return entry.engine, entry.engine.Name != ""
+	}
+	s.engineMu.Unlock()
+
+	found := dbengine.Engine{}
+	known := false
 	for _, candidate := range dbengine.Detect(ctx, s.host.Runner) {
 		if strings.EqualFold(candidate.Name, name) {
-			return candidate, true
+			found, known = candidate, true
+			break
 		}
 	}
-	return dbengine.Engine{}, false
+	s.engineMu.Lock()
+	if s.engineCache == nil {
+		s.engineCache = map[string]cachedEngine{}
+	}
+	s.engineCache[name] = cachedEngine{engine: found, at: time.Now()}
+	s.engineMu.Unlock()
+	return found, known
 }
 
 // resourceFor builds a plan target for a record, adding the admin connection a

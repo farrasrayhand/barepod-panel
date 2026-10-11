@@ -724,7 +724,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                           <button
                             onClick={() => setSelectedDbForRotate(db)}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
-                            title="Rotate password"
+                            title={db.status === 'active' ? 'Rotate password' : 'Finish setup (rotate the password)'}
                           >
                             <KeyRound className="w-3.5 h-3.5" />
                           </button>

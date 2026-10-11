@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbtools"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
@@ -66,6 +67,22 @@ type Server struct {
 	// which database each running manager is scoped to.
 	guiMu     sync.Mutex
 	guiServed map[string]string
+	// engineMu guards engineCache, a short-lived memory of what a detection found:
+	// every request under a manager's mount asks which mode its engine is in, and a
+	// full detection (docker info plus a probe per engine) on each of them is what
+	// made a page crawl.
+	engineMu    sync.Mutex
+	engineCache map[string]cachedEngine
+}
+
+// engineCacheTTL is how long a detection is trusted. Short enough that an engine
+// coming up or going down is noticed, long enough that a page's requests collapse
+// into one detection.
+const engineCacheTTL = 10 * time.Second
+
+type cachedEngine struct {
+	engine dbengine.Engine
+	at     time.Time
 }
 
 // New builds the daemon HTTP handler.

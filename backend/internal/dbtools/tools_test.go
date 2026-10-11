@@ -4,11 +4,51 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+// portOf finds the loopback port in a command line: the `-p 127.0.0.1:8793:3000` a
+// container is run with, or the port in a curl URL.
+func portOf(args []string) int {
+	for i, arg := range args {
+		if arg == "-p" && i+1 < len(args) {
+			parts := strings.Split(args[i+1], ":")
+			if len(parts) >= 2 {
+				if port, err := strconv.Atoi(parts[1]); err == nil {
+					return port
+				}
+			}
+			continue
+		}
+		if rest := strings.TrimPrefix(arg, "http://127.0.0.1:"); rest != arg {
+			if idx := strings.Index(rest, "/"); idx >= 0 {
+				rest = rest[:idx]
+			}
+			if port, err := strconv.Atoi(rest); err == nil {
+				return port
+			}
+		}
+	}
+	return 0
+}
+
+// containerOf finds the container a docker command names: `--name x` on a run, the
+// last argument on `rm -f x`.
+func containerOf(args []string) string {
+	if len(args) > 0 && args[0] == "rm" {
+		return args[len(args)-1]
+	}
+	for i, arg := range args {
+		if arg == "--name" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
 
 // fakeRunner stands in for the host: it has a port that is down until something
 // starts listening on it, which is exactly what the supervisor has to cope with.
@@ -18,8 +58,14 @@ type fakeRunner struct {
 	up       bool
 	failNext bool
 	// containerEnv is what `docker inspect --format {{json .Config.Env}}` answers,
-	// which is how the supervisor tells which database a shared container serves.
+	// which is how the supervisor tells which database a container serves.
 	containerEnv string
+	// byPort makes the published port the thing that answers, which is what several
+	// container instances need: each is up on its own port only. The default keeps the
+	// single-port behaviour the other tests rely on.
+	byPort  bool
+	running map[int]bool
+	namedOn map[string]int
 }
 
 func (f *fakeRunner) Mode() string { return "fake" }
@@ -31,6 +77,12 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) (s
 
 	switch name {
 	case "curl":
+		if f.byPort {
+			if f.running[portOf(args)] {
+				return "200\n", nil
+			}
+			return "curl: (7) Connection refused\n", errors.New("exit status 7")
+		}
 		if f.up {
 			return "200\n", nil
 		}
@@ -44,9 +96,26 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) (s
 		}
 		if len(args) > 0 && args[0] == "rm" {
 			f.up = false
+			if f.byPort {
+				for name, port := range f.namedOn {
+					if name == containerOf(args) {
+						delete(f.running, port)
+						delete(f.namedOn, name)
+					}
+				}
+			}
 			return "", nil
 		}
-		f.up = true // docker run
+		if f.byPort { // docker run: it is up on the port it published, and that only
+			if f.running == nil {
+				f.running = map[int]bool{}
+				f.namedOn = map[string]int{}
+			}
+			f.running[portOf(args)] = true
+			f.namedOn[containerOf(args)] = portOf(args)
+			return "", nil
+		}
+		f.up = true
 		return "", nil
 	default: // the tool itself
 		if f.failNext {
@@ -195,8 +264,65 @@ func TestDbGateRunsAsAContainerOnLoopbackOnlyAndIsRemovedToStop(t *testing.T) {
 	}
 }
 
-// A shared container is scoped to one database at a time. One left over from
-// another database (or from an earlier daemon) must be replaced rather than reused:
+// One container per database: two records are two instances on two loopback ports, so
+// opening the second manager neither restarts nor closes the first. A single shared
+// container could not do this — it had to be restarted for the second database, which
+// is what closed the page somebody already had open ("Database connection closed").
+func TestTwoDatabasesGetTheirOwnContainersAndPorts(t *testing.T) {
+	runner := &fakeRunner{byPort: true}
+	supervisor := New(runner, time.Minute)
+	ctx := context.Background()
+	base := Registry()["dbgate"]
+
+	instance := func(name, record string) Spec {
+		spec := base
+		spec.ContainerName = name
+		spec.Prefix = "/api/v1/databases/" + record + "/gui/dbgate"
+		spec.EnvFile = "/tmp/" + record + ".env"
+		spec.Port = 0
+		port, ok := supervisor.Port(spec)
+		if !ok {
+			t.Fatalf("%s did not get a port", name)
+		}
+		spec.Port = port
+		return spec
+	}
+
+	first := instance("barepod-dbgate-a", "A")
+	if err := supervisor.Ensure(ctx, first, ""); err != nil {
+		t.Fatalf("Ensure(first) failed: %v", err)
+	}
+	second := instance("barepod-dbgate-b", "B")
+	if second.Port == first.Port {
+		t.Fatalf("both databases were given port %d", second.Port)
+	}
+	if err := supervisor.Ensure(ctx, second, ""); err != nil {
+		t.Fatalf("Ensure(second) failed: %v", err)
+	}
+
+	log := runner.log()
+	if starts := strings.Count(log, "docker run -d"); starts != 2 {
+		t.Errorf("two databases did not get two containers (%d starts):\n%s", starts, log)
+	}
+	if strings.Contains(log, "docker rm -f barepod-dbgate-a") {
+		t.Errorf("opening the second database restarted the first:\n%s", log)
+	}
+
+	// Stopping one gives its port back, so the pool never grows past what is running.
+	if err := supervisor.Stop(ctx, first); err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+	third := instance("barepod-dbgate-c", "C")
+	if third.Port != first.Port {
+		t.Errorf("the freed port %d was not reused (got %d)", first.Port, third.Port)
+	}
+	if third.Port == second.Port {
+		t.Errorf("ports are not unique: %d, %d", second.Port, third.Port)
+	}
+}
+
+// A container left over from another database (or from an earlier daemon) must be
+// replaced rather than reused when it is the same instance's name:
 // the port answering says nothing about which database it serves, so reusing it
 // answers every request with the other database's page — DbGate's own "Cannot GET
 // /api/v1/databases/<this one>/gui/dbgate/".
