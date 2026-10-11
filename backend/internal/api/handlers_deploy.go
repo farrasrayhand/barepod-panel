@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -463,6 +466,49 @@ func (s *Server) handleDeleteWebsite(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 
+	// A website can own databases, and a SQLite file lives *inside* the site directory that
+	// is about to be removed — so deleting the site used to leave a record behind pointing
+	// at a file that no longer existed (the "its file is gone" case). The operator now says
+	// what should happen to them, and keeping them moves the file out first.
+	owned, err := s.store.DatabasesForWebsite(slug)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Could not read this website's databases")
+		return
+	}
+	choice := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("databases")))
+	if len(owned) > 0 && choice == "" {
+		names := make([]string, 0, len(owned))
+		for i := range owned {
+			names = append(names, owned[i].Alias)
+		}
+		writeError(w, http.StatusConflict, "has_databases", fmt.Sprintf(
+			"this website owns %d database(s): %s — deleting it would remove their files. Pass ?databases=keep to keep them (a SQLite file is moved out of the site first) or ?databases=delete to delete them with the website",
+			len(owned), strings.Join(names, ", ")))
+		return
+	}
+	switch choice {
+	case "keep":
+		for i := range owned {
+			if err := s.detachDatabase(r.Context(), &owned[i]); err != nil {
+				writeError(w, http.StatusBadGateway, "service_error", "Could not keep the database: "+err.Error())
+				return
+			}
+		}
+	case "delete":
+		for i := range owned {
+			if err := s.purgeDatabase(r.Context(), &owned[i]); err != nil {
+				writeError(w, http.StatusBadGateway, "service_error", "Could not delete the database: "+err.Error())
+				return
+			}
+			_ = s.store.Audit(user.ID, "database.purge", owned[i].Name, clientIP(r), owned[i].Engine+" (with website "+slug+")")
+		}
+	case "":
+		// nothing owned, nothing to decide
+	default:
+		writeError(w, http.StatusBadRequest, "validation_error", "databases must be keep or delete")
+		return
+	}
+
 	steps, err := s.deploy.Teardown(r.Context(), slug)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Teardown failed: "+err.Error())
@@ -471,6 +517,27 @@ func (s *Server) handleDeleteWebsite(w http.ResponseWriter, r *http.Request, use
 	_ = s.store.Audit(user.ID, "website.delete", slug, clientIP(r), strings.Join(steps, "; "))
 
 	writeJSON(w, http.StatusOK, map[string]any{"slug": slug, "steps": steps, "mode": s.host.Mode()})
+}
+
+// detachDatabase keeps a record alive without the website it lived in: the link is
+// cleared, and a file-based database's file is moved out of the site first, because
+// deleting the site would take it with it (which is how a record ended up pointing at a
+// file that no longer existed).
+func (s *Server) detachDatabase(ctx context.Context, record *store.Database) error {
+	if record.FileBased && record.FilePath != "" {
+		dir := filepath.Join(filepath.Dir(s.cfg.DBPath), "detached")
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+		target := filepath.Join(dir, record.ID+".sqlite")
+		if err := os.Rename(record.FilePath, target); err != nil {
+			return err
+		}
+		if err := s.store.RenameDatabaseFile(record.ID, target); err != nil {
+			return err
+		}
+	}
+	return s.store.SetDatabaseWebsite(record.ID, "")
 }
 
 // handleRedeployWebsite runs the pipeline again for an existing website, using

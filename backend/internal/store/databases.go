@@ -173,6 +173,33 @@ func (s *Store) SetDatabaseAddress(databaseID, host string, port int) error {
 	return err
 }
 
+// DatabasesForWebsite lists the live records a website owns: deleting a website has to
+// know about them, because a SQLite file lives inside the site directory that goes away.
+func (s *Store) DatabasesForWebsite(slug string) ([]Database, error) {
+	rows, err := s.DB.Query(
+		`SELECT `+databaseColumns+` FROM databases WHERE website_slug = ? AND deleted_at = '' ORDER BY alias ASC`, slug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Database{}
+	for rows.Next() {
+		record, err := scanDatabase(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *record)
+	}
+	return out, rows.Err()
+}
+
+// SetDatabaseWebsite detaches a record from a website (an empty slug) or attaches it to
+// one. Detaching is what "keep the databases" means when their website is deleted.
+func (s *Store) SetDatabaseWebsite(databaseID, slug string) error {
+	_, err := s.DB.Exec(`UPDATE databases SET website_slug = ? WHERE id = ?`, slug, databaseID)
+	return err
+}
+
 // CountDatabasesByTenant counts the live records an account owns — both families,
 // because a package's database allowance is one number. Binned records are not counted:
 // they are not in use, and a restore is checked against the allowance again.
