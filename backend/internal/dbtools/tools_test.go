@@ -17,6 +17,9 @@ type fakeRunner struct {
 	commands []string
 	up       bool
 	failNext bool
+	// containerEnv is what `docker inspect --format {{json .Config.Env}}` answers,
+	// which is how the supervisor tells which database a shared container serves.
+	containerEnv string
 }
 
 func (f *fakeRunner) Mode() string { return "fake" }
@@ -34,6 +37,16 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) (s
 		return "curl: (7) Connection refused\n", errors.New("exit status 7")
 	case "pkill":
 		f.up = false
+		return "", nil
+	case "docker":
+		if len(args) > 0 && args[0] == "inspect" {
+			return f.containerEnv + "\n", nil
+		}
+		if len(args) > 0 && args[0] == "rm" {
+			f.up = false
+			return "", nil
+		}
+		f.up = true // docker run
 		return "", nil
 	default: // the tool itself
 		if f.failNext {
@@ -179,6 +192,37 @@ func TestDbGateRunsAsAContainerOnLoopbackOnlyAndIsRemovedToStop(t *testing.T) {
 	}
 	if got := strings.Join(stopArgv(spec), " "); got != "docker rm -f barepod-dbgate" {
 		t.Errorf("DbGate is not removed by its own name: %s", got)
+	}
+}
+
+// A shared container is scoped to one database at a time. One left over from
+// another database (or from an earlier daemon) must be replaced rather than reused:
+// the port answering says nothing about which database it serves, so reusing it
+// answers every request with the other database's page — DbGate's own "Cannot GET
+// /api/v1/databases/<this one>/gui/dbgate/".
+func TestASharedContainerScopedElsewhereIsReplacedNotReused(t *testing.T) {
+	ctx := context.Background()
+	spec := Registry()["dbgate"]
+	spec.Prefix = "/api/v1/databases/MINE/gui/dbgate"
+	spec.EnvFile = "/var/lib/barepod/dbtools/dbgate-MINE.env"
+
+	other := &fakeRunner{up: true, containerEnv: `["PORT=3000","WEB_ROOT=/api/v1/databases/OTHER/gui/dbgate"]`}
+	if err := New(other, time.Minute).Ensure(ctx, spec, ""); err != nil {
+		t.Fatalf("Ensure failed: %v", err)
+	}
+	if !strings.Contains(other.log(), "docker rm -f barepod-dbgate") {
+		t.Errorf("the container scoped to another database was reused:\n%s", other.log())
+	}
+	if starts := strings.Count(other.log(), "docker run -d"); starts != 1 {
+		t.Errorf("the container was not started for this database (%d starts):\n%s", starts, other.log())
+	}
+
+	mine := &fakeRunner{up: true, containerEnv: `["PORT=3000","WEB_ROOT=/api/v1/databases/MINE/gui/dbgate"]`}
+	if err := New(mine, time.Minute).Ensure(ctx, spec, ""); err != nil {
+		t.Fatalf("Ensure failed: %v", err)
+	}
+	if log := mine.log(); strings.Contains(log, "docker rm") || strings.Contains(log, "docker run") {
+		t.Errorf("a container already scoped to this database was restarted:\n%s", log)
 	}
 }
 

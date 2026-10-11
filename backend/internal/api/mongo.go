@@ -86,15 +86,28 @@ func (s *Server) provisionMongo(ctx context.Context, user *store.User, record *s
 	return nil
 }
 
-// rotateMongo replaces the database user's password.
+// rotateMongo replaces the database user's password. It is also the action the
+// panel's own note points at to finish a record that was never created ("rotate
+// the password to finish"), so a user that does not exist yet is created rather
+// than refused — otherwise an older MongoDB record could never become usable.
 func (s *Server) rotateMongo(ctx context.Context, record *store.Database, password string, engine dbengine.Engine) error {
 	client, err := s.mongoAdmin(ctx, engine)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = client.Disconnect(context.Background()) }()
-	command := bson.D{{Key: "updateUser", Value: record.User}, {Key: "pwd", Value: password}}
-	return client.Database(record.Name).RunCommand(ctx, command).Err()
+
+	db := client.Database(record.Name)
+	err = db.RunCommand(ctx, bson.D{{Key: "updateUser", Value: record.User}, {Key: "pwd", Value: password}}).Err()
+	if err != nil && strings.Contains(err.Error(), "UserNotFound") {
+		create := bson.D{
+			{Key: "createUser", Value: record.User},
+			{Key: "pwd", Value: password},
+			{Key: "roles", Value: mongoAccess(record)},
+		}
+		return db.RunCommand(ctx, create).Err()
+	}
+	return err
 }
 
 // suspendMongo removes the database's user. MongoDB has no disabled account (a

@@ -646,8 +646,20 @@ func (s *Server) handleRotateDatabasePassword(kind string) authedHandler {
 				writeError(w, http.StatusBadGateway, "service_error", fmt.Sprintf("the password was not changed in MongoDB: %v", err))
 				return
 			}
+			// A rotate is what the panel's note tells the operator to do to finish a
+			// record that was never created, so a success makes it usable.
+			_ = s.store.SetDatabaseStatus(record.ID, "ready", "")
 		} else if !engine.FileBased && engine.Available && s.host.Materialises() {
-			plan, err := dbengine.PlanFor(dbengine.StepRotate, s.resourceFor(record, password))
+			// A record that was never really created (its create ran while the engine
+			// was not installed) is finished here instead of refused: the note the panel
+			// left on it points at exactly this action, and the create plan — not an
+			// ALTER on a role that does not exist — is what makes it real.
+			step := dbengine.StepRotate
+			finishing := record.Status != "ready" && record.Status != "suspended"
+			if finishing {
+				step = dbengine.StepProvision
+			}
+			plan, err := dbengine.PlanFor(step, s.resourceFor(record, password))
 			if err != nil {
 				writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 				return
@@ -655,6 +667,9 @@ func (s *Server) handleRotateDatabasePassword(kind string) authedHandler {
 			if err := s.runDatabasePlan(r.Context(), plan); err != nil {
 				writeError(w, http.StatusBadGateway, "service_error", err.Error())
 				return
+			}
+			if finishing {
+				_ = s.store.SetDatabaseStatus(record.ID, "ready", "")
 			}
 		}
 

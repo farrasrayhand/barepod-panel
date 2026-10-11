@@ -191,8 +191,17 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 	defer lock.Unlock()
 
 	if s.running(ctx, spec) {
-		s.Touch(spec.Name)
-		return nil
+		// A tool that is a process is scoped to this database by the arguments it was
+		// started with, but a shared container is not: one loopback port serves one
+		// database at a time, so a container left over from another database (or from
+		// an earlier daemon) must be replaced rather than reused — its WEB_ROOT would
+		// belong to that other mount, and every request here would answer 404 inside
+		// the tool ("Cannot GET …/gui/dbgate/").
+		if !spec.Container || s.containerMatches(ctx, spec) {
+			s.Touch(spec.Name)
+			return nil
+		}
+		_, _ = s.runner.Run(ctx, "", "docker", "rm", "-f", spec.ContainerName)
 	}
 	argv := StartArgv(spec, connectionURL)
 	if len(argv) == 0 {
@@ -275,6 +284,23 @@ func (s *Supervisor) running(ctx context.Context, spec Spec) bool {
 	out, err := s.runner.Run(probe, "", "curl", "-sS", "-o", "/dev/null",
 		fmt.Sprintf("http://127.0.0.1:%d%s", spec.Port, spec.HealthPath))
 	return err == nil && !strings.Contains(out, "refused")
+}
+
+// containerMatches reports whether the running container is scoped to this spec's
+// mount. A container is shared between databases (one loopback port), so the port
+// answering is not enough: the WEB_ROOT it was started with has to be this one, or
+// the page being served belongs to another database's mount.
+func (s *Supervisor) containerMatches(ctx context.Context, spec Spec) bool {
+	if spec.Prefix == "" {
+		return true // nothing scopes it, so the port probe is all there is to go on
+	}
+	probe, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := s.runner.Run(probe, "", "docker", "inspect", "--format", "{{json .Config.Env}}", spec.ContainerName)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(out, `"WEB_ROOT=`+spec.Prefix+`"`)
 }
 
 // Stop stops a tool the panel started, and refuses to touch anything else.
