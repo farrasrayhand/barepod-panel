@@ -84,8 +84,68 @@ func (s *Server) handleDatabaseQuery(kind string) authedHandler {
 		statement := strings.TrimSpace(req.SQL)
 
 		if !record.FileBased {
-			writeError(w, http.StatusNotImplemented, "not_implemented",
-				"Running statements against a daemon engine is not wired yet: the panel does not want to hand a root-run client arbitrary SQL before it can scope it")
+			// A daemon engine: the statement runs through its own client, as this
+			// database's user, with the password in the environment.
+			if record.DeletedAt != "" {
+				writeError(w, http.StatusConflict, "suspended",
+					"This database is in the recycle bin: restore it before running anything against it")
+				return
+			}
+			if record.Status != "ready" {
+				// Not the same thing as suspended: this one was never created (the
+				// client was missing when it was added, for instance).
+				reason := record.Note
+				if reason == "" {
+					reason = "it was never created on this host"
+				}
+				writeError(w, http.StatusConflict, "not_ready", fmt.Sprintf(
+					"There is nothing to query yet (%s): %s", record.Status, reason))
+				return
+			}
+			engine, _ := s.engineFor(r.Context(), record.Engine)
+			if !engine.Available {
+				writeError(w, http.StatusConflict, "not_available", fmt.Sprintf(
+					"%s is not installed on this host, so the panel cannot run statements here", engine.Client))
+				return
+			}
+			if !s.host.Materialises() {
+				writeError(w, http.StatusNotImplemented, "dry_run",
+					"The daemon is in dry-run mode: statements are not run against a real server")
+				return
+			}
+			password, err := secrets.Decrypt(s.key, record.PasswordCipher)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal", "Could not decrypt the credential")
+				return
+			}
+			command, err := dbengine.QueryCommand(record.Engine, s.resourceFor(record, password), statement)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+				return
+			}
+			out, runErr := s.host.Runner.RunEnv(r.Context(), "", command.Env, command.Argv[0], command.Argv[1:]...)
+			grid, parseErr := dbengine.ParseQueryOutput(record.Engine, out)
+			if runErr != nil && parseErr != nil {
+				// The client said nothing usable: report its message, with the
+				// credential redacted in case a driver ever echoes it back.
+				message := strings.TrimSpace(out)
+				if message == "" {
+					message = runErr.Error()
+				}
+				message = strings.ReplaceAll(message, password, "***")
+				writeError(w, http.StatusBadGateway, "service_error", message)
+				return
+			}
+			kind := "exec"
+			if len(grid.Columns) > 0 {
+				kind = "select"
+			}
+			_ = s.store.Audit(user.ID, "database.query", record.Name, clientIP(r),
+				fmt.Sprintf("%s via %s, %d row(s)", record.Engine, engine.Client, len(grid.Rows)))
+			writeJSON(w, http.StatusOK, map[string]any{
+				"columns": grid.Columns, "rows": grid.Rows,
+				"truncated": grid.Truncated, "kind": kind,
+			})
 			return
 		}
 

@@ -1091,3 +1091,45 @@ func TestDatabaseGuiNeedsThePanelSession(t *testing.T) {
 		t.Errorf("opening a manager was not audited: %s", auditBody)
 	}
 }
+
+func TestScopedQueryRefusesWhatItMust(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	// A daemon engine on a host whose client is missing: honest, with the reason.
+	_, body := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
+		"engine": "postgresql", "version": "16", "alias": "Scoped",
+	})
+	var created struct {
+		Database struct {
+			ID string `json:"id"`
+		} `json:"database"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	id := created.Database.ID
+
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/databases/"+id+"/query", map[string]string{"sql": "SELECT 1"})
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("a statement was accepted: %s", body)
+	}
+	if !strings.Contains(string(body), "not installed") && !strings.Contains(string(body), "dry-run") {
+		t.Errorf("the refusal should name the reason: %s", body)
+	}
+
+	// A suspended database is not queryable: that is what suspending means.
+	if err := panel.store.BinDatabase(id); err != nil {
+		t.Fatal(err)
+	}
+	resp, body = panel.do(t, http.MethodPost, "/api/v1/databases/"+id+"/query", map[string]string{"sql": "SELECT 1"})
+	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(body), "recycle bin") {
+		t.Errorf("a binned database was queried: %d (%s)", resp.StatusCode, body)
+	}
+
+	// A detected file (the application's own) is queryable but not deletable.
+	resp, _ = panel.do(t, http.MethodDelete, "/api/v1/databases/"+id, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("binning a managed database = %d", resp.StatusCode)
+	}
+}

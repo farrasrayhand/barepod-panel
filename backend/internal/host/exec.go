@@ -2,6 +2,7 @@ package host
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -14,6 +15,9 @@ type Runner interface {
 	// RunAs executes a command as another user, so everything a deploy writes
 	// into a site directory belongs to the tenant instead of root.
 	RunAs(ctx context.Context, username, dir, name string, args ...string) (string, error)
+	// RunEnv executes a command with extra environment variables. Credentials
+	// travel this way so they never appear in a process list.
+	RunEnv(ctx context.Context, dir string, env []string, name string, args ...string) (string, error)
 	// Mode is "real" or "dry-run".
 	Mode() string
 }
@@ -30,6 +34,17 @@ func (RealRunner) Run(ctx context.Context, dir, name string, args ...string) (st
 	if dir != "" {
 		cmd.Dir = dir
 	}
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// RunEnv implements Runner.
+func (RealRunner) RunEnv(ctx context.Context, dir string, env []string, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -56,6 +71,25 @@ func (d *DryRunner) Run(_ context.Context, dir, name string, args ...string) (st
 // as, so a dry-run shows the tenant and never hides the ownership.
 func (d *DryRunner) RunAs(_ context.Context, username, dir, name string, args ...string) (string, error) {
 	line := d.render(username, dir, name, args)
+	d.mu.Lock()
+	d.commands = append(d.commands, line)
+	d.mu.Unlock()
+	return "[dry-run] " + line + "\n", nil
+}
+
+// RunEnv implements Runner: the recorded line names the variables but never their
+// values, so a dry-run log cannot leak a credential.
+func (d *DryRunner) RunEnv(_ context.Context, dir string, env []string, name string, args ...string) (string, error) {
+	keys := make([]string, 0, len(env))
+	for _, entry := range env {
+		if key, _, found := strings.Cut(entry, "="); found {
+			keys = append(keys, key+"=***")
+		}
+	}
+	line := d.render("", dir, name, args)
+	if len(keys) > 0 {
+		line = "(env " + strings.Join(keys, " ") + ") " + line
+	}
 	d.mu.Lock()
 	d.commands = append(d.commands, line)
 	d.mu.Unlock()

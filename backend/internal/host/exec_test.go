@@ -25,6 +25,15 @@ func (r *realRecorder) RunAs(_ context.Context, username, dir, name string, args
 	return "", nil
 }
 
+func (r *realRecorder) RunEnv(_ context.Context, dir string, env []string, name string, args ...string) (string, error) {
+	line := name + " " + strings.Join(args, " ")
+	if len(env) > 0 {
+		line = "(env " + strings.Join(env, " ") + ") " + line
+	}
+	r.commands = append(r.commands, line)
+	return "", nil
+}
+
 func (*realRecorder) Mode() string { return "real" }
 
 func TestDryRunnerRecordsTheUserItWouldRunAs(t *testing.T) {
