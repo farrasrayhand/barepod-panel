@@ -528,6 +528,7 @@ export function App() {
         currentTab={currentTab}
         onSelectTab={navigate}
         collapsed={sidebarCollapsed}
+        isAdmin={isAdmin}
       />
 
       {/* Main Content Area */}
