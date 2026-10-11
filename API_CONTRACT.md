@@ -91,6 +91,7 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `POST /auth/login` → `{ token, user }`
 - `POST /auth/logout`
 - `GET /auth/me` → `{ user, role, group, permissions }`
+- **CSRF:** every state-changing request carries `X-CSRF-Token`, and the token is returned by **`/auth/me`** as well as by login — a client must store it on *every* session read, because a reloaded page restores its session from `/auth/me` and would otherwise fail every write with `403 { code: "csrf" }`. A missing or stale token is rejected, never ignored.
 - `POST /auth/verify` (re-auth for revealing DB passwords / sensitive actions)
 - `POST /auth/2fa/enable` · `POST /auth/2fa/verify`
 - `GET|PATCH /profile` (identity: username, email, group)

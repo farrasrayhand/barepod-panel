@@ -207,10 +207,19 @@ export const api = {
     csrfToken = null;
   },
 
-  me: () =>
-    request<{ user: PanelUser; csrfToken: string; elevated: boolean; permissions: Record<string, boolean> }>(
-      '/auth/me',
-    ),
+  me: async () => {
+    const session = await request<{
+      user: PanelUser;
+      csrfToken: string;
+      elevated: boolean;
+      permissions: Record<string, boolean>;
+    }>('/auth/me');
+    // The daemon re-issues the CSRF token on every session read, so a page that
+    // was reloaded (or opened fresh with a live cookie) can still write: without
+    // this, every mutating call failed with "Missing or invalid CSRF token".
+    csrfToken = session.csrfToken;
+    return session;
+  },
 
   verify: (password: string) =>
     request<{ elevated: boolean; elevatedUntil: string }>('/auth/verify', {
@@ -334,6 +343,35 @@ export const api = {
 
   uploadUrl: (slug: string, path = '') =>
     `${API_BASE}/websites/${slug}/files/upload?path=${encodeURIComponent(path)}`,
+
+  /**
+   * Multipart upload. Kept here (not in the view) so the CSRF header and the
+   * error shape stay in one place.
+   */
+  uploadFiles: async (slug: string, path: string, files: File[]) => {
+    const form = new FormData();
+    files.forEach((file) => form.append('files', file, file.name));
+    const headers = new Headers();
+    if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
+
+    const response = await fetch(api.uploadUrl(slug, path), {
+      method: 'POST',
+      body: form,
+      headers,
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      let message = `Upload failed (${response.status})`;
+      try {
+        const payload = (await response.json()) as { error?: { message?: string } };
+        if (payload?.error?.message) message = payload.error.message;
+      } catch {
+        // keep the generic message
+      }
+      throw new ApiError(message, response.status);
+    }
+    return (await response.json()) as { uploaded: string[] };
+  },
 
   downloadUrl: (slug: string, path: string) =>
     `${API_BASE}/websites/${slug}/files/download?path=${encodeURIComponent(path)}`,

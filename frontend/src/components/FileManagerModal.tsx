@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Folder, 
-  File, 
-  FileCode, 
-  FileText, 
-  Upload, 
-  Plus, 
-  Trash2, 
-  Download, 
-  Save, 
-  X, 
-  ChevronRight, 
-  RotateCw, 
-  Check, 
+import {
+  Folder,
+  File,
+  FileCode,
+  FileText,
+  Upload,
+  Plus,
+  Trash2,
+  Download,
+  Save,
+  X,
+  ChevronRight,
+  RotateCw,
+  Check,
   Edit3,
   Archive,
   Terminal,
@@ -28,9 +28,12 @@ import {
   FolderPlus,
   ZoomIn,
   ZoomOut,
-  ExternalLink
+  ExternalLink,
+  Loader2,
+  TriangleAlert,
 } from 'lucide-react';
 import type { WebApp } from '../types';
+import { api, apiReachable, ApiError, type FileEntry as ApiFileEntry } from '../api/client';
 import { createZip } from '../utils/zip';
 import { highlightCode } from '../utils/highlight';
 import { usePanelSize } from '../hooks/usePanelSize';
@@ -50,9 +53,14 @@ interface FileEntry {
   size: string;
   modified: string;
   permissions: string;
+  /** Path relative to the site root, as the daemon expects it (live mode). */
+  apiPath?: string;
+  /** Authenticated download URL, used for previews (live mode). */
+  previewUrl?: string;
+  /** Simulation mode only. */
   content?: string;
   mediaType?: 'text' | 'image' | 'pdf' | 'audio' | 'video';
-  previewUrl?: string;
+  symlinkTarget?: string;
 }
 
 interface ClipboardState {
@@ -61,20 +69,97 @@ interface ClipboardState {
   sourcePath: string;
 }
 
+const detectMediaType = (fileName: string): 'text' | 'image' | 'pdf' | 'audio' | 'video' => {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  if (['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif', 'ico'].includes(ext || '')) return 'image';
+  if (ext === 'pdf') return 'pdf';
+  if (['mp3', 'wav', 'ogg'].includes(ext || '')) return 'audio';
+  if (['mp4', 'webm'].includes(ext || '')) return 'video';
+  return 'text';
+};
+
+const formatSize = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unit]}`;
+};
+
+const formatWhen = (iso: string): string => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
+
+/** UI path ("/public") → daemon path ("public"). */
+const toApiPath = (uiPath: string): string => uiPath.replace(/^\/+/, '').replace(/\/+$/, '');
+/** Child UI path. */
+const joinUiPath = (dir: string, name: string): string => (dir === '/' ? `/${name}` : `${dir}/${name}`);
+/** Child daemon path. */
+const joinApiPath = (dir: string, name: string): string => {
+  const parent = toApiPath(dir);
+  return parent ? `${parent}/${name}` : name;
+};
+const parentUiPath = (uiPath: string): string => {
+  const parts = uiPath.split('/').filter(Boolean);
+  parts.pop();
+  return parts.length ? `/${parts.join('/')}` : '/';
+};
+
+const describeError = (err: unknown): string => {
+  if (err instanceof ApiError || err instanceof Error) return err.message;
+  return 'Something went wrong';
+};
+
+const toEntry = (item: ApiFileEntry, slug: string): FileEntry => {
+  const isFolder = item.type === 'directory';
+  return {
+    name: item.name,
+    type: isFolder ? 'folder' : 'file',
+    size: isFolder ? '—' : formatSize(item.size),
+    modified: formatWhen(item.modifiedAt),
+    permissions: item.mode,
+    apiPath: item.path,
+    previewUrl: isFolder ? undefined : api.downloadUrl(slug, item.path),
+    mediaType: detectMediaType(item.name),
+    symlinkTarget: item.symlinkTarget,
+  };
+};
+
 export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   isOpen,
   onClose,
   app,
   inline = false,
 }) => {
+  const slug = app?.name ?? '';
+
   const [currentPath, setCurrentPath] = useState('/');
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [editingFile, setEditingFile] = useState<FileEntry | null>(null);
   const [editorContent, setEditorContent] = useState('');
+  const [editorEncoding, setEditorEncoding] = useState<'utf-8' | 'base64'>('utf-8');
+  const [editorNote, setEditorNote] = useState('');
+  const [busy, setBusy] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const editorPreRef = useRef<HTMLPreElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const { size: panelSize, height: panelHeight, setSize: setPanelSize } = usePanelSize({ sm: 420, md: 600, lg: 820 });
+
+  // Real files (daemon reachable) or the prototype's mock tree.
+  const [live, setLive] = useState<boolean | null>(null);
+  const [liveEntries, setLiveEntries] = useState<FileEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = () => setReloadKey((key) => key + 1);
 
   // Clipboard State (Copy, Cut, Paste)
   const [clipboard, setClipboard] = useState<ClipboardState | null>(null);
@@ -108,7 +193,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     setTimeout(() => setToastMessage(null), 2500);
   };
 
-  // Sample SVG for image preview
+  // Sample SVG for image preview in simulation mode
   const sampleSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240" width="100%" height="100%">
     <defs>
       <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -123,12 +208,12 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     <text x="200" y="180" fill="#93c5fd" font-family="monospace" font-size="12" text-anchor="middle">Vector Graphic • Scalable Production Asset</text>
   </svg>`;
 
-  // File System State
-  const [fileSystem, setFileSystem] = useState<Record<string, FileEntry[]>>({});
+  // Simulation file tree — only used when the daemon does not answer.
+  const [mockFs, setMockFs] = useState<Record<string, FileEntry[]>>({});
 
   useEffect(() => {
     if (!app) return;
-    setFileSystem({
+    setMockFs({
       '/': [
         { name: '.env', type: 'file', size: '420 B', modified: 'Oct 10 16:30', permissions: '0600', mediaType: 'text', content: `APP_NAME="${app.name}"\nAPP_ENV=production\nAPP_KEY=base64:X8fJk88219PqLo01...\nAPP_DEBUG=false\nAPP_URL="https://${app.domain}"\n\nDB_CONNECTION=pgsql\nDB_HOST=127.0.0.1\nDB_PORT=5432\nDB_DATABASE=app_production\nDB_USERNAME=barepod_user\nDB_PASSWORD=secret_password\n\nREDIS_HOST=127.0.0.1\nREDIS_PORT=6379\n` },
         { name: 'app', type: 'folder', size: '4.0 KB', modified: 'Oct 10 16:20', permissions: '0755' },
@@ -150,7 +235,31 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         { name: 'invoice-sample.pdf', type: 'file', size: '185 KB', modified: 'Oct 10 15:40', permissions: '0644', mediaType: 'pdf' },
       ]
     });
-  }, [app]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [app?.name]);
+
+  // Is the daemon answering? The prototype keeps working on mock files when not.
+  useEffect(() => {
+    let cancelled = false;
+    apiReachable()
+      .then((ok) => { if (!cancelled) setLive(ok); })
+      .catch(() => { if (!cancelled) setLive(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // The real listing: one call per directory change.
+  useEffect(() => {
+    if (live !== true || !slug) return;
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    api
+      .files(slug, toApiPath(currentPath))
+      .then((res) => { if (!cancelled) setLiveEntries(res.items.map((item) => toEntry(item, slug))); })
+      .catch((err) => { if (!cancelled) setError(describeError(err)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [live, slug, currentPath, reloadKey]);
 
   // Close context menu on outside click
   useEffect(() => {
@@ -163,30 +272,40 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
   if (!app || (!isOpen && !inline)) return null;
 
-  const currentFiles = fileSystem[currentPath] || [];
+  const currentFiles = live ? liveEntries : mockFs[currentPath] || [];
 
-  const detectMediaType = (fileName: string): 'text' | 'image' | 'pdf' | 'audio' | 'video' => {
-    const ext = fileName.split('.').pop()?.toLowerCase();
-    if (['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif', 'ico'].includes(ext || '')) return 'image';
-    if (ext === 'pdf') return 'pdf';
-    if (['mp3', 'wav', 'ogg'].includes(ext || '')) return 'audio';
-    if (['mp4', 'webm'].includes(ext || '')) return 'video';
-    return 'text';
-  };
-
-  const handleOpenFile = (file: FileEntry) => {
+  const handleOpenFile = async (file: FileEntry) => {
     if (file.type === 'folder') {
-      setCurrentPath(currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`);
+      setCurrentPath(joinUiPath(currentPath, file.name));
       setSelectedFile(null);
       setSelectedFiles([]);
-    } else {
-      const media = file.mediaType || detectMediaType(file.name);
-      if (media === 'image' || media === 'pdf') {
-        setPreviewModal({ isOpen: true, file, zoom: 1 });
-      } else {
-        setEditingFile(file);
-        setEditorContent(file.content || `// Content of ${file.name}\n// Path: ${currentPath}/${file.name}\n`);
+      return;
+    }
+    const media = file.mediaType || detectMediaType(file.name);
+    if (media !== 'text') {
+      setPreviewModal({ isOpen: true, file, zoom: 1 });
+      return;
+    }
+    setEditingFile(file);
+    setEditorNote('');
+    setEditorEncoding('utf-8');
+    if (!live) {
+      setEditorContent(file.content || `// Content of ${file.name}\n// Path: ${currentPath}/${file.name}\n`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api.readFile(slug, file.apiPath ?? '');
+      setEditorEncoding(result.encoding);
+      setEditorContent(result.content ?? '');
+      if (result.binary) {
+        setEditorNote('This file is binary, so it is shown as base64 and saved back the same way.');
       }
+    } catch (err) {
+      setError(describeError(err));
+      setEditingFile(null);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -199,50 +318,94 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   };
 
   const handleToggleSelectFile = (fileName: string, checked: boolean) => {
-    setSelectedFiles(prev => 
+    setSelectedFiles(prev =>
       checked ? [...prev, fileName] : prev.filter(name => name !== fileName)
     );
   };
 
+  const triggerDownload = (url: string, filename: string) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const handleDownload = (file: FileEntry) => {
+    if (live && file.apiPath !== undefined) {
+      // The daemon sets Content-Disposition; the cookie authenticates it.
+      triggerDownload(api.downloadUrl(slug, file.apiPath), file.name);
+      showToast(`Downloading ${file.name}`);
+      return;
+    }
     const content = file.content || `// Content of ${file.name}\n// Exported from BarePod Panel\n`;
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name;
-    a.click();
+    triggerDownload(url, file.name);
     URL.revokeObjectURL(url);
     showToast(`Downloading ${file.name}`);
   };
 
-  const handleDownloadSelected = () => {
+  const handleDownloadSelected = async () => {
     if (selectedFiles.length === 0) return;
-    if (selectedFiles.length === 1) {
-      const f = currentFiles.find(item => item.name === selectedFiles[0]);
-      if (f) handleDownload(f);
-      return;
-    }
-    const files = selectedFiles
+    const chosen = selectedFiles
       .map(fileName => currentFiles.find(item => item.name === fileName))
       .filter((f): f is FileEntry => Boolean(f));
 
-    const blob = createZip(files.map(f => ({
+    if (live) {
+      const paths = chosen.map((f) => f.apiPath ?? '').filter(Boolean);
+      if (paths.length === 1) {
+        handleDownload(chosen[0]);
+        return;
+      }
+      setBusy(true);
+      try {
+        const blob = await api.compressFiles(slug, paths);
+        const url = URL.createObjectURL(blob);
+        triggerDownload(url, `${app.name}-selection.zip`);
+        URL.revokeObjectURL(url);
+        showToast(`Downloading ${paths.length} items as a .zip archive`);
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (chosen.length === 1) {
+      handleDownload(chosen[0]);
+      return;
+    }
+    const blob = createZip(chosen.map(f => ({
       name: f.name,
       content: f.content ?? `// Content of ${f.name}\n// Exported from BarePod Panel\n`,
     })));
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${app?.name || 'files'}-export.zip`;
-    a.click();
+    triggerDownload(url, `${app?.name || 'files'}-export.zip`);
     URL.revokeObjectURL(url);
-    showToast(`Downloading ${files.length} files as a .zip archive`);
+    showToast(`Downloading ${chosen.length} files as a .zip archive`);
   };
 
-  const handleSaveFile = () => {
+  const handleSaveFile = async () => {
     if (!editingFile) return;
-    setFileSystem(prev => {
+    if (live && editingFile.apiPath !== undefined) {
+      setBusy(true);
+      try {
+        await api.writeFile(slug, editingFile.apiPath, editorContent, editorEncoding);
+        setIsSaved(true);
+        showToast(`Saved ${editingFile.name}`);
+        reload();
+        setTimeout(() => setIsSaved(false), 1500);
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    setMockFs(prev => {
       const list = prev[currentPath] || [];
       return {
         ...prev,
@@ -262,8 +425,8 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     return selectedFile ? [selectedFile] : [];
   };
 
-  const resolveUniqueName = (name: string, existing: FileEntry[]): string => {
-    if (!existing.some(f => f.name === name)) return name;
+  const resolveUniqueName = (name: string, taken: string[]): string => {
+    if (!taken.includes(name)) return name;
     const parts = name.split('.');
     if (parts.length > 1) {
       const ext = parts.pop();
@@ -288,16 +451,45 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       : `${files.length} items ready to move (cut)`);
   };
 
-  const handlePaste = () => {
+  const handlePaste = async () => {
     if (!clipboard || clipboard.files.length === 0) return;
-    const { files, operation, sourcePath } = clipboard;
+    const { files, operation } = clipboard;
+
+    if (live) {
+      setBusy(true);
+      try {
+        const taken = currentFiles.map((f) => f.name);
+        for (const file of files) {
+          const targetName = resolveUniqueName(file.name, taken);
+          taken.push(targetName);
+          const to = joinApiPath(currentPath, targetName);
+          if (operation === 'copy') {
+            await api.copyFiles(slug, file.apiPath ?? '', to);
+          } else {
+            await api.moveFiles(slug, file.apiPath ?? '', to);
+          }
+        }
+        showToast(operation === 'copy'
+          ? `${files.length} items pasted into ${currentPath}`
+          : `${files.length} items moved to ${currentPath}`);
+        if (operation === 'cut') setClipboard(null);
+        reload();
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    const { sourcePath } = clipboard;
     const movingNames = files.map(f => f.name);
 
-    setFileSystem(prev => {
+    setMockFs(prev => {
       const currentList = [...(prev[currentPath] || [])];
       const added: FileEntry[] = [];
       files.forEach(file => {
-        const targetName = resolveUniqueName(file.name, [...currentList, ...added]);
+        const targetName = resolveUniqueName(file.name, [...currentList, ...added].map(f => f.name));
         added.push({ ...file, name: targetName, modified: 'Just now' });
       });
 
@@ -323,8 +515,21 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (operation === 'cut') setClipboard(null);
   };
 
-  const handleDelete = (file: FileEntry) => {
-    setFileSystem(prev => ({
+  const handleDelete = async (file: FileEntry) => {
+    if (live) {
+      setBusy(true);
+      try {
+        await api.deleteFiles(slug, [file.apiPath ?? '']);
+        showToast(`Deleted ${file.name}`);
+        reload();
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    setMockFs(prev => ({
       ...prev,
       [currentPath]: (prev[currentPath] || []).filter(f => f.name !== file.name)
     }));
@@ -334,10 +539,31 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     showToast(`File ${file.name} deleted.`);
   };
 
-  const handleDeleteSelected = () => {
+  const handleDeleteSelected = async () => {
     if (selectedFiles.length === 0) return;
     const count = selectedFiles.length;
-    setFileSystem(prev => ({
+
+    if (live) {
+      const paths = currentFiles
+        .filter((f) => selectedFiles.includes(f.name))
+        .map((f) => f.apiPath ?? '')
+        .filter(Boolean);
+      setBusy(true);
+      try {
+        await api.deleteFiles(slug, paths);
+        setSelectedFiles([]);
+        setSelectedFile(null);
+        showToast(`${count} items deleted.`);
+        reload();
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    setMockFs(prev => ({
       ...prev,
       [currentPath]: (prev[currentPath] || []).filter(f => !selectedFiles.includes(f.name))
     }));
@@ -347,83 +573,144 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     showToast(`${count} items deleted.`);
   };
 
-  const handleDuplicate = (file: FileEntry) => {
-    const parts = file.name.split('.');
-    const ext = parts.length > 1 ? `.${parts.pop()}` : '';
-    const newName = `${parts.join('.')}_copy${ext}`;
+  const handleDuplicate = async (file: FileEntry) => {
+    const newName = resolveUniqueName(file.name, currentFiles.map(f => f.name));
 
-    const newEntry: FileEntry = {
-      ...file,
-      name: newName,
-      modified: 'Just now'
-    };
+    if (live) {
+      setBusy(true);
+      try {
+        await api.copyFiles(slug, file.apiPath ?? '', joinApiPath(currentPath, newName));
+        showToast(`Duplicated as ${newName}`);
+        reload();
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
 
-    setFileSystem(prev => ({
+    setMockFs(prev => ({
       ...prev,
-      [currentPath]: [...(prev[currentPath] || []), newEntry]
+      [currentPath]: [...(prev[currentPath] || []), { ...file, name: newName, modified: 'Just now' }]
     }));
     showToast(`Duplicated ${newName}`);
   };
 
-  const handleRenameSubmit = (e: React.FormEvent) => {
+  const handleRenameSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!renameModal.file || !renameModal.newName.trim()) return;
-    const oldName = renameModal.file.name;
     const newName = renameModal.newName.trim();
+    const target = renameModal.file;
 
-    setFileSystem(prev => ({
+    if (live) {
+      setBusy(true);
+      try {
+        await api.renameFile(slug, target.apiPath ?? '', newName);
+        showToast(`Renamed to ${newName}`);
+        setRenameModal({ isOpen: false, file: null, newName: '' });
+        reload();
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    setMockFs(prev => ({
       ...prev,
-      [currentPath]: (prev[currentPath] || []).map(f => f.name === oldName ? { ...f, name: newName } : f)
+      [currentPath]: (prev[currentPath] || []).map(f => f.name === target.name ? { ...f, name: newName } : f)
     }));
-
     showToast(`Renamed to ${newName}`);
     setRenameModal({ isOpen: false, file: null, newName: '' });
   };
 
-  const handleCreateFileSubmit = (e: React.FormEvent) => {
+  const handleCreateFileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFileModal.name.trim()) return;
     const name = newFileModal.name.trim();
 
-    const newEntry: FileEntry = {
-      name,
-      type: 'file',
-      size: '0 B',
-      modified: 'Just now',
-      permissions: '0644',
-      mediaType: detectMediaType(name),
-      content: ''
-    };
+    if (live) {
+      setBusy(true);
+      try {
+        await api.createFile(slug, joinApiPath(currentPath, name));
+        setNewFileModal({ isOpen: false, name: '' });
+        showToast(`Created ${name}`);
+        reload();
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
 
-    setFileSystem(prev => ({
+    setMockFs(prev => ({
       ...prev,
-      [currentPath]: [...(prev[currentPath] || []), newEntry]
+      [currentPath]: [...(prev[currentPath] || []), {
+        name,
+        type: 'file',
+        size: '0 B',
+        modified: 'Just now',
+        permissions: '0644',
+        mediaType: detectMediaType(name),
+        content: ''
+      }]
     }));
-
     setNewFileModal({ isOpen: false, name: '' });
     showToast(`File ${name} created.`);
   };
 
-  const handleCreateFolderSubmit = (e: React.FormEvent) => {
+  const handleCreateFolderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFolderModal.name.trim()) return;
     const name = newFolderModal.name.trim();
 
-    const newEntry: FileEntry = {
-      name,
-      type: 'folder',
-      size: '4.0 KB',
-      modified: 'Just now',
-      permissions: '0755'
-    };
+    if (live) {
+      setBusy(true);
+      try {
+        await api.mkdir(slug, joinApiPath(currentPath, name));
+        setNewFolderModal({ isOpen: false, name: '' });
+        showToast(`Created folder ${name}`);
+        reload();
+      } catch (err) {
+        setError(describeError(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
 
-    setFileSystem(prev => ({
+    setMockFs(prev => ({
       ...prev,
-      [currentPath]: [...(prev[currentPath] || []), newEntry]
+      [currentPath]: [...(prev[currentPath] || []), {
+        name,
+        type: 'folder',
+        size: '4.0 KB',
+        modified: 'Just now',
+        permissions: '0755'
+      }]
     }));
-
     setNewFolderModal({ isOpen: false, name: '' });
     showToast(`Folder ${name} created.`);
+  };
+
+  const handleUpload = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    setBusy(true);
+    setError('');
+    try {
+      const result = await api.uploadFiles(slug, toApiPath(currentPath), files);
+      showToast(`Uploaded ${result.uploaded.length} file${result.uploaded.length === 1 ? '' : 's'}`);
+      reload();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+      if (uploadInputRef.current) uploadInputRef.current.value = '';
+    }
   };
 
   const getFileIcon = (file: FileEntry) => {
@@ -438,6 +725,8 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     return <FileText className="w-4 h-4 text-slate-400 shrink-0" />;
   };
 
+  const breadcrumbSegments = currentPath.split('/').filter(Boolean);
+
   return (
     <div className={inline ? 'block' : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200'}>
       <div
@@ -446,7 +735,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
           : 'bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-6xl w-full h-[90vh] flex flex-col overflow-hidden relative'}
         style={inline ? { height: panelHeight } : undefined}
       >
-        
+
         {/* Toast Notification */}
         {toastMessage && (
           <div className="absolute top-16 right-6 z-50 px-4 py-2 bg-slate-900 text-white rounded-xl shadow-lg border border-slate-700 text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
@@ -467,9 +756,21 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">
                   /home/{app.tenantUser}/apps/{app.name}
                 </span>
+                {live === true && (
+                  <span className="text-[10px] bg-emerald-500/15 text-emerald-300 px-2 py-0.5 rounded font-semibold">
+                    Live
+                  </span>
+                )}
+                {live === false && (
+                  <span className="text-[10px] bg-amber-500/15 text-amber-300 px-2 py-0.5 rounded font-semibold">
+                    Simulation (mock data)
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-400">
-                Persistent Container Volume Mount • Host Sync Active
+                {live === true
+                  ? 'Files on the host, read and written as the tenant account'
+                  : 'No daemon on this machine — showing mock files'}
               </p>
             </div>
           </div>
@@ -488,7 +789,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           {/* Breadcrumb Path */}
           <div className="flex items-center gap-1.5 text-xs text-slate-600 font-mono">
-            <button 
+            <button
               onClick={() => {
                 setCurrentPath('/');
                 setSelectedFile(null);
@@ -498,16 +799,51 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             >
               root
             </button>
-            {currentPath !== '/' && (
-              <>
-                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                <span className="text-slate-800 font-semibold">{currentPath.replace('/', '')}</span>
-              </>
-            )}
+            {breadcrumbSegments.map((segment, index) => {
+              const target = `/${breadcrumbSegments.slice(0, index + 1).join('/')}`;
+              const isLast = index === breadcrumbSegments.length - 1;
+              return (
+                <React.Fragment key={target}>
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  <button
+                    onClick={() => {
+                      setCurrentPath(target);
+                      setSelectedFile(null);
+                      setSelectedFiles([]);
+                    }}
+                    className={isLast ? 'text-slate-800 font-semibold' : 'hover:text-blue-600'}
+                  >
+                    {segment}
+                  </button>
+                </React.Fragment>
+              );
+            })}
           </div>
 
           {/* Action Buttons Toolbar */}
           <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={reload}
+              disabled={live !== true}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
+              title="Reload this directory"
+            >
+              {loading && live === true ? <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" /> : <RotateCw className="w-3.5 h-3.5 text-slate-500" />}
+              <span>Refresh</span>
+            </button>
+
+            {live === true && (
+              <button
+                onClick={() => uploadInputRef.current?.click()}
+                disabled={busy}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
+                title="Upload files into this directory"
+              >
+                <Upload className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Upload</span>
+              </button>
+            )}
+
             {/* Batch Selection Banner & Actions */}
             {selectedFiles.length > 0 && (
               <>
@@ -522,7 +858,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   </button>
                 </div>
 
-                <button 
+                <button
                   onClick={handleDownloadSelected}
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
                   title="Download selected files"
@@ -531,7 +867,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   <span>Download ({selectedFiles.length})</span>
                 </button>
 
-                <button 
+                <button
                   onClick={handleDeleteSelected}
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg text-xs font-semibold cursor-pointer"
                   title="Delete all selected"
@@ -544,15 +880,15 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               </>
             )}
 
-            <button 
+            <button
               onClick={() => setNewFileModal({ isOpen: true, name: '' })}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5 text-blue-600" />
               <span>New File</span>
             </button>
-            
-            <button 
+
+            <button
               onClick={() => setNewFolderModal({ isOpen: true, name: '' })}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
             >
@@ -563,7 +899,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             <div className="h-4 w-px bg-slate-200 mx-1" />
 
             {/* Clipboard Toolbar Buttons */}
-            <button 
+            <button
               disabled={!selectedFile && selectedFiles.length === 0}
               onClick={() => handleCopy(getSelectedEntries())}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
@@ -573,7 +909,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               <span>Copy{selectedFiles.length > 1 ? ` (${selectedFiles.length})` : ''}</span>
             </button>
 
-            <button 
+            <button
               disabled={!selectedFile && selectedFiles.length === 0}
               onClick={() => handleCut(getSelectedEntries())}
               className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
@@ -583,12 +919,12 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               <span>Cut{selectedFiles.length > 1 ? ` (${selectedFiles.length})` : ''}</span>
             </button>
 
-            <button 
+            <button
               disabled={!clipboard || clipboard.files.length === 0}
               onClick={handlePaste}
               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer transition-colors ${
-                clipboard 
-                  ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                clipboard
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
                   : 'bg-white border border-slate-200 text-slate-400 opacity-40'
               }`}
               title={clipboard ? `Paste ${clipboard.files.length} items into ${currentPath}` : 'Clipboard empty'}
@@ -598,7 +934,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             </button>
 
             {selectedFile && selectedFiles.length === 0 && (
-              <button 
+              <button
                 onClick={() => handleDelete(selectedFile)}
                 className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg text-xs font-medium cursor-pointer"
                 title="Delete selected file"
@@ -610,10 +946,28 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
           </div>
         </div>
 
+        {error && (
+          <div className="px-6 py-2 bg-rose-50 border-b border-rose-200 text-rose-800 text-xs flex items-center gap-2 shrink-0">
+            <TriangleAlert className="w-3.5 h-3.5 shrink-0" />
+            <span className="flex-1">{error}</span>
+            <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-800 cursor-pointer">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        <input
+          ref={uploadInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => void handleUpload(e.target.files)}
+        />
+
         {/* Main Content Area: Split File Table & Code Editor */}
         <div className="flex-1 flex min-h-0 bg-slate-50">
           {/* File List Grid / Table */}
-          <div 
+          <div
             className={`${editingFile ? 'w-1/2 hidden md:block' : 'w-full'} border-r border-slate-200 bg-white overflow-y-auto select-none`}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -640,9 +994,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {currentPath !== '/' && (
-                  <tr 
+                  <tr
                     onClick={() => {
-                      setCurrentPath('/');
+                      setCurrentPath(parentUiPath(currentPath));
                       setSelectedFile(null);
                       setSelectedFiles([]);
                     }}
@@ -650,7 +1004,22 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   >
                     <td colSpan={5} className="py-2 px-4 flex items-center gap-2">
                       <Folder className="w-4 h-4 text-slate-400" />
-                      <span>.. (Back to root)</span>
+                      <span>.. (up one level)</span>
+                    </td>
+                  </tr>
+                )}
+                {live === true && loading && currentFiles.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-6 px-4 text-center text-slate-400">
+                      <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                      Reading the directory…
+                    </td>
+                  </tr>
+                )}
+                {live === true && !loading && currentFiles.length === 0 && !error && (
+                  <tr>
+                    <td colSpan={5} className="py-6 px-4 text-center text-slate-400">
+                      This directory is empty.
                     </td>
                   </tr>
                 )}
@@ -661,9 +1030,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
                   return (
                     <tr
-                      key={idx}
+                      key={`${file.name}-${idx}`}
                       onClick={() => setSelectedFile(file)}
-                      onDoubleClick={() => handleOpenFile(file)}
+                      onDoubleClick={() => void handleOpenFile(file)}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -671,10 +1040,10 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                         setContextMenu({ x: e.clientX, y: e.clientY, file });
                       }}
                       className={`cursor-pointer transition-colors group ${
-                        isChecked 
-                          ? 'bg-blue-50/80 border-l-4 border-blue-500' 
-                          : isSelected 
-                          ? 'bg-blue-100/70 border-l-4 border-blue-600' 
+                        isChecked
+                          ? 'bg-blue-50/80 border-l-4 border-blue-500'
+                          : isSelected
+                          ? 'bg-blue-100/70 border-l-4 border-blue-600'
                           : 'hover:bg-slate-50/80'
                       } ${isBeingCut ? 'opacity-40 italic' : ''}`}
                     >
@@ -692,6 +1061,11 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                           <span className={`font-medium ${file.type === 'folder' ? 'text-slate-900 font-semibold' : 'text-slate-800'}`}>
                             {file.name}
                           </span>
+                          {file.symlinkTarget && (
+                            <span className="text-[10px] text-slate-400 font-mono" title={`Symlink → ${file.symlinkTarget}`}>
+                              → {file.symlinkTarget}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px]">{file.size}</td>
@@ -718,9 +1092,10 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleSaveFile}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                    disabled={busy}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded text-xs font-semibold shadow-xs transition-colors cursor-pointer"
                   >
-                    {isSaved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                    {isSaved ? <Check className="w-3.5 h-3.5" /> : busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                     <span>{isSaved ? 'Saved!' : 'Save Changes'}</span>
                   </button>
                   <button
@@ -732,6 +1107,13 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   </button>
                 </div>
               </div>
+
+              {editorNote && (
+                <div className="px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-[11px] text-amber-200 flex items-center gap-2">
+                  <TriangleAlert className="w-3.5 h-3.5 shrink-0" />
+                  <span>{editorNote}</span>
+                </div>
+              )}
 
               {/* Code Editor with syntax highlighting (overlay technique) */}
               <div className="relative flex-1 overflow-hidden bg-slate-900">
@@ -768,7 +1150,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Right Click Context Menu */}
         {contextMenu && (
-          <div 
+          <div
             style={{ top: Math.min(contextMenu.y - 40, window.innerHeight - 280), left: Math.min(contextMenu.x - 20, window.innerWidth - 220) }}
             className="fixed z-50 w-52 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 text-xs text-slate-700 animate-in fade-in zoom-in-95 duration-100"
             onClick={(e) => e.stopPropagation()}
@@ -781,7 +1163,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
                 <button
                   onClick={() => {
-                    if (contextMenu.file) handleOpenFile(contextMenu.file);
+                    if (contextMenu.file) void handleOpenFile(contextMenu.file);
                     setContextMenu(null);
                   }}
                   className="w-full px-3 py-1.5 text-left hover:bg-blue-50 hover:text-blue-600 flex items-center gap-2 cursor-pointer font-medium"
@@ -814,7 +1196,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
                 <button
                   onClick={() => {
-                    if (contextMenu.file) handleDuplicate(contextMenu.file);
+                    if (contextMenu.file) void handleDuplicate(contextMenu.file);
                     setContextMenu(null);
                   }}
                   className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
@@ -849,7 +1231,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
                 <button
                   onClick={() => {
-                    if (contextMenu.file) handleDelete(contextMenu.file);
+                    if (contextMenu.file) void handleDelete(contextMenu.file);
                     setContextMenu(null);
                   }}
                   className="w-full px-3 py-1.5 text-left hover:bg-rose-50 text-rose-600 flex items-center gap-2 cursor-pointer font-medium"
@@ -882,10 +1264,23 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   <span>New Folder</span>
                 </button>
 
+                {live === true && (
+                  <button
+                    onClick={() => {
+                      uploadInputRef.current?.click();
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Upload files here</span>
+                  </button>
+                )}
+
                 {clipboard && (
                   <button
                     onClick={() => {
-                      handlePaste();
+                      void handlePaste();
                       setContextMenu(null);
                     }}
                     className="w-full px-3 py-1.5 text-left hover:bg-blue-50 text-blue-600 font-semibold flex items-center gap-2 cursor-pointer"
@@ -922,7 +1317,8 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   </button>
                   <button
                     type="submit"
-                    className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer"
+                    disabled={busy}
+                    className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg cursor-pointer"
                   >
                     Save
                   </button>
@@ -956,7 +1352,8 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   </button>
                   <button
                     type="submit"
-                    className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer"
+                    disabled={busy}
+                    className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg cursor-pointer"
                   >
                     Create File
                   </button>
@@ -990,7 +1387,8 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   </button>
                   <button
                     type="submit"
-                    className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer"
+                    disabled={busy}
+                    className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg cursor-pointer"
                   >
                     Create Folder
                   </button>
@@ -1013,14 +1411,14 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button 
+                  <button
                     onClick={() => setPreviewModal(prev => ({ ...prev, zoom: Math.min(prev.zoom + 0.25, 2.5) }))}
                     className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
                     title="Zoom In"
                   >
                     <ZoomIn className="w-4 h-4" />
                   </button>
-                  <button 
+                  <button
                     onClick={() => setPreviewModal(prev => ({ ...prev, zoom: Math.max(prev.zoom - 0.25, 0.5) }))}
                     className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
                     title="Zoom Out"
@@ -1038,14 +1436,34 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
               {/* Preview Canvas */}
               <div className="flex-1 bg-slate-100 flex items-center justify-center p-6 overflow-auto">
-                {previewModal.file.mediaType === 'image' || detectMediaType(previewModal.file.name) === 'image' ? (
-                  <div 
+                {previewModal.file.previewUrl ? (
+                  /* Live: the daemon serves the real bytes (cookie-authenticated) */
+                  detectMediaType(previewModal.file.name) === 'image' ? (
+                    <img
+                      src={previewModal.file.previewUrl}
+                      alt={previewModal.file.name}
+                      style={{ transform: `scale(${previewModal.zoom})`, transformOrigin: 'center center' }}
+                      className="max-w-full max-h-full object-contain bg-white rounded-xl shadow-lg border border-slate-200 transition-transform duration-150"
+                    />
+                  ) : detectMediaType(previewModal.file.name) === 'pdf' ? (
+                    <iframe
+                      src={previewModal.file.previewUrl}
+                      title={previewModal.file.name}
+                      className="w-full h-full bg-white rounded-xl shadow-lg border border-slate-200"
+                    />
+                  ) : detectMediaType(previewModal.file.name) === 'audio' ? (
+                    <audio src={previewModal.file.previewUrl} controls className="w-full max-w-lg" />
+                  ) : (
+                    <video src={previewModal.file.previewUrl} controls className="max-w-full max-h-full rounded-xl shadow-lg" />
+                  )
+                ) : detectMediaType(previewModal.file.name) === 'image' ? (
+                  <div
                     style={{ transform: `scale(${previewModal.zoom})`, transformOrigin: 'center center' }}
                     className="transition-transform duration-150 max-w-full max-h-full flex flex-col items-center justify-center p-4 bg-white rounded-xl shadow-lg border border-slate-200"
                   >
                     {previewModal.file.content ? (
-                      <div 
-                        dangerouslySetInnerHTML={{ __html: previewModal.file.content }} 
+                      <div
+                        dangerouslySetInnerHTML={{ __html: previewModal.file.content }}
                         className="w-96 h-60 max-w-full flex items-center justify-center"
                       />
                     ) : (
@@ -1053,50 +1471,11 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                         <span>Image Preview: {previewModal.file.name}</span>
                       </div>
                     )}
-                    <span className="text-[11px] text-slate-400 font-mono mt-3">
-                      Dimensions: 800 x 480 px • Format: Vector SVG / Raster
-                    </span>
                   </div>
                 ) : (
-                  /* PDF Document Viewer Simulation */
-                  <div 
-                    style={{ transform: `scale(${previewModal.zoom})`, transformOrigin: 'center center' }}
-                    className="w-full max-w-xl h-full bg-white rounded-xl shadow-xl border border-slate-200 p-8 flex flex-col justify-between"
-                  >
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between border-b pb-3">
-                        <div className="flex items-center gap-2">
-                          <FileCheck className="w-5 h-5 text-rose-600" />
-                          <span className="font-bold text-slate-900 text-sm">{previewModal.file.name}</span>
-                        </div>
-                        <span className="text-xs bg-slate-100 px-2 py-0.5 rounded font-mono text-slate-600">Page 1 of 4</span>
-                      </div>
-
-                      <div className="space-y-2 pt-2">
-                        <div className="h-4 bg-slate-200 rounded w-3/4 animate-pulse" />
-                        <div className="h-3 bg-slate-100 rounded w-full" />
-                        <div className="h-3 bg-slate-100 rounded w-5/6" />
-                        <div className="h-3 bg-slate-100 rounded w-2/3" />
-                      </div>
-
-                      <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 font-mono">
-                        <p className="font-bold text-slate-800 mb-1">Document Specification Summary:</p>
-                        <p>• App Identifier: {app.name}</p>
-                        <p>• Target Ingress: https://{app.domain}</p>
-                        <p>• Generated with BarePod Document Exporter engine.</p>
-                      </div>
-                    </div>
-
-                    <div className="pt-4 border-t flex items-center justify-between text-xs text-slate-400">
-                      <span>Adobe PDF Standard 1.7 Encrypted</span>
-                      <button 
-                        onClick={() => showToast(`Downloading ${previewModal.file?.name}...`)}
-                        className="flex items-center gap-1.5 px-3 py-1 bg-slate-900 text-white rounded-lg hover:bg-slate-800"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Download PDF</span>
-                      </button>
-                    </div>
+                  <div className="text-center text-slate-500 text-xs">
+                    <FileCheck className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                    <p>Preview is available when the daemon is running.</p>
                   </div>
                 )}
               </div>
