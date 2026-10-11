@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -50,14 +51,16 @@ func httpsPort(listen string) string {
 // visit gets a real page ("nothing here yet, the panel is on …") instead of the
 // browser's "This site can't be reached". The web-server module replaces it with a
 // default vhost of its own once a site owns the port.
-const defaultPage = `<!doctype html>
+const statusPageTemplate = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BarePod Panel</title>
+<title>{{code}} · BarePod Panel</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f1f5f9;color:#0f172a;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px}
 .card{width:100%;max-width:34rem;background:#fff;border:1px solid #e2e8f0;border-radius:20px;box-shadow:0 10px 30px rgba(15,23,42,.06);padding:40px 36px;text-align:center}
-.icon{position:relative;width:80px;height:80px;border-radius:24px;background:#eef2ff;border:1px solid #c7d2fe;color:#4f46e5;display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
+@keyframes bounce{0%,100%{transform:translateY(-18%);animation-timing-function:cubic-bezier(.8,0,1,1)}50%{transform:none;animation-timing-function:cubic-bezier(0,0,.2,1)}}
+@keyframes ping{75%,100%{transform:scale(2.4);opacity:0}}
+.icon{position:relative;width:80px;height:80px;border-radius:24px;background:#eef2ff;border:1px solid #c7d2fe;color:#4f46e5;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;animation:bounce 1.6s infinite}
 .icon svg{width:40px;height:40px}
 .pill{position:absolute;top:-8px;right:-10px;background:#6366f1;color:#fff;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:999px}
 h1{margin:0 0 8px;font-size:24px;font-weight:900;letter-spacing:-.02em}
@@ -67,31 +70,66 @@ p{margin:0;color:#475569}
 .row:last-child{border-bottom:0}
 .row b,.row code{color:#0f172a;font-weight:700}
 .row code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:500}
-.dot{display:inline-block;width:8px;height:8px;border-radius:999px;background:#f59e0b;margin-right:6px}
+.dot{position:relative;display:inline-block;width:8px;height:8px;border-radius:999px;background:#f59e0b;margin-right:6px}
+.dot::after{content:"";position:absolute;inset:0;border-radius:999px;background:#f59e0b;animation:ping 1.4s cubic-bezier(0,0,.2,1) infinite}
 .amber{color:#b45309;font-weight:700}
 a{color:#2563eb;font-weight:600;text-decoration:none}
 a:hover{text-decoration:underline}
 .footer{margin-top:20px;font-size:11px;color:#94a3b8}
+@media (prefers-reduced-motion: reduce){.icon,.dot::after{animation:none}}
 </style></head>
 <body><main class="card">
 <div class="icon">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
-<span class="pill">No site</span>
+<span class="pill">{{badge}}</span>
 </div>
-<h1>Nothing is hosted here yet</h1>
-<p>This server is running <b>BarePod Panel</b>, but no website is configured for <b>{{host}}</b>.</p>
+<h1>{{title}}</h1>
+<p>{{message}}</p>
 <div class="box">
 <div class="row"><span>Server</span><b>BarePod Web Engine</b></div>
 <div class="row"><span>Requested host</span><code>{{host}}</code></div>
-<div class="row"><span>Status</span><span class="amber"><span class="dot"></span>404 — no website configured</span></div>
+<div class="row"><span>Status</span><span class="amber"><span class="dot"></span>{{reason}}</span></div>
 <div class="row"><span>Panel</span>{{panel}}</div>
 </div>
-<p class="footer">Add a website from the panel and it will answer on this address.</p>
+<p class="footer">{{footer}}</p>
 </main></body></html>`
 
-// defaultPageHandler serves that page for every request on a web port, with the
+// statusPage is one branded page the server answers with when a website cannot
+// serve the request: no site for this host (404), maintenance (503), and so on.
+type statusPage struct {
+	Code    int
+	Badge   string
+	Title   string
+	Message string // may contain {{host}}
+	Reason  string
+	Footer  string
+}
+
+var (
+	// noSitePage is what a web port serves while no website owns it.
+	noSitePage = statusPage{
+		Code:    404,
+		Badge:   "No site",
+		Title:   "Nothing is hosted here yet",
+		Message: "This server is running <b>BarePod Panel</b>, but no website is configured for <b>{{host}}</b>.",
+		Reason:  "404 — no website configured",
+		Footer:  "Add a website from the panel and it will answer on this address.",
+	}
+	// maintenancePage is the same page for a site under maintenance; the web-server
+	// module serves it (HTTP 503) once it owns the port.
+	maintenancePage = statusPage{
+		Code:    503,
+		Badge:   "HTTP 503",
+		Title:   "Under Scheduled Maintenance",
+		Message: "We are performing scheduled infrastructure maintenance and system updates. Service will be back online shortly.",
+		Reason:  "503 — service unavailable",
+		Footer:  "This page is served by the web server; the application is not running while it is maintained.",
+	}
+)
+
+// statusPageHandler renders a status page for every request on a web port, with the
 // request's host and the panel's address filled in.
-func defaultPageHandler(panelPort string) http.Handler {
+func statusPageHandler(page statusPage, panelPort string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 		if h, _, err := net.SplitHostPort(r.Host); err == nil {
@@ -103,10 +141,20 @@ func defaultPageHandler(panelPort string) http.Handler {
 			url := "https://" + escaped + ":" + panelPort
 			panel = `<a href="` + url + `">` + url + `</a>`
 		}
-		page := strings.NewReplacer("{{host}}", escaped, "{{panel}}", panel).Replace(defaultPage)
+		body := strings.NewReplacer(
+			"{{code}}", strconv.Itoa(page.Code),
+			"{{badge}}", html.EscapeString(page.Badge),
+			"{{title}}", html.EscapeString(page.Title),
+			"{{message}}", strings.ReplaceAll(page.Message, "{{host}}", escaped),
+			"{{reason}}", html.EscapeString(page.Reason),
+			"{{footer}}", html.EscapeString(page.Footer),
+			"{{host}}", escaped,
+			"{{panel}}", panel,
+		).Replace(statusPageTemplate)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(page))
+		w.WriteHeader(page.Code)
+		_, _ = w.Write([]byte(body))
 	})
 }
 
@@ -352,7 +400,7 @@ func runServe(args []string) error {
 	if cfg.HTTPListen != "" {
 		go func() {
 			log.Printf("serving the default page on http://%s (no website is configured there yet)", cfg.HTTPListen)
-			if err := http.ListenAndServe(cfg.HTTPListen, defaultPageHandler(httpsPort(cfg.Listen))); err != nil {
+			if err := http.ListenAndServe(cfg.HTTPListen, statusPageHandler(noSitePage, httpsPort(cfg.Listen))); err != nil {
 				log.Printf("the default-page listener on %s stopped: %v", cfg.HTTPListen, err)
 			}
 		}()
@@ -367,7 +415,7 @@ func runServe(args []string) error {
 				log.Printf("the default-page listener on %s stopped: %v", cfg.HTTPSListen, err)
 				return
 			}
-			page := &http.Server{Handler: defaultPageHandler(httpsPort(cfg.Listen)), ReadHeaderTimeout: 10 * time.Second}
+			page := &http.Server{Handler: statusPageHandler(noSitePage, httpsPort(cfg.Listen)), ReadHeaderTimeout: 10 * time.Second}
 			redirector := &redirectingListener{
 				Listener:  listener,
 				httpsPort: "443",

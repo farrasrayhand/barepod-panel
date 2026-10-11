@@ -57,7 +57,8 @@ interface AppRoute {
 
 const parseRoute = (pathname: string): AppRoute => {
   const clean = pathname.replace(/\/+$/, '') || '/';
-  if (clean === '/') return { tab: 'apps' };
+  // A bare "/" is the default landing page: Overview, not the website list.
+  if (clean === '/') return { tab: 'overview' };
   // /login is the signed-out address; it is not a panel page but it is valid,
   // so refreshing there must not be reported as a missing page.
   if (clean === '/login') return { tab: 'apps' };
@@ -293,7 +294,7 @@ export function App() {
     if (!signedOut) return;
     const path = window.location.pathname + window.location.search;
     if (path === '/login') return;
-    if (path !== '/' && path !== TAB_PATHS.apps) setRedirectTo(path);
+    if (path !== '/' && path !== TAB_PATHS.overview && path !== TAB_PATHS.apps) setRedirectTo(path);
     window.history.replaceState(null, '', '/login');
     setRoute(parseRoute('/login'));
   }, [signedOut]);
@@ -301,7 +302,7 @@ export function App() {
   const handleSignIn = async (username: string, password: string) => {
     const ok = await session.signIn(username, password);
     if (ok) {
-      const target = redirectTo ?? TAB_PATHS.apps;
+      const target = redirectTo ?? TAB_PATHS.overview;
       setRedirectTo(null);
       window.history.replaceState(null, '', target);
       setRoute(parseRoute(target));
@@ -309,14 +310,14 @@ export function App() {
     return ok;
   };
 
-  // Normalize bare "/" to the default menu endpoint — but only once we know the
-  // visitor is signed in. Without the guard, a fresh visit rewrote the address
-  // to /apps even while the login screen was on display.
+  // Normalize bare "/" to the default menu endpoint (Overview) — but only once we
+  // know the visitor is signed in. Without the guard, a fresh visit rewrote the
+  // address even while the login screen was on display.
   useEffect(() => {
     if (session.mode === 'checking') return;
     if (signedOut) return;
     if (window.location.pathname === '/') {
-      window.history.replaceState(null, '', TAB_PATHS.apps);
+      window.history.replaceState(null, '', TAB_PATHS.overview);
     }
   }, [session.mode, signedOut]);
 
