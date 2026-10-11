@@ -43,6 +43,11 @@ const ENGINE_TO_ITEM: Record<string, DatabaseEngine> = {
   sqlite: 'sqlite',
 };
 
+// A SQL daemon engine, as opposed to a document or key-value store: a charset, a
+// GRANT and a connection quota only mean something for these.
+const isSqlEngine = (type: DatabaseEngine): boolean =>
+  type === 'postgres' || type === 'mysql' || type === 'mariadb';
+
 /** One daemon row, in the shape this screen already renders. */
 const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
   id: row.id,
@@ -52,7 +57,17 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
   username: row.user || '—',
   // A file-based database has a real size; a daemon one is not measured yet.
   size: row.fileBased ? (row.sizeBytes ? formatBytes(row.sizeBytes) : '0 B') : '—',
-  charset: row.fileBased ? 'SQLite file' : 'utf8mb4',
+  // What the engine actually stores: "utf8mb4" is meaningless for a document or
+  // key-value store, so it must not be printed for one.
+  charset: row.fileBased
+    ? 'SQLite file'
+    : row.engine === 'postgresql'
+      ? 'UTF8'
+      : row.engine === 'mongodb'
+        ? 'BSON'
+        : row.engine === 'redis'
+          ? 'Key-Value'
+          : 'utf8mb4',
   status: row.deletedAt || row.status !== 'ready' ? 'inactive' : 'active',
   connections: 0,
   host: row.host,
@@ -643,9 +658,17 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                       <div className="flex items-center gap-1 text-[10px]">
                         <span className="inline-flex items-center gap-0.5 text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 font-semibold">
                           <ShieldCheck className="w-2.5 h-2.5" />
-                          <span>{isSqliteDb ? 'File 0600 · tenant user' : 'Isolated GRANT'}</span>
+                          <span>
+                            {isSqliteDb
+                              ? 'File 0600 · tenant user'
+                              : isSqlEngine(db.type)
+                                ? 'Isolated GRANT'
+                                : db.type === 'redis'
+                                  ? 'ACL user · key prefix'
+                                  : 'SCRAM user'}
+                          </span>
                         </span>
-                        {!isSqliteDb && (
+                        {!isSqliteDb && isSqlEngine(db.type) && (
                           <button
                             type="button"
                             onClick={() => setSelectedDbForDetails(db)}
@@ -663,7 +686,13 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                   <td className="py-3.5 px-4">
                     <span className="font-semibold text-slate-800">{db.size}</span>
                     <span className="block text-[10px] text-slate-400">
-                      {isSqliteDb ? 'embedded file' : `${db.connections} active pool`}
+                      {isSqliteDb
+                        ? 'embedded file'
+                        : isSqlEngine(db.type)
+                          ? `${db.connections} active pool`
+                          : db.type === 'redis'
+                            ? 'in-memory keys'
+                            : 'document store'}
                     </span>
                   </td>
 

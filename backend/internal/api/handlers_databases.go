@@ -413,11 +413,18 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 
 	case engine.Mode == dbengine.ModeDocker:
 		// A container engine is brought up first: "not installed" does not apply to
-		// it, because the panel runs it itself (one container per engine).
-		if _, err := s.ensureEngineRunning(ctx, engine); err != nil {
+		// it, because the panel runs it itself (one container per engine). The record
+		// keeps the container's own loopback port, not the engine's default one —
+		// otherwise the connection it hands out (and the port the UI prints) points
+		// at nothing.
+		credential, err := s.ensureEngineRunning(ctx, engine)
+		if err != nil {
 			record.Status = "failed"
 			record.Note = err.Error()
 			return nil
+		}
+		if credential != nil {
+			record.Host, record.Port = credential.Host, credential.Port
 		}
 	case !engine.Available:
 		record.Status = "pending"
