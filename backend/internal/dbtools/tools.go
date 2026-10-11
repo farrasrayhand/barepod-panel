@@ -267,7 +267,24 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 		start = DetachedArgv(argv, s.logPathFor(spec))
 	}
 	if out, err := s.runner.Run(ctx, "", start[0], start[1:]...); err != nil {
-		return fmt.Errorf("%s could not be started: %s", spec.Name, strings.TrimSpace(out))
+		if !spec.Container {
+			return fmt.Errorf("%s could not be started: %s", spec.Name, strings.TrimSpace(out))
+		}
+		// Docker refuses a container *instantly* when its name or its loopback port is
+		// still held by one that was just removed — which is exactly the moment somebody
+		// opens a manager right after another one went away, and it surfaced as a 502 in
+		// 171 ms rather than as the startup wait it looked like. Clear the name and try
+		// once more: the retry turns a refusal the operator sees into a start that simply
+		// takes a moment.
+		_, _ = s.runner.Run(ctx, "", "docker", "rm", "-f", spec.ContainerName)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(containerRetryWait):
+		}
+		if out, err = s.runner.Run(ctx, "", start[0], start[1:]...); err != nil {
+			return fmt.Errorf("%s could not be started: %s", spec.Name, strings.TrimSpace(out))
+		}
 	}
 
 	s.mu.Lock()
@@ -299,6 +316,10 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 
 // startupWait is how long a freshly started tool may take to answer.
 const startupWait = 20 * time.Second
+
+// containerRetryWait is how long to let Docker release a name and a loopback port before
+// starting the replacement for a container that was just removed.
+const containerRetryWait = 1500 * time.Millisecond
 
 // logPathFor is where a tool's output is captured: one small file per tool, so a
 // start that fails can say why. An empty LogDir discards it.

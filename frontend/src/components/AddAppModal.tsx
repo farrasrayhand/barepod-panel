@@ -40,7 +40,7 @@ interface AddAppModalProps {
 }
 
 type WizardStep = 'basics' | 'engine' | 'source' | 'database' | 'upstream' | 'review';
-type SourceKind = 'scaffold' | 'github' | 'upload' | 'existing';
+type SourceKind = 'scaffold' | 'github' | 'upload' | 'existing' | 'default';
 
 const stepsForMode = (mode: 'standard' | 'proxy' | 'static'): { id: WizardStep; label: string }[] => {
   if (mode === 'proxy') {
@@ -247,7 +247,23 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
         ? gitRepo.trim() !== ''
         : effectiveSource === 'upload'
           ? uploadFile !== null
-          : dirCheck === 'ok';
+          : effectiveSource === 'default'
+            ? true // nothing to provide: the daemon writes the page itself
+            : dirCheck === 'ok';
+
+  // "Default page" means there is no application yet, so the site is a directory the web
+  // server serves — choosing it also settles the runtime, which otherwise would be asked
+  // to start something that does not exist.
+  const handleSourceKind = (kind: SourceKind) => {
+    setSourceKind(kind);
+    if (kind !== 'default') return;
+    setRuntime('static');
+    setVersion('HTML5');
+    setFramework('Static Web App');
+    setWebServer('caddy');
+    setCreateDb(false);
+    setCreateCache(false);
+  };
 
   const sourceValidForMode = appMode === 'proxy' ? true : sourceValid;
 
@@ -719,6 +735,9 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   { id: 'github' as SourceKind, label: 'GitHub Repository', icon: GitBranch },
                   { id: 'upload' as SourceKind, label: 'Upload Archive', icon: Upload },
                   { id: 'existing' as SourceKind, label: 'Existing Files', icon: FolderOpen },
+                  // A website with nothing behind it yet: the daemon writes one placeholder
+                  // page, so the address answers something useful before the code exists.
+                  { id: 'default' as SourceKind, label: 'Default page', icon: Globe },
                 ].map((opt) => {
                   const Icon = opt.icon;
                   const active = effectiveSource === opt.id;
@@ -726,7 +745,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     <button
                       key={opt.id}
                       type="button"
-                      onClick={() => setSourceKind(opt.id)}
+                      onClick={() => handleSourceKind(opt.id)}
                       className={`flex flex-col items-start gap-1.5 p-3 rounded-xl border transition-all ${cardChoice(active)}`}
                     >
                       <Icon className="w-4 h-4" />
