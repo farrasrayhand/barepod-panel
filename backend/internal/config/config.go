@@ -24,6 +24,14 @@ type Config struct {
 	LogLevel    string
 	DryRun      bool
 	MaxUploadMB int
+	// TLS serves the panel over HTTPS. With no cert/key given, a self-signed pair
+	// is generated beside the panel database.
+	TLS     bool
+	TLSCert string
+	TLSKey  string
+	// HTTPListen is a plain-HTTP address that only redirects to https. Empty turns
+	// the redirect off.
+	HTTPListen string
 
 	MetricsInterval time.Duration
 	MetricsHistory  int
@@ -106,7 +114,11 @@ func DefaultKeyPath() string {
 // name and the subcommand itself).
 func Load(args []string) (Config, error) {
 	fs := flag.NewFlagSet("barepod serve", flag.ContinueOnError)
-	listen := fs.String("listen", env("BAREPOD_LISTEN", "127.0.0.1:8080"), "address to listen on")
+	listen := fs.String("listen", env("BAREPOD_LISTEN", ":8443"), "address to listen on")
+	tls := fs.Bool("tls", envBool("BAREPOD_TLS", true), "serve the panel over HTTPS (a self-signed certificate is generated when none is given)")
+	tlsCert := fs.String("tls-cert", env("BAREPOD_TLS_CERT", ""), "TLS certificate path (default: a self-signed pair beside the panel database)")
+	tlsKey := fs.String("tls-key", env("BAREPOD_TLS_KEY", ""), "TLS private key path")
+	httpListen := fs.String("http-listen", env("BAREPOD_HTTP_LISTEN", ""), "panel-only plain-HTTP address that redirects to https; leave empty (default) so port 80 stays free for websites")
 	dbPath := fs.String("db", DefaultDBPath(), "path to the panel SQLite database")
 	keyPath := fs.String("key", DefaultKeyPath(), "path to the secrets encryption key")
 	staticDir := fs.String("static", env("BAREPOD_STATIC", "./dist"), "path to the built frontend (SPA)")
@@ -136,6 +148,10 @@ func Load(args []string) (Config, error) {
 		LogLevel:        *logLevel,
 		DryRun:          *dryRun,
 		MaxUploadMB:     *maxUpload,
+		TLS:             *tls,
+		TLSCert:         strings.TrimSpace(*tlsCert),
+		TLSKey:          strings.TrimSpace(*tlsKey),
+		HTTPListen:      strings.TrimSpace(*httpListen),
 		MetricsInterval: *metricsInterval,
 		MetricsHistory:  *metricsHistory,
 		DbtoolsIdle:     *dbtoolsIdle,

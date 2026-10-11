@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,12 +24,23 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/sysinfo"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/tenant"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/tlscert"
 )
 
 // dbtoolsSweepInterval is how often idle database managers are checked. The idle
 // window itself is exact (the supervisor slides it on every request); this is only
 // how often the daemon looks.
 const dbtoolsSweepInterval = time.Minute
+
+// httpsPort is the port the panel serves HTTPS on, which the plain-HTTP redirect
+// points at. An address with no port yields nothing, so the default is used.
+func httpsPort(listen string) string {
+	_, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return ""
+	}
+	return port
+}
 
 // runServe starts the daemon.
 func runServe(args []string) error {
@@ -158,13 +170,52 @@ func runServe(args []string) error {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	certPath, keyPath := cfg.TLSCert, cfg.TLSKey
+	if cfg.TLS && (certPath == "" || keyPath == "") {
+		generatedCert, generatedKey, err := tlscert.Ensure(filepath.Dir(cfg.DBPath))
+		if err != nil {
+			return tlscert.ErrorHint(err)
+		}
+		certPath, keyPath = generatedCert, generatedKey
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
+		if cfg.TLS {
+			log.Printf("listening on https://%s (certificate %s) (version %s)", cfg.Listen, certPath, version)
+			if err := srv.ListenAndServeTLS(certPath, keyPath); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+			return
+		}
 		log.Printf("listening on http://%s (version %s)", cfg.Listen, version)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()
+
+	// A plain-HTTP request is not answered but sent to HTTPS: the session cookie is
+	// Secure, so serving the panel in the clear would be a lie.
+	if cfg.TLS && cfg.HTTPListen != "" {
+		port := httpsPort(cfg.Listen)
+		go func() {
+			log.Printf("redirecting http://%s to https://%s", cfg.HTTPListen, cfg.Listen)
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				host := r.Host
+				if h, _, err := net.SplitHostPort(r.Host); err == nil {
+					host = h
+				}
+				target := "https://" + host
+				if port != "" && port != "443" {
+					target += ":" + port
+				}
+				http.Redirect(w, r, target+r.URL.RequestURI(), http.StatusPermanentRedirect)
+			})
+			if err := http.ListenAndServe(cfg.HTTPListen, handler); err != nil {
+				log.Printf("the HTTP redirect listener on %s stopped: %v", cfg.HTTPListen, err)
+			}
+		}()
+	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)

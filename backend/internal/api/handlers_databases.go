@@ -448,9 +448,10 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 
 	record.User = record.Name
 	record.Host = "127.0.0.1"
-	if engine.Name == "redis" {
-		// A cache reports the address a client should use, which is the admin
-		// host/port unless the URL says otherwise.
+	if engine.Name == "redis" && engine.Mode != dbengine.ModeDocker {
+		// A host cache reports the address a client should use, which the admin URL
+		// names. A containerised one already kept the container's own loopback port
+		// from the credential, and must not be pointed at the host's Redis.
 		if host, port, _, err := dbengine.ParseRedisURL(s.cfg.RedisURL); err == nil {
 			record.Host, record.Port = host, port
 		}
