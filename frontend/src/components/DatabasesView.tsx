@@ -71,6 +71,7 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
 const TOOL_TO_API: Record<string, string> = {
   browser: 'browser',
   pgweb: 'pgweb',
+  phpmyadmin: 'phpmyadmin',
   dbgate: 'dbgate',
 };
 

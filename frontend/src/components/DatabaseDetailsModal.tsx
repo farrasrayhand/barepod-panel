@@ -28,8 +28,8 @@ import type { DatabaseItem } from '../types';
 import { api } from '../api/client';
 
 // The names the daemon hosts (see GET /databases/:id/gui): its own browser,
-// pgweb for PostgreSQL, and dbgate as the universal plan.
-export type DatabaseManagerTool = 'browser' | 'pgweb' | 'dbgate';
+// pgweb for PostgreSQL, phpMyAdmin for MySQL/MariaDB, and dbgate as the plan.
+export type DatabaseManagerTool = 'browser' | 'pgweb' | 'phpmyadmin' | 'dbgate';
 
 interface DatabaseDetailsModalProps {
   isOpen: boolean;
@@ -401,6 +401,18 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                     className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
                   >
                     <span>Open pgweb</span>
+                  </button>
+                )}
+
+                {(database.type === 'mysql' || database.type === 'mariadb') && (
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onOpenGui(database, 'phpmyadmin');
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span>Open phpMyAdmin</span>
                   </button>
                 )}
 

@@ -37,6 +37,18 @@ type Spec struct {
 	// (pgweb prepends "/" itself). The proxy sets it per database so the tool's
 	// own links and assets stay inside the panel's path; empty means the default.
 	Prefix string
+	// Strip is set for a tool that serves from its own root and has no prefix
+	// option: the proxy removes the mount before forwarding, so the tool sees
+	// "/index.php" and is told its public base another way (phpMyAdmin's
+	// PmaAbsoluteUri). A tool that handles its own prefix (pgweb) leaves it false.
+	Strip bool
+	// DocRoot is the document root for a tool that is run by a generic server
+	// (php -S), set by the API to where the app was installed.
+	DocRoot string
+	// Match, when set, is what pkill matches on the command line instead of the
+	// exact binary name: two PHP apps both run as "php", so "php" alone would let
+	// one stop the other.
+	Match string
 	// Note explains what the tool is for, in the API's own words.
 	Note string
 }
@@ -56,7 +68,27 @@ func Registry() map[string]Spec {
 			HealthPath: "/",
 			Note:       "A small PostgreSQL browser (one Go binary): start it, use it, and it stops again when idle.",
 		},
+		"phpmyadmin": {
+			Name:       "phpmyadmin",
+			Engines:    []string{"mysql", "mariadb"},
+			Binary:     "php",
+			Port:       8791,
+			HealthPath: "/",
+			Strip:      true,
+			Match:      "php -S 127.0.0.1:8791",
+			Note:       "The familiar PHP manager for MySQL/MariaDB, run by PHP's own small server — one process, no Apache or PHP-FPM, loopback only.",
+		},
 	}
+}
+
+// stopArgv is how a running tool is stopped: by its exact binary name, or — when
+// the tool declares one — by a command-line pattern, so a tool that shares a
+// binary with another (both PHP apps run as "php") stops only its own process.
+func stopArgv(spec Spec) []string {
+	if spec.Match != "" {
+		return []string{"pkill", "-f", spec.Match}
+	}
+	return []string{"pkill", "-x", spec.Binary}
 }
 
 // Available looks a tool up on PATH, reporting the reason when it is missing.
@@ -227,8 +259,11 @@ func (s *Supervisor) stopLocked(ctx context.Context, spec Spec) error {
 	if !started {
 		return nil // a tool the panel did not start is not the panel's to stop
 	}
-	out, err := s.runner.Run(ctx, "", "pkill", "-x", spec.Binary)
-	if err != nil && !strings.Contains(out, "no process found") {
+	argv := stopArgv(spec)
+	out, err := s.runner.Run(ctx, "", argv[0], argv[1:]...)
+	// pkill exits non-zero with no output when nothing matched: that is nothing to
+	// stop, not a failure.
+	if err != nil && strings.TrimSpace(out) != "" && !strings.Contains(out, "no process found") {
 		return fmt.Errorf("%s could not be stopped: %s", spec.Name, strings.TrimSpace(out))
 	}
 	s.mu.Lock()
@@ -273,7 +308,8 @@ func (s *Supervisor) Sweep(ctx context.Context) []string {
 func (s *Supervisor) Reconcile(ctx context.Context) {
 	for _, spec := range Registry() {
 		if s.running(ctx, spec) {
-			_, _ = s.runner.Run(ctx, "", "pkill", "-x", spec.Binary)
+			argv := stopArgv(spec)
+			_, _ = s.runner.Run(ctx, "", argv[0], argv[1:]...)
 		}
 	}
 }
@@ -315,6 +351,16 @@ func StartArgv(spec Spec, connectionURL string) []string {
 			"--lock-session", "--prefix", strings.TrimPrefix(prefix, "/")}
 		if connectionURL != "" {
 			argv = append(argv, "--url", connectionURL)
+		}
+		return argv
+	case "phpmyadmin":
+		// PHP's own built-in server: one process, no Apache or PHP-FPM. The document
+		// root is where the app was installed; the panel writes the scoped config
+		// there (with PmaAbsoluteUri pointing at this database's mount) before the
+		// start, and the proxy strips the mount so phpMyAdmin sees its own root.
+		argv := []string{"php", "-S", fmt.Sprintf("127.0.0.1:%d", spec.Port)}
+		if spec.DocRoot != "" {
+			argv = append(argv, "-t", spec.DocRoot)
 		}
 		return argv
 	}

@@ -139,6 +139,43 @@ else
   fi
 fi
 
+# ------------------------------------------------------------ optional PHP manager
+# phpMyAdmin is a PHP application and the panel runs it with PHP's own small server
+# (php -S) — one process, no Apache or PHP-FPM — so only the CLI and a few
+# extensions are needed. The panel reports it as unavailable until then.
+say "Installing PHP for the phpMyAdmin manager"
+if have php; then
+  note "php already installed ($(php -r 'echo PHP_VERSION;' 2>/dev/null))"
+else
+  apt-get install -y -qq php-cli php-mysql php-mbstring php-zip php-gd php-curl php-xml >/dev/null 2>&1 \
+    && note "installed php-cli + extensions" \
+    || note "php could not be installed — phpMyAdmin will be unavailable"
+fi
+
+# Keep in step with the daemon's -dbtools-dir (default: beside the panel database).
+DBTOOLS_DIR="${BAREPOD_DBTOOLS_DIR:-/var/lib/barepod/dbtools}"
+PMA_VERSION="5.2.1"
+PMA_DIR="$DBTOOLS_DIR/phpmyadmin"
+mkdir -p "$DBTOOLS_DIR"
+if [[ -f "$PMA_DIR/index.php" ]]; then
+  note "phpMyAdmin already installed"
+elif have php; then
+  URL="https://files.phpmyadmin.net/phpMyAdmin/${PMA_VERSION}/phpMyAdmin-${PMA_VERSION}-english.tar.gz"
+  if curl -fsSL "$URL" -o /tmp/pma.tgz 2>/dev/null && tar -xzf /tmp/pma.tgz -C "$DBTOOLS_DIR" 2>/dev/null; then
+    mv "$DBTOOLS_DIR/phpMyAdmin-${PMA_VERSION}-english" "$PMA_DIR" 2>/dev/null || true
+    if [[ -f "$PMA_DIR/index.php" ]]; then
+      note "installed phpMyAdmin ${PMA_VERSION} (starts on demand, stops when idle)"
+    else
+      note "phpMyAdmin could not be unpacked — the panel will say it is unavailable"
+    fi
+  else
+    note "phpMyAdmin could not be downloaded — the panel will say it is unavailable"
+  fi
+  rm -f /tmp/pma.tgz
+else
+  note "phpMyAdmin needs php — skipped"
+fi
+
 say "Done"
 if [[ "$failures" -gt 0 ]]; then
   echo "   $failures engine(s) did not answer; the panel will report them honestly rather than pretend."

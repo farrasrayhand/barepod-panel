@@ -1221,6 +1221,45 @@ func TestDatabaseGuiProxyRefusesTheWrongEngine(t *testing.T) {
 	}
 }
 
+// The phpMyAdmin config carries the database's own credential (quoted so a
+// password with a quote cannot break it), scopes the window with only_db, and
+// tells the app its public mount so its URLs stay inside the panel's path.
+func TestPreparePhpMyAdminWritesAScopedConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "phpmyadmin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "phpmyadmin", "index.php"), []byte("<?php"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{cfg: config.Config{DbtoolsDir: dir}}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/databases/01H/gui/phpmyadmin/", nil)
+	req.Host = "panel.example.com"
+
+	got, err := s.preparePhpMyAdmin(&store.Database{
+		Engine: "mysql", Name: "adm_shop", User: "adm_shop", Host: "127.0.0.1", Port: 3306,
+	}, "s3cr'et", "/api/v1/databases/01H/gui/phpmyadmin", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(got, "config.inc.php"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := string(body)
+	for _, want := range []string{
+		"auth_type'] = 'config'",
+		"only_db'] = 'adm_shop'",
+		"user'] = 'adm_shop'",
+		`password'] = 's3cr\'et'`,
+		"PmaAbsoluteUri'] = 'http://panel.example.com/api/v1/databases/01H/gui/phpmyadmin/'",
+	} {
+		if !strings.Contains(config, want) {
+			t.Errorf("config is missing %q:\n%s", want, config)
+		}
+	}
+}
+
 func TestGuiConnectionStringEncodesTheCredential(t *testing.T) {
 	// A password with special characters must not change the meaning of the DSN.
 	dsn := guiConnectionString(store.Database{

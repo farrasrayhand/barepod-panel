@@ -2,18 +2,22 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbtools"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
@@ -42,7 +46,18 @@ type guiTool struct {
 var databaseGuiTools = []guiTool{
 	{name: "browser", description: "The panel's own table browser: it reads SQLite itself, lists a cache's keys and runs SQL.", hosted: true},
 	{name: "pgweb", description: "A small PostgreSQL browser (one Go binary): started on demand, this database's credential injected server-side, stopped when idle.", engines: []string{"postgresql"}, hosted: true},
+	{name: "phpmyadmin", description: "The familiar MySQL/MariaDB manager, run by PHP's own small server: one process, no Apache or PHP-FPM, no login (the credential is injected server-side), stopped when idle.", engines: []string{"mysql", "mariadb"}, hosted: true},
 	{name: "dbgate", description: "One web container covering PostgreSQL, MySQL/MariaDB, SQLite, MongoDB and Redis — decided, not hosted yet.", hosted: false},
+}
+
+// guiToolInstallDir is the subdirectory under DbtoolsDir where a tool that needs
+// installing was unpacked; a tool that is a single binary elsewhere (pgweb) has
+// none, and an empty answer means "no install directory to check".
+func guiToolInstallDir(tool string) string {
+	if tool == "phpmyadmin" {
+		return "phpmyadmin"
+	}
+	return ""
 }
 
 func guiToolByName(name string) (guiTool, bool) {
@@ -99,6 +114,11 @@ func (s *Server) guiToolAvailability(kind string, record *store.Database, tool g
 	}
 	if _, ok := dbtools.Available(spec, s.lookPath); !ok {
 		return "", false, fmt.Sprintf("%s is not installed on this host", spec.Binary)
+	}
+	if sub := guiToolInstallDir(tool.name); sub != "" {
+		if _, err := os.Stat(filepath.Join(s.cfg.DbtoolsDir, sub, "index.php")); err != nil {
+			return "", false, fmt.Sprintf("%s is not installed on this host yet (run scripts/install-engines.sh)", tool.name)
+		}
 	}
 	if !s.host.Materialises() {
 		return "", false, "the daemon is in dry-run mode, so no manager can be started"
@@ -275,6 +295,14 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 		}
 
 		spec.Prefix = mount
+		if spec.Name == "phpmyadmin" {
+			dir, err := s.preparePhpMyAdmin(record, password, mount, r)
+			if err != nil {
+				writeError(w, http.StatusBadGateway, "service_error", err.Error())
+				return
+			}
+			spec.DocRoot = dir
+		}
 		if err := s.ensureGuiTool(r.Context(), spec, record, guiConnectionString(*record, password)); err != nil {
 			writeError(w, http.StatusBadGateway, "service_error", err.Error())
 			return
@@ -348,6 +376,43 @@ func guiConnectionString(record store.Database, password string) string {
 	return u.String()
 }
 
+// preparePhpMyAdmin writes the config that opens exactly one database with no
+// login at all: auth_type=config carries the credential, only_db scopes it, and
+// PmaAbsoluteUri tells it the public mount — the proxy strips the mount, so
+// phpMyAdmin sees its own root but must still generate the panel's URLs.
+func (s *Server) preparePhpMyAdmin(record *store.Database, password, mount string, r *http.Request) (string, error) {
+	dir := filepath.Join(s.cfg.DbtoolsDir, "phpmyadmin")
+	if _, err := os.Stat(filepath.Join(dir, "index.php")); err != nil {
+		return "", errors.New("phpMyAdmin is not installed on this host")
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	config := fmt.Sprintf(`<?php
+$cfg['blowfish_secret'] = '%s';
+$i = 1;
+$cfg['Servers'][$i]['auth_type'] = 'config';
+$cfg['Servers'][$i]['host'] = '%s';
+$cfg['Servers'][$i]['port'] = %d;
+$cfg['Servers'][$i]['user'] = '%s';
+$cfg['Servers'][$i]['password'] = '%s';
+$cfg['Servers'][$i]['only_db'] = '%s';
+$cfg['Servers'][$i]['AllowNoPassword'] = false;
+$cfg['PmaAbsoluteUri'] = '%s';
+`, id.Token(16), phpQuote(record.Host), record.Port, phpQuote(record.User), phpQuote(password), phpQuote(record.Name),
+		phpQuote(fmt.Sprintf("%s://%s%s/", scheme, r.Host, mount)))
+	if err := os.WriteFile(filepath.Join(dir, "config.inc.php"), []byte(config), 0o600); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// phpQuote escapes a value for a single-quoted PHP string.
+func phpQuote(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), `'`, `\'`)
+}
+
 // proxyGuiTool forwards a request to the tool on loopback, keeping the full panel
 // path: the tool was told that exact prefix and strips it itself.
 func (s *Server) proxyGuiTool(w http.ResponseWriter, r *http.Request, spec dbtools.Spec, mount string) {
@@ -355,6 +420,16 @@ func (s *Server) proxyGuiTool(w http.ResponseWriter, r *http.Request, spec dbtoo
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
+			if spec.Strip {
+				// The tool serves from its own root (phpMyAdmin has no prefix option):
+				// drop the mount so it sees "/index.php". Its URLs are correct because
+				// it was told the public base in its config.
+				pr.Out.URL.Path = strings.TrimPrefix(pr.Out.URL.Path, mount)
+				if !strings.HasPrefix(pr.Out.URL.Path, "/") {
+					pr.Out.URL.Path = "/" + pr.Out.URL.Path
+				}
+				pr.Out.URL.RawPath = ""
+			}
 			pr.Out.Host = target.Host
 		},
 		ModifyResponse: func(resp *http.Response) error {

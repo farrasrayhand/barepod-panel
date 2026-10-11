@@ -31,6 +31,14 @@ type Config struct {
 	// DbtoolsIdle is how long an on-demand database manager (pgweb) may sit
 	// unused before the sweeper stops it. The timer slides on every request.
 	DbtoolsIdle time.Duration
+	// DbtoolsDir is where the on-demand managers that need installing live
+	// (phpMyAdmin), and where the panel writes their per-database config.
+	DbtoolsDir string
+}
+
+// DefaultDbtoolsDir sits next to the panel database unless overridden.
+func DefaultDbtoolsDir() string {
+	return env("BAREPOD_DBTOOLS_DIR", filepath.Join(filepath.Dir(DefaultDBPath()), "dbtools"))
 }
 
 func envDuration(key string, fallback time.Duration) time.Duration {
@@ -111,6 +119,7 @@ func Load(args []string) (Config, error) {
 	metricsInterval := fs.Duration("metrics-interval", envDuration("BAREPOD_METRICS_INTERVAL", 15*time.Second), "how often host and per-website metrics are sampled")
 	metricsHistory := fs.Int("metrics-history", envInt("BAREPOD_METRICS_HISTORY", 2880), "how many metric samples to keep in memory (2880 x 15s = 12h)")
 	dbtoolsIdle := fs.Duration("dbtools-idle", envDuration("BAREPOD_DBTOOLS_IDLE", time.Hour), "how long an unused on-demand database manager (pgweb) stays up before it is stopped")
+	dbtoolsDir := fs.String("dbtools-dir", DefaultDbtoolsDir(), "where on-demand managers that need installing (phpMyAdmin) live, and where their configs are written")
 
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
@@ -130,5 +139,6 @@ func Load(args []string) (Config, error) {
 		MetricsInterval: *metricsInterval,
 		MetricsHistory:  *metricsHistory,
 		DbtoolsIdle:     *dbtoolsIdle,
+		DbtoolsDir:      filepath.Clean(*dbtoolsDir),
 	}, nil
 }

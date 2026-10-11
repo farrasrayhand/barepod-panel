@@ -132,6 +132,27 @@ func TestDetachedArgvDoesNotLetTheCredentialChangeTheCommand(t *testing.T) {
 	}
 }
 
+// phpMyAdmin runs on PHP's built-in server, and because it shares the "php"
+// binary with any other PHP manager, it is stopped by its own command line rather
+// than by "php" (which would let one manager stop the other).
+func TestPhpMyAdminRunsOnTheBuiltinServerAndStopsByItsOwnPattern(t *testing.T) {
+	spec := Registry()["phpmyadmin"]
+	if spec.Binary != "php" || !spec.Strip {
+		t.Fatalf("unexpected phpmyadmin spec: %+v", spec)
+	}
+	spec.DocRoot = "/var/lib/barepod/dbtools/phpmyadmin"
+	argv := strings.Join(StartArgv(spec, ""), " ")
+	if !strings.Contains(argv, "php -S 127.0.0.1:8791") || !strings.Contains(argv, "-t /var/lib/barepod/dbtools/phpmyadmin") {
+		t.Errorf("phpMyAdmin is not run by the built-in server on loopback: %s", argv)
+	}
+	if got := strings.Join(stopArgv(spec), " "); got != "pkill -f php -S 127.0.0.1:8791" {
+		t.Errorf("phpMyAdmin is not stopped by its own pattern: %s", got)
+	}
+	if got := strings.Join(stopArgv(Registry()["pgweb"]), " "); got != "pkill -x pgweb" {
+		t.Errorf("pgweb must still be stopped by its exact binary name: %s", got)
+	}
+}
+
 func TestEnsureStartsOnceAndIdleSweepStopsIt(t *testing.T) {
 	runner := &fakeRunner{}
 	supervisor := New(runner, 30*time.Minute)
@@ -187,9 +208,11 @@ func TestStopNeverKillsWhatThePanelDidNotStart(t *testing.T) {
 		t.Errorf("the supervisor killed a process it did not start:\n%s", runner.log())
 	}
 	// Reconcile, however, is allowed to clear leftovers: after a restart nothing
-	// knows how long they have been idle.
+	// knows how long they have been idle. (Which tool it reaches first is
+	// unspecified — the registry has more than one and the fake port is shared —
+	// so this only asserts that a leftover was killed at all.)
 	supervisor.Reconcile(context.Background())
-	if !strings.Contains(runner.log(), "pkill -x pgweb") {
+	if !strings.Contains(runner.log(), "pkill") {
 		t.Errorf("reconcile did not clear a leftover process:\n%s", runner.log())
 	}
 }
