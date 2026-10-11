@@ -15,7 +15,16 @@ var migrations = []migration{
 	{version: 5, statements: schemaV5},
 	{version: 6, statements: schemaV6},
 	{version: 7, statements: schemaV7},
+	{version: 8, statements: schemaV8},
 }
+
+// schemaV8 marks a database that outlived its website: deleting a website can keep its
+// databases, and a kept record would otherwise be indistinguishable from one that was
+// simply created on its own (both have no website) — so the panel could not show them.
+// It is cleared the moment the record belongs to a website again.
+const schemaV8 = `
+ALTER TABLE databases ADD COLUMN detached_at TEXT NOT NULL DEFAULT '';
+`
 
 // schemaV2 adds the deploy job ledger: one row per deployment, plus its step log.
 const schemaV2 = `

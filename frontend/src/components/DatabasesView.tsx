@@ -45,6 +45,9 @@ const ENGINE_TO_ITEM: Record<string, DatabaseEngine> = {
 
 // A SQL daemon engine, as opposed to a document or key-value store: a charset, a
 // GRANT and a connection quota only mean something for these.
+/** A database kept when its website was deleted: the file moved into the tenant's home. */
+const isDetached = (db: DatabaseItem): boolean => !!db.detachedAt;
+
 const isSqlEngine = (type: DatabaseEngine): boolean =>
   type === 'postgres' || type === 'mysql' || type === 'mariadb';
 
@@ -69,6 +72,7 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
           ? 'Key-Value'
           : 'utf8mb4',
   status: row.deletedAt || row.status !== 'ready' ? 'inactive' : 'active',
+  detachedAt: row.detachedAt,
   connections: 0,
   host: row.host,
   port: row.port,
@@ -91,7 +95,7 @@ const TOOL_TO_API: Record<string, string> = {
 };
 
 export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => {
-  const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine | 'caches' | 'trash'>('all');
+  const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine | 'caches' | 'trash' | 'detached'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Modal States
@@ -394,6 +398,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
   const filtered = databases.filter((db) => {
     if (activeTab === 'trash') return isInBin(db);
     if (isInBin(db)) return false;
+    if (activeTab === 'detached') return isDetached(db);
     if (activeTab === 'all') return db.type !== 'redis';
     if (activeTab === 'caches') return db.type === 'redis';
     return db.type === activeTab;
@@ -560,6 +565,19 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         >
           <span>Caches (Redis) ({activeDatabases.filter((d) => d.type === 'redis').length})</span>
         </button>
+        {/* Databases kept when their website was deleted: their file moves into the
+            tenant's home, and the record outlives the site. */}
+        <button
+          onClick={() => setActiveTab('detached')}
+          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+            activeTab === 'detached'
+              ? 'bg-slate-900 text-white shadow-2xs'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+        >
+          <Folder className="w-3.5 h-3.5" />
+          <span>Detached ({activeDatabases.filter((d) => isDetached(d)).length})</span>
+        </button>
         <button
           onClick={() => setActiveTab('trash')}
           className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
@@ -571,6 +589,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
           <Trash2 className="w-3.5 h-3.5" />
           <span>Recycle Bin ({binnedDatabases.length})</span>
         </button>
+
       </div>
 
       {/* Recycle Bin notice */}

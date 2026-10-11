@@ -211,6 +211,8 @@ export interface DatabaseRow {
   status: string;
   note?: string;
   deletedAt?: string;
+  /** Set when the website this database lived in was deleted but the database was kept. */
+  detachedAt?: string;
   createdAt: string;
   fileBased: boolean;
   detected?: boolean;

@@ -108,6 +108,8 @@ export interface DatabaseItem {
   isolationMode?: 'shared_daemon' | 'dedicated_pod';
   passwordRotatedAt?: string;
   deletedAt?: string;
+  /** Kept when its website was deleted: the file moved into the tenant's home. */
+  detachedAt?: string;
   /** Live extras: what the daemon answered. */
   note?: string;
   websiteSlug?: string;

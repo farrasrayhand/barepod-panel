@@ -551,7 +551,11 @@ func (s *Server) detachDatabase(ctx context.Context, record *store.Database) err
 			return err
 		}
 	}
-	return s.store.SetDatabaseWebsite(record.ID, "")
+	if err := s.store.SetDatabaseWebsite(record.ID, ""); err != nil {
+		return err
+	}
+	// Marked as kept-by-detach, so the Databases screen can show it as its own thing.
+	return s.store.MarkDatabaseDetached(record.ID)
 }
 
 // handleRedeployWebsite runs the pipeline again for an existing website, using

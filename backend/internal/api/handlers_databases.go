@@ -250,17 +250,27 @@ func (s *Server) resourceFor(record *store.Database, secret string) dbengine.Res
 func (s *Server) handleListDatabases(kind string) authedHandler {
 	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 		binned := strings.EqualFold(r.URL.Query().Get("bin"), "true")
+		// ?detached=true narrows the list to databases that outlived their website.
+		detachedOnly := strings.EqualFold(r.URL.Query().Get("detached"), "true")
 		items, err := s.store.DatabasesForTenant(kind, databaseScope(user), binned)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not list the records")
 			return
 		}
-		if !binned {
+		if detachedOnly {
+			kept := items[:0]
+			for _, item := range items {
+				if item.DetachedAt != "" {
+					kept = append(kept, item)
+				}
+			}
+			items = kept
+		} else if !binned {
 			// Files the application created belong in the answer: a page that says
 			// "no databases" while the app has one is worse than useless.
 			items = append(items, s.detectedFor(user, kind)...)
-			sort.SliceStable(items, func(i, j int) bool { return items[i].Alias < items[j].Alias })
 		}
+		sort.SliceStable(items, func(i, j int) bool { return items[i].Alias < items[j].Alias })
 		response := map[string]any{
 			"items":         withSizes(items),
 			"bin":           binned,

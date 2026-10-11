@@ -38,8 +38,12 @@ type Database struct {
 	Status      string `json:"status"`
 	Note        string `json:"note,omitempty"`
 	DeletedAt   string `json:"deletedAt,omitempty"`
-	CreatedAt   string `json:"createdAt"`
-	FileBased   bool   `json:"fileBased"`
+	// DetachedAt is set when the record's website was deleted but the database was kept:
+	// the file moves into the tenant's home and the record outlives the site, so the panel
+	// can list it as its own thing rather than as a nameless leftover.
+	DetachedAt string `json:"detachedAt,omitempty"`
+	CreatedAt  string `json:"createdAt"`
+	FileBased  bool   `json:"fileBased"`
 	// Detected marks a file the panel found inside a website: the application made
 	// it, so the panel reports and browses it but never deletes it.
 	Detected bool `json:"detected,omitempty"`
@@ -76,13 +80,13 @@ func (s *Store) CreateDatabase(db *Database) error {
 
 const databaseColumns = `id, kind, website_slug, tenant_user, engine, version, alias, db_name,
 	db_user, password_cipher, host, port, file_path, max_connections, max_memory_mb,
-	status, note, deleted_at, created_at`
+	status, note, deleted_at, detached_at, created_at`
 
 func scanDatabase(row interface{ Scan(...any) error }) (*Database, error) {
 	var db Database
 	err := row.Scan(&db.ID, &db.Kind, &db.WebsiteSlug, &db.TenantUser, &db.Engine, &db.Version,
 		&db.Alias, &db.Name, &db.User, &db.PasswordCipher, &db.Host, &db.Port, &db.FilePath,
-		&db.MaxConns, &db.MaxMemoryMB, &db.Status, &db.Note, &db.DeletedAt, &db.CreatedAt)
+		&db.MaxConns, &db.MaxMemoryMB, &db.Status, &db.Note, &db.DeletedAt, &db.DetachedAt, &db.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -196,7 +200,16 @@ func (s *Store) DatabasesForWebsite(slug string) ([]Database, error) {
 // SetDatabaseWebsite detaches a record from a website (an empty slug) or attaches it to
 // one. Detaching is what "keep the databases" means when their website is deleted.
 func (s *Store) SetDatabaseWebsite(databaseID, slug string) error {
-	_, err := s.DB.Exec(`UPDATE databases SET website_slug = ? WHERE id = ?`, slug, databaseID)
+	// Belonging to a website again clears the detached mark: it is no longer a leftover.
+	_, err := s.DB.Exec(
+		`UPDATE databases SET website_slug = ?, detached_at = CASE WHEN ? = '' THEN detached_at ELSE '' END WHERE id = ?`,
+		slug, slug, databaseID)
+	return err
+}
+
+// MarkDatabaseDetached records that a database outlived its website.
+func (s *Store) MarkDatabaseDetached(databaseID string) error {
+	_, err := s.DB.Exec(`UPDATE databases SET detached_at = ? WHERE id = ?`, now(), databaseID)
 	return err
 }
 
