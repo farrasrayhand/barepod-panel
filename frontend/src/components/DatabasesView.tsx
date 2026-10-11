@@ -22,8 +22,7 @@ import { useSubRoute } from '../hooks/useSubRoute';
 import { CredentialRevealModal } from './CredentialRevealModal';
 import { RotatePasswordModal } from './RotatePasswordModal';
 import { KeyRound } from 'lucide-react';
-import { DatabaseGuiModal } from './DatabaseGuiModal';
-import type { DatabaseManagerTool } from './DatabaseGuiModal';
+import type { DatabaseManagerTool } from './DatabaseDetailsModal';
 import { CreateDatabaseModal } from './CreateDatabaseModal';
 import { DatabaseDetailsModal } from './DatabaseDetailsModal';
 import { DangerConfirmModal } from './DangerConfirmModal';
@@ -68,6 +67,16 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
   path: row.path,
 });
 
+// The names the panel hosts (see GET /databases/:id/gui) rather than brand names.
+const TOOL_TO_API: Record<string, string> = {
+  phpmyadmin: 'phpmyadmin',
+  pgadmin: 'pgadmin',
+  adminer: 'adminer',
+  mongoexpress: 'mongo-express',
+  rediscommander: 'redis-command',
+  browser: 'browser',
+};
+
 export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => {
   const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine | 'caches' | 'trash'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -77,8 +86,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
   const [selectedDbForDetails, setSelectedDbForDetails] = useState<DatabaseItem | null>(null);
   const [selectedDbForCredentials, setSelectedDbForCredentials] = useState<DatabaseItem | null>(null);
   const [selectedDbForRotate, setSelectedDbForRotate] = useState<DatabaseItem | null>(null);
-  const [selectedDbForGui, setSelectedDbForGui] = useState<DatabaseItem | null>(null);
-  const [selectedToolForGui, setSelectedToolForGui] = useState<DatabaseManagerTool>('dbgate');
+
   const [dbToDelete, setDbToDelete] = useState<DatabaseItem | null>(null);
   const [binToPurge, setBinToPurge] = useState<DatabaseItem | null>(null);
 
@@ -323,9 +331,36 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
     }
   };
 
-  const openManagerWithTool = (db: DatabaseItem, tool: DatabaseManagerTool) => {
-    setSelectedDbForGui(db);
-    setSelectedToolForGui(tool);
+  // The panel's own answer decides what happens: it hosts its browser today, and
+  // says why a third-party manager is not hosted yet. Nothing here pretends to be
+  // a pgAdmin screen.
+  const openManagerWithTool = async (db: DatabaseItem, tool: DatabaseManagerTool) => {
+    const isCache = db.type === 'redis';
+    const family = isCache ? api.caches : api.databases;
+    const apiTool = TOOL_TO_API[tool] ?? tool;
+    try {
+      const answer = (await family.gui(db.id, apiTool)) as {
+        tool?: string;
+        note?: string;
+        query?: string;
+      };
+      if (apiTool === 'browser') {
+        onShowToast?.(
+          'Use the Data Browser & SQL tab',
+          answer.note ?? 'The panel runs its browser itself, on the same session as this page.',
+          'info',
+        );
+        return;
+      }
+    } catch (err) {
+      onShowToast?.('Not hosted yet', describeError(err), 'info');
+      return;
+    }
+    onShowToast?.(
+      'Opened through the panel',
+      `${tool} is reached behind this same path (loopback only, credential injected server-side) — not on a port of its own.`,
+      'success',
+    );
   };
 
   const isInBin = (db: DatabaseItem) => Boolean(db.deletedAt);
@@ -830,13 +865,6 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         }}
       />
 
-      {/* Database Web GUI SSO Modal */}
-      <DatabaseGuiModal
-        isOpen={!!selectedDbForGui}
-        onClose={() => setSelectedDbForGui(null)}
-        database={selectedDbForGui}
-        initialTool={selectedToolForGui}
-      />
     </div>
   );
 };

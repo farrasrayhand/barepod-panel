@@ -25,8 +25,9 @@ import {
   AlertCircle
 } from 'lucide-react';
 import type { DatabaseItem } from '../types';
-import type { DatabaseManagerTool } from './DatabaseGuiModal';
 import { api } from '../api/client';
+
+export type DatabaseManagerTool = 'phpmyadmin' | 'pgadmin' | 'adminer' | 'mongoexpress' | 'rediscommander';
 
 interface DatabaseDetailsModalProps {
   isOpen: boolean;
@@ -439,7 +440,7 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                 <button
                   onClick={() => {
                     onClose();
-                    onOpenGui(database, 'dbgate');
+                    onOpenGui(database, 'adminer');
                   }}
                   className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
                 >
