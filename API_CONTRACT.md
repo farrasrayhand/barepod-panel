@@ -8,7 +8,7 @@
 
 | Already served by the daemon | Contract only (planned) |
 |---|---|
-| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `groups` list + `PATCH` · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`) · `ws/ticket` + `WS /pty` (site and host) | Databases & caches module (incl. recycle bin) · pods (Docker) · backups & migration · domains & SSL · Cloudflare tunnels · users/groups CRUD · webhooks · MCP server · per-app access control (503, basic auth, anti-brute-force) · vhost writing · daemon systemd unit |
+| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `groups` list + `PATCH` · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin` | Pods (Docker) · backups & migration · domains & SSL · Cloudflare tunnels · users/groups CRUD · webhooks · MCP server · per-app access control (503, basic auth, anti-brute-force) · vhost writing · `/databases/:id/tables|query|export|gui` · MongoDB/Redis provisioning · the databases UI |
 
 `mode: "real" | "dry-run"` appears on every response that depends on privileged work — off Linux+systemd the daemon is in dry-run and says so instead of faking success.
 
@@ -199,6 +199,8 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - Idle sessions close after 30 minutes; disconnecting kills the whole process group; `terminal.open` / `terminal.close` are audited.
 
 ### 4.6 Databases, Caches & SSO
+> **Implementation status:** the ledger, the vault, rotate/reveal/connection-string, the recycle bin and the engine detection are served by the daemon. `tables`/`query`/`export`/`gui` and the automated MongoDB/Redis provisioning are still contract-only, and a create on an engine whose client is missing answers `status: "pending"` with a note instead of pretending.
+> **Reveal, connection-string and rotate require elevated mode** (`/auth/verify`, 5 minutes), and ownership is checked **before** elevation so another account's record still answers `404`.
 - `GET|POST /databases` · `GET|PATCH|DELETE /databases/:id`
 - `POST /databases/:id/max-connections`
 - `POST /databases/:id/rotate-password` → `{ password }` (random when the body is empty, or a custom one; min. 12 chars)

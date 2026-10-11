@@ -628,6 +628,215 @@ func TestTenantScopeSeesTheWholeHome(t *testing.T) {
 	}
 }
 
+func TestSQLiteDatabaseLifecycle(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	// Create: the daemon makes the file inside the website and shows the
+	// generated password exactly once.
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
+		"engine":      "sqlite",
+		"alias":       "Shop DB",
+		"websiteSlug": "admin-site",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d (%s)", resp.StatusCode, body)
+	}
+	var created struct {
+		Database struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			FilePath  string `json:"path"`
+			FileBased bool   `json:"fileBased"`
+			Status    string `json:"status"`
+		} `json:"database"`
+		Password        string `json:"password"`
+		PasswordShownAt bool   `json:"passwordShownOnce"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Password == "" || !created.PasswordShownAt {
+		t.Errorf("the generated password should be shown once: %s", body)
+	}
+	if !created.Database.FileBased || created.Database.Name != "admin_shop_db" {
+		t.Errorf("unexpected record: %s", body)
+	}
+	if _, err := os.Stat(created.Database.FilePath); err != nil {
+		t.Fatalf("the database file was not created: %v", err)
+	}
+
+	// The credential never travels in a listing.
+	_, listBody := panel.do(t, http.MethodGet, "/api/v1/databases", nil)
+	if strings.Contains(string(listBody), created.Password) {
+		t.Errorf("the listing leaked the password: %s", listBody)
+	}
+	if strings.Contains(string(listBody), "password_cipher") {
+		t.Errorf("the listing leaked the encrypted credential: %s", listBody)
+	}
+
+	// Reveal needs a fresh panel-password check.
+	resp, _ = panel.do(t, http.MethodPost, "/api/v1/databases/"+created.Database.ID+"/reveal", nil)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("reveal without elevation = %d, want 403", resp.StatusCode)
+	}
+	resp, _ = panel.do(t, http.MethodPost, "/api/v1/auth/verify", map[string]string{"password": testPassword})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("verify = %d", resp.StatusCode)
+	}
+	resp, revealBody := panel.do(t, http.MethodPost, "/api/v1/databases/"+created.Database.ID+"/reveal", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reveal = %d (%s)", resp.StatusCode, revealBody)
+	}
+	if !strings.Contains(string(revealBody), created.Password) {
+		t.Errorf("reveal did not return the stored password: %s", revealBody)
+	}
+
+	// Rotation: a custom password must be long enough, and it replaces the old.
+	resp, _ = panel.do(t, http.MethodPost, "/api/v1/databases/"+created.Database.ID+"/rotate-password",
+		map[string]string{"password": "short"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("a short password was accepted: %d", resp.StatusCode)
+	}
+	resp, rotateBody := panel.do(t, http.MethodPost, "/api/v1/databases/"+created.Database.ID+"/rotate-password",
+		map[string]string{"password": "brand-new-secret"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("rotate = %d (%s)", resp.StatusCode, rotateBody)
+	}
+	_, revealBody = panel.do(t, http.MethodPost, "/api/v1/databases/"+created.Database.ID+"/reveal", nil)
+	if !strings.Contains(string(revealBody), "brand-new-secret") {
+		t.Errorf("the rotation did not take effect: %s", revealBody)
+	}
+
+	// Bin: nothing is dropped, and a file-based database moves into the trash.
+	resp, _ = panel.do(t, http.MethodDelete, "/api/v1/databases/"+created.Database.ID, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("bin = %d", resp.StatusCode)
+	}
+	if _, err := os.Stat(created.Database.FilePath); !os.IsNotExist(err) {
+		t.Errorf("the file should have moved into the trash: %v", err)
+	}
+	_, liveBody := panel.do(t, http.MethodGet, "/api/v1/databases", nil)
+	if strings.Contains(string(liveBody), created.Database.ID) {
+		t.Errorf("a binned database is still listed as live: %s", liveBody)
+	}
+	_, binBody := panel.do(t, http.MethodGet, "/api/v1/databases/recycle-bin", nil)
+	if !strings.Contains(string(binBody), created.Database.ID) || !strings.Contains(string(binBody), "deletedAt") {
+		t.Errorf("the recycle bin does not show the item: %s", binBody)
+	}
+
+	// Restore brings the file back.
+	resp, _ = panel.do(t, http.MethodPost, "/api/v1/databases/"+created.Database.ID+"/restore", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("restore = %d", resp.StatusCode)
+	}
+	if _, err := os.Stat(created.Database.FilePath); err != nil {
+		t.Errorf("the file did not come back: %v", err)
+	}
+
+	// Purge is the only destructive step.
+	resp, _ = panel.do(t, http.MethodPost, "/api/v1/databases/"+created.Database.ID+"/purge", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("purge = %d", resp.StatusCode)
+	}
+	if _, err := os.Stat(created.Database.FilePath); !os.IsNotExist(err) {
+		t.Errorf("purge left the file behind: %v", err)
+	}
+	if _, err := panel.store.DatabaseByID(created.Database.ID); err != store.ErrNotFound {
+		t.Errorf("purge left the record behind: %v", err)
+	}
+}
+
+func TestDatabasesAreScopedToTheirOwner(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+	_, body := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
+		"engine": "sqlite", "alias": "Admin DB", "websiteSlug": "admin-site",
+	})
+	var created struct {
+		Database struct {
+			ID string `json:"id"`
+		} `json:"database"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+
+	panel.login(t, "alex")
+	// Another account's record answers 404, not 403: the panel must not confirm it.
+	for _, call := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/databases/" + created.Database.ID},
+		{http.MethodDelete, "/api/v1/databases/" + created.Database.ID},
+		{http.MethodPost, "/api/v1/databases/" + created.Database.ID + "/rotate-password"},
+		{http.MethodPost, "/api/v1/databases/" + created.Database.ID + "/reveal"},
+	} {
+		resp, _ := panel.do(t, call.method, call.path, nil)
+		if resp.StatusCode != http.StatusNotFound {
+			t.Errorf("%s %s = %d, want 404", call.method, call.path, resp.StatusCode)
+		}
+	}
+	_, listBody := panel.do(t, http.MethodGet, "/api/v1/databases", nil)
+	if strings.Contains(string(listBody), created.Database.ID) {
+		t.Errorf("a tenant can list another account's database: %s", listBody)
+	}
+
+	// A tenant may create one for its own website.
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
+		"engine": "sqlite", "alias": "My DB", "websiteSlug": "alex-site",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("a tenant could not create a database for its own site: %d (%s)", resp.StatusCode, body)
+	}
+	// And it may not create one for someone else's website.
+	resp, _ = panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
+		"engine": "sqlite", "alias": "Sneaky", "websiteSlug": "admin-site",
+	})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("a tenant created a database on another account's site: %d", resp.StatusCode)
+	}
+}
+
+func TestDbEnginesReportWhatTheHostCanReallyDo(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/db-engines", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("db-engines = %d (%s)", resp.StatusCode, body)
+	}
+	var payload struct {
+		Items []struct {
+			Engine    string `json:"engine"`
+			Kind      string `json:"kind"`
+			FileBased bool   `json:"fileBased"`
+			Available bool   `json:"available"`
+			Automated bool   `json:"automated"`
+			Note      string `json:"note"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, engine := range payload.Items {
+		seen[engine.Engine] = true
+		if !engine.Available && engine.Note == "" {
+			t.Errorf("%s is unavailable without a reason", engine.Engine)
+		}
+		if !engine.Automated && engine.Note == "" {
+			t.Errorf("%s is not automated without a reason", engine.Engine)
+		}
+	}
+	for _, want := range []string{"sqlite", "postgresql", "mysql", "mariadb", "mongodb", "redis"} {
+		if !seen[want] {
+			t.Errorf("the engine list is missing %s", want)
+		}
+	}
+}
+
 func TestFileUploadIsConfinedToTheDirectory(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")

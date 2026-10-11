@@ -13,6 +13,7 @@ var migrations = []migration{
 	{version: 3, statements: schemaV3},
 	{version: 4, statements: schemaV4},
 	{version: 5, statements: schemaV5},
+	{version: 6, statements: schemaV6},
 }
 
 // schemaV2 adds the deploy job ledger: one row per deployment, plus its step log.
@@ -49,6 +50,35 @@ CREATE TABLE IF NOT EXISTS website_secrets (
   created_at   TEXT NOT NULL,
   UNIQUE (website_slug, name)
 );
+`
+
+// schemaV6 is the database and cache ledger. Both are the same shape on purpose:
+// a cache is a database with a different engine, a fixed set of commands and its
+// own endpoint family, so the recycle bin and the credential vault work once.
+const schemaV6 = `
+CREATE TABLE IF NOT EXISTS databases (
+  id              TEXT PRIMARY KEY,
+  kind            TEXT NOT NULL DEFAULT 'database', -- database | cache
+  website_slug    TEXT NOT NULL DEFAULT '',
+  tenant_user     TEXT NOT NULL,
+  engine          TEXT NOT NULL,
+  version         TEXT NOT NULL DEFAULT '',
+  alias           TEXT NOT NULL DEFAULT '',
+  db_name         TEXT NOT NULL DEFAULT '',
+  db_user         TEXT NOT NULL DEFAULT '',
+  password_cipher TEXT NOT NULL DEFAULT '',
+  host            TEXT NOT NULL DEFAULT '',
+  port            INTEGER NOT NULL DEFAULT 0,
+  file_path       TEXT NOT NULL DEFAULT '',
+  max_connections INTEGER NOT NULL DEFAULT 0,
+  max_memory_mb   INTEGER NOT NULL DEFAULT 0,
+  status          TEXT NOT NULL DEFAULT 'ready',    -- ready | suspended | provisioning | failed
+  note            TEXT NOT NULL DEFAULT '',
+  deleted_at      TEXT NOT NULL DEFAULT '',
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_databases_tenant ON databases(tenant_user, kind);
+CREATE INDEX IF NOT EXISTS idx_databases_site ON databases(website_slug);
 `
 
 // schemaV5 remembers where a website's code came from, so a redeploy does not

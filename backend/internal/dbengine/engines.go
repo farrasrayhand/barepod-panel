@@ -1,0 +1,168 @@
+// Package dbengine knows which database engines this host can actually run, and
+// what it would take to provision one.
+//
+// Two rules shape it: a report must never claim an engine is usable when it is
+// not, and a name or password that comes from the panel must never be able to
+// change the meaning of a SQL statement.
+package dbengine
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
+)
+
+// Engine is one engine the panel offers.
+type Engine struct {
+	Name        string   `json:"engine"`
+	Label       string   `json:"label"`
+	Kind        string   `json:"kind"` // database | cache
+	Versions    []string `json:"versions"`
+	DefaultPort int      `json:"port,omitempty"`
+	// FileBased engines (SQLite) live inside the site: no daemon, no credentials.
+	FileBased bool   `json:"fileBased"`
+	Client    string `json:"client,omitempty"`
+	Daemon    string `json:"daemon,omitempty"`
+	// Available means the client for this engine is installed on the host.
+	Available bool `json:"available"`
+	// Running means the server answered a probe on this host.
+	Running bool `json:"running"`
+	// Automated means the panel can create/drop this engine's resources itself.
+	Automated bool   `json:"automated"`
+	Note      string `json:"note,omitempty"`
+}
+
+// catalog is the list of engines, with the versions the panel offers.
+func catalog() []Engine {
+	return []Engine{
+		{
+			Name: "sqlite", Label: "SQLite", Kind: "database",
+			Versions: []string{"3.45", "3.44"}, FileBased: true, Automated: true,
+			Note: "A file inside the website directory: no daemon, no credentials, no port.",
+		},
+		{
+			Name: "postgresql", Label: "PostgreSQL", Kind: "database",
+			Versions: []string{"16", "15", "14"}, DefaultPort: 5432,
+			Client: "psql", Daemon: "postgresql", Automated: true,
+		},
+		{
+			Name: "mysql", Label: "MySQL", Kind: "database",
+			Versions: []string{"8.0", "5.7"}, DefaultPort: 3306,
+			Client: "mysql", Daemon: "mysql", Automated: true,
+		},
+		{
+			Name: "mariadb", Label: "MariaDB", Kind: "database",
+			Versions: []string{"11.4", "10.11"}, DefaultPort: 3306,
+			Client: "mariadb", Daemon: "mariadb", Automated: true,
+		},
+		{
+			Name: "mongodb", Label: "MongoDB", Kind: "database",
+			Versions: []string{"7.0", "6.0"}, DefaultPort: 27017,
+			Client: "mongosh", Daemon: "mongod", Automated: false,
+			Note: "Provisioning MongoDB is not automated yet: the panel records the credential and reports what is missing.",
+		},
+		{
+			Name: "redis", Label: "Redis", Kind: "cache",
+			Versions: []string{"7.2", "7.0", "6.2"}, DefaultPort: 6379,
+			Client: "redis-cli", Daemon: "redis-server", Automated: false,
+			Note: "Provisioning Redis is not automated yet: the panel records the credential and reports what is missing.",
+		},
+	}
+}
+
+// Lookup finds an engine by name.
+func Lookup(name string) (Engine, bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, engine := range catalog() {
+		if engine.Name == name {
+			return engine, true
+		}
+	}
+	return Engine{}, false
+}
+
+// Detect reports every engine with what this host can really do, so the UI can
+// disable what is not installed instead of failing later.
+func Detect(ctx context.Context, runner host.Runner) []Engine {
+	engines := catalog()
+	real := runner != nil && runner.Mode() == "real"
+
+	for i := range engines {
+		engine := &engines[i]
+		if engine.FileBased {
+			// SQLite needs nothing from the host: the SQLite library is compiled
+			// into the sites that use it.
+			engine.Available = true
+			engine.Running = true
+			continue
+		}
+
+		engine.Available = hasClient(*engine)
+		if !engine.Available {
+			engine.Note = fmt.Sprintf("%s is not installed on this host.", engine.Client)
+			continue
+		}
+		if !real {
+			engine.Note = runnerNote(*engine)
+			continue
+		}
+		engine.Running, engine.Note = probeServer(ctx, runner, *engine)
+	}
+	return engines
+}
+
+func hasClient(engine Engine) bool {
+	if engine.Client == "" {
+		return false
+	}
+	_, err := exec.LookPath(engine.Client)
+	return err == nil
+}
+
+func runnerNote(engine Engine) string {
+	return fmt.Sprintf("The daemon is in dry-run mode, so %s was not probed.", engine.Daemon)
+}
+
+// probeServer asks the engine whether it answers, with a short timeout so a
+// missing server cannot stall a request.
+func probeServer(ctx context.Context, runner host.Runner, engine Engine) (bool, string) {
+	argv := probeCommand(engine)
+	if len(argv) == 0 {
+		return false, ""
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	out, err := runner.Run(probeCtx, "", argv[0], argv[1:]...)
+	if err != nil {
+		if probeCtx.Err() != nil {
+			return false, fmt.Sprintf("%s did not answer within 3 seconds.", engine.Daemon)
+		}
+		return false, fmt.Sprintf("%s is installed but its server did not answer.", engine.Client)
+	}
+	if strings.Contains(strings.ToLower(out), "refused") {
+		return false, fmt.Sprintf("%s is installed but its server refused a connection.", engine.Client)
+	}
+	return true, ""
+}
+
+func probeCommand(engine Engine) []string {
+	switch engine.Name {
+	case "postgresql":
+		if _, err := exec.LookPath("pg_isready"); err == nil {
+			return []string{"pg_isready", "-q", "-h", "127.0.0.1"}
+		}
+		return []string{"psql", "-h", "127.0.0.1", "-c", "SELECT 1"}
+	case "mysql", "mariadb":
+		return []string{engine.Client, "--protocol=TCP", "-h", "127.0.0.1", "-e", "SELECT 1"}
+	case "mongodb":
+		return []string{"mongosh", "--quiet", "--eval", "db.runCommand({ping:1})"}
+	case "redis":
+		return []string{"redis-cli", "-h", "127.0.0.1", "ping"}
+	}
+	return nil
+}

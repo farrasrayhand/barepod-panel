@@ -161,6 +161,39 @@ func New(d Deps) http.Handler {
 	// The picker behind the host-wide browser: which accounts have a home.
 	mux.HandleFunc("GET /api/v1/tenants", files(s.handleListTenants))
 
+	// Databases and caches: one ledger, two families (a cache is a database with
+	// different commands). "databases" capability; reveals need elevated mode.
+	databases := func(h authedHandler) http.HandlerFunc {
+		return s.requireAuth(s.requireCapability(rbac.CapDatabases, h))
+	}
+	mux.HandleFunc("GET /api/v1/db-engines", databases(s.handleDbEngines))
+
+	mux.HandleFunc("GET /api/v1/databases", databases(s.handleListDatabases(store.KindDatabase)))
+	mux.HandleFunc("POST /api/v1/databases", databases(s.handleCreateDatabase(store.KindDatabase)))
+	mux.HandleFunc("GET /api/v1/databases/recycle-bin", databases(s.handleListRecycleBin(store.KindDatabase)))
+	mux.HandleFunc("DELETE /api/v1/databases/recycle-bin", databases(s.handleEmptyRecycleBin(store.KindDatabase)))
+	mux.HandleFunc("GET /api/v1/databases/{id}", databases(s.handleGetDatabase(store.KindDatabase)))
+	mux.HandleFunc("PATCH /api/v1/databases/{id}", databases(s.handlePatchDatabase(store.KindDatabase)))
+	mux.HandleFunc("DELETE /api/v1/databases/{id}", databases(s.handleBinDatabase(store.KindDatabase)))
+	mux.HandleFunc("POST /api/v1/databases/{id}/rotate-password", databases(s.handleRotateDatabasePassword(store.KindDatabase)))
+	mux.HandleFunc("POST /api/v1/databases/{id}/reveal", databases(s.handleRevealDatabase(store.KindDatabase)))
+	mux.HandleFunc("GET /api/v1/databases/{id}/connection-string", databases(s.handleConnectionString(store.KindDatabase)))
+	mux.HandleFunc("POST /api/v1/databases/{id}/restore", databases(s.handleRestoreDatabase(store.KindDatabase)))
+	mux.HandleFunc("POST /api/v1/databases/{id}/purge", databases(s.handlePurgeDatabase(store.KindDatabase)))
+
+	mux.HandleFunc("GET /api/v1/caches", databases(s.handleListDatabases(store.KindCache)))
+	mux.HandleFunc("POST /api/v1/caches", databases(s.handleCreateDatabase(store.KindCache)))
+	mux.HandleFunc("GET /api/v1/caches/recycle-bin", databases(s.handleListRecycleBin(store.KindCache)))
+	mux.HandleFunc("DELETE /api/v1/caches/recycle-bin", databases(s.handleEmptyRecycleBin(store.KindCache)))
+	mux.HandleFunc("GET /api/v1/caches/{id}", databases(s.handleGetDatabase(store.KindCache)))
+	mux.HandleFunc("PATCH /api/v1/caches/{id}", databases(s.handlePatchDatabase(store.KindCache)))
+	mux.HandleFunc("DELETE /api/v1/caches/{id}", databases(s.handleBinDatabase(store.KindCache)))
+	mux.HandleFunc("POST /api/v1/caches/{id}/rotate-password", databases(s.handleRotateDatabasePassword(store.KindCache)))
+	mux.HandleFunc("POST /api/v1/caches/{id}/reveal", databases(s.handleRevealDatabase(store.KindCache)))
+	mux.HandleFunc("GET /api/v1/caches/{id}/connection-string", databases(s.handleConnectionString(store.KindCache)))
+	mux.HandleFunc("POST /api/v1/caches/{id}/restore", databases(s.handleRestoreDatabase(store.KindCache)))
+	mux.HandleFunc("POST /api/v1/caches/{id}/purge", databases(s.handlePurgeDatabase(store.KindCache)))
+
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)
 

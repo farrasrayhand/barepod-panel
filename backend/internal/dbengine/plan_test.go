@@ -1,0 +1,122 @@
+package dbengine
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestLookupReportsWhatEachEngineIs(t *testing.T) {
+	sqlite, ok := Lookup("sqlite")
+	if !ok || !sqlite.FileBased || !sqlite.Automated {
+		t.Errorf("sqlite should be a file-based, automated engine: %+v", sqlite)
+	}
+	if sqlite.DefaultPort != 0 {
+		t.Errorf("sqlite has no port, got %d", sqlite.DefaultPort)
+	}
+	if _, ok := Lookup("nope"); ok {
+		t.Error("an unknown engine was accepted")
+	}
+	redis, ok := Lookup("redis")
+	if !ok || redis.Kind != "cache" {
+		t.Errorf("redis should be a cache: %+v", redis)
+	}
+}
+
+func TestProvisionPlansAreRealAndQuoted(t *testing.T) {
+	postgres, err := PlanFor(StepProvision, Resource{
+		Engine: "postgresql", Name: "bptest_shop", User: "bptest_shop", Secret: "s3cret", Port: 5432,
+	})
+	if err != nil {
+		t.Fatalf("postgresql plan: %v", err)
+	}
+	roleSQL := postgres.Commands[0][len(postgres.Commands[0])-1]
+	dbSQL := postgres.Commands[1][len(postgres.Commands[1])-1]
+	if !strings.Contains(roleSQL, `CREATE ROLE "bptest_shop" LOGIN PASSWORD 's3cret'`) {
+		t.Errorf("the role statement is wrong: %s", roleSQL)
+	}
+	if !strings.Contains(dbSQL, `CREATE DATABASE "bptest_shop" OWNER "bptest_shop"`) {
+		t.Errorf("the database statement is wrong: %s", dbSQL)
+	}
+
+	mysql, err := PlanFor(StepProvision, Resource{
+		Engine: "mariadb", Name: "shop", User: "shop", Secret: "pa'ss", Port: 3306,
+	})
+	if err != nil {
+		t.Fatalf("mariadb plan: %v", err)
+	}
+	sql := strings.Join(mysql.Commands[0], " ")
+	for _, want := range []string{"CREATE DATABASE IF NOT EXISTS `shop`", "IDENTIFIED BY 'pa\\'ss'", "'shop'@'localhost'"} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("the mysql statement is missing %q:\n%s", want, sql)
+		}
+	}
+}
+
+func TestPlanRefusesUnsafeInput(t *testing.T) {
+	// A name that tries to close the identifier must be neutralised, not trusted.
+	plan, err := PlanFor(StepProvision, Resource{
+		Engine: "postgresql", Name: `evil"; DROP DATABASE postgres; --`, User: "u", Secret: "x",
+	})
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	statement := strings.Join(plan.Commands[0], " ") + " " + strings.Join(plan.Commands[1], " ")
+	// The escape must be the doubled quote. A bare `"evil";` would end the
+	// identifier and let the rest run as its own statement.
+	if strings.Contains(statement, `"evil";`) {
+		t.Errorf("the identifier was not closed by doubling the quote:\n%s", statement)
+	}
+	if !strings.Contains(statement, `"evil""; DROP DATABASE postgres; --"`) {
+		t.Errorf("the identifier was not quoted by doubling:\n%s", statement)
+	}
+
+	// Empty inputs are errors rather than empty statements.
+	if _, err := PlanFor(StepProvision, Resource{Engine: "postgresql", Secret: "x"}); err == nil {
+		t.Error("a plan without a name was accepted")
+	}
+	if _, err := PlanFor(StepProvision, Resource{Engine: "postgresql", Name: "n", User: "u"}); err == nil {
+		t.Error("a plan without a password was accepted")
+	}
+}
+
+func TestLifecycleStepsCoverSuspendRestorePurge(t *testing.T) {
+	for _, step := range []Step{StepSuspend, StepRestore, StepPurge, StepLimits} {
+		plan, err := PlanFor(step, Resource{Engine: "postgresql", Name: "n", User: "u", MaxConn: 20})
+		if err != nil {
+			t.Fatalf("%s: %v", step, err)
+		}
+		if len(plan.Commands) == 0 {
+			t.Errorf("%s produced no commands", step)
+		}
+	}
+
+	suspend, _ := PlanFor(StepSuspend, Resource{Engine: "postgresql", Name: "n", User: "u"})
+	joined := strings.Join(append(suspend.Commands[0], suspend.Commands[1]...), " ")
+	if !strings.Contains(joined, "ALLOW_CONNECTIONS false") || !strings.Contains(joined, "NOLOGIN") {
+		t.Errorf("suspend must refuse connections and stop the login:\n%s", joined)
+	}
+
+	purge, _ := PlanFor(StepPurge, Resource{Engine: "mysql", Name: "n", User: "u"})
+	purged := strings.Join(purge.Commands[0], " ") + strings.Join(purge.Commands[1], " ")
+	if !strings.Contains(purged, "DROP DATABASE IF EXISTS `n`") || !strings.Contains(purged, "DROP USER IF EXISTS") {
+		t.Errorf("purge must drop the database and the account:\n%s", purged)
+	}
+}
+
+func TestSqliteAndUnautomatedEnginesExplainThemselves(t *testing.T) {
+	sqlite, err := PlanFor(StepProvision, Resource{Engine: "sqlite", Name: "shop"})
+	if err != nil {
+		t.Fatalf("sqlite: %v", err)
+	}
+	if len(sqlite.Commands) != 0 || sqlite.Note == "" {
+		t.Errorf("sqlite should need no commands and say so: %+v", sqlite)
+	}
+
+	mongo, err := PlanFor(StepProvision, Resource{Engine: "mongodb", Name: "shop", User: "shop", Secret: "x"})
+	if err != nil {
+		t.Fatalf("mongodb: %v", err)
+	}
+	if len(mongo.Commands) != 0 || !strings.Contains(mongo.Note, "not automated") {
+		t.Errorf("an unautomated engine must say it is not automated: %+v", mongo)
+	}
+}

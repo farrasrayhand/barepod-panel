@@ -1,0 +1,711 @@
+package api
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"path"
+	"strings"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/files"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
+)
+
+// databaseRequest is the create payload for a database or a cache.
+type databaseRequest struct {
+	Engine         string `json:"engine"`
+	Version        string `json:"version"`
+	Alias          string `json:"alias"`
+	WebsiteSlug    string `json:"websiteSlug"`
+	Password       string `json:"password"`
+	MaxConnections int    `json:"maxConnections"`
+	MaxMemoryMB    int    `json:"maxMemoryMb"`
+}
+
+type rotateRequest struct {
+	Password string `json:"password"`
+}
+
+type databasePatch struct {
+	Alias          string `json:"alias"`
+	MaxConnections int    `json:"maxConnections"`
+	MaxMemoryMB    int    `json:"maxMemoryMb"`
+}
+
+// handleDbEngines reports the engines this host can really run.
+func (s *Server) handleDbEngines(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
+	writeJSON(w, http.StatusOK, map[string]any{"items": dbengine.Detect(r.Context(), s.host.Runner)})
+}
+
+// databaseScope resolves which records a caller may see: an admin sees every
+// account's, everyone else only their own.
+func databaseScope(user *store.User) string {
+	if user.Role == "admin" {
+		return ""
+	}
+	return user.Username
+}
+
+// canManageDatabase is the ownership rule: an admin, or the account that owns it.
+func canManageDatabase(user *store.User, db *store.Database) bool {
+	return user.Role == "admin" || db.TenantUser == user.Username
+}
+
+// findDatabase loads a record and answers 404 for anything the caller may not
+// touch (404, not 403: the panel never confirms that someone else's resource
+// exists).
+func (s *Server) findDatabase(w http.ResponseWriter, r *http.Request, user *store.User, kind string) (*store.Database, bool) {
+	record, err := s.store.DatabaseByID(r.PathValue("id"))
+	if err != nil || record.Kind != kind || !canManageDatabase(user, record) {
+		writeError(w, http.StatusNotFound, "not_found", "No such record")
+		return nil, false
+	}
+	return record, true
+}
+
+// handleListDatabases: /databases and /caches, optionally the recycle bin.
+func (s *Server) handleListDatabases(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		binned := strings.EqualFold(r.URL.Query().Get("bin"), "true")
+		items, err := s.store.DatabasesForTenant(kind, databaseScope(user), binned)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not list the records")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"items":         items,
+			"bin":           binned,
+			"retentionDays": 30,
+		})
+	}
+}
+
+// handleListRecycleBin is the same listing, forced to binned items.
+func (s *Server) handleListRecycleBin(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		items, err := s.store.DatabasesForTenant(kind, databaseScope(user), true)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not read the recycle bin")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items, "bin": true, "retentionDays": 30})
+	}
+}
+
+// handleCreateDatabase provisions a database or cache.
+//
+// Three honest outcomes: SQLite is a file the daemon creates inside the site; a
+// daemon engine whose client is installed gets its SQL run; anything else is
+// recorded with a note that says what is missing, instead of pretending.
+func (s *Server) handleCreateDatabase(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		var req databaseRequest
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "Invalid JSON body")
+			return
+		}
+
+		engine, ok := dbengine.Lookup(req.Engine)
+		if !ok || engine.Kind != kind {
+			writeError(w, http.StatusBadRequest, "validation_error", "Unknown engine for this resource")
+			return
+		}
+		alias := strings.TrimSpace(req.Alias)
+		if alias == "" {
+			writeError(w, http.StatusBadRequest, "validation_error", "A name is required")
+			return
+		}
+
+		tenant := user.Username
+		record := &store.Database{
+			Kind:        kind,
+			Engine:      engine.Name,
+			Version:     req.Version,
+			Alias:       alias,
+			TenantUser:  tenant,
+			Host:        "",
+			Port:        engine.DefaultPort,
+			MaxConns:    req.MaxConnections,
+			MaxMemoryMB: req.MaxMemoryMB,
+			Status:      "ready",
+		}
+
+		// A website may own the database; then the tenant is that website's owner.
+		if slug := strings.TrimSpace(req.WebsiteSlug); slug != "" {
+			site, err := s.store.WebsiteBySlug(slug)
+			if err != nil || !canManageSite(user, site) {
+				writeError(w, http.StatusNotFound, "not_found", "Website not found")
+				return
+			}
+			record.WebsiteSlug = site.Slug
+			record.TenantUser = site.TenantUser
+		}
+
+		if _, err := s.store.DatabaseByAlias(kind, record.TenantUser, alias); err == nil {
+			writeError(w, http.StatusConflict, "already_exists", "That name is already in use")
+			return
+		}
+
+		// The engine-side name is prefixed with the account, so two accounts can
+		// both call their database "shop" without colliding.
+		record.Name = s.uniqueDatabaseName(record.TenantUser, alias)
+
+		if err := s.provisionDatabase(r.Context(), user, record, req.Password, engine); err != nil {
+			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+			return
+		}
+		if err := s.store.CreateDatabase(record); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not record the database")
+			return
+		}
+
+		_ = s.store.Audit(user.ID, "database.create", record.Name, clientIP(r),
+			fmt.Sprintf("engine=%s status=%s", record.Engine, record.Status))
+
+		// The generated password is shown exactly once, here.
+		response := map[string]any{"database": record}
+		if record.PasswordCipher != "" {
+			if plain, err := secrets.Decrypt(s.key, record.PasswordCipher); err == nil && req.Password == "" {
+				response["password"] = plain
+				response["passwordShownOnce"] = true
+			}
+		}
+		writeJSON(w, http.StatusCreated, response)
+	}
+}
+
+// slugify turns a display name into an identifier an engine accepts: lowercase,
+// digits and underscores only, so nothing that reaches SQL can need quoting.
+func slugify(value string) string {
+	var out strings.Builder
+	lastUnderscore := false
+	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			out.WriteRune(r)
+			lastUnderscore = false
+		default:
+			if !lastUnderscore && out.Len() > 0 {
+				out.WriteByte('_')
+				lastUnderscore = true
+			}
+		}
+	}
+	return strings.Trim(out.String(), "_")
+}
+
+// uniqueDatabaseName builds "<tenant>_<alias>" and adds a suffix if taken.
+func (s *Server) uniqueDatabaseName(tenant, alias string) string {
+	base := slugify(tenant + "_" + alias)
+	if base == "" {
+		base = "db"
+	}
+	name := base
+	for suffix := 2; suffix < 50; suffix++ {
+		inUse, err := s.store.DatabaseNameInUse(name)
+		if err != nil || !inUse {
+			return name
+		}
+		name = fmt.Sprintf("%s_%d", base, suffix)
+	}
+	return base + "_" + id.Token(4)
+}
+
+// provisionDatabase fills in the credential and brings the engine-side object
+// into existence as far as this host allows.
+func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record *store.Database, supplied string, engine dbengine.Engine) error {
+	password := supplied
+	if password == "" {
+		password = id.Token(24)
+	} else if len(password) < 12 {
+		return errors.New("a password must be at least 12 characters")
+	}
+	ciphertext, err := secrets.Encrypt(s.key, password)
+	if err != nil {
+		return errors.New("the credential could not be stored")
+	}
+	record.PasswordCipher = ciphertext
+
+	switch {
+	case engine.FileBased:
+		// SQLite lives inside the site: create the file as the tenant so it
+		// belongs to the account, not to the daemon.
+		root := s.databaseFileDir(record)
+		if root == "" {
+			return errors.New("a SQLite database needs a website to live in")
+		}
+		record.User, record.Host = "", ""
+		record.FilePath = s.databaseFilePath(record, root)
+		record.FileBased = true
+		return s.createSQLiteFile(ctx, record)
+
+	case !engine.Available:
+		record.Status = "pending"
+		record.Note = fmt.Sprintf("%s is not installed on this host, so the %s was recorded but not created. Install it and rotate the password to finish.", engine.Client, engine.Name)
+		return nil
+
+	case !s.host.Materialises():
+		record.Status = "pending"
+		record.Note = "The daemon is in dry-run mode: the credentials were stored and the SQL was not run."
+		return nil
+	}
+
+	record.User = record.Name
+	record.Host = "127.0.0.1"
+	plan, err := dbengine.PlanFor(dbengine.StepProvision, dbengine.Resource{
+		Engine: engine.Name, Name: record.Name, User: record.User, Secret: password, Port: record.Port,
+	})
+	if err != nil {
+		return err
+	}
+	if len(plan.Commands) == 0 {
+		record.Status = "pending"
+		record.Note = plan.Note
+		return nil
+	}
+	if err := s.runDatabasePlan(ctx, plan); err != nil {
+		record.Status = "failed"
+		record.Note = err.Error()
+		return nil
+	}
+	_ = s.store.Audit(user.ID, "database.provision", record.Name, "", fmt.Sprintf("%s %s", engine.Name, record.Version))
+	return nil
+}
+
+// databaseFileDir is where a file-based database belongs: inside the website it
+// was created for.
+func (s *Server) databaseFileDir(record *store.Database) string {
+	if record.WebsiteSlug == "" {
+		return ""
+	}
+	site, err := s.store.WebsiteBySlug(record.WebsiteSlug)
+	if err != nil {
+		return ""
+	}
+	return s.host.SitePath(site.TenantUser, site.Slug)
+}
+
+// createSQLiteFile makes the database file, owned by the tenant.
+func (s *Server) createSQLiteFile(ctx context.Context, record *store.Database) error {
+	site, err := s.store.WebsiteBySlug(record.WebsiteSlug)
+	if err != nil {
+		return errors.New("the website could not be loaded")
+	}
+	manager := s.fileManagerForSite(site)
+	if manager == nil {
+		return errors.New("the website directory could not be opened")
+	}
+	relative := strings.TrimPrefix(strings.TrimPrefix(record.FilePath, s.host.SitePath(site.TenantUser, site.Slug)), "/")
+	if _, err := manager.Write(relative, []byte{}); err != nil {
+		record.Status = "failed"
+		record.Note = err.Error()
+		return nil
+	}
+	if err := s.host.ChownSite(ctx, site.TenantUser, site.Slug); err != nil {
+		return err
+	}
+	return nil
+}
+
+// fileManagerForSite builds a file manager rooted at one website.
+func (s *Server) fileManagerForSite(site *store.Website) *files.Manager {
+	root := s.host.SitePath(site.TenantUser, site.Slug)
+	manager, err := files.NewManager(root, s.fileOps(site.TenantUser), s.maxUploadBytes)
+	if err != nil {
+		return nil
+	}
+	return manager
+}
+
+// runDatabasePlan executes the SQL a lifecycle step needs.
+func (s *Server) runDatabasePlan(ctx context.Context, plan dbengine.Plan) error {
+	for _, argv := range plan.Commands {
+		out, err := s.host.Run(ctx, argv)
+		if err != nil {
+			message := strings.TrimSpace(out)
+			if message == "" {
+				message = err.Error()
+			}
+			return fmt.Errorf("%s failed: %s", argv[0], message)
+		}
+	}
+	return nil
+}
+
+// handleGetDatabase returns one record.
+func (s *Server) handleGetDatabase(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"database": record})
+	}
+}
+
+// handlePatchDatabase changes the alias and the limits.
+func (s *Server) handlePatchDatabase(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
+			return
+		}
+		var patch databasePatch
+		if err := decodeJSON(r, &patch); err != nil {
+			writeError(w, http.StatusBadRequest, "bad_request", "Invalid JSON body")
+			return
+		}
+		alias := record.Alias
+		if strings.TrimSpace(patch.Alias) != "" {
+			alias = strings.TrimSpace(patch.Alias)
+		}
+		if err := s.store.SetDatabaseLimits(record.ID, alias, patch.MaxConnections, patch.MaxMemoryMB); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not save the change")
+			return
+		}
+		_ = s.store.Audit(user.ID, "database.update", record.Name, clientIP(r), alias)
+		updated, _ := s.store.DatabaseByID(record.ID)
+		writeJSON(w, http.StatusOK, map[string]any{"database": updated})
+	}
+}
+
+// handleRotateDatabasePassword sets a new credential and, when possible, tells
+// the engine about it.
+func (s *Server) handleRotateDatabasePassword(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
+			return
+		}
+		var req rotateRequest
+		if r.ContentLength > 0 {
+			if err := decodeJSON(r, &req); err != nil {
+				writeError(w, http.StatusBadRequest, "bad_request", "Invalid JSON body")
+				return
+			}
+		}
+		password := strings.TrimSpace(req.Password)
+		if password == "" {
+			password = id.Token(24)
+		} else if len(password) < 12 {
+			writeError(w, http.StatusBadRequest, "validation_error", "A password must be at least 12 characters")
+			return
+		}
+
+		engine, _ := dbengine.Lookup(record.Engine)
+		if !engine.FileBased && engine.Available && s.host.Materialises() {
+			plan, err := dbengine.PlanFor(dbengine.StepRotate, dbengine.Resource{
+				Engine: record.Engine, Name: record.Name, User: record.User, Secret: password, Port: record.Port,
+			})
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+				return
+			}
+			if err := s.runDatabasePlan(r.Context(), plan); err != nil {
+				writeError(w, http.StatusBadGateway, "service_error", err.Error())
+				return
+			}
+		}
+
+		ciphertext, err := secrets.Encrypt(s.key, password)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not store the credential")
+			return
+		}
+		if err := s.store.UpdateDatabasePassword(record.ID, ciphertext); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not save the credential")
+			return
+		}
+		_ = s.store.Audit(user.ID, "database.rotate_password", record.Name, clientIP(r), "")
+		writeJSON(w, http.StatusOK, map[string]any{"id": record.ID, "password": password})
+	}
+}
+
+// handleRevealDatabase returns the credential after a fresh panel-password check.
+func (s *Server) handleRevealDatabase(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {
+		// Ownership first: another account's record must answer 404 even for an
+		// unelevated caller, or the refusal itself would confirm it exists.
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
+			return
+		}
+		if !sessionElevated(sess) {
+			writeError(w, http.StatusForbidden, "elevation_required",
+				"Confirm your panel password again before revealing a credential")
+			return
+		}
+		plain, err := secrets.Decrypt(s.key, record.PasswordCipher)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not decrypt the credential")
+			return
+		}
+		_ = s.store.Audit(user.ID, "database.reveal", record.Name, clientIP(r), "")
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id":        record.ID,
+			"user":      record.User,
+			"password":  plain,
+			"expiresIn": 60,
+		})
+	}
+}
+
+// handleConnectionString composes what a client needs, including the password,
+// so it needs the same fresh check as a reveal.
+func (s *Server) handleConnectionString(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
+			return
+		}
+		if !sessionElevated(sess) {
+			writeError(w, http.StatusForbidden, "elevation_required",
+				"Confirm your panel password again before revealing a connection string")
+			return
+		}
+		password, err := secrets.Decrypt(s.key, record.PasswordCipher)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not decrypt the credential")
+			return
+		}
+		_ = s.store.Audit(user.ID, "database.connection_string", record.Name, clientIP(r), "")
+		writeJSON(w, http.StatusOK, map[string]any{
+			"string": connectionString(*record, password),
+			"engine": record.Engine,
+		})
+	}
+}
+
+// connectionString builds the DSN a developer would paste into a config file.
+func connectionString(record store.Database, password string) string {
+	switch record.Engine {
+	case "postgresql":
+		return fmt.Sprintf("postgres://%s:%s@%s:%d/%s", record.User, password, record.Host, record.Port, record.Name)
+	case "mysql", "mariadb":
+		return fmt.Sprintf("mysql://%s:%s@%s:%d/%s", record.User, password, record.Host, record.Port, record.Name)
+	case "mongodb":
+		return fmt.Sprintf("mongodb://%s:%s@%s:%d/%s", record.User, password, record.Host, record.Port, record.Name)
+	case "redis":
+		return fmt.Sprintf("redis://:%s@%s:%d", password, record.Host, record.Port)
+	case "sqlite":
+		return "file:" + record.FilePath
+	}
+	return ""
+}
+
+// handleBinDatabase is the soft delete: nothing is dropped, the data is kept and
+// the engine is told to stop serving it.
+func (s *Server) handleBinDatabase(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
+			return
+		}
+		if err := s.suspendDatabase(r.Context(), record); err != nil {
+			writeError(w, http.StatusBadGateway, "service_error", err.Error())
+			return
+		}
+		if err := s.store.BinDatabase(record.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not bin the record")
+			return
+		}
+		_ = s.store.Audit(user.ID, "database.bin", record.Name, clientIP(r), "")
+		writeJSON(w, http.StatusOK, map[string]any{"id": record.ID, "deletedAt": "now", "status": "suspended"})
+	}
+}
+
+// suspendDatabase stops the engine from serving the database, keeping the data.
+func (s *Server) suspendDatabase(ctx context.Context, record *store.Database) error {
+	engine, _ := dbengine.Lookup(record.Engine)
+	if engine.FileBased {
+		// SQLite: move the file into the site's own trash, so a wrong bin click
+		// never loses the data.
+		return s.moveSQLiteFile(ctx, record, true)
+	}
+	if !engine.Available || !s.host.Materialises() {
+		record.Note = "Suspended in the panel; the engine was not told because its client is unavailable on this host."
+		return nil
+	}
+	plan, err := dbengine.PlanFor(dbengine.StepSuspend, dbengine.Resource{
+		Engine: record.Engine, Name: record.Name, User: record.User, Port: record.Port,
+	})
+	if err != nil {
+		return err
+	}
+	return s.runDatabasePlan(ctx, plan)
+}
+
+// handleRestoreDatabase takes a record out of the recycle bin.
+func (s *Server) handleRestoreDatabase(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
+			return
+		}
+		engine, _ := dbengine.Lookup(record.Engine)
+		if engine.FileBased {
+			if err := s.moveSQLiteFile(r.Context(), record, false); err != nil {
+				writeError(w, http.StatusBadGateway, "service_error", err.Error())
+				return
+			}
+		} else if engine.Available && s.host.Materialises() {
+			plan, err := dbengine.PlanFor(dbengine.StepRestore, dbengine.Resource{
+				Engine: record.Engine, Name: record.Name, User: record.User, Port: record.Port,
+			})
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+				return
+			}
+			if err := s.runDatabasePlan(r.Context(), plan); err != nil {
+				writeError(w, http.StatusBadGateway, "service_error", err.Error())
+				return
+			}
+		}
+		if err := s.store.RestoreDatabase(record.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not restore the record")
+			return
+		}
+		_ = s.store.Audit(user.ID, "database.restore", record.Name, clientIP(r), "")
+		restored, _ := s.store.DatabaseByID(record.ID)
+		writeJSON(w, http.StatusOK, map[string]any{"database": restored})
+	}
+}
+
+// handlePurgeDatabase is the only destructive step, and it is explicit.
+func (s *Server) handlePurgeDatabase(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
+			return
+		}
+		if err := s.purgeDatabase(r.Context(), record); err != nil {
+			writeError(w, http.StatusBadGateway, "service_error", err.Error())
+			return
+		}
+		_ = s.store.Audit(user.ID, "database.purge", record.Name, clientIP(r), record.Engine)
+		writeJSON(w, http.StatusOK, map[string]any{"id": record.ID, "purged": true})
+	}
+}
+
+func (s *Server) purgeDatabase(ctx context.Context, record *store.Database) error {
+	engine, _ := dbengine.Lookup(record.Engine)
+	if engine.FileBased {
+		if err := s.purgeSQLite(ctx, record); err != nil {
+			return err
+		}
+	} else if engine.Available && s.host.Materialises() {
+		plan, err := dbengine.PlanFor(dbengine.StepPurge, dbengine.Resource{
+			Engine: record.Engine, Name: record.Name, User: record.User, Port: record.Port,
+		})
+		if err != nil {
+			return err
+		}
+		if err := s.runDatabasePlan(ctx, plan); err != nil {
+			return err
+		}
+	}
+	return s.store.DeleteDatabase(record.ID)
+}
+
+// handleEmptyRecycleBin purges everything that was binned.
+func (s *Server) handleEmptyRecycleBin(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		items, err := s.store.DatabasesForTenant(kind, databaseScope(user), true)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not read the recycle bin")
+			return
+		}
+		purged := []string{}
+		for i := range items {
+			if err := s.purgeDatabase(r.Context(), &items[i]); err != nil {
+				writeError(w, http.StatusBadGateway, "service_error", err.Error())
+				return
+			}
+			purged = append(purged, items[i].Name)
+		}
+		_ = s.store.Audit(user.ID, "database.recycle_bin_empty", kind, clientIP(r), strings.Join(purged, ", "))
+		writeJSON(w, http.StatusOK, map[string]any{"purged": purged})
+	}
+}
+
+// databaseFilePath is where a file-based database lives when it is in use.
+func (s *Server) databaseFilePath(record *store.Database, siteRoot string) string {
+	return path.Join(siteRoot, path.Base(record.Name)+".sqlite")
+}
+
+// trashPath is where a binned file-based database waits.
+func (s *Server) trashPath(siteRoot string, record *store.Database) string {
+	return path.Join(siteRoot, ".trash", path.Base(record.Name)+".sqlite")
+}
+
+// moveSQLiteFile moves a file-based database into (or out of) the site's trash.
+//
+// Both locations are derived from the record's name, so a bin followed by a
+// restore cannot end up comparing a path with itself.
+func (s *Server) moveSQLiteFile(ctx context.Context, record *store.Database, intoTrash bool) error {
+	site, err := s.store.WebsiteBySlug(record.WebsiteSlug)
+	if err != nil {
+		return errors.New("the website could not be loaded")
+	}
+	manager := s.fileManagerForSite(site)
+	if manager == nil {
+		return errors.New("the website directory could not be opened")
+	}
+	root := s.host.SitePath(site.TenantUser, site.Slug)
+	live := s.databaseFilePath(record, root)
+	trashed := s.trashPath(root, record)
+
+	from, to := live, trashed
+	if !intoTrash {
+		from, to = trashed, live
+	}
+	fromRel := strings.TrimPrefix(strings.TrimPrefix(from, root), "/")
+	toRel := strings.TrimPrefix(strings.TrimPrefix(to, root), "/")
+	if fromRel == "" || toRel == "" {
+		return errors.New("the database file path is not inside the website")
+	}
+
+	if exists, err := manager.Exists(fromRel); err != nil || !exists {
+		return fmt.Errorf("the database file is not where it should be (%s)", fromRel)
+	}
+	if intoTrash {
+		if err := manager.Mkdir(path.Dir(toRel)); err != nil {
+			return err
+		}
+	}
+	if err := manager.Move(fromRel, toRel); err != nil {
+		return err
+	}
+	return s.host.ChownSite(ctx, site.TenantUser, site.Slug)
+}
+
+// purgeSQLite removes the file wherever it currently is.
+func (s *Server) purgeSQLite(ctx context.Context, record *store.Database) error {
+	site, err := s.store.WebsiteBySlug(record.WebsiteSlug)
+	if err != nil {
+		return nil // the website is gone; the record can go too
+	}
+	manager := s.fileManagerForSite(site)
+	if manager == nil {
+		return nil
+	}
+	root := s.host.SitePath(site.TenantUser, site.Slug)
+	for _, candidate := range []string{s.databaseFilePath(record, root), s.trashPath(root, record)} {
+		relative := strings.TrimPrefix(strings.TrimPrefix(candidate, root), "/")
+		if relative == "" {
+			continue
+		}
+		exists, err := manager.Exists(relative)
+		if err != nil || !exists {
+			continue
+		}
+		if err := manager.Delete(relative); err != nil {
+			return err
+		}
+	}
+	return nil
+}
