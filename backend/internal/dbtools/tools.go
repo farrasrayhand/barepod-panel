@@ -117,18 +117,20 @@ func Registry() map[string]Spec {
 			Port:       8793, // the first port of the range below, and the default
 			HealthPath: "/",
 			Container:  true,
-			// Pinned, not `latest`: the manager starts on demand for whoever opens it, and a
-			// surprise release the moment upstream publishes one is not something an operator
-			// should discover through their databases. There is no LTS tag to lean on
-			// (DbGate publishes `latest`, `beta` and version tags only), so a measured patch
-			// is the closest thing: 7.3.1 was checked against what this panel depends on —
-			// the socket fields read from env (CONNECTION_<id>_authType/socketPath) and
-			// WEB_ROOT handling — and it passed, as did 7.3.2 and 7.2.6. 6.0.0 does **not**
-			// (its env loader ignores those fields, which would drop PostgreSQL/MySQL/MariaDB
-			// back to an unreachable TCP loopback). The image is DbGate's community edition,
-			// the only edition there is: its "premium" items are license upsells inside that
-			// same image, and no setting removes them.
-			Image:         "dbgate/dbgate:7.3.1",
+			// Pinned, not `latest`, and the *alpine* build of that patch. There is no LTS tag
+			// to lean on (DbGate publishes `latest`, `beta` and version tags only), so a
+			// measured patch is the closest thing: 7.3.1's own release notes name security
+			// fixes and resource cleanup, and it was checked against what this panel depends
+			// on — the socket fields read from env (CONNECTION_<id>_authType/socketPath) and
+			// WEB_ROOT handling — and passed, as 7.3.2 and 7.2.6 did. 6.0.0 does **not** (its
+			// env loader ignores those fields, which would drop PostgreSQL/MySQL/MariaDB back
+			// to an unreachable TCP loopback). Alpine, measured on the host: 104 MB image and
+			// 37 MB RSS against 140 MB and 69 MB, with identical behaviour on both the socket
+			// and the SQLite path — the manager runs one per open database, so the difference
+			// is multiplied. The image is DbGate's community edition, the only edition there
+			// is: its "premium" items are license upsells inside that same image, and no
+			// setting removes them.
+			Image:         "dbgate/dbgate:7.3.1-alpine",
 			ContainerName: "barepod-dbgate",
 			// The API names each instance after its record and takes a port from this
 			// range, so several databases can have DbGate open at once.

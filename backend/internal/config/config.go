@@ -135,7 +135,7 @@ func Load(args []string) (Config, error) {
 	maxUpload := fs.Int("max-upload-mb", envInt("BAREPOD_MAX_UPLOAD_MB", 64), "upload/edit ceiling for the file manager, in MiB")
 	metricsInterval := fs.Duration("metrics-interval", envDuration("BAREPOD_METRICS_INTERVAL", 15*time.Second), "how often host and per-website metrics are sampled")
 	metricsHistory := fs.Int("metrics-history", envInt("BAREPOD_METRICS_HISTORY", 2880), "how many metric samples to keep in memory (2880 x 15s = 12h)")
-	dbtoolsIdle := fs.Duration("dbtools-idle", envDuration("BAREPOD_DBTOOLS_IDLE", time.Hour), "how long an unused on-demand database manager (pgweb) stays up before it is stopped")
+	dbtoolsIdle := fs.Duration("dbtools-idle", envDuration("BAREPOD_DBTOOLS_IDLE", 15*time.Minute), "how long an unused on-demand database manager (pgweb, phpMyAdmin, DbGate) stays up before it is stopped")
 	dbtoolsDir := fs.String("dbtools-dir", DefaultDbtoolsDir(), "where on-demand managers that need installing (phpMyAdmin) live, and where their configs are written")
 
 	if err := fs.Parse(args); err != nil {
