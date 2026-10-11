@@ -730,6 +730,17 @@ func (s *Server) handleRotateDatabasePassword(kind string) authedHandler {
 			// record that was never created, so a success makes it usable.
 			_ = s.store.SetDatabaseStatus(record.ID, "ready", "")
 		} else if !engine.FileBased && engine.Available && s.host.Materialises() {
+			// A record from before the engine account was named has no user at all, and the
+			// create plan refuses an empty one — so finishing it would fail with "a name and
+			// a user are required" instead of creating anything. Give it the name the panel
+			// would have used, exactly as a create does.
+			if record.User == "" {
+				record.User = record.Name
+				if err := s.store.SetDatabaseUser(record.ID, record.User); err != nil {
+					writeError(w, http.StatusInternalServerError, "internal", "Could not record the account name")
+					return
+				}
+			}
 			// A record that was never really created (its create ran while the engine
 			// was not installed) is finished here instead of refused: the note the panel
 			// left on it points at exactly this action, and the create plan — not an

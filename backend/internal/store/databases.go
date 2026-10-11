@@ -155,6 +155,15 @@ func (s *Store) SetDatabaseStatus(databaseID, status, note string) error {
 	return err
 }
 
+// SetDatabaseUser names the engine account a record was created without, so a record
+// that predates the panel naming accounts can still be finished.
+func (s *Store) SetDatabaseUser(databaseID, user string) error {
+	// The column is `db_user`: writing to `user` is a SQL error, which is how this
+	// returned 500 the first time it ran instead of naming the account.
+	_, err := s.DB.Exec(`UPDATE databases SET db_user = ? WHERE id = ?`, user, databaseID)
+	return err
+}
+
 // SetDatabaseAddress corrects where a record says its engine lives. It is used when
 // the engine's mode changed under an older record (a host install that is now a
 // container publishes on another port), so the port the panel hands out is the one
