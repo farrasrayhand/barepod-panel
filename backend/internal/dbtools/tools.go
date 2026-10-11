@@ -117,19 +117,18 @@ func Registry() map[string]Spec {
 			Port:       8793, // the first port of the range below, and the default
 			HealthPath: "/",
 			Container:  true,
-			// Pinned, not `latest`, and the *alpine* build of that patch. There is no LTS tag
-			// to lean on (DbGate publishes `latest`, `beta` and version tags only), so a
-			// measured patch is the closest thing: 7.3.1's own release notes name security
-			// fixes and resource cleanup, and it was checked against what this panel depends
-			// on — the socket fields read from env (CONNECTION_<id>_authType/socketPath) and
-			// WEB_ROOT handling — and passed, as 7.3.2 and 7.2.6 did. 6.0.0 does **not** (its
-			// env loader ignores those fields, which would drop PostgreSQL/MySQL/MariaDB back
-			// to an unreachable TCP loopback). Alpine, measured on the host: 104 MB image and
-			// 37 MB RSS against 140 MB and 69 MB, with identical behaviour on both the socket
-			// and the SQLite path — the manager runs one per open database, so the difference
-			// is multiplied. The image is DbGate's community edition, the only edition there
-			// is: its "premium" items are license upsells inside that same image, and no
-			// setting removes them.
+			// Pinned, not `latest`, and pinned on the operator's own operating history: they
+			// ran 7.3.1 and found it steadier than the 7.2 line, so that is what the panel
+			// uses. There is no LTS tag to lean on (DbGate publishes `latest`, `beta` and
+			// version tags only), so every candidate is measured against what this panel
+			// depends on — the socket fields read from env (CONNECTION_<id>_authType/socketPath)
+			// and WEB_ROOT handling. 7.3.1, 7.3.2, 7.2.6 and 7.1.13 all pass; **6.0.0 does
+			// not** (its env loader ignores those fields, which would drop PostgreSQL, MySQL
+			// and MariaDB back to an unreachable TCP loopback). The alpine variant is 30 MB
+			// lighter and loads its SQLite module in a direct require, but the reported musl
+			// loader error is not worth the risk on the one file-based engine. The image is
+			// DbGate's community edition, the only edition there is: its "premium" items are
+			// licence upsells inside that same image, and no setting removes them.
 			Image:         "dbgate/dbgate:7.3.1",
 			ContainerName: "barepod-dbgate",
 			// The API names each instance after its record and takes a port from this
