@@ -151,6 +151,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/system/settings", s.requireAuth(s.handlePanelSettings))
 	mux.HandleFunc("PATCH /api/v1/system/settings", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSavePanelSettings)))
 
+	// The ports this host is actually listening on, because the settings screen used to have them
+	// written into it — including none for SSH.
+	mux.HandleFunc("GET /api/v1/system/ports", s.requireAuth(s.handleSystemPorts))
+
 	// System — "monitoring" capability
 	mux.HandleFunc("GET /api/v1/system/capabilities", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleCapabilities)))
 	mux.HandleFunc("GET /api/v1/system/metrics", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemMetrics)))

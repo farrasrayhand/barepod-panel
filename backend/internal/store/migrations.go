@@ -20,7 +20,16 @@ var migrations = []migration{
 	{version: 10, statements: schemaV10},
 	{version: 11, statements: schemaV11},
 	{version: 12, statements: schemaV12},
+	{version: 13, statements: schemaV13},
 }
+
+// schemaV13 records what a ban covers. 0 is the whole host, which is what a ban earned on a database
+// engine is: an address attacking PostgreSQL has no business reaching anything else either. A port
+// means that door only, which is what the panel's own logins and SSH earn — so an operator who trips
+// their own lockout loses the panel and nothing else, and can still get in to fix it.
+const schemaV13 = `
+ALTER TABLE guard_bans ADD COLUMN port INTEGER NOT NULL DEFAULT 0;
+`
 
 // schemaV12 is where the panel keeps a setting that belongs to the panel and not to any record. The
 // first one is the address an external client should use, which the daemon cannot work out for

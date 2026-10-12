@@ -457,6 +457,10 @@ export const api = {
    * Panel-wide settings. `externalAddress` is the address an external client should use — the daemon
    * cannot detect it, so the operator sets it and every snippet prefers it.
    */
+  /** The ports this host is actually listening on, measured rather than written into a screen. */
+  systemPorts: () =>
+    request<{ panel: number; ssh: number; engines: Record<string, number>; note: string }>('/system/ports'),
+
   panelSettings: () => request<{ externalAddress: string }>('/system/settings'),
 
   savePanelSettings: (settings: { externalAddress: string }) =>

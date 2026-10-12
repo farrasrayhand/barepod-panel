@@ -36,7 +36,7 @@ func (a guardStoreAdapter) Bans() ([]guard.Ban, error) {
 	for _, row := range rows {
 		out = append(out, guard.Ban{
 			IP: row.IP, Engine: row.Engine, User: row.User, Reason: row.Reason,
-			Count: row.Hits, At: row.BannedAt, ExpiresAt: row.ExpiresAt,
+			Count: row.Hits, Port: row.Port, At: row.BannedAt, ExpiresAt: row.ExpiresAt,
 		})
 	}
 	return out, nil
@@ -44,7 +44,7 @@ func (a guardStoreAdapter) Bans() ([]guard.Ban, error) {
 
 func (a guardStoreAdapter) SaveBan(ban guard.Ban) error {
 	return a.st.SaveGuardBan(store.GuardBan{
-		IP: ban.IP, Engine: ban.Engine, User: ban.User, Reason: ban.Reason, Hits: ban.Count,
+		IP: ban.IP, Engine: ban.Engine, User: ban.User, Reason: ban.Reason, Hits: ban.Count, Port: ban.Port,
 		BannedAt: ban.At, ExpiresAt: ban.ExpiresAt,
 	})
 }

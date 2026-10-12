@@ -44,9 +44,11 @@ type Failure struct {
 	At     time.Time
 }
 
-// Ban is one address the panel keeps out until ExpiresAt.
+// Ban is one address the panel keeps out until ExpiresAt. Port 0 closes the whole host; a port closes
+// that door only, which is what the panel and SSH earn so an operator never loses their way back in.
 type Ban struct {
 	IP        string    `json:"ip"`
+	Port      int       `json:"port,omitempty"`
 	Engine    string    `json:"engine"`
 	User      string    `json:"user,omitempty"`
 	Count     int       `json:"count"`
@@ -111,10 +113,34 @@ var (
 // itself scoped, so those entries are read and deliberately ignored.
 var redisAddrRegex = regexp.MustCompile(`addr=([0-9a-fA-F.:]+):\d+`)
 
+// sshd writes one line per refused password, and the address is on it:
+//
+//	Failed password for invalid user nobody from 203.0.113.7 port 51234 ssh2
+//	Failed password for root from 203.0.113.7 port 51234 ssh2
+//
+// Only that line is counted. An "Invalid user" line arrives before it — counting both would make one
+// attempt look like two — and "Connection closed by authenticating user" is a client that gave up
+// before trying a password, which is not an attempt against it.
+var sshFailureRegex = regexp.MustCompile(`Failed password for (?:invalid user )?([^ ]+) from ([0-9a-fA-F.:]+) port \d+`)
+
 // maxRefusalsPerEntry caps how many refusals one aggregated ACL log entry is allowed to stand for.
 // The decision only needs to reach the retry threshold, and the count is Redis's number, so there is
 // no reason to turn a large one into a large slice.
 const maxRefusalsPerEntry = 100
+
+// scanSSH reads the refusals sshd records.
+func scanSSH(log string) []Failure {
+	out := []Failure{}
+	for _, raw := range strings.Split(log, "\n") {
+		line := strings.TrimRight(raw, "\r")
+		match := sshFailureRegex.FindStringSubmatch(line)
+		if match == nil {
+			continue
+		}
+		out = append(out, Failure{Engine: "ssh", IP: normaliseIP(match[2]), User: match[1]})
+	}
+	return out
+}
 
 // scanRedisACLLog reads the flattened ACL LOG entries and returns the authentication refusals.
 func scanRedisACLLog(text string) []Failure {
@@ -196,6 +222,8 @@ func Scan(engine, log string) []Failure {
 	case "redis":
 		// Not a log: the caller read Redis's own ACL LOG, which is where its refusals live.
 		return scanRedisACLLog(log)
+	case "ssh":
+		return scanSSH(log)
 	}
 	return nil
 }
@@ -367,6 +395,9 @@ const (
 	// engine the panel provisions. The LAN is not in this set: on the test host it is
 	// 172.19.0.0/16, next to but distinct from the bridge.
 	ExemptSet = "private_exempt"
+	// ScopedSet holds (address, port) pairs — the doors closed for one address only. A concatenated
+	// set is what nftables offers for it, and like the other sets it expires its own elements.
+	ScopedSet = "banned_port"
 	chainRun  = "-10" // before the general filter chains: a banned address is dropped early
 )
 
@@ -384,12 +415,14 @@ func EnsureArgv() [][]string {
 		// drop rule below then took away the panel's own access to every engine it manages.
 		// Measured: 127.0.0.1:27018 was blocked until the set carried this flag.
 		{"nft", "add", "set", "inet", Table, ExemptSet, "{", "type", "ipv4_addr;", "flags", "interval;", "}"},
+		{"nft", "add", "set", "inet", Table, ScopedSet, "{", "type", "ipv4_addr", ".", "inet_service;", "flags", "timeout;", "}"},
 		{"nft", "add", "chain", "inet", Table, "input", "{", "type", "filter", "hook", "input", "priority", chainRun, ";", "policy", "accept", ";", "}"},
 		// `add rule` appends, unlike `add table`/`add set`, so this guard is prepared by
 		// flushing its own chain first. Measured: without it, every panel restart left another
 		// copy of the drop rules behind (seven restarts, seven identical rules).
 		{"nft", "flush", "chain", "inet", Table, "input"},
 		{"nft", "add", "rule", "inet", Table, "input", "ip", "saddr", "@" + Set, "drop"},
+		{"nft", "add", "rule", "inet", Table, "input", "ip", "saddr", ".", "tcp", "dport", "@" + ScopedSet, "drop"},
 		// The host talking to itself is not "outside": a connection to the host's own gateway
 		// address comes from the loopback interface (measured: `ip route get 172.17.0.1` answers
 		// `dev lo src 172.17.0.1`), and the panel itself must be able to reach an engine where
@@ -421,15 +454,27 @@ func OpenPortArgv(port int) []string {
 	return []string{"nft", "delete", "element", "inet", Table, PortsSet, "{", strconv.Itoa(port), "}"}
 }
 
-// BanArgv keeps an address out for the rest of its ban time. The timeout is handed to the
-// kernel as well as recorded in the panel, so the ban ends on time even with the daemon
-// stopped.
+// BanArgv keeps an address out for the rest of its ban time. The timeout is handed to the kernel as
+// well as recorded in the panel, so the ban ends on time even with the daemon stopped. A ban with a
+// port closes that door only.
 func BanArgv(ban Ban) []string {
 	seconds := int(time.Until(ban.ExpiresAt).Seconds())
 	if seconds < 1 {
 		seconds = 1
 	}
+	if ban.Port > 0 {
+		return []string{"nft", "add", "element", "inet", Table, ScopedSet, "{", ban.IP, ".", strconv.Itoa(ban.Port),
+			"timeout", strconv.Itoa(seconds) + "s", "}"}
+	}
 	return []string{"nft", "add", "element", "inet", Table, Set, "{", ban.IP, "timeout", strconv.Itoa(seconds) + "s", "}"}
+}
+
+// UnbanArgv lets an address back in, through the door it was kept out of.
+func UnbanBanArgv(ban Ban) []string {
+	if ban.Port > 0 {
+		return []string{"nft", "delete", "element", "inet", Table, ScopedSet, "{", ban.IP, ".", strconv.Itoa(ban.Port), "}"}
+	}
+	return []string{"nft", "delete", "element", "inet", Table, Set, "{", ban.IP, "}"}
 }
 
 // UnbanArgv lets an address back in.

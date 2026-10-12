@@ -334,6 +334,16 @@ func runServe(args []string) error {
 	guardCtx, stopGuard := context.WithCancel(context.Background())
 	defer stopGuard()
 	watchdog := api.NewGuard(api.GuardExecutor(h.Runner.Run), st, guardInterval, cfg.RedisURL, log.Printf)
+	// Which door a ban closes. The panel's own port comes from how the daemon was started and SSH's is
+	// the standard one: tripping either lockout must not take away the way back in, which is what
+	// happened while every ban was host-wide.
+	panelPort := 0
+	if _, port, err := net.SplitHostPort(cfg.Listen); err == nil {
+		if parsed, err := strconv.Atoi(port); err == nil {
+			panelPort = parsed
+		}
+	}
+	watchdog.SetScopes(map[string]int{"panel": panelPort, "ssh": 22})
 	// Adopt first and wait for it: the reconciliation below needs the table and its sets to
 	// exist, and racing the goroutine left ports out of the set while reporting success —
 	// measured, a containerised MongoDB stayed reachable from the LAN that way.

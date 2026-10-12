@@ -55,6 +55,9 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   // no public address to find, and a domain is knowledge only the operator has.
   const [externalAddress, setExternalAddress] = useState('');
   const [externalSaving, setExternalSaving] = useState(false);
+  // Measured, not written into the screen: the settings page used to state the engines' ports and the
+  // panel's, and SSH was missing entirely.
+  const [ports, setPorts] = useState<{ panel: number; ssh: number; engines: Record<string, number> } | null>(null);
 
   React.useEffect(() => {
     let alive = true;
@@ -64,6 +67,12 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
         if (alive) setExternalAddress(settings.externalAddress || '');
       } catch {
         // Left empty: the panel then names the address it is being used on.
+      }
+      try {
+        const measured = await api.systemPorts();
+        if (alive) setPorts(measured);
+      } catch {
+        // No numbers are better than numbers that are not true of this host.
       }
     })();
     return () => {
@@ -438,11 +447,13 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   </label>
                   <input
                     type="number"
-                    value={panelPort}
-                    onChange={(e) => setPanelPort(Number(e.target.value))}
+                    value={ports?.panel ?? ''}
+                    readOnly
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">Default: 8443 (HTTPS secure)</p>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Measured: the port the daemon was started with, not a number this screen can change.
+                  </p>
                 </div>
 
                 <div>
@@ -1318,42 +1329,40 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           {activeTab === 'databases' && (
             <div className="space-y-6 max-w-2xl">
               <div>
-                <h2 className="text-base font-bold text-slate-900">Database Engine Default Ports</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Local listening ports for the PostgreSQL, MariaDB, and Redis engines.</p>
+                <h2 className="text-base font-bold text-slate-900">Engine & access ports</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  What this host is listening on, measured when this screen opens. Nothing here is
+                  written into the panel, so an engine moved to another port shows where it really is.
+                </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">PostgreSQL</label>
-                  <input
-                    type="number"
-                    value={pgPort}
-                    onChange={(e) => setPgPort(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Default: 5432</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {[
+                  { key: 'postgresql', label: 'PostgreSQL' },
+                  { key: 'mariadb', label: 'MariaDB / MySQL' },
+                  { key: 'redis', label: 'Redis' },
+                  { key: 'mongodb', label: 'MongoDB' },
+                ].map((engine) => {
+                  const port = ports?.engines?.[engine.key];
+                  return (
+                    <div key={engine.key} className="p-3 rounded-xl border border-slate-200 bg-white">
+                      <span className="block text-xs font-bold text-slate-700">{engine.label}</span>
+                      <span className="block font-mono text-sm text-slate-900 mt-0.5">{port ?? '—'}</span>
+                      <span className="block text-[10px] text-slate-400 mt-0.5">
+                        {port ? 'listening' : 'not listening'}
+                      </span>
+                    </div>
+                  );
+                })}
+                <div className="p-3 rounded-xl border border-slate-200 bg-white">
+                  <span className="block text-xs font-bold text-slate-700">SSH</span>
+                  <span className="block font-mono text-sm text-slate-900 mt-0.5">{ports?.ssh || '—'}</span>
+                  <span className="block text-[10px] text-slate-400 mt-0.5">a way in, so it is shown</span>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">MariaDB / MySQL</label>
-                  <input
-                    type="number"
-                    value={mysqlPort}
-                    onChange={(e) => setMysqlPort(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Default: 3306</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Redis</label>
-                  <input
-                    type="number"
-                    value={redisPort}
-                    onChange={(e) => setRedisPort(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Default: 6379</p>
+                <div className="p-3 rounded-xl border border-slate-200 bg-white">
+                  <span className="block text-xs font-bold text-slate-700">Panel (HTTPS)</span>
+                  <span className="block font-mono text-sm text-slate-900 mt-0.5">{ports?.panel || '—'}</span>
+                  <span className="block text-[10px] text-slate-400 mt-0.5">as the daemon was started</span>
                 </div>
               </div>
 

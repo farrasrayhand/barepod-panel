@@ -58,6 +58,9 @@ type source struct {
 	container string
 	acl       bool
 	panel     bool
+	// journal reads a unit's journal instead of a file. SSH writes no log the panel can read on every
+	// distribution, and its refusals are exactly what a lockout needs.
+	journal string
 }
 
 // Sources lists where the guard looks. A source that is not there is reported rather than
@@ -71,6 +74,7 @@ func Sources() []source {
 		// The panel's own door. It is not a file and not a container: the daemon already records
 		// every refused login, with the address it came from, and this reads those records.
 		{engine: "panel", panel: true},
+		{engine: "ssh", journal: "ssh"},
 	}
 }
 
@@ -95,6 +99,11 @@ type Guard struct {
 	lastSweep  time.Time
 	lastError  string
 	sourceNote map[string]string
+	// scopes say which door a ban earned on an engine closes: 0 is the whole host, a port is that
+	// door only. The panel and SSH close their own door, so tripping either never removes the way back
+	// in; an engine's ban is host-wide, because an address attacking a database has no business
+	// reaching anything else either.
+	scopes map[string]int
 	// redisURL is the panel's own Redis identity, needed because ACL LOG can only be read by
 	// someone authenticated. Empty means the cache's refusals cannot be read, and the status says so.
 	redisURL string
@@ -107,6 +116,20 @@ type Guard struct {
 // UseRedisACL tells the guard how to read the cache's refusals. It is a setter rather than a
 // constructor argument because a panel without a cache is a normal case and its guard should still
 // work, unchanged.
+// SetScopes tells the guard which doors an engine's bans close. Called once at start with the panel's
+// own port and SSH's.
+func (g *Guard) SetScopes(scopes map[string]int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.scopes = scopes
+}
+
+func (g *Guard) scopeFor(engine string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.scopes[engine]
+}
+
 func (g *Guard) UseRedisACL(url string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -269,6 +292,10 @@ func (g *Guard) Sweep(ctx context.Context) error {
 
 	var firstErr error
 	banned := 0
+	for i := range ban {
+		// The door this ban closes, decided by the engine that earned it.
+		ban[i].Port = g.scopeFor(ban[i].Engine)
+	}
 	for _, entry := range ban {
 		argv := BanArgv(entry)
 		if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
@@ -290,7 +317,8 @@ func (g *Guard) Sweep(ctx context.Context) error {
 		g.logf("guard: banned %s for %s (%s)", entry.IP, settings.BanTime, entry.Reason)
 	}
 	for _, ip := range drop {
-		argv := UnbanArgv(ip)
+		// The recorded scope, so a ban that closed one door is released from that door.
+		argv := UnbanBanArgv(existing[ip])
 		if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
 			// The kernel may have expired the element itself, which is a success.
 			if !strings.Contains(out, "No such file or directory") && !strings.Contains(out, "does not exist") {
@@ -367,6 +395,27 @@ func (g *Guard) readRedisACL(ctx context.Context) (string, error) {
 	return out, nil
 }
 
+// journalLog reads a unit's journal since the last look, the way the container source reads docker
+// logs: a journal has no byte offset, so the time of the previous read is the mark.
+func (g *Guard) journalLog(ctx context.Context, src source, now time.Time) (string, error) {
+	g.mu.Lock()
+	since := g.since["journal:"+src.journal]
+	g.mu.Unlock()
+	if since.IsZero() {
+		since = now.Add(-5 * time.Minute)
+	}
+	// -o cat keeps only the message, which is the part with the refusal in it.
+	out, err := g.exec(ctx, "journalctl", "-u", src.journal, "--since", since.UTC().Format("2006-01-02 15:04:05"),
+		"--no-pager", "-o", "cat")
+	if err != nil {
+		return "", errf("journalctl -u %s: %s (%v)", src.journal, strings.TrimSpace(out), err)
+	}
+	g.mu.Lock()
+	g.since["journal:"+src.journal] = now
+	g.mu.Unlock()
+	return out, nil
+}
+
 // panelRefusals reads the panel's own refused logins since the last one counted. The first read
 // takes the high-water mark instead of the history: replaying a long audit trail would ban addresses
 // that stopped long ago, which is the same reason the file sources start at the end of their file.
@@ -399,11 +448,29 @@ func (g *Guard) panelRefusals() ([]LoginRefusal, error) {
 // Unban releases one address at once — the button in the panel — and also forgets its
 // failures, so it is not banned again the moment the operator lets it back in.
 func (g *Guard) Unban(ctx context.Context, ip string) error {
-	argv := UnbanArgv(ip)
-	if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
-		if !strings.Contains(out, "No such file or directory") && !strings.Contains(out, "does not exist") {
-			return errf("release %s: %s (%v)", ip, strings.TrimSpace(out), err)
+	// Through the door it was kept out of: the same address can be banned host-wide by an engine and
+	// on one port by the panel, and releasing it has to release both.
+	held, err := g.store.Bans()
+	if err != nil {
+		return err
+	}
+	removed := false
+	for _, ban := range held {
+		if ban.IP != ip {
+			continue
 		}
+		removed = true
+		argv := UnbanBanArgv(ban)
+		if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
+			if !strings.Contains(out, "No such file or directory") && !strings.Contains(out, "does not exist") {
+				return errf("release %s: %s (%v)", ip, strings.TrimSpace(out), err)
+			}
+		}
+	}
+	if !removed {
+		// Nothing recorded: still try the host-wide set, which is where an old ban lived.
+		argv := UnbanArgv(ip)
+		_, _ = g.exec(ctx, argv[0], argv[1:]...)
 	}
 	g.forget(ip)
 	return g.store.DropBan(ip)
@@ -416,6 +483,14 @@ func (g *Guard) collect(ctx context.Context, now time.Time) []Failure {
 		switch {
 		case src.acl:
 			text, err := g.readRedisACL(ctx)
+			if err != nil {
+				g.noteSource(src.engine, err.Error())
+				continue
+			}
+			g.noteSource(src.engine, "")
+			out = append(out, stampReadTime(Scan(src.engine, text), now)...)
+		case src.journal != "":
+			text, err := g.journalLog(ctx, src, now)
 			if err != nil {
 				g.noteSource(src.engine, err.Error())
 				continue

@@ -234,7 +234,10 @@ func TestAdoptReappliesBansAcrossARestart(t *testing.T) {
 		}
 	}
 	// The set itself is prepared before anything is put into it.
-	if host.count("nft add set inet barepod banned") != 1 || host.count("nft add chain inet barepod input") != 1 {
+	// Exact forms: a prefix count would also match the scoped set, whose name begins the same way.
+	if host.count("nft add set inet barepod banned {") != 1 ||
+		host.count("nft add set inet barepod banned_port {") != 1 ||
+		host.count("nft add chain inet barepod input") != 1 {
 		t.Errorf("the panel's own table was not prepared: %v", host.calls)
 	}
 }
