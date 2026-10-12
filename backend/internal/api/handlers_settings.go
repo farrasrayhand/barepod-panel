@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -26,21 +27,62 @@ func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *
 		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"externalAddress": address})
+	trusted, err := s.store.TrustedAddresses()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"externalAddress": address,
+		// The addresses the lockout must never ban, and the reason it matters that they are visible:
+		// this list can be empty without anything saying so, which is exactly the foot-gun it exists to
+		// remove. The operator's own address is added by any successful sign-in.
+		"trustedAddresses": trusted,
+	})
 }
 
 // handleSavePanelSettings changes them. Administrative, and audited: an address published to clients
 // is a decision worth a name against it.
 func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	var body struct {
-		ExternalAddress *string `json:"externalAddress"`
+		ExternalAddress  *string   `json:"externalAddress"`
+		TrustedAddresses *[]string `json:"trustedAddresses"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "could not read the settings")
 		return
 	}
-	if body.ExternalAddress == nil {
+	if body.ExternalAddress == nil && body.TrustedAddresses == nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "nothing to change")
+		return
+	}
+	clean := []string{}
+	if body.TrustedAddresses != nil {
+		for _, entry := range *body.TrustedAddresses {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+			// One address or one network, nothing else: an entry that is neither would be counted as
+			// protection while protecting nothing.
+			if net.ParseIP(entry) == nil {
+				if _, _, err := net.ParseCIDR(entry); err != nil {
+					writeError(w, http.StatusBadRequest, "invalid_address",
+						"give an address or a network, one per entry: "+entry)
+					return
+				}
+			}
+			clean = append(clean, entry)
+		}
+		if err := s.store.SetTrustedAddresses(clean); err != nil {
+			writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+			return
+		}
+		_ = s.store.Audit(user.ID, "panel.trusted", "bruteforce", clientIP(r),
+			fmt.Sprintf("%d entry/entries: %s", len(clean), strings.Join(clean, ",")))
+	}
+	if body.ExternalAddress == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"trustedAddresses": clean})
 		return
 	}
 	address := strings.TrimSpace(*body.ExternalAddress)

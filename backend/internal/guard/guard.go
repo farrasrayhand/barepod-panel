@@ -16,6 +16,7 @@ package guard
 
 import (
 	"fmt"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -506,10 +507,16 @@ func ListArgv() []string {
 // operator names (`Trusted` is set from the panel's configuration).
 var Trusted []string
 
-// IsTrusted reports whether an address is on the never-ban list.
+// IsTrusted reports whether an address is on the never-ban list. An entry may be one address or a
+// network — an operator thinks in ranges ("the office") — and matching only exact strings would
+// silently protect nobody inside a range that was meant to be protected.
 func IsTrusted(ip string) bool {
+	parsed := net.ParseIP(ip)
 	for _, entry := range Trusted {
 		if entry == ip {
+			return true
+		}
+		if _, network, err := net.ParseCIDR(entry); err == nil && parsed != nil && network.Contains(parsed) {
 			return true
 		}
 	}

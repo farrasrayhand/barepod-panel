@@ -55,6 +55,11 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   // no public address to find, and a domain is knowledge only the operator has.
   const [externalAddress, setExternalAddress] = useState('');
   const [externalSaving, setExternalSaving] = useState(false);
+  // The addresses the lockout must never ban, one per line. Visible because a list that can silently be
+  // empty is the foot-gun it exists to remove — the operator's own address is added by any sign-in, but
+  // seeing that is the difference between trusting it and hoping.
+  const [trustedDraft, setTrustedDraft] = useState('');
+  const [trustedSaving, setTrustedSaving] = useState(false);
   // Measured, not written into the screen: the settings page used to state the engines' ports and the
   // panel's, and SSH was missing entirely.
   const [ports, setPorts] = useState<{
@@ -104,7 +109,10 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     void (async () => {
       try {
         const settings = await api.panelSettings();
-        if (alive) setExternalAddress(settings.externalAddress || '');
+        if (alive) {
+          setExternalAddress(settings.externalAddress || '');
+          setTrustedDraft((settings.trustedAddresses || []).join('\n'));
+        }
       } catch {
         // Left empty: the panel then names the address it is being used on.
       }
@@ -136,6 +144,29 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       onShowToast?.('Could not save', err instanceof Error ? err.message : 'unknown error', 'error');
     } finally {
       setExternalSaving(false);
+    }
+  };
+
+  const saveTrusted = async () => {
+    setTrustedSaving(true);
+    try {
+      const entries = trustedDraft
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line !== '');
+      const saved = await api.savePanelSettings({ trustedAddresses: entries });
+      setTrustedDraft((saved.trustedAddresses || []).join('\n'));
+      onShowToast?.(
+        'Never-ban list saved',
+        entries.length === 0
+          ? 'Empty: nothing is exempt. Your own address is added again the next time you sign in.'
+          : `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} will never be banned.`,
+        entries.length === 0 ? 'info' : 'success',
+      );
+    } catch (err) {
+      onShowToast?.('Could not save', err instanceof Error ? err.message : 'unknown error', 'error');
+    } finally {
+      setTrustedSaving(false);
     }
   };
 
@@ -774,6 +805,44 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   panel already enforces in the host's firewall. It lives here, in the Security tab,
                   and not above the tab container — mounted there it appeared in every tab. */}
               <GuardCard onShowToast={onShowToast} canEdit={isAdmin} />
+
+              {/* Real, and the reason it is here: the lockout closes the door it earned — the panel's
+                  port for a panel ban, SSH's for an SSH ban — and this is the list of places it must
+                  never close at all. The operator's own address lands here by signing in. */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-800">Never ban these addresses</span>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    One address or network per line, e.g. <code>172.19.1.100</code> or <code>10.8.0.0/24</code>.
+                    Where you sign in from is added here automatically, which is what keeps a lockout from
+                    taking away the way back in. Leaving it empty exempts nobody.
+                  </p>
+                </label>
+                <textarea
+                  rows={3}
+                  value={trustedDraft}
+                  onChange={(e) => setTrustedDraft(e.target.value)}
+                  disabled={!isAdmin}
+                  placeholder={'172.19.1.100\n10.8.0.0/24'}
+                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500 disabled:opacity-60"
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-slate-400">
+                    {trustedDraft.trim() === '' ? 'Nothing is exempt right now.' : 'These are exempt from every ban.'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void saveTrusted()}
+                    disabled={!isAdmin || trustedSaving}
+                    className="px-3.5 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors"
+                  >
+                    {trustedSaving ? 'Saving…' : 'Save list'}
+                  </button>
+                </div>
+                {!isAdmin && (
+                  <p className="text-[11px] text-slate-500">Only an administrator can change this list.</p>
+                )}
+              </div>
 
               {/* Everything from here to the end of this tab is the prototype's, and none of it is
                   applied by the daemon. Saying so once, above the group, is what keeps a screen from

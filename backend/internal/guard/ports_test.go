@@ -71,3 +71,21 @@ func TestSSHRefusalsAreReadFromTheLineThatCounts(t *testing.T) {
 		t.Errorf("the second refusal lost its address: %+v", got[1])
 	}
 }
+
+// The lockout must never ban the places an operator administers from, and an operator thinks in
+// ranges — the office, a VPN pool — not in single addresses. An entry that only matched exactly would
+// silently protect nobody inside the range it was meant to cover.
+func TestATrustedEntryMayBeARange(t *testing.T) {
+	was := Trusted
+	Trusted = []string{"172.19.1.100", "10.8.0.0/24"}
+	defer func() { Trusted = was }()
+	if !IsTrusted("172.19.1.100") {
+		t.Error("an exact entry stopped being trusted")
+	}
+	if !IsTrusted("10.8.0.42") {
+		t.Error("an address inside a trusted range was not trusted")
+	}
+	if IsTrusted("10.9.0.42") {
+		t.Error("an address outside every entry was trusted")
+	}
+}

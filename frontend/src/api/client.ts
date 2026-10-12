@@ -487,10 +487,14 @@ export const api = {
       body: JSON.stringify({ port, remove }),
     }),
 
-  panelSettings: () => request<{ externalAddress: string }>('/system/settings'),
+  panelSettings: () =>
+    request<{ externalAddress: string; trustedAddresses: string[] }>('/system/settings'),
 
-  savePanelSettings: (settings: { externalAddress: string }) =>
-    request<{ externalAddress: string }>('/system/settings', { method: 'PATCH', body: JSON.stringify(settings) }),
+  savePanelSettings: (settings: { externalAddress?: string; trustedAddresses?: string[] }) =>
+    request<{ externalAddress?: string; trustedAddresses?: string[] }>('/system/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(settings),
+    }),
 
   login: async (username: string, password: string) => {
     const session = await request<{ user: PanelUser; csrfToken: string }>('/auth/login', {
