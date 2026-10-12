@@ -1079,6 +1079,8 @@ export interface RuntimeStatus {
   supported: string[];
   /** The newest version the host can install. */
   latest?: string;
+  /** True when that newest version is already installed (a Rust channel is resolved by the daemon). */
+  upToDate: boolean;
   /** Names a version the number alone does not describe: for Node, "current" or "LTS Jod". */
   labels?: Record<string, string>;
   /** True when the version matters per site (interpreted), false for a build toolchain. */

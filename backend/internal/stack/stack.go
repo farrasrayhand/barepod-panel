@@ -630,6 +630,7 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 			// Node's versions mean nothing without their line: which is Current, which LTS.
 			status.Labels = nodeOfferingCached().Labels
 		}
+		status.UpToDate = upToDate(ctx, h, r.name, status.Latest, status.Installed)
 		out.Runtimes[r.name] = status
 	}
 	return out
@@ -664,6 +665,9 @@ type RuntimeStatus struct {
 	Supported []string `json:"supported"`
 	// Latest is the newest version this host can install, or empty when it cannot say.
 	Latest string `json:"latest,omitempty"`
+	// UpToDate says the newest installable version is already here, resolved by the daemon
+	// (a Rust channel is a moving name, so the browser cannot compare it).
+	UpToDate bool `json:"upToDate"`
 	// Labels names a version when the number alone does not: for Node, "current" or the
 	// LTS codename.
 	Labels map[string]string `json:"labels,omitempty"`
@@ -1033,6 +1037,37 @@ func goInstalled(ctx context.Context, h *host.Host) []string {
 		}
 	}
 	return sortedDescending(set)
+}
+
+// UpToDate says the newest version the host can install is already here. It is answered
+// by the daemon rather than by comparing strings in the browser, because a Rust channel is
+// a moving name: "stable" is 1.99.0 today and it has to be asked what it points at before
+// calling it behind.
+func upToDate(ctx context.Context, h *host.Host, name, latest string, installed []string) bool {
+	if strings.TrimSpace(latest) == "" {
+		return false
+	}
+	for _, version := range installed {
+		if VersionMatches(version, latest) || VersionMatches(latest, version) {
+			return true
+		}
+	}
+	if name != "rust" {
+		return false
+	}
+	for _, toolchain := range installed {
+		if runtimesVersionPattern.MatchString(toolchain) {
+			continue // already a version, and it did not match
+		}
+		out, err := h.Run(ctx, []string{"rustc", "+" + toolchain, "--version"})
+		if err != nil {
+			continue
+		}
+		if m := regexp.MustCompile(`(\d+\.\d+\.\d+)`).FindStringSubmatch(out); m != nil && VersionMatches(m[1], latest) {
+			return true
+		}
+	}
+	return false
 }
 
 // rustInstalled lists what rustup actually has installed. It names toolchains with a

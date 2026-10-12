@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"net/http"
 	"strings"
 
@@ -33,15 +32,9 @@ func (s *Server) handleStackUninstall(w http.ResponseWriter, r *http.Request, us
 			req.Component+" "+req.Version+" is used by "+strings.Join(inUse, ", ")+" — move them off it first")
 		return
 	}
-	// The last copy of a runtime is not removable: a host with no PHP, no Rust or no Node
-	// cannot run the sites that need one, and — as happened here — removing rustup's
-	// default toolchain leaves `rustc` failing for everything.
-	installed := s.installedVersions(req.Component)
-	if len(installed) == 1 && stack.VersionMatches(installed[0], req.Version) {
-		writeError(w, http.StatusConflict, "last_version",
-			req.Component+" "+req.Version+" is the only "+req.Component+" on this host — install another version first if you mean to move off it")
-		return
-	}
+	// The only condition is that nothing uses it. Removing the last copy of a runtime is
+	// allowed — an operator who does not want Rust should be able to say so — but it is a
+	// removal the screen warns about first, and the log shows what rustup or apt says.
 	job, err := s.installs.StartRemoval(req.Component, req.Version)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
@@ -76,17 +69,6 @@ func (s *Server) handleSetStackDefault(w http.ResponseWriter, r *http.Request, u
 	}
 	_ = s.store.Audit(user.ID, "stack.default", req.Component+" "+req.Version, clientIP(r), "")
 	writeJSON(w, http.StatusOK, stack.Detect(r.Context(), s.store, s.host, s.lookPath))
-}
-
-// installedVersions is what the host says it has for a component, read the same way the
-// Stack screen reads it.
-func (s *Server) installedVersions(component string) []string {
-	status := stack.Detect(context.Background(), s.store, s.host, s.lookPath)
-	runtime, ok := status.Runtimes[component]
-	if !ok {
-		return nil
-	}
-	return runtime.Installed
 }
 
 // stackUsage names everything that would break if a version went away: the websites whose

@@ -154,7 +154,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       onShowToast?.('Simulation', 'The daemon is not reachable, so nothing can be removed.', 'info');
       return;
     }
-    if (!window.confirm(`Remove ${component} ${version} from this host? Versions a site or database uses are refused.`)) {
+    if (!window.confirm(`Remove ${component} ${version} from this host? A version a site or database uses is refused.`)) {
       return;
     }
     setBusy(true);
@@ -347,7 +347,9 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
             const offerable = available.length > 0 ? available : component.versions ?? [];
             const chosen = component.name === 'php' ? status?.php.default : status?.node.default;
             const latest = status_?.latest ?? '';
-            const hasLatest = latest !== '' && installed.some((v) => v === latest || v.startsWith(latest + '.'));
+            // Kept current is the daemon's answer, not a string comparison here: rustc
+            // reports what "stable" points at, so a channel counts as the version it is.
+            const hasLatest = status_?.upToDate ?? false;
             // The screen draws the short list first and keeps the rest — the whole repository
             // history — behind a click. PHP is the exception: every version is a real choice
             // per site, so its list is shown whole.
@@ -428,33 +430,41 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 {(installed.length > 0 || chosen) && (
                   <div className="mt-2 flex items-center gap-2 flex-wrap">
                     <span className="text-[11px] text-slate-500">Installed:</span>
-                    {installed.map((version) => (
-                      <span
-                        key={version}
-                        className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200"
-                      >
-                        <span className="font-mono">{version}</span>
-                        {chosen !== version && (component.name === 'php' || component.name === 'node') && (
-                          <button
-                            onClick={() => void setDefault(component.name, version)}
-                            disabled={busy || live !== true}
-                            title={`Use ${version} for new projects`}
-                            className="px-1 rounded hover:bg-emerald-100 disabled:opacity-40 text-[10px] font-bold"
-                          >
-                            default
-                          </button>
-                        )}
-                        <button
-                          onClick={() => void uninstall(component.name, version)}
-                          disabled={busy || live !== true}
-                          title={`Uninstall ${component.label} ${version} — refused while a site or database uses it, and for the last one`}
-                          className="p-0.5 rounded hover:bg-emerald-100 disabled:opacity-40"
+                    {installed.map((version) => {
+                      const isDefault = chosen === version;
+                      const canChoose = component.name === 'php' || component.name === 'node';
+                      return (
+                        <span
+                          key={version}
+                          className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200"
                         >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                    {chosen ? <span className="text-[11px] text-slate-500">chosen: <span className="font-mono">{chosen}</span></span> : null}
+                          <span className="font-mono">{version}</span>
+                          {isDefault ? (
+                            <span className="px-1.5 rounded bg-emerald-600 text-white text-[10px] font-bold">default</span>
+                          ) : canChoose ? (
+                            <button
+                              onClick={() => void setDefault(component.name, version)}
+                              disabled={busy || live !== true}
+                              title={`Use ${version} for new projects`}
+                              className="px-1 rounded hover:bg-emerald-100 disabled:opacity-40 text-[10px] font-semibold underline"
+                            >
+                              make default
+                            </button>
+                          ) : null}
+                          <button
+                            onClick={() => void uninstall(component.name, version)}
+                            disabled={busy || live !== true}
+                            title={`Uninstall ${component.label} ${version} — refused while a site or database uses it`}
+                            className="p-0.5 rounded hover:bg-emerald-100 disabled:opacity-40"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                    {chosen && !installed.includes(chosen) ? (
+                      <span className="text-[11px] text-slate-500">default: <span className="font-mono">{chosen}</span></span>
+                    ) : null}
                   </div>
                 )}
               </div>
