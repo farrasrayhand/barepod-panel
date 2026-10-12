@@ -164,6 +164,49 @@ if [[ -f "$MY_CONF" ]]; then
   note "MariaDB will log to /var/log/mysql/error.log (on its next restart)"
 fi
 
+# ---------------------------------------------------------------- an authenticated cache
+# A passwordless Redis is not "just a cache": every process on the host can reach loopback —
+# including a tenant's own application — and Redis's default user would then let any of them read
+# every other tenant's keys, bypassing the prefix scoping the panel hands out. It is also the
+# classic remote-takeover path (write authorized_keys or a cron file through CONFIG SET dir +
+# SAVE) the moment anything can route to it.
+#
+# The order below is the whole point: the panel needs an identity of its own *before* the default
+# user can be closed, or the panel loses the ability to create the per-cache users it manages.
+# The identity is handed over through a systemd drop-in, which is inert until the panel's unit
+# exists, so this can run before or after the panel is installed.
+if have redis-cli; then
+  REDIS_ADMIN_FILE=/etc/barepod/redis-admin.url
+  if [[ -f "$REDIS_ADMIN_FILE" ]] && redis-cli -u "$(cat "$REDIS_ADMIN_FILE")" --no-auth-warning ping >/dev/null 2>&1; then
+    note "Redis already has an admin identity for the panel"
+  elif redis-cli -h 127.0.0.1 ping >/dev/null 2>&1; then
+    REDIS_ADMIN_PASS="$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 28)"
+    REDIS_URL="redis://barepod_admin:${REDIS_ADMIN_PASS}@127.0.0.1:6379"
+    if redis-cli -h 127.0.0.1 --no-auth-warning ACL SETUSER barepod_admin reset on ">${REDIS_ADMIN_PASS}" '~*' '+@all' >/dev/null 2>&1; then
+      mkdir -p /etc/barepod && chmod 0700 /etc/barepod
+      printf '%s\n' "$REDIS_URL" > "$REDIS_ADMIN_FILE"
+      chmod 0600 "$REDIS_ADMIN_FILE"
+      install -d -m 0755 /etc/systemd/system/barepod.service.d
+      printf '[Service]\nEnvironment=BAREPOD_REDIS_URL=%s\n' "$REDIS_URL" \
+        > /etc/systemd/system/barepod.service.d/redis-admin.conf
+      note "the panel now has its own Redis identity, stored in $REDIS_ADMIN_FILE (root only)"
+      if redis-cli -u "$REDIS_URL" --no-auth-warning ACL SETUSER default off >/dev/null 2>&1; then
+        if ! grep -qE '^[[:space:]]*user[[:space:]]+default[[:space:]]+off' /etc/redis/redis.conf 2>/dev/null; then
+          printf '\n# Added by BarePod: an unauthenticated Redis is a remote-takeover path. Every client\n# authenticates as its own user; the panel keeps its identity in /etc/barepod/redis-admin.url.\nuser default off\n' >> /etc/redis/redis.conf
+        fi
+        note "Redis no longer accepts unauthenticated connections (default user off, now and after a restart)"
+      else
+        note "the passwordless default user could NOT be closed — close it by hand once the panel restarts"
+      fi
+      note "run: systemctl daemon-reload && systemctl restart barepod   (to hand the panel its identity)"
+    else
+      note "the Redis admin identity could not be created"
+    fi
+  else
+    note "Redis did not answer without credentials and no admin identity is stored — left untouched rather than half-configured"
+  fi
+fi
+
 # ---------------------------------------------------------------- brute-force lockout
 # A database port that is opened to the outside (per-database "public" exposure) needs a
 # lockout before it is opened, not after: fail2ban watches the engines' own logs and bans
