@@ -1440,31 +1440,15 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           {activeTab === 'databases' && (
             <div className="space-y-6 max-w-2xl">
               <div>
-                <h2 className="text-base font-bold text-slate-900">Engine & access ports</h2>
+                <h2 className="text-base font-bold text-slate-900">Panel &amp; SSH ports</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  What this host is listening on, measured when this screen opens. Nothing here is
-                  written into the panel, so an engine moved to another port shows where it really is.
+                  The two ways in, and the two you can move from here. The engines' ports are not here
+                  because the panel cannot move them: the engines are read on the Ports page instead,
+                  measured, so an engine on another port shows where it really is.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {[
-                  { key: 'postgresql', label: 'PostgreSQL' },
-                  { key: 'mariadb', label: 'MariaDB / MySQL' },
-                  { key: 'redis', label: 'Redis' },
-                  { key: 'mongodb', label: 'MongoDB' },
-                ].map((engine) => {
-                  const port = ports?.engines?.[engine.key];
-                  return (
-                    <div key={engine.key} className="p-3 rounded-xl border border-slate-200 bg-white">
-                      <span className="block text-xs font-bold text-slate-700">{engine.label}</span>
-                      <span className="block font-mono text-sm text-slate-900 mt-0.5">{port ?? '—'}</span>
-                      <span className="block text-[10px] text-slate-400 mt-0.5">
-                        {port ? 'listening' : 'not listening'}
-                      </span>
-                    </div>
-                  );
-                })}
                 <div className="p-3 rounded-xl border border-slate-200 bg-white space-y-1.5">
                   <span className="block text-xs font-bold text-slate-700">SSH</span>
                   <span className="block font-mono text-sm text-slate-900">

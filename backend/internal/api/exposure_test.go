@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,5 +198,29 @@ func TestExposureRoundTripsThroughTheStore(t *testing.T) {
 	}
 	if stored.Exposure != store.ExposurePrivate || stored.ExposedAt != "" {
 		t.Errorf("closing did not clear the opening: %+v", stored)
+	}
+}
+
+// A host engine only accepts connections from other interfaces if its own configuration says so, and
+// that line is often present but commented out — which is the state Debian ships MariaDB in. The rule
+// has to handle both, and adding a second line for a setting that is already there would leave the
+// file saying two different things.
+func TestSettingAConfigValue(t *testing.T) {
+	commented := "[mysqld]\n#bind-address            = 127.0.0.1\nport = 3306\n"
+	out, changed := setConfigValue(commented, "bind-address", "0.0.0.0")
+	if !changed || !strings.Contains(out, "bind-address = 0.0.0.0") || strings.Contains(out, "#bind-address") {
+		t.Errorf("a commented setting was not replaced: %s", out)
+	}
+	if !strings.Contains(out, "port = 3306") {
+		t.Errorf("the rest of the file was damaged: %s", out)
+	}
+	plain := "[mysqld]\nbind-address = 0.0.0.0\n"
+	if out, changed := setConfigValue(plain, "bind-address", "0.0.0.0"); changed || out != plain {
+		t.Errorf("a setting that was already right was rewritten: %q (changed=%v)", out, changed)
+	}
+	absent := "[mysqld]\nport = 3306\n"
+	out, changed = setConfigValue(absent, "bind-address", "0.0.0.0")
+	if !changed || !strings.Contains(out, "bind-address = 0.0.0.0") {
+		t.Errorf("a missing setting was not added: %s", out)
 	}
 }

@@ -301,9 +301,74 @@ func (s *Server) exposeMariaDB(ctx context.Context, record *store.Database, publ
 	if err != nil {
 		return "", err
 	}
-	return "an account that may connect from any address, granted on this database only, now exists; " + note +
-		"; MariaDB's own bind-address decides whether it can be reached at all and the panel does not change it — " +
-		"run `systemctl restart mariadb` after setting `bind-address = 0.0.0.0` in its configuration to make it reachable", nil
+	// MariaDB refuses connections from anywhere but loopback until its bind-address says otherwise, and
+	// that setting only takes effect on a restart. Leaving it to the operator meant "public" that did
+	// nothing until somebody remembered a command — so the panel writes it and restarts, and puts the
+	// file back if MariaDB does not come up again.
+	bindNote, err := s.listenEverywhere(ctx, mariaDBConfig, "bind-address")
+	if err != nil {
+		return "", err
+	}
+	return "an account that may connect from any address, granted on this database only, now exists; " + note + "; " + bindNote, nil
+}
+
+// mariaDBConfig is where Debian and Ubuntu keep MariaDB's server settings.
+const mariaDBConfig = "/etc/mysql/mariadb.conf.d/50-server.cnf"
+
+// listenEverywhere makes a host engine accept connections from other interfaces, and restarts it,
+// because neither PostgreSQL's listen_addresses nor MariaDB's bind-address takes effect without one.
+// The file is put back if the engine does not answer afterwards.
+func (s *Server) listenEverywhere(ctx context.Context, path, key string) (string, error) {
+	original, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("%s could not be read, so the engine was not opened: %w", path, err)
+	}
+	updated, changed := setConfigValue(string(original), key, "0.0.0.0")
+	if !changed {
+		return "it already accepts connections from other interfaces", nil
+	}
+	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+		return "", err
+	}
+	if out, err := s.host.Run(ctx, []string{"systemctl", "restart", "mariadb"}); err != nil {
+		_ = os.WriteFile(path, original, 0o644)
+		_, _ = s.host.Run(ctx, []string{"systemctl", "restart", "mariadb"})
+		return "", fmt.Errorf("MariaDB did not restart, so %s was put back: %s (%v)", path, strings.TrimSpace(out), err)
+	}
+	return "it now accepts connections from other interfaces (MariaDB was restarted to apply it)", nil
+}
+
+// setConfigValue sets one setting, replacing a commented or existing line, and says whether it changed
+// anything. Kept pure so the editing rule can be tested without a host.
+func setConfigValue(config, key, value string) (string, bool) {
+	lines := strings.Split(strings.TrimRight(config, "\n"), "\n")
+	changed := false
+	found := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(strings.TrimLeft(line, "#"))
+		if !strings.HasPrefix(trimmed, key) {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(trimmed, key))
+		if rest != "" && !strings.HasPrefix(rest, "=") {
+			continue
+		}
+		if rest == "= "+value || rest == "="+value {
+			found = true
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				lines[i] = key + " = " + value
+				changed = true
+			}
+			continue
+		}
+		lines[i] = key + " = " + value
+		changed = true
+		found = true
+	}
+	if found {
+		return strings.Join(lines, "\n") + "\n", changed
+	}
+	return strings.Join(append(lines, key+" = "+value), "\n") + "\n", true
 }
 
 // openPort and closePort are the kernel half: the engine's port leaves or enters the set the
