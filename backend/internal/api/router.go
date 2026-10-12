@@ -239,8 +239,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/databases/{id}/export", databases(s.handleExportDatabase(store.KindDatabase)))
 	// Exposure: opening a database's port to the outside, which the daemon refuses while it
 	// cannot keep brute-force out, and the engine's own log, which explains what happened.
-	mux.HandleFunc("POST /api/v1/databases/{id}/exposure", databases(s.handleSetExposure))
-	mux.HandleFunc("GET /api/v1/databases/{id}/log", databases(s.handleDatabaseLog))
+	// Both are registered for caches as well: a cache is the same record with a different
+	// engine, and the screen that shows it asks the same questions.
+	mux.HandleFunc("POST /api/v1/databases/{id}/exposure", databases(s.handleSetExposure(store.KindDatabase)))
+	mux.HandleFunc("GET /api/v1/databases/{id}/log", databases(s.handleDatabaseLog(store.KindDatabase)))
 	mux.HandleFunc("POST /api/v1/databases/{id}/restore", databases(s.handleRestoreDatabase(store.KindDatabase)))
 	mux.HandleFunc("POST /api/v1/databases/{id}/purge", databases(s.handlePurgeDatabase(store.KindDatabase)))
 	// Data browsing, served by the daemon itself: no extra port, no GUI process —
@@ -280,6 +282,11 @@ func New(d Deps) http.Handler {
 	// The cache browser is ours: keys are read with the pure-Go client, so no
 	// redis-cli (and no redis-commander) has to exist anywhere.
 	mux.HandleFunc("GET /api/v1/caches/{id}/key", databases(s.handleRedisKey(store.KindCache)))
+	// The same two questions the database family answers, for a cache: whether its port is
+	// open, and what the engine said. Without these a cache's Logs tab answered "No such
+	// record" for a record the panel itself was displaying.
+	mux.HandleFunc("POST /api/v1/caches/{id}/exposure", databases(s.handleSetExposure(store.KindCache)))
+	mux.HandleFunc("GET /api/v1/caches/{id}/log", databases(s.handleDatabaseLog(store.KindCache)))
 
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)

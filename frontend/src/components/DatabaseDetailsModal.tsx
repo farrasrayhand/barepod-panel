@@ -86,7 +86,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     setExporting(true);
     setErrorMsg('');
     try {
-      const blob = await api.databaseExport(database.id);
+      const blob = await family.export(database.id);
       saveBlob(blob, `${database.name}.${database.type === 'sqlite' ? 'sqlite' : 'sql'}`);
     } catch (err) {
       setErrorMsg(failureMessage(err, 'The dump could not be produced.'));
@@ -100,13 +100,11 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
 
   // The engine's own log, and the exposure switch. Both are the daemon's answer rather than a
   // local guess: opening a port is refused while the lockout cannot keep brute-force out.
-  const [logs, setLogs] = useState<{
-    engine: string;
-    source: string;
-    note: string;
-    lines: string[];
-    audit: { id?: number; at?: string; ts?: string; action: string; target: string; detail: string }[];
-  } | null>(null);
+  // The daemon's answer is the only definition of this shape: deriving it from the client means
+  // the view cannot drift from what the endpoint actually sends.
+  type DatabaseLog = Awaited<ReturnType<typeof api.databases.log>>;
+
+  const [logs, setLogs] = useState<DatabaseLog | null>(null);
   const [logsLoading, setLogsLoading] = useState(false);
   const [exposure, setExposure] = useState<'public' | 'private'>(
     database?.exposure === 'public' ? 'public' : 'private',
@@ -135,7 +133,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     if (!database || logsLoading) return;
     setLogsLoading(true);
     try {
-      setLogs(await api.databaseLog(database.id));
+      setLogs(await family.log(database.id));
     } catch (err) {
       setLogs({ engine: database.type, source: '', note: failureMessage(err, 'the log could not be read'), lines: [], audit: [] });
     } finally {
@@ -148,7 +146,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     setExposureBusy(true);
     setErrorMsg('');
     try {
-      const result = await api.setDatabaseExposure(database.id, next);
+      const result = await family.setExposure(database.id, next);
       setExposure(next);
       setExposureNote(result.note);
       if (onUpdateDatabase) {
@@ -281,6 +279,11 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   }, [isUnlocked, autoLockSeconds]);
 
   if (!isOpen || !database) return null;
+
+  // A cache is the same record with a different engine and lives under its own family of
+  // endpoints: asking /databases for a cache answers "No such record", which is what the Logs
+  // tab used to show for a record the panel was displaying.
+  const family = database.type === 'redis' ? api.caches : api.databases;
 
   // The in-panel tab stays only where no manager can open the record. PostgreSQL, MySQL and
   // MariaDB open pgweb / phpMyAdmin (host binaries, so loopback is reachable); SQLite (a file
@@ -746,7 +749,16 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                         )}
                       </div>
                       <p className="text-xs text-slate-600 leading-relaxed">
-                        Port <strong>{port}</strong> answers on loopback (<code>127.0.0.1</code>) only. External packets are dropped by Linux kernel <code>nftables</code> firewall rules.
+                        {exposureNote ? (
+                          exposureNote
+                        ) : (
+                          <>
+                            Nothing outside this host can reach port <strong>{port}</strong> as it stands.
+                            The engine may be bound to <code>127.0.0.1</code> by its own configuration, or the
+                            panel's firewall may be dropping every other interface — the panel does not guess
+                            which: use the switch and it reports exactly what it did here.
+                          </>
+                        )}
                       </p>
                       <ul className="text-[11px] text-slate-500 mt-2 space-y-1 list-disc list-inside">
                         <li>Immune to external port scans and automated internet attacks</li>
@@ -766,7 +778,7 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                     {/* Option 2: Public */}
                     <div
                       onClick={() => {
-                        if (exposure !== 'public' && !exposureBusy && guard?.enforcing !== false) void changeExposure('public');
+                        if (exposure !== 'public' && !exposureBusy && guard?.enforcing !== false && database.type !== 'redis') void changeExposure('public');
                       }}
                       className={`p-4 rounded-xl border-2 transition-all relative ${
                         guard?.enforcing === false
@@ -788,19 +800,38 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                         )}
                       </div>
                       <p className="text-xs text-slate-600 leading-relaxed">
-                        Port <strong>{port}</strong> is opened to external network interfaces. Engine authorization (e.g. <code>pg_hba.conf</code> or MariaDB grant) is configured for remote client connections.
+                        {database.type === 'redis' ? (
+                          <>
+                            Not offered for a cache: an installed Redis is bound to <code>127.0.0.1</code> by
+                            its own configuration, which the panel does not rewrite — so this switch could
+                            only claim to have opened a port nothing listens on. A cache the panel provisions
+                            itself runs in its own container, where the firewall set is the control.
+                          </>
+                        ) : (
+                          <>
+                            Port <strong>{port}</strong> is opened to the host's other interfaces. Where the
+                            engine has its own authorisation — PostgreSQL's <code>pg_hba</code>, a MariaDB
+                            account that may connect from anywhere — the panel changes that with it; for a
+                            containerised engine the panel's firewall is the whole control, and the note above
+                            says which was done.
+                          </>
+                        )}
                       </p>
                       <ul className="text-[11px] text-slate-500 mt-2 space-y-1 list-disc list-inside">
-                        <li>Reachable directly via <code>{effectiveHost}:{port}</code></li>
-                        <li>Protected by active kernel-level brute-force watchdog</li>
+                        <li>Reachable from machines that can route to this host</li>
+                        <li>Protected by the kernel-level brute-force watchdog</li>
                       </ul>
                       {exposure !== 'public' && (
                         <button
                           type="button"
-                          disabled={exposureBusy || guard?.enforcing === false}
+                          disabled={exposureBusy || guard?.enforcing === false || database.type === 'redis'}
                           className="mt-3 w-full py-1.5 px-3 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 transition-colors cursor-pointer"
                         >
-                          {exposureBusy ? 'Updating…' : 'Switch to Public'}
+                          {database.type === 'redis'
+                            ? 'Not offered for a cache'
+                            : exposureBusy
+                              ? 'Updating…'
+                              : 'Switch to Public'}
                         </button>
                       )}
                     </div>

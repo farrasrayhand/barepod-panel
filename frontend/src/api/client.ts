@@ -314,6 +314,39 @@ const databaseFamily = (base: string) => ({
 
   connectionString: (id: string) => request<{ string: string; engine: string }>(`${base}/${id}/connection-string`),
 
+  /**
+   * The engine's own log for this record, plus what the panel did with it — the two halves of
+   * "why did this happen". A family method, not a fixed path: a cache lives under /caches and a
+   * database under /databases, and either path answers "No such record" for the other's kind.
+   */
+  log: (id: string) =>
+    request<{
+      engine: string;
+      source: string;
+      note: string;
+      lines: string[];
+      audit: { id?: number; at?: string; ts?: string; action: string; target?: string; detail?: string }[];
+    }>(`${base}/${id}/log`),
+
+  /**
+   * Open or close this record's port. The daemon refuses "public" with 409 while the
+   * brute-force lockout is not enforcing, and answers with the note describing what it did.
+   */
+  setExposure: (id: string, exposure: 'public' | 'private') =>
+    request<{ exposure: string; note: string; database: unknown }>(`${base}/${id}/exposure`, {
+      method: 'POST',
+      body: JSON.stringify({ exposure }),
+    }),
+
+  /**
+   * The dump, as a blob.
+   *
+   * Fetched rather than navigated to on purpose: a download started by an `<a download>` is
+   * handled by the browser's own network stack, which refuses to run at all on an origin whose
+   * certificate the user clicked past — "Failed - Network error" while the page works.
+   */
+  export: (id: string) => request<Blob>(`${base}/${id}/export`, { raw: true }),
+
   tables: (id: string) =>
     request<{
       engine: string;
@@ -393,41 +426,6 @@ export const api = {
   /** Let one address back in. Audited by the daemon, against the address. */
   unban: (ip: string) =>
     request<GuardStatus>('/system/guard/unban', { method: 'POST', body: JSON.stringify({ ip }) }),
-
-  /**
-   * A database's dump, as a blob.
-   *
-   * Fetched rather than navigated to on purpose. A download started by an `<a download>` or a
-   * redirect is handled by the browser's own network stack, and that stack refuses to run at
-   * all on an origin whose certificate the user had to click past — the download fails
-   * ("Failed - Network error") while the page itself works, which is exactly what happened on
-   * this panel's self-signed certificate. This request goes through the page's own stack, so
-   * it works wherever the page does.
-   */
-  databaseExport: (id: string) => request<Blob>(`/databases/${id}/export`, { raw: true }),
-
-  /**
-   * Open or close one database's port. The daemon refuses "public" while the brute-force
-   * lockout is not enforcing, and answers 409 with the reason.
-   */
-  setDatabaseExposure: (id: string, exposure: 'public' | 'private') =>
-    request<{ exposure: string; note: string; database: unknown }>(`/databases/${id}/exposure`, {
-      method: 'POST',
-      body: JSON.stringify({ exposure }),
-    }),
-
-  /**
-   * The engine's own log for one database, plus what the panel did with the record: the two
-   * halves of "why did this happen".
-   */
-  databaseLog: (id: string) =>
-    request<{
-      engine: string;
-      source: string;
-      note: string;
-      lines: string[];
-      audit: { id?: number; at?: string; ts?: string; action: string; target: string; detail: string }[];
-    }>(`/databases/${id}/log`),
 
   login: async (username: string, password: string) => {
     const session = await request<{ user: PanelUser; csrfToken: string }>('/auth/login', {

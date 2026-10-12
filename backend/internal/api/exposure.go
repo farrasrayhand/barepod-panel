@@ -27,72 +27,76 @@ import (
 //     listener is engine-wide, so the firewall is the whole control there and the record says
 //     so rather than implying a per-database boundary that does not exist.
 
-// handleSetExposure opens or closes one database's port.
-func (s *Server) handleSetExposure(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
-	record, ok := s.findDatabase(w, r, user, store.KindDatabase)
-	if !ok {
-		return
-	}
-	if refuseDetected(w, record) {
-		return
-	}
-	if record.FileBased || record.Port == 0 {
-		writeError(w, http.StatusConflict, "not_applicable",
-			"this database is a file, so it has no port to open or close")
-		return
-	}
-	var body struct {
-		Exposure string `json:"exposure"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_body", "could not read the exposure")
-		return
-	}
-	public := false
-	switch strings.TrimSpace(body.Exposure) {
-	case store.ExposurePublic:
-		public = true
-	case store.ExposurePrivate, "":
-		public = false
-	default:
-		writeError(w, http.StatusBadRequest, "invalid_exposure", `exposure must be "public" or "private"`)
-		return
-	}
-
-	if public {
-		if s.guard == nil {
-			writeError(w, http.StatusConflict, "guard_required",
-				"a database port cannot be opened while the brute-force lockout is not running")
+// handleSetExposure opens or closes one database's port. It is registered in both families —
+// a cache is the same record with a different engine, and asking for a cache through the
+// databases family would answer "No such record" for a record that plainly exists.
+func (s *Server) handleSetExposure(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
 			return
 		}
-		if enforcing, reason := s.guard.Enforcing(r.Context()); !enforcing {
-			writeError(w, http.StatusConflict, "guard_required",
-				"a database port cannot be opened while the brute-force lockout is not enforcing: "+reason)
+		if refuseDetected(w, record) {
 			return
 		}
-	}
+		if record.FileBased || record.Port == 0 {
+			writeError(w, http.StatusConflict, "not_applicable",
+				"this database is a file, so it has no port to open or close")
+			return
+		}
+		var body struct {
+			Exposure string `json:"exposure"`
+		}
+		if err := decodeJSON(r, &body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_body", "could not read the exposure")
+			return
+		}
+		public := false
+		switch strings.TrimSpace(body.Exposure) {
+		case store.ExposurePublic:
+			public = true
+		case store.ExposurePrivate, "":
+			public = false
+		default:
+			writeError(w, http.StatusBadRequest, "invalid_exposure", `exposure must be "public" or "private"`)
+			return
+		}
 
-	note, err := s.applyExposure(r.Context(), record, public)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "exposure_failed", err.Error())
-		return
-	}
-	exposure := store.ExposurePrivate
-	if public {
-		exposure = store.ExposurePublic
-	}
-	if err := s.store.SetDatabaseExposure(record.ID, exposure, note); err != nil {
-		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
-		return
-	}
-	_ = s.store.Audit(user.ID, "database.exposure", record.Name, clientIP(r), exposure+": "+note)
+		if public {
+			if s.guard == nil {
+				writeError(w, http.StatusConflict, "guard_required",
+					"a database port cannot be opened while the brute-force lockout is not running")
+				return
+			}
+			if enforcing, reason := s.guard.Enforcing(r.Context()); !enforcing {
+				writeError(w, http.StatusConflict, "guard_required",
+					"a database port cannot be opened while the brute-force lockout is not enforcing: "+reason)
+				return
+			}
+		}
 
-	updated, err := s.store.DatabaseByID(record.ID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
-		return
+		note, err := s.applyExposure(r.Context(), record, public)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "exposure_failed", err.Error())
+			return
+		}
+		exposure := store.ExposurePrivate
+		if public {
+			exposure = store.ExposurePublic
+		}
+		if err := s.store.SetDatabaseExposure(record.ID, exposure, note); err != nil {
+			writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+			return
+		}
+		_ = s.store.Audit(user.ID, "database.exposure", record.Name, clientIP(r), exposure+": "+note)
+
+		updated, err := s.store.DatabaseByID(record.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"database": updated, "exposure": exposure, "note": note})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"database": updated, "exposure": exposure, "note": note})
 }
 
 // applyExposure does the work and describes it. It returns an error only when nothing could be
@@ -299,50 +303,53 @@ func ensureListenAll(conf string) (bool, error) {
 }
 
 // handleDatabaseLog shows what the engine itself said, and what the panel did about this
-// record: the two halves of "why did this happen".
-func (s *Server) handleDatabaseLog(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
-	record, ok := s.findDatabase(w, r, user, store.KindDatabase)
-	if !ok {
-		return
-	}
-	lines, source, note, err := s.engineLog(r.Context(), record)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "log_unavailable", err.Error())
-		return
-	}
-	if lines == nil {
-		lines = []string{}
-	}
-	type auditItem struct {
-		ID     int64  `json:"id"`
-		At     string `json:"at"`
-		TS     string `json:"ts"`
-		Action string `json:"action"`
-		Target string `json:"target,omitempty"`
-		Detail string `json:"detail,omitempty"`
-	}
-	audit := []auditItem{}
-	if entries, err := s.store.ListAudit("", 500); err == nil {
-		for _, entry := range entries {
-			if entry.Target == record.Name || entry.Target == record.Alias || entry.Target == record.ID {
-				audit = append(audit, auditItem{
-					ID:     entry.ID,
-					At:     entry.At,
-					TS:     entry.At,
-					Action: entry.Action,
-					Target: entry.Target,
-					Detail: entry.Detail,
-				})
+// record: the two halves of "why did this happen". Registered for caches too, for the same
+// reason as the exposure switch.
+func (s *Server) handleDatabaseLog(kind string) authedHandler {
+	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+		record, ok := s.findDatabase(w, r, user, kind)
+		if !ok {
+			return
+		}
+		lines, source, note, err := s.engineLog(r.Context(), record)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "log_unavailable", err.Error())
+			return
+		}
+		if lines == nil {
+			lines = []string{}
+		}
+		type auditItem struct {
+			ID     int64  `json:"id"`
+			At     string `json:"at"`
+			TS     string `json:"ts"`
+			Action string `json:"action"`
+			Target string `json:"target,omitempty"`
+			Detail string `json:"detail,omitempty"`
+		}
+		audit := []auditItem{}
+		if entries, err := s.store.ListAudit("", 500); err == nil {
+			for _, entry := range entries {
+				if entry.Target == record.Name || entry.Target == record.Alias || entry.Target == record.ID {
+					audit = append(audit, auditItem{
+						ID:     entry.ID,
+						At:     entry.At,
+						TS:     entry.At,
+						Action: entry.Action,
+						Target: entry.Target,
+						Detail: entry.Detail,
+					})
+				}
 			}
 		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"engine": record.Engine,
+			"source": source,
+			"note":   note,
+			"lines":  lines,
+			"audit":  audit,
+		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"engine": record.Engine,
-		"source": source,
-		"note":   note,
-		"lines":  lines,
-		"audit":  audit,
-	})
 }
 
 // engineLog is the engine's own log as this host keeps it: a file for the host engines, the

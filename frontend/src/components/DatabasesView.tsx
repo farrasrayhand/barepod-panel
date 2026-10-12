@@ -113,7 +113,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
   const handleSqliteDownload = async (db: DatabaseItem) => {
     setDownloadingId(db.id);
     try {
-      const blob = await api.databaseExport(db.id);
+      const blob = await api.databases.export(db.id);
       saveBlob(blob, `${db.name}.sqlite`);
       onShowToast?.('Download ready', `${db.name}.sqlite was saved.`, 'success');
     } catch (err) {
