@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -35,6 +36,11 @@ func (s *Server) handleSetPanelPort(w http.ResponseWriter, r *http.Request, user
 	}
 	if reason := validatePort(r, body.Port, currentPanelPort(s)); reason != "" {
 		writeError(w, http.StatusBadRequest, "invalid_port", reason)
+		return
+	}
+	if holder := s.portHolder(r.Context(), body.Port); holder != "" {
+		writeError(w, http.StatusConflict, "port_in_use", fmt.Sprintf(
+			"port %d is already held by %s, so moving the panel there would break both. Pick another.", body.Port, holder))
 		return
 	}
 	unit := filepath.Join(s.cfg.UnitsDir, "barepod.service")
@@ -88,6 +94,16 @@ func (s *Server) handleSetSSHPort(w http.ResponseWriter, r *http.Request, user *
 		return
 	}
 	remove := body.Remove || strings.EqualFold(body.Action, "remove")
+	// Adding a port sshd is already told to use changes nothing, so only a genuinely new one is checked
+	// — against everything listening, not only against the panel: a collision with PostgreSQL would be
+	// just as fatal and much harder to understand.
+	if !sshdPortConfigured(body.Port) {
+		if holder := s.portHolder(r.Context(), body.Port); holder != "" {
+			writeError(w, http.StatusConflict, "port_in_use", fmt.Sprintf(
+				"port %d is already held by %s. Pick another.", body.Port, holder))
+			return
+		}
+	}
 	original, err := os.ReadFile(sshdConfigPath)
 	if err != nil {
 		writeError(w, http.StatusConflict, "not_found", "this host has no "+sshdConfigPath)
@@ -246,4 +262,60 @@ func validatePort(r *http.Request, port, current int) string {
 		return "ports below 1024 need root and are best left to the system"
 	}
 	return ""
+}
+
+// portHolder names what is listening on a port, so a refusal can say who holds it instead of only that
+// somebody does. `ss -ltnp` is asked because it already knows: the alternative is a bind attempt, which
+// answers "used" but never "by what", and an operator reading "port already in use" has to go and find
+// out which of a dozen services on this host it was.
+func (s *Server) portHolder(ctx context.Context, port int) string {
+	out, err := s.host.Run(ctx, []string{"ss", "-ltnp"})
+	if err != nil {
+		return ""
+	}
+	return parsePortHolder(out, port)
+}
+
+// parsePortHolder reads the process name for one port out of `ss -ltnp`, e.g.
+//
+//	LISTEN 0 511 127.0.0.1:6379 0.0.0.0:* users:(("redis-server",pid=1,fd=6))
+//
+// and returns "" when nothing is listening there. Kept pure so the parsing is testable without a host.
+func parsePortHolder(ssOutput string, port int) string {
+	suffix := ":" + strconv.Itoa(port)
+	for _, line := range strings.Split(ssOutput, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || !strings.HasPrefix(fields[0], "LISTEN") {
+			continue
+		}
+		held := false
+		for _, field := range fields[3:5] { // local address, then peer address
+			if strings.HasSuffix(field, suffix) {
+				held = true
+				break
+			}
+		}
+		if !held {
+			continue
+		}
+		if i := strings.Index(line, "users:((\""); i != -1 {
+			rest := line[i+len("users:((\""):]
+			if j := strings.Index(rest, "\""); j != -1 {
+				return rest[:j]
+			}
+		}
+		return "another service"
+	}
+	return ""
+}
+
+// sshdPortConfigured says whether sshd is already told to listen on that port, in which case asking for
+// it changes nothing and must not be refused as a collision with sshd itself.
+func sshdPortConfigured(port int) bool {
+	for _, configured := range sshdConfiguredPorts() {
+		if configured == port {
+			return true
+		}
+	}
+	return false
 }

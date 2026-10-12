@@ -57,6 +57,9 @@ type fakeRunner struct {
 	commands []string
 	up       bool
 	failNext bool
+	// failOn fails any command whose name matches, which is how a test says "this specific step breaks"
+	// without depending on which command happens to come next.
+	failOn string
 	// containerEnv is what `docker inspect --format {{json .Config.Env}}` answers,
 	// which is how the supervisor tells which database a container serves.
 	containerEnv string
@@ -78,6 +81,9 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) (s
 	defer f.mu.Unlock()
 	f.commands = append(f.commands, strings.TrimSpace(name+" "+strings.Join(args, " ")))
 
+	if f.failOn != "" && name == f.failOn {
+		return "the runner refused to run it", errors.New("exit status 1")
+	}
 	switch name {
 	case "curl":
 		if f.byPort {
@@ -420,13 +426,16 @@ func TestEnsureStartsOnceAndIdleSweepStopsIt(t *testing.T) {
 	if starts := strings.Count(runner.log(), "pgweb --bind"); starts != 1 {
 		t.Errorf("the tool was started %d times:\n%s", starts, runner.log())
 	}
-	if stopped := supervisor.Sweep(ctx); len(stopped) != 0 {
+	if stopped, _ := supervisor.Sweep(ctx); len(stopped) != 0 {
 		t.Errorf("a tool in use was stopped: %v", stopped)
 	}
 
 	// Idle past the timeout: it goes away, and the caller is told why.
 	now = now.Add(31 * time.Minute)
-	stopped := supervisor.Sweep(ctx)
+	stopped, failed := supervisor.Sweep(ctx)
+	if len(failed) != 0 {
+		t.Errorf("a stop that worked was reported as a failure: %v", failed)
+	}
 	if len(stopped) != 1 || stopped[0] != "pgweb" {
 		t.Fatalf("the idle tool was not stopped: %v", stopped)
 	}
@@ -487,5 +496,27 @@ func TestRegistryOnlyOffersEnginesTheToolCanOpen(t *testing.T) {
 	}
 	if _, ok := Available(Spec{Binary: "pgweb"}, func(string) (string, error) { return "", errors.New("no") }); ok {
 		t.Error("a missing binary must not be offered")
+	}
+}
+
+// A stop that fails used to be invisible: the sweeper returned only the tools it had stopped, so a
+// manager it could not stop looked the same as a manager that had nothing to do — and a container in
+// that state stays up for as long as the host does. Found the hard way: a DbGate container three hours
+// past its last use, with no line in the log to explain it.
+func TestAFailedStopIsReported(t *testing.T) {
+	runner := &fakeRunner{failOn: "pkill"}
+	supervisor := New(runner, time.Minute)
+	now := time.Now()
+	supervisor.SetClock(func() time.Time { return now })
+	if err := supervisor.Ensure(context.Background(), Registry()["pgweb"], "postgres://u:p@127.0.0.1:5432/db"); err != nil {
+		t.Fatalf("Ensure failed: %v", err)
+	}
+	now = now.Add(2 * time.Minute)
+	stopped, failed := supervisor.Sweep(context.Background())
+	if len(stopped) != 0 {
+		t.Errorf("a tool that would not stop was reported as stopped: %v", stopped)
+	}
+	if len(failed) != 1 || !strings.Contains(failed[0], "pgweb") {
+		t.Fatalf("a stop that failed was not reported: %v", failed)
 	}
 }

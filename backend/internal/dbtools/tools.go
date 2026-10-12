@@ -468,10 +468,11 @@ func (s *Supervisor) reservePort(key string, min, max int) (int, bool) {
 	return 0, false
 }
 
-// Sweep stops every tool idle for longer than the timeout, and returns their names
-// so the caller can audit why they went away.
-func (s *Supervisor) Sweep(ctx context.Context) []string {
-	stopped := []string{}
+// Sweep stops every tool idle for longer than the timeout, and returns the ones it stopped so the
+// caller can audit why they went away — and the ones it could not, because a stop that fails silently
+// leaves a container running for as long as the host does, with nothing anywhere saying so.
+func (s *Supervisor) Sweep(ctx context.Context) (stopped []string, failed []string) {
+	stopped = []string{}
 	// What is running is what the panel started, not what the registry knows: a
 	// container tool can have one instance per database.
 	s.mu.Lock()
@@ -500,10 +501,12 @@ func (s *Supervisor) Sweep(ctx context.Context) []string {
 		}
 		if err := s.stopLocked(ctx, spec); err == nil {
 			stopped = append(stopped, key)
+		} else {
+			failed = append(failed, key+": "+err.Error())
 		}
 		lock.Unlock()
 	}
-	return stopped
+	return stopped, failed
 }
 
 // Reconcile deals with what a previous daemon left behind.

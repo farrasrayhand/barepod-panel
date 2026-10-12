@@ -324,7 +324,11 @@ func runServe(args []string) error {
 			case <-toolsCtx.Done():
 				return
 			case <-ticker.C:
-				for _, name := range tools.Sweep(toolsCtx) {
+				stopped, failed := tools.Sweep(toolsCtx)
+				for _, why := range failed {
+					log.Printf("dbtools: idle manager could not be stopped — %s", why)
+				}
+				for _, name := range stopped {
 					log.Printf("dbtools: stopped %s after %s idle", name, tools.IdleTimeout())
 					_ = st.Audit("", "database.gui_idle", name, "", "manager stopped after being idle")
 				}
