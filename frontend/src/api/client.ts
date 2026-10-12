@@ -207,6 +207,7 @@ export interface DatabaseRow {
   port?: number;
   path?: string;
   maxConnections?: number;
+  /** Recorded, not applied: no engine here enforces a per-database memory limit. */
   maxMemoryMb?: number;
   status: string;
   note?: string;
@@ -265,6 +266,7 @@ export interface CreateDatabasePayload {
   websiteSlug?: string;
   password?: string;
   maxConnections?: number;
+  /** Recorded, not applied: no engine here enforces a per-database memory limit. */
   maxMemoryMb?: number;
 }
 

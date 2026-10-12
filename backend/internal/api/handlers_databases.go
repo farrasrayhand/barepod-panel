@@ -711,7 +711,19 @@ func (s *Server) handlePatchDatabase(kind string) authedHandler {
 		}
 		_ = s.store.Audit(user.ID, "database.update", record.Name, clientIP(r), alias)
 		updated, _ := s.store.DatabaseByID(record.ID)
-		writeJSON(w, http.StatusOK, map[string]any{"database": updated})
+		response := map[string]any{"database": updated}
+		// A memory limit is recorded and never applied, and saying so is the difference between a
+		// field that means something and one that implies a promise. No engine here enforces a
+		// per-database memory ceiling — PostgreSQL and MariaDB have none, and Redis's is per
+		// instance — so the number is kept as the ledger's note of what the operator allowed, and
+		// the response says exactly that. Measured: this was the one wire field that silently did
+		// nothing.
+		if patch.MaxMemoryMB > 0 && patch.MaxMemoryMB != record.MaxMemoryMB {
+			response["note"] = "maxMemoryMb is recorded, not applied: no engine here enforces a per-database memory limit (connection limits are applied — see applyConnectionLimit)."
+			_ = s.store.Audit(user.ID, "database.limits", record.Name, clientIP(r),
+				fmt.Sprintf("maxConnections=%d (applied), maxMemoryMb=%d (recorded only)", patch.MaxConnections, patch.MaxMemoryMB))
+		}
+		writeJSON(w, http.StatusOK, response)
 	}
 }
 

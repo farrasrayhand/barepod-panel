@@ -245,6 +245,61 @@ if have redis-cli; then
   fi
 fi
 
+# ---------------------------------------------------------------- tuning
+# Every engine installs with defaults meant for a machine doing nothing else: PostgreSQL gets 128MB
+# of shared buffers, MariaDB a 128MB buffer pool, Redis no memory policy at all. On a panel host
+# that is what turns a busy afternoon into swapping. The sizes below come from the RAM measured
+# here, and they are written as drop-in files so the distribution's own configuration is never
+# rewritten — a BarePod file can be deleted to go back to stock.
+say "Sizing the engines to this machine"
+RAM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null)
+RAM_MB=${RAM_MB:-2048}
+# work_mem is per sort or hash, so it multiplies by concurrent queries: sizing it as a fraction of
+# RAM alone is the classic way to run a machine out of memory (200 connections × 128MB is 25GB).
+# It is sized against the connection limit instead.
+PG_MAX_CONNS=200
+PG_WORK_MEM=$((RAM_MB / (PG_MAX_CONNS * 4)))
+[[ "$PG_WORK_MEM" -lt 4 ]] && PG_WORK_MEM=4
+
+PG_CONF_D="$(ls -d /etc/postgresql/*/main/conf.d 2>/dev/null | head -1)"
+if [[ -n "$PG_CONF_D" ]]; then
+  cat > "$PG_CONF_D/99-barepod.conf" <<CONF
+# Written by BarePod, sized to this machine (${RAM_MB} MB of RAM). Delete this file to return to
+# PostgreSQL's own defaults.
+shared_buffers = $((RAM_MB / 4))MB
+effective_cache_size = $((RAM_MB * 3 / 4))MB
+work_mem = ${PG_WORK_MEM}MB
+maintenance_work_mem = $((RAM_MB / 16))MB
+max_connections = ${PG_MAX_CONNS}
+CONF
+  note "PostgreSQL: shared_buffers $((RAM_MB / 4))MB, work_mem ${PG_WORK_MEM}MB, ${PG_MAX_CONNS} connections"
+fi
+
+MARIA_CONF_D=/etc/mysql/mariadb.conf.d
+if [[ -d "$MARIA_CONF_D" ]]; then
+  cat > "$MARIA_CONF_D/99-barepod.cnf" <<CONF
+# Written by BarePod, sized to this machine (${RAM_MB} MB of RAM). Delete this file to return to
+# MariaDB's own defaults.
+[mysqld]
+innodb_buffer_pool_size = $((RAM_MB / 2))M
+innodb_log_file_size = 256M
+innodb_flush_log_at_trx_commit = 2
+max_connections = ${PG_MAX_CONNS}
+CONF
+  note "MariaDB: innodb_buffer_pool_size $((RAM_MB / 2))MB, ${PG_MAX_CONNS} connections"
+fi
+
+if [[ -f /etc/redis/redis.conf ]]; then
+  # A cache should evict rather than refuse writes when it fills, which is what Redis's default
+  # (noeviction) does. A memory limit is deliberately NOT set: this host may hold cache data an
+  # application treats as durable, and choosing a ceiling for it is the operator's call, not an
+  # installer's.
+  if ! grep -qE '^[[:space:]]*maxmemory-policy' /etc/redis/redis.conf; then
+    printf '\n# Added by BarePod: a cache that fills should evict its coldest keys, not start\n# refusing writes. No maxmemory is set here on purpose — pick a ceiling you are happy with.\nmaxmemory-policy allkeys-lru\n' >> /etc/redis/redis.conf
+    note "Redis: maxmemory-policy allkeys-lru (no memory limit set — that is your call)"
+  fi
+fi
+
 # ---------------------------------------------------------------- brute-force lockout
 # A database port that is opened to the outside (per-database "public" exposure) needs a
 # lockout before it is opened, not after: fail2ban watches the engines' own logs and bans
