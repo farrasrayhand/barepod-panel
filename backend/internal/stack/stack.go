@@ -86,20 +86,35 @@ func Commands(component, version string) ([][]string, error) {
 		// Debian/Ubuntu ship caddy in universe.
 		return apt("caddy"), nil
 	case "php":
-		pkgs := []string{
-			"php" + version + "-fpm", "php" + version + "-cli", "php" + version + "-mysql",
-			"php" + version + "-pgsql", "php" + version + "-curl", "php" + version + "-mbstring",
-			"php" + version + "-xml", "php" + version + "-zip",
+		// A PHP install is a full one: the extensions the panel's Settings screen toggles
+		// (phpenmod/phpdismod) are installed here, so enabling one later is a switch rather
+		// than another install. Anything the repository does not offer is named in the log
+		// instead of failing the whole install.
+		core := []string{
+			"php" + version + "-fpm", "php" + version + "-cli", "php" + version + "-curl",
+			"php" + version + "-mbstring", "php" + version + "-xml", "php" + version + "-zip",
+			"php" + version + "-gd", "php" + version + "-intl", "php" + version + "-bcmath",
+			"php" + version + "-mysql", "php" + version + "-pgsql", "php" + version + "-sqlite3",
+			"php" + version + "-opcache", "php" + version + "-soap", "php" + version + "-sodium",
+			"php" + version + "-exif", "php" + version + "-bz2", "php" + version + "-gmp",
 		}
-		return apt(pkgs...), nil
+		optional := []string{"imagick", "redis", "mongodb", "ldap", "imap", "swoole", "pcntl"}
+		script := "set -e\napt-get install -y " + strings.Join(core, " ") +
+			"\nfor e in " + strings.Join(optional, " ") + "; do apt-get install -y php" + version + "-$e || echo \"skipped php" + version + "-$e (not offered by this repository)\"; done"
+		// Ubuntu ships a single PHP, so the versions the panel offers come from the Sury
+		// repository; it is added first and the available versions are read back from apt.
+		return [][]string{{"bash", "-c", suryRepoScript}, {"bash", "-c", script}}, nil
 	case "node":
-		// NodeSource is the least surprising way to get a chosen major on Debian/Ubuntu.
+		// NodeSource replaces the system node, so it cannot hold two majors at once; the
+		// official tarball is unpacked under the panel's own directory instead, which is
+		// what lets 20 and 22 coexist for different sites.
 		return [][]string{
-			{"bash", "-c", "curl -fsSL https://deb.nodesource.com/setup_" + version + ".x | bash -"},
-			{"apt-get", "install", "-y", "nodejs"},
+			{"bash", "-c", "set -e; mkdir -p /opt/barepod/node; V=$(curl -fsSL https://nodejs.org/dist/index.json | tr ',' '\\n' | grep -m1 -o '\"version\":\"v" + version + "\\.[0-9.]*\"' | cut -d'\"' -f4); test -n \"$V\"; curl -fsSL https://nodejs.org/dist/$V/node-$V-linux-x64.tar.xz | tar -xJ -C /opt/barepod/node; rm -rf /opt/barepod/node/" + version + "; mv /opt/barepod/node/node-$V-linux-x64 /opt/barepod/node/" + version},
 		}, nil
 	case "python":
-		return apt("python"+version, "python"+version+"-venv", "python3-pip"), nil
+		// Debian/Ubuntu ship one python3; the other versions come from deadsnakes.
+		return append([][]string{{"bash", "-c", deadsnakesRepoScript}},
+			apt("python"+version, "python"+version+"-venv")...), nil
 	case "ruby":
 		return apt("ruby", "ruby-dev", "build-essential"), nil
 	case "go":
@@ -122,6 +137,22 @@ func Commands(component, version string) ([][]string, error) {
 	}
 	return nil, fmt.Errorf("stack: %s has no install recipe", c.Name)
 }
+
+// suryRepoScript adds packages.sury.org/php, which is where the PHP versions Ubuntu
+// does not ship come from. The key is installed with a signed-by entry so apt does
+// not accept anything else from that host.
+const suryRepoScript = `set -e
+apt-get install -y -qq lsb-release ca-certificates curl gnupg >/dev/null
+curl -fsSL https://packages.sury.org/php/apt.gpg -o /usr/share/keyrings/sury-php.gpg
+echo "deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/sury-php.list
+apt-get update`
+
+// deadsnakesRepoScript adds the deadsnakes PPA, where the Python versions Ubuntu does
+// not ship come from.
+const deadsnakesRepoScript = `set -e
+apt-get install -y -qq software-properties-common >/dev/null
+add-apt-repository -y ppa:deadsnakes/ppa
+apt-get update`
 
 func containsString(list []string, v string) bool {
 	for _, item := range list {
@@ -254,9 +285,10 @@ type Status struct {
 	// DatabaseVersions is the version chosen for each engine (what an install recorded),
 	// so the screen can show both that and the version really installed.
 	DatabaseVersions map[string]string `json:"databaseVersions"`
-	// Runtimes is each language's detected versions, keyed by component name (php and
-	// node appear here too; their *chosen* version is in php/node).
-	Runtimes map[string][]string `json:"runtimes"`
+	// Runtimes is each language's versions: what is installed (probed) and what this
+	// host's repositories offer (read from apt, not a hardcoded list), plus whether the
+	// version matters per site (interpreted) or is a build-time toolchain (compiled).
+	Runtimes map[string]RuntimeStatus `json:"runtimes"`
 	PHP      struct {
 		Installed []string `json:"installed"`
 		Default   string   `json:"default"`
@@ -302,18 +334,106 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 	out.PHP.Default = setting(st, "default_php_version")
 	out.Node.Installed = nodeVersions(ctx, h, lookPath)
 	out.Node.Default = setting(st, "default_node_version")
-	out.Runtimes = map[string][]string{
-		"php":    out.PHP.Installed,
-		"node":   out.Node.Installed,
-		"python": probeVersions(ctx, h, lookPath, "python3", []string{"python3", "--version"}),
-		"ruby":   probeVersions(ctx, h, lookPath, "ruby", []string{"ruby", "--version"}),
-		"go":     probeVersions(ctx, h, lookPath, "go", []string{"go", "version"}),
-		"rust":   probeVersions(ctx, h, lookPath, "rustc", []string{"rustc", "--version"}),
+	out.Runtimes = map[string]RuntimeStatus{}
+	for _, r := range runtimeSources() {
+		status := RuntimeStatus{PerSite: r.perSite, Source: r.source}
+		switch {
+		case r.name == "php":
+			status.Installed = out.PHP.Installed
+		case r.name == "node":
+			status.Installed = nodeInstalled(ctx, h, lookPath)
+		case len(r.binary) > 0:
+			status.Installed = probeVersions(ctx, h, lookPath, r.probe, r.binary)
+		}
+		status.Available = availableVersions(ctx, h, r)
+		out.Runtimes[r.name] = status
 	}
 	return out
 }
 
-// runtimesVersionPattern picks the leading major.minor out of a version banner.
+// nodeInstalled lists the Node runtimes the panel unpacked (one directory per major)
+// plus the one on PATH, so a site's version list is the truth.
+func nodeInstalled(ctx context.Context, h *host.Host, lookPath func(string) (string, error)) []string {
+	out := nodeVersions(ctx, h, lookPath)
+	if entries, err := os.ReadDir("/opt/barepod/node"); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				out = append(out, e.Name())
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// RuntimeStatus is one language's versions on this host.
+type RuntimeStatus struct {
+	Installed []string `json:"installed"`
+	// Available is what this host's repositories actually offer (empty when the versions
+	// come from a tarball or a toolchain manager instead).
+	Available []string `json:"available"`
+	// PerSite says the version matters for each site (interpreted at runtime) rather than
+	// being a build-time toolchain, where one version is enough.
+	PerSite bool   `json:"perSite"`
+	Source  string `json:"source,omitempty"`
+}
+
+// runtimeSources describes where each language's versions come from, so the screen can
+// say it and the available list can be read back from the repository rather than guessed.
+type runtimeSource struct {
+	name       string
+	perSite    bool
+	source     string
+	pkgPrefix  string // apt package = pkgPrefix + version + pkgSuffix
+	pkgSuffix  string
+	candidates []string
+	binary     []string
+	probe      string // binary to look up before asking its version
+}
+
+func runtimeSources() []runtimeSource {
+	return []runtimeSource{
+		{name: "php", perSite: true, source: "apt — packages.sury.org/php", pkgPrefix: "php", pkgSuffix: "-fpm",
+			candidates: []string{"7.4", "8.0", "8.1", "8.2", "8.3", "8.4"}},
+		{name: "python", perSite: true, source: "apt — deadsnakes PPA", pkgPrefix: "python", candidates: []string{"3.9", "3.10", "3.11", "3.12", "3.13"},
+			probe: "python3", binary: []string{"python3", "--version"}},
+		{name: "node", perSite: true, source: "tarball — nodejs.org/dist (per site)",
+			probe: "node", binary: []string{"node", "--version"}},
+		{name: "ruby", perSite: true, source: "apt / rbenv", probe: "ruby", binary: []string{"ruby", "--version"}},
+		{name: "go", perSite: false, source: "toolchain (build-time)", probe: "go", binary: []string{"go", "version"}},
+		{name: "rust", perSite: false, source: "rustup (build-time)", probe: "rustc", binary: []string{"rustc", "--version"}},
+	}
+}
+
+// availableVersions reads the repository's own answer: a candidate only counts when apt
+// can actually install that package here. Dry-run and a non-real host report none — an
+// unmeasured "available" would be a lie of the kind this panel avoids.
+func availableVersions(ctx context.Context, h *host.Host, r runtimeSource) []string {
+	if r.pkgPrefix == "" || !h.Materialises() {
+		return nil
+	}
+	var out []string
+	for _, version := range r.candidates {
+		pkg := r.pkgPrefix + version + r.pkgSuffix
+		res, err := h.Run(ctx, []string{"apt-cache", "policy", pkg})
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(res, "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "Candidate:") {
+				continue
+			}
+			candidate := strings.TrimSpace(strings.TrimPrefix(line, "Candidate:"))
+			if candidate != "" && candidate != "(none)" {
+				out = append(out, version)
+			}
+			break
+		}
+	}
+	return out
+}
+
 var runtimesVersionPattern = regexp.MustCompile(`(\d+)\.(\d+)`)
 
 // probeVersions reports a tool's version when it is installed, or nil when it is not

@@ -31,12 +31,20 @@ func TestCommandsAreAllowlisted(t *testing.T) {
 		t.Fatalf("caddy commands = %v (%v)", caddy, err)
 	}
 	php, _ := Commands("php", "8.3")
-	if !strings.Contains(strings.Join(flatten(php), " "), "php8.3-fpm") {
+	joinedPHP := strings.Join(flatten(php), " ")
+	if !strings.Contains(joinedPHP, "php8.3-fpm") {
 		t.Errorf("php commands do not install the fpm package: %v", php)
 	}
+	// A PHP install is full: the extensions Settings toggles later must already be there.
+	for _, want := range []string{"php8.3-gd", "php8.3-intl", "php8.3-mysql", "php8.3-opcache", "sury.org"} {
+		if !strings.Contains(joinedPHP, want) {
+			t.Errorf("php commands are missing %q", want)
+		}
+	}
 	node, _ := Commands("node", "22")
-	if !strings.Contains(strings.Join(flatten(node), " "), "setup_22.x") {
-		t.Errorf("node commands do not select the major: %v", node)
+	joinedNode := strings.Join(flatten(node), " ")
+	if !strings.Contains(joinedNode, "nodejs.org/dist") || !strings.Contains(joinedNode, "\\.[0-9.]*") {
+		t.Errorf("node is not installed from the official tarball for the major: %v", node)
 	}
 }
 

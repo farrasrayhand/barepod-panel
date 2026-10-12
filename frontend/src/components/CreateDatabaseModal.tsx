@@ -103,7 +103,8 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
       try {
         const result = await onCreateLive({
           engine: API_ENGINE[type] ?? type,
-          version: chosen.version,
+          // The version is the host's: the daemon records the one the Stack installed, so
+          // the form no longer sends a version of its own.
           alias: name.trim(),
           // Both fields are sent when they were filled in: the daemon honours the
           // username and the password instead of quietly deriving its own.
@@ -226,22 +227,15 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
             </div>
           )}
 
-          {/* Version Selector */}
+          {/* The version belongs to the host, not to one database: the engine the Stack
+              installed is the one that serves every record of that engine. */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              {type === 'sqlite' ? 'SQLite Library Version' : 'Shared Engine Version & Dedicated Port'}
-            </label>
-            <select
-              value={selectedVersionIndex}
-              onChange={(e) => setSelectedVersionIndex(Number(e.target.value))}
-              className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono text-slate-800"
-            >
-              {currentVersionList.map((ver, idx) => (
-                <option key={ver.version} value={idx}>
-                  {ver.label} — [{ver.statusText}]
-                </option>
-              ))}
-            </select>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Engine Version</label>
+            <div className="w-full px-3 py-2 text-xs bg-slate-100 border border-slate-200 rounded-lg font-mono text-slate-600">
+              {type === 'sqlite'
+                ? 'SQLite (file, no daemon)'
+                : `${engineRow?.label ?? type} ${activeVersion?.version ?? engineRow?.installedVersion ?? '—'}`}
+            </div>
             <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 font-mono">
               {type === 'sqlite' ? (
                 <>
@@ -251,7 +245,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
               ) : (
                 <>
                   <Server className="w-3 h-3 text-slate-400" />
-                  <span>Bind: 127.0.0.1:{activeVersion.port} (internal host / docker jail only)</span>
+                  <span>Bind: 127.0.0.1:{activeVersion?.port ?? engineRow?.port ?? 0} — the version is chosen on the Stack page (one version per engine)</span>
                 </>
               )}
             </p>

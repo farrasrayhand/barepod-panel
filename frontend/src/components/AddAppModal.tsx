@@ -913,11 +913,11 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Version &amp; Port</label>
-                      <select value={dbVersionIndex} onChange={(e) => setDbVersionIndex(Number(e.target.value))} className={`${inputClass} font-mono`}>
-                        {dbVersions.map((opt, i) => (
-                          <option key={opt.version} value={i}>{opt.label} — {opt.statusText}</option>
-                        ))}
-                      </select>
+                      {/* The engine version is a host-level choice (see Stack), so the wizard
+                          does not offer one: the daemon records whatever the host runs. */}
+                      <div className={`${inputClass} font-mono text-slate-500 bg-slate-100`}>
+                        {activeDbVersion ? `${activeDbVersion.label} · port ${activeDbVersion.port ?? '—'}` : 'host default'}
+                      </div>
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">Database Name</label>
@@ -986,11 +986,10 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                 <div className="pl-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Redis Version &amp; Port</label>
-                    <select value={cacheVersionIndex} onChange={(e) => setCacheVersionIndex(Number(e.target.value))} className={`${inputClass} font-mono`}>
-                      {cacheVersions.map((opt, i) => (
-                        <option key={opt.version} value={i}>{opt.label} — {opt.statusText}</option>
-                      ))}
-                    </select>
+                    {/* Same rule as the database: the cache version is the host's. */}
+                    <div className={`${inputClass} font-mono text-slate-500 bg-slate-100`}>
+                      {activeCacheVersion ? `${activeCacheVersion.label} · port ${activeCacheVersion.port ?? '—'}` : 'host default'}
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">Cache Password (ACL)</label>

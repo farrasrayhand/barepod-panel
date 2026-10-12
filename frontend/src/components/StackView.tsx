@@ -240,18 +240,31 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
         <div className="space-y-4">
           {componentsOf('runtime').map((component) => {
             const Icon = KINDS[component.kind]?.icon ?? Hexagon;
-            const installed = status?.runtimes?.[component.name] ?? [];
+            const status_ = status?.runtimes?.[component.name];
+            const installed = status_?.installed ?? [];
+            const available = status_?.available ?? [];
+            // For a tarball/toolchain runtime the repository cannot list versions, so the
+            // component's own curated list is what can be installed.
+            const offerable = available.length > 0 ? available : component.versions ?? [];
             const chosen = component.name === 'php' ? status?.php.default : status?.node.default;
             return (
               <div key={component.name} className="bg-white rounded-xl border border-slate-200 p-4">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Icon className="w-4 h-4 text-slate-400" />
                   <span className="font-semibold text-slate-900 text-sm">{component.label}</span>
                   <span className="text-[11px] text-slate-400">{component.description}</span>
+                  {status_ && (
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${status_.perSite ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {status_.perSite ? 'version per site' : 'build-time toolchain'}
+                    </span>
+                  )}
+                  {status_?.source && <span className="text-[10px] text-slate-400 font-mono">{status_.source}</span>}
                 </div>
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] text-slate-500">Install:</span>
-                  {(component.versions ?? ['']).map((version) => {
+                  <span className="text-[11px] text-slate-500">
+                    {available.length > 0 ? 'From repositories:' : 'Install:'}
+                  </span>
+                  {offerable.map((version) => {
                     const already = version !== '' && installed.includes(version);
                     return (
                       <button
@@ -271,6 +284,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                       </button>
                     );
                   })}
+                  {offerable.length === 0 && <span className="text-[11px] text-slate-400">nothing offered by this host's repositories yet</span>}
                 </div>
                 {(installed.length > 0 || chosen) && (
                   <p className="mt-2 text-[11px] text-slate-500">

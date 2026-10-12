@@ -1050,6 +1050,15 @@ export interface StackComponent {
   description: string;
 }
 
+/** One language's versions on the host: probed installed + what its repositories offer. */
+export interface RuntimeStatus {
+  installed: string[];
+  available: string[];
+  /** True when the version matters per site (interpreted), false for a build toolchain. */
+  perSite: boolean;
+  source?: string;
+}
+
 export interface StackStatus {
   webServer: {
     active: string;
@@ -1062,8 +1071,8 @@ export interface StackStatus {
   databases: DbEngineRow[];
   /** The version chosen for each engine (what an install recorded). */
   databaseVersions: Record<string, string>;
-  /** Each language's detected versions, keyed by component name. */
-  runtimes: Record<string, string[]>;
+  /** Each language's versions: installed (probed) and available (from its repositories). */
+  runtimes: Record<string, RuntimeStatus>;
   php: { installed: string[]; default: string };
   node: { installed: string[]; default: string };
   mode: string;
