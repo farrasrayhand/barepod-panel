@@ -283,7 +283,12 @@ func runServe(args []string) error {
 	// so a start that fails reports the tool's own reason instead of a bare timeout.
 	tools.LogDir = filepath.Dir(cfg.DBPath)
 	reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), 15*time.Second)
-	tools.Reconcile(reconcileCtx)
+	if adopted := tools.Reconcile(reconcileCtx); len(adopted) > 0 {
+		log.Printf("dbtools: adopted %d running manager(s) from a previous daemon: %s (stopped after %s idle)",
+			len(adopted), strings.Join(adopted, ", "), tools.IdleTimeout())
+	} else {
+		log.Printf("dbtools: no managers running from a previous daemon (idle window %s)", tools.IdleTimeout())
+	}
 	cancelReconcile()
 
 	// Metrics run in the background so history exists even while nobody is

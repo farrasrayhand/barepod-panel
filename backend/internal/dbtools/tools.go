@@ -518,7 +518,11 @@ func (s *Supervisor) Sweep(ctx context.Context) []string {
 // closed every open manager the moment the panel restarted, which is exactly when an
 // operator notices "it is not stable". An adopted instance is given a fresh idle
 // window, so the sweeper still stops it once nobody comes back.
-func (s *Supervisor) Reconcile(ctx context.Context) {
+// Reconcile deals with what a previous daemon left behind, and reports what it adopted: a manager
+// running with nobody tracking it is a container nobody will ever stop, which is exactly how one was
+// found still up three hours after its last use, with no log line to explain it.
+func (s *Supervisor) Reconcile(ctx context.Context) []string {
+	adoptedNames := []string{}
 	for _, spec := range Registry() {
 		if spec.Container {
 			continue // adopted below, never removed
@@ -553,8 +557,10 @@ func (s *Supervisor) Reconcile(ctx context.Context) {
 				s.ports[name] = adopted.Port
 			}
 			s.mu.Unlock()
+			adoptedNames = append(adoptedNames, name)
 		}
 	}
+	return adoptedNames
 }
 
 // publishedPort reads the loopback port out of `docker ps --format {{.Ports}}`, e.g.
