@@ -155,17 +155,25 @@ func runUninstall(args []string) error {
 			plan.removeVolumes = true
 		}
 
-		fmt.Printf("\nThat is the plan:\n")
-		printUninstallPlan(plan)
 		if removals.cancelled {
 			return fmt.Errorf("cancelled at the list — nothing was changed")
 		}
-		answer, err := ask("Type uninstall to go ahead (or q to leave it alone)")
-		if err != nil {
-			return err
-		}
-		if isCancel(answer) || strings.TrimSpace(answer) != "uninstall" {
+		// The last question is a box too, showing what is about to happen — and the box carries the plan,
+		// so the full print is kept for the text path where nothing is drawn over it.
+		if result := runYesNo("BarePod uninstall — confirm", confirmSummary(plan)); result.chosen {
+			// Yes: carry on.
+		} else if result.cancelled {
 			return fmt.Errorf("nothing was changed")
+		} else {
+			fmt.Printf("\nThat is the plan:\n")
+			printUninstallPlan(plan)
+			answer, err := ask("Type uninstall to go ahead (or q to leave it alone)")
+			if err != nil {
+				return err
+			}
+			if isCancel(answer) || strings.TrimSpace(answer) != "uninstall" {
+				return fmt.Errorf("nothing was changed")
+			}
 		}
 	}
 
@@ -705,6 +713,28 @@ type menuResult struct {
 // drawing and the value it returns — reading stdout, as this first did, meant the menu never returned
 // anything and every failure looked like a cancel. Esc and Cancel exit 1 and are a decision; anything else
 // non-zero means the UI could not be drawn, and then the same questions are asked in plain text.
+// runYesNo asks a question in a box and preselects "No", so pressing Enter can never be the destructive
+// answer — the safety the typed word used to provide, kept without demanding a word.
+func runYesNo(title, text string) menuResult {
+	if menuUnavailable() {
+		return menuResult{problem: "no menu available"}
+	}
+	bin := whiptailBin()
+	quoted := make([]string, 0, 8)
+	for _, arg := range []string{"--title", title, "--defaultno", "--yesno", text, "22", "78"} {
+		quoted = append(quoted, "'"+strings.ReplaceAll(arg, "'", `'\''`)+"'")
+	}
+	cmd := exec.Command("sh", "-c", bin+" "+strings.Join(quoted, " ")+" 3>&1 1>&2 2>&3")
+	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	if err := cmd.Run(); err != nil {
+		if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() == 1 {
+			return menuResult{cancelled: true}
+		}
+		return menuResult{problem: err.Error()}
+	}
+	return menuResult{chosen: true}
+}
+
 func runMenu(bin string, args []string) menuResult {
 	// whiptail writes both its box and its answer to stderr, so the two have to be separated by swapping
 	// file descriptors — which only a shell can do. Passing that idiom as arguments to whiptail made it a
@@ -843,4 +873,25 @@ func askRemovalsInText(plan uninstallPlan, named map[string]bool) removalChoices
 		}
 	}
 	return choices
+}
+
+// confirmSummary is what the operator reads in the final box: what was found, what was chosen, and what
+// cannot be taken back. A plan in a box beats a plan scrolled past above a menu.
+func confirmSummary(plan uninstallPlan) string {
+	return fmt.Sprintf(
+		"Remove the BarePod panel from this host?\n\n"+
+			"  %d site(s): %s\n"+
+			"  Backup first:     %s\n"+
+			"  Data directory:   %s\n"+
+			"  Tenant accounts:  %s\n"+
+			"  Tenant files:     %s\n"+
+			"  Containers:       %d (%s volumes)\n\n"+
+			"The engines stay installed. This cannot be undone.",
+		len(plan.sites), slugs(plan.sites),
+		plan.backup,
+		onOff(plan.purgeData, "DELETED "+plan.dataDir, "kept"),
+		onOff(plan.removeTenants, "DELETED "+joinOr(plan.tenants, "none"), "kept"),
+		onOff(plan.removeTenantData, "DELETED under "+config.DefaultSitesRoot(), "kept"),
+		len(plan.containers), onOff(plan.removeVolumes, "with", "without"),
+	)
 }
