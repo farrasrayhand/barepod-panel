@@ -8,6 +8,8 @@
 #   scripts/uninstall.sh --yes                          # remove the panel; back up db; keep data dir
 #   scripts/uninstall.sh --yes --backup=full            # back up db + certificate + config + unit files
 #   scripts/uninstall.sh --yes --backup=none            # no backup at all
+#   scripts/uninstall.sh --yes --backup-dir=/mnt/usb   # write it somewhere else (never inside a path
+#                                                       # this script deletes, and it is read back first)
 #   scripts/uninstall.sh --yes --purge-data             # delete /var/lib/barepod as well
 #   scripts/uninstall.sh --yes --purge-data --remove-tenants
 #   scripts/uninstall.sh --yes --purge-data --remove-tenants --remove-tenant-data
@@ -47,6 +49,7 @@ for arg in "$@"; do
   case "$arg" in
     --yes) ASSUME_YES=1 ;;
     --backup=db|--backup=full|--backup=none) BACKUP="${arg#--backup=}" ;;
+    --backup-dir=*) BACKUP_DIR="${arg#--backup-dir=}" ;;
     --purge-data) PURGE_DATA=1 ;;
     --remove-tenants) REMOVE_TENANTS=1 ;;
     --remove-tenant-data) REMOVE_TENANTS=1; REMOVE_TENANT_DATA=1 ;;
@@ -65,6 +68,21 @@ act()  { printf '  [run]  %s\n' "$*"; if [ "$ASSUME_YES" -eq 1 ]; then eval "$*"
 cmd()  { command -v "$1" >/dev/null 2>&1; }
 
 [ "$(id -u)" -eq 0 ] || { echo "run this as root (it edits systemd, nftables and engine configuration)." >&2; exit 1; }
+
+# A backup written inside a directory this script deletes is not a backup, and the operator's reason for
+# choosing a path may be exactly the reason it matters — so this refuses rather than quietly relocating it.
+resolve() { readlink -f "$1" 2>/dev/null || printf '%s' "$1"; }
+if [ "$BACKUP" != "none" ]; then
+  for doomed in "$DATA_DIR" "$CONF_DIR" "$UNITS_DIR"; do
+    case "$(resolve "$BACKUP_DIR")/" in
+      "$(resolve "$doomed")"/*)
+        echo "refusing: the backup directory ($BACKUP_DIR) is inside $doomed, which this uninstall deletes." >&2
+        echo "use --backup-dir=<path outside it> (the default, /var/backups/barepod, is on the root filesystem" >&2
+        echo "and is never touched here), or pass --backup=none on purpose." >&2
+        exit 1 ;;
+    esac
+  done
+fi
 
 # --- what is here, gathered before anything is touched, so the plan is a fact and not a guess ---
 mapfile -t SITE_UNITS < <(ls -1 "$UNITS_DIR" 2>/dev/null | grep -E '^barepod-app@.*\.service$' | grep -v '^barepod-app@\.service$' || true)
@@ -159,7 +177,14 @@ if [ "$BACKUP" != "none" ]; then
   } > "$work/barepod/MANIFEST.txt"
   act "tar -czf '$archive' -C '$work' barepod"
   rm -rf "$work"
-  say "backup written: $archive"
+  if [ -s "$archive" ] && tar -tzf "$archive" >/dev/null 2>&1; then
+    say "backup written and read back: $archive ($(du -h "$archive" | cut -f1))"
+    say "nothing is deleted below until this line appears — that is the point of the order"
+  else
+    say "the archive could not be written or read back: $archive"
+    echo "refusing to continue: a failed backup followed by a delete is the worst possible order." >&2
+    exit 1
+  fi
   say "put it back later with: $(dirname "$0")/restore.sh --from '$archive'"
 fi
 
@@ -260,4 +285,9 @@ say "Removed: the panel unit, its drop-ins, every site unit, the binary, /etc/ba
 say "and (when asked) the data directory, containers, tenant accounts and packages."
 say "Left alone on purpose: journald history (journalctl --vacuum-time=1s clears it), site files you did not"
 say "ask to delete, and the engines themselves unless --remove-packages was used."
-[ "$BACKUP" != "none" ] && say "Backup: $BACKUP_DIR (scripts/restore.sh --from <file> puts it back; the installer also detects it)."
+if [ "$BACKUP" != "none" ]; then
+  say "Backup: $(ls -1t "$BACKUP_DIR"/barepod-backup-*.tar.gz 2>/dev/null | head -n1 || echo "$BACKUP_DIR")"
+  say "It lives outside everything this script deleted, so it survives. If the host itself is being rebuilt,"
+  say "copy the file somewhere else first — scripts/restore.sh --from <file> takes it from any path, and"
+  say "scripts/install.sh notices a backup left in $BACKUP_DIR."
+fi
