@@ -896,21 +896,20 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                   </button>
                 )}
 
-                {/* DbGate is not offered for a cache: the daemon refuses it (a container cannot
-                    reach a host cache on 127.0.0.1), so the button only produced audit entries
-                    about a refusal. A cache is browsed in the panel's own Keys tab. */}
-                {database.type !== 'redis' && (
-                  <button
-                    onClick={() => {
-                      onClose();
-                      onOpenGui(database, 'dbgate');
-                    }}
-                    className="px-3.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                    <span>Open DbGate</span>
-                  </button>
-                )}
+                {/* DbGate is offered for a cache too: the engine may be bound to the container
+                    gateway as well as loopback, and the daemon decides by measuring whether a
+                    container can open it — when it cannot, it says why and the attempt is audited
+                    as a refusal. */}
+                <button
+                  onClick={() => {
+                    onClose();
+                    onOpenGui(database, 'dbgate');
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Open DbGate</span>
+                </button>
               </div>
             </div>
           </div>

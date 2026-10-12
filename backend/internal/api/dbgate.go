@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
@@ -69,11 +71,37 @@ func dbgateSocketPath(engine string) string {
 // a container, and an engine installed on the host listens on the host's loopback
 // only. It can be reached over the engine's unix socket (mounted in) or, when the
 // panel runs the engine itself, through the docker gateway — nothing else.
-func dbgateReach(engine dbengine.Engine) (string, bool) {
+//
+// Whether that last door is open is *measured*, not assumed. An engine bound to the gateway
+// address as well as loopback answers a container on the gateway, and then there is nothing to
+// refuse; an engine bound to 127.0.0.1 alone is still refused, with the reason below. Measured on
+// the test host: Redis bound to `127.0.0.1 -::1 172.17.0.1` answers on the gateway, so its cache
+// can be opened in DbGate — its own plugin has no socket support at all (its connection fields
+// are server, port, user, password and url), which is why the socket door is not the answer here.
+func (s *Server) dbgateReach(ctx context.Context, engine dbengine.Engine, record *store.Database) (string, bool) {
 	if engine.FileBased || engine.Mode == dbengine.ModeDocker || dbgateSocketDir(engine.Name) != "" {
 		return "", false
 	}
+	if record != nil && record.Port > 0 && s.reachesGateway(ctx, record.Port) {
+		return "", false
+	}
 	return fmt.Sprintf("DbGate runs as a container and cannot reach %s, which listens on the host's loopback only and has no unix socket to mount — use the panel's own browser or a manager that runs on the host", engine.Label), true
+}
+
+// reachesGateway reports whether a container could open this port. The docker gateway is the one
+// address a container has to the host, so a listener bound there answers here; anything bound to
+// loopback alone does not, which is exactly the question being asked.
+func (s *Server) reachesGateway(ctx context.Context, port int) bool {
+	host := s.containerGateway(ctx)
+	if host == "" {
+		return false
+	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(port)), 700*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // prepareDbGate writes the env file that scopes one DbGate container to this
@@ -138,7 +166,16 @@ func (s *Server) prepareDbGate(ctx context.Context, record *store.Database, moun
 				"CONNECTION_bpod_socketPath="+dbgateSocketPath(engine.Name),
 			)
 		default:
-			lines = append(lines, "SERVER_bpod=127.0.0.1", "PORT_bpod="+strconv.Itoa(record.Port))
+			// A host engine the container can reach is given the gateway, because 127.0.0.1 inside
+			// the container is the container itself. Measured, not assumed: if it only answers on
+			// loopback, the refusal above has already explained why and this stays as it was.
+			host := "127.0.0.1"
+			if record.Port > 0 && s.reachesGateway(ctx, record.Port) {
+				if gateway := s.containerGateway(ctx); gateway != "" {
+					host = gateway
+				}
+			}
+			lines = append(lines, "SERVER_bpod="+host, "PORT_bpod="+strconv.Itoa(record.Port))
 		}
 	}
 	if err := os.MkdirAll(s.cfg.DbtoolsDir, 0o700); err != nil {

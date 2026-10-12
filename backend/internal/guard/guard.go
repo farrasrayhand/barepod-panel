@@ -277,9 +277,15 @@ func EnsureArgv() [][]string {
 		// copy of the drop rules behind (seven restarts, seven identical rules).
 		{"nft", "flush", "chain", "inet", Table, "input"},
 		{"nft", "add", "rule", "inet", Table, "input", "ip", "saddr", "@" + Set, "drop"},
+		// The host talking to itself is not "outside": a connection to the host's own gateway
+		// address comes from the loopback interface (measured: `ip route get 172.17.0.1` answers
+		// `dev lo src 172.17.0.1`), and the panel itself must be able to reach an engine where
+		// DbGate can reach it, or its own probe would report the door closed. Keyed on the
+		// interface rather than the address, so the LAN is never exempt by accident.
+		{"nft", "add", "rule", "inet", Table, "input", "iif", "lo", "return"},
+		{"nft", "add", "rule", "inet", Table, "input", "ip", "saddr", "@" + ExemptSet, "return"},
 		// Then the exempt addresses are let through (return hands the decision back to the
 		// policy, which accepts), and only what is left is dropped from a private port.
-		{"nft", "add", "rule", "inet", Table, "input", "ip", "saddr", "@" + ExemptSet, "return"},
 		{"nft", "add", "rule", "inet", Table, "input", "tcp", "dport", "@" + PortsSet, "drop"},
 	}
 }

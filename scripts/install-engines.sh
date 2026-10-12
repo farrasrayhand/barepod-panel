@@ -186,18 +186,37 @@ if have redis-cli; then
       mkdir -p /etc/barepod && chmod 0700 /etc/barepod
       printf '%s\n' "$REDIS_URL" > "$REDIS_ADMIN_FILE"
       chmod 0600 "$REDIS_ADMIN_FILE"
+      # The users live in an ACL file, not in redis.conf: runtime ACL users are lost on a restart
+      # (measured — a restart while changing `bind` wiped every cache user), and Redis refuses to
+      # start if `user` lines are in redis.conf while an aclfile is configured.
+      install -d -m 0750 -o redis -g redis /etc/redis 2>/dev/null || mkdir -p /etc/redis
+      {
+        printf 'user barepod_admin on #%s ~* +@all\n' "$(printf '%s' "$REDIS_ADMIN_PASS" | sha256sum | cut -c1-64)"
+        printf 'user default off\n'
+      } > /etc/redis/users.acl
+      chown redis:redis /etc/redis/users.acl 2>/dev/null || true
+      chmod 0640 /etc/redis/users.acl
+      if ! grep -qE '^[[:space:]]*aclfile' /etc/redis/redis.conf 2>/dev/null; then
+        printf '\n# Added by BarePod: ACL users live here, because ones created at runtime are lost on\n# a restart. Do not also put `user` lines in this file — Redis refuses to start then.\naclfile /etc/redis/users.acl\n' >> /etc/redis/redis.conf
+      fi
+      # A container manager has to be able to reach the cache, and the one address a container has
+      # to the host is the docker bridge gateway — so the cache listens there too, and the panel's
+      # firewall keeps every other interface out. `bind` is a startup directive: this needs a
+      # restart, which the note below says.
+      REDIS_GATEWAY="$(ip -4 -o addr show docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)"
+      if [[ -n "$REDIS_GATEWAY" ]] && ! grep -qE "^[[:space:]]*bind .*${REDIS_GATEWAY}" /etc/redis/redis.conf 2>/dev/null; then
+        sed -i "s|^[[:space:]]*bind .*|bind 127.0.0.1 -::1 ${REDIS_GATEWAY}|" /etc/redis/redis.conf
+        note "Redis will also listen on the container gateway ${REDIS_GATEWAY}, so a container manager can reach it (takes effect on its next restart)"
+      fi
+      systemctl restart redis-server >/dev/null 2>&1 || true
+      if redis-cli -u "$REDIS_URL" --no-auth-warning ACL WHOAMI 2>/dev/null | grep -q barepod_admin; then
+        note "Redis no longer accepts unauthenticated connections (default off, users in /etc/redis/users.acl, panel identity in $REDIS_ADMIN_FILE)"
+      else
+        note "Redis did not accept the panel's identity — check: systemctl status redis-server"
+      fi
       install -d -m 0755 /etc/systemd/system/barepod.service.d
       printf '[Service]\nEnvironment=BAREPOD_REDIS_URL=%s\n' "$REDIS_URL" \
         > /etc/systemd/system/barepod.service.d/redis-admin.conf
-      note "the panel now has its own Redis identity, stored in $REDIS_ADMIN_FILE (root only)"
-      if redis-cli -u "$REDIS_URL" --no-auth-warning ACL SETUSER default off >/dev/null 2>&1; then
-        if ! grep -qE '^[[:space:]]*user[[:space:]]+default[[:space:]]+off' /etc/redis/redis.conf 2>/dev/null; then
-          printf '\n# Added by BarePod: an unauthenticated Redis is a remote-takeover path. Every client\n# authenticates as its own user; the panel keeps its identity in /etc/barepod/redis-admin.url.\nuser default off\n' >> /etc/redis/redis.conf
-        fi
-        note "Redis no longer accepts unauthenticated connections (default user off, now and after a restart)"
-      else
-        note "the passwordless default user could NOT be closed — close it by hand once the panel restarts"
-      fi
       note "run: systemctl daemon-reload && systemctl restart barepod   (to hand the panel its identity)"
     else
       note "the Redis admin identity could not be created"

@@ -264,7 +264,9 @@ func (s *Server) guiToolAvailability(kind string, record *store.Database, tool g
 	}
 	if tool.name == "dbgate" {
 		if engine, found := s.engineFor(context.Background(), record.Engine); found {
-			if reason, unreachable := dbgateReach(engine); unreachable {
+			// No request in scope here: this is the availability list, and the probe is a dial with
+			// its own short timeout rather than something to hang on a caller's context.
+			if reason, unreachable := s.dbgateReach(context.Background(), engine, record); unreachable {
 				return "", false, reason
 			}
 		}
@@ -562,7 +564,7 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 					}
 				}
 				if tool == "dbgate" {
-					if reason, unreachable := dbgateReach(engine); unreachable {
+					if reason, unreachable := s.dbgateReach(r.Context(), engine, record); unreachable {
 						writeError(w, http.StatusConflict, "not_reachable", reason)
 						return
 					}
