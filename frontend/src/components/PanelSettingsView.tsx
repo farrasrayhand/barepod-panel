@@ -90,16 +90,25 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }
   };
 
-  const changeSSHPort = async (port: number, remove: boolean) => {
-    if (portBusy) return;
+  // One action, the way the panel's own port works. The new port is added and sshd is asked whether it
+  // accepts it before anything is taken away, and only then are the old ones removed. Every failure
+  // leaves the host with more access rather than less, so this cannot lock you out — and it must not
+  // touch the panel's field: it did, because the refresh re-seeded a draft the operator was not editing.
+  const changeSSHPort = async (port: number) => {
+    if (portBusy || !isPortNumber(String(port))) return;
     setPortBusy(true);
     try {
-      const answer = await api.setSSHPort(port, remove);
-      onShowToast?.(remove ? 'SSH port removed' : 'SSH port added', answer.note, 'success');
-      const measured = await api.systemPorts();
-      setPorts(measured);
-      setPanelPortDraft(String(measured.panel ?? ''));
-      setSshPortDraft('');
+      const current = ports?.sshPorts?.length ? ports.sshPorts : ports?.ssh ? [ports.ssh] : [];
+      const stale = current.filter((existing) => existing !== port);
+      const answer = await api.setSSHPort(port, false);
+      let note = answer.note;
+      for (const old of stale) {
+        const removed = await api.setSSHPort(old, true);
+        note = removed.note;
+      }
+      onShowToast?.('SSH port changed', note, 'success');
+      setPorts(await api.systemPorts());
+      setSshPortDraft(String(port));
     } catch (err) {
       onShowToast?.('Could not change the SSH port', err instanceof Error ? err.message : 'unknown error', 'error');
     } finally {
@@ -121,6 +130,11 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       }
       try {
         const measured = await api.systemPorts();
+        // Shown once, so both fields read as "this is the port now" and can be changed directly. Doing
+        // this on every refresh instead was a bug: saving an SSH port re-filled the panel's field.
+        setPanelPortDraft(String(measured.panel ?? ''));
+        setSshPortDraft(String(measured.sshPorts?.[0] ?? measured.ssh ?? '')); // Panel port shown
+
         if (alive) setPorts(measured);
       } catch {
         // No numbers are better than numbers that are not true of this host.
@@ -562,7 +576,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                       disabled={portBusy || !isPortNumber(panelPortDraft)}
                       className="px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg shrink-0"
                     >
-                      Move panel
+                      Change
                     </button>
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1">
@@ -582,24 +596,16 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     />
                     <button
                       type="button"
-                      onClick={() => void changeSSHPort(Number(sshPortDraft), false)}
+                      onClick={() => void changeSSHPort(Number(sshPortDraft))}
                       disabled={portBusy || !isPortNumber(sshPortDraft)}
                       className="px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg shrink-0"
                     >
-                      Add
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void changeSSHPort(Number(sshPortDraft), true)}
-                      disabled={portBusy || !isPortNumber(sshPortDraft)}
-                      className="px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg shrink-0"
-                    >
-                      Remove
+                      Change
                     </button>
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Now {(ports?.sshPorts?.length ? ports.sshPorts : ports?.ssh ? [ports.ssh] : []).join(', ') || '-'}. Add the new
-                    port and keep this one until it answers; the engine ports are not moved from here.
+                    Now {(ports?.sshPorts?.length ? ports.sshPorts : ports?.ssh ? [ports.ssh] : []).join(', ') || '-'}. Changing it adds the
+                    new port and asks sshd whether it accepts it, then removes the old one.
                   </p>
                 </div>
               </div>
