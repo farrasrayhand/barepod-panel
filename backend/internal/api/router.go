@@ -155,6 +155,11 @@ func New(d Deps) http.Handler {
 	// written into it — including none for SSH.
 	mux.HandleFunc("GET /api/v1/system/ports", s.requireAuth(s.handleSystemPorts))
 
+	// Changing a port the host itself listens on. Administrative, audited, and written the same way in
+	// both: validate, keep a copy, write, verify, and put the copy back if the verification fails.
+	mux.HandleFunc("POST /api/v1/system/ports/panel", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSetPanelPort)))
+	mux.HandleFunc("POST /api/v1/system/ports/ssh", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSetSSHPort)))
+
 	// System — "monitoring" capability
 	mux.HandleFunc("GET /api/v1/system/capabilities", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleCapabilities)))
 	mux.HandleFunc("GET /api/v1/system/metrics", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemMetrics)))

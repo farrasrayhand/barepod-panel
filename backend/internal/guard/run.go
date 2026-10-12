@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -116,12 +117,30 @@ type Guard struct {
 // UseRedisACL tells the guard how to read the cache's refusals. It is a setter rather than a
 // constructor argument because a panel without a cache is a normal case and its guard should still
 // work, unchanged.
-// SetScopes tells the guard which doors an engine's bans close. Called once at start with the panel's
-// own port and SSH's.
+// SetScopes tells the guard which doors an engine's bans close: the panel's own port, from how the
+// daemon was started.
 func (g *Guard) SetScopes(scopes map[string]int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.scopes = scopes
+	if g.scopes == nil {
+		g.scopes = map[string]int{}
+	}
+	for engine, port := range scopes {
+		g.scopes[engine] = port
+	}
+}
+
+// refreshScopes re-reads the doors that can change while the daemon runs. SSH's port lives in its own
+// configuration and can be changed from the panel, so reading it once at start meant a ban closing a
+// port sshd had stopped listening on — a door closed where nobody was knocking, and a new one open.
+func (g *Guard) refreshScopes() {
+	port := sshPortFromConfig()
+	g.mu.Lock()
+	if g.scopes == nil {
+		g.scopes = map[string]int{}
+	}
+	g.scopes["ssh"] = port
+	g.mu.Unlock()
 }
 
 func (g *Guard) scopeFor(engine string) int {
@@ -247,6 +266,8 @@ func (g *Guard) Sweep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The doors that can move while the daemon runs, re-read before anything is decided.
+	g.refreshScopes()
 	// Refreshed every sweep, so an address that has just proved it is the operator's is exempt from
 	// the pass that follows. Decide consults it (IsTrusted); nothing else writes it.
 	if trusted, err := g.store.Trusted(); err == nil {
@@ -770,4 +791,22 @@ func widestFindTime(fallback Settings, perEngine map[string]Settings) time.Durat
 		}
 	}
 	return widest
+}
+
+// sshPortFromConfig reads the port sshd was told to listen on: the first it names, or the documented
+// default when it names none, which is what this host does.
+func sshPortFromConfig() int {
+	body, err := os.ReadFile("/etc/ssh/sshd_config")
+	if err != nil {
+		return 22
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && strings.EqualFold(fields[0], "Port") {
+			if port, err := strconv.Atoi(fields[1]); err == nil {
+				return port
+			}
+		}
+	}
+	return 22
 }

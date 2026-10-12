@@ -459,7 +459,33 @@ export const api = {
    */
   /** The ports this host is actually listening on, measured rather than written into a screen. */
   systemPorts: () =>
-    request<{ panel: number; ssh: number; engines: Record<string, number>; note: string }>('/system/ports'),
+    request<{
+      panel: number;
+      ssh: number;
+      engines: Record<string, number>;
+      sshPorts: number[];
+      note: string;
+    }>('/system/ports'),
+
+  /**
+   * Move the panel to another port: the daemon rewrites the flag its unit starts with and restarts
+   * itself, so the page stops answering here and the panel is on the new port.
+   */
+  setPanelPort: (port: number) =>
+    request<{ port: number; note: string }>('/system/ports/panel', {
+      method: 'POST',
+      body: JSON.stringify({ port }),
+    }),
+
+  /**
+   * Change a port sshd listens on. Adding keeps the old one, so a mistake costs nothing; removing is
+   * the deliberate second step, once the new port is known to answer.
+   */
+  setSSHPort: (port: number, remove = false) =>
+    request<{ port: number; removed: boolean; note: string; ports: number[] }>('/system/ports/ssh', {
+      method: 'POST',
+      body: JSON.stringify({ port, remove }),
+    }),
 
   panelSettings: () => request<{ externalAddress: string }>('/system/settings'),
 

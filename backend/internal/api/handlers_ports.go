@@ -53,7 +53,10 @@ func (s *Server) handleSystemPorts(w http.ResponseWriter, r *http.Request, _ *st
 		"panel":   panelPort,
 		"ssh":     sshPort,
 		"engines": engines,
-		"note":    "measured on this host with ss, not written into the screen",
+		// What sshd was actually told, which is what the screen edits: the safe way to move SSH's port
+		// is to add one while the old still answers, and that needs the list, not the single listener.
+		"sshPorts": sshdConfiguredPorts(),
+		"note":     "measured on this host with ss, not written into the screen",
 	})
 }
 

@@ -57,7 +57,47 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [externalSaving, setExternalSaving] = useState(false);
   // Measured, not written into the screen: the settings page used to state the engines' ports and the
   // panel's, and SSH was missing entirely.
-  const [ports, setPorts] = useState<{ panel: number; ssh: number; engines: Record<string, number> } | null>(null);
+  const [ports, setPorts] = useState<{
+    panel: number;
+    ssh: number;
+    engines: Record<string, number>;
+    sshPorts: number[];
+  } | null>(null);
+  // Changing a port the host listens on: admin-only, and both go through the daemon's own checks.
+  const [panelPortDraft, setPanelPortDraft] = useState('');
+  const [sshPortDraft, setSshPortDraft] = useState('');
+  const [portBusy, setPortBusy] = useState(false);
+
+  const changePanelPort = async () => {
+    const port = Number(panelPortDraft);
+    if (!port || portBusy) return;
+    setPortBusy(true);
+    try {
+      const answer = await api.setPanelPort(port);
+      onShowToast?.('Panel is moving', answer.note, 'info');
+      setPanelPortDraft('');
+    } catch (err) {
+      onShowToast?.('Could not change the port', err instanceof Error ? err.message : 'unknown error', 'error');
+    } finally {
+      setPortBusy(false);
+    }
+  };
+
+  const changeSSHPort = async (port: number, remove: boolean) => {
+    if (portBusy) return;
+    setPortBusy(true);
+    try {
+      const answer = await api.setSSHPort(port, remove);
+      onShowToast?.(remove ? 'SSH port removed' : 'SSH port added', answer.note, 'success');
+      const measured = await api.systemPorts();
+      setPorts(measured);
+      setSshPortDraft('');
+    } catch (err) {
+      onShowToast?.('Could not change the SSH port', err instanceof Error ? err.message : 'unknown error', 'error');
+    } finally {
+      setPortBusy(false);
+    }
+  };
 
   React.useEffect(() => {
     let alive = true;
@@ -1351,15 +1391,61 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     </div>
                   );
                 })}
-                <div className="p-3 rounded-xl border border-slate-200 bg-white">
+                <div className="p-3 rounded-xl border border-slate-200 bg-white space-y-1.5">
                   <span className="block text-xs font-bold text-slate-700">SSH</span>
-                  <span className="block font-mono text-sm text-slate-900 mt-0.5">{ports?.ssh || '—'}</span>
-                  <span className="block text-[10px] text-slate-400 mt-0.5">a way in, so it is shown</span>
+                  <span className="block font-mono text-sm text-slate-900">
+                    {(ports?.sshPorts?.length ? ports.sshPorts : ports?.ssh ? [ports.ssh] : []).join(', ') || '—'}
+                  </span>
+                  <span className="block text-[10px] text-slate-400">a way in, so it is shown</span>
+                  {isAdmin && (
+                    <div className="flex gap-1.5 pt-1">
+                      <input
+                        value={sshPortDraft}
+                        onChange={(e) => setSshPortDraft(e.target.value)}
+                        placeholder="2222"
+                        className="w-20 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void changeSSHPort(Number(sshPortDraft), false)}
+                        disabled={portBusy || !sshPortDraft}
+                        className="px-2 py-1 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg"
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void changeSSHPort(Number(sshPortDraft), true)}
+                        disabled={portBusy || !sshPortDraft}
+                        className="px-2 py-1 text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className="p-3 rounded-xl border border-slate-200 bg-white">
+                <div className="p-3 rounded-xl border border-slate-200 bg-white space-y-1.5">
                   <span className="block text-xs font-bold text-slate-700">Panel (HTTPS)</span>
-                  <span className="block font-mono text-sm text-slate-900 mt-0.5">{ports?.panel || '—'}</span>
-                  <span className="block text-[10px] text-slate-400 mt-0.5">as the daemon was started</span>
+                  <span className="block font-mono text-sm text-slate-900">{ports?.panel || '—'}</span>
+                  <span className="block text-[10px] text-slate-400">as the daemon was started</span>
+                  {isAdmin && (
+                    <div className="flex gap-1.5 pt-1">
+                      <input
+                        value={panelPortDraft}
+                        onChange={(e) => setPanelPortDraft(e.target.value)}
+                        placeholder={ports?.panel ? String(ports.panel) : '8443'}
+                        className="w-20 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void changePanelPort()}
+                        disabled={portBusy || !panelPortDraft}
+                        className="px-2 py-1 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg"
+                      >
+                        Move panel
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
