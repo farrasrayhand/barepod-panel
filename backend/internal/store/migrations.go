@@ -18,7 +18,23 @@ var migrations = []migration{
 	{version: 8, statements: schemaV8},
 	{version: 9, statements: schemaV9},
 	{version: 10, statements: schemaV10},
+	{version: 11, statements: schemaV11},
 }
+
+// schemaV11 lets an engine have its own lockout numbers. The row in guard_settings stays the
+// default for every engine; a row here overrides it for one of them, because a cache that is asked
+// for a password ten times a second and a panel login are not the same risk and should not have to
+// share one threshold.
+const schemaV11 = `
+CREATE TABLE IF NOT EXISTS guard_engine_settings (
+  engine     TEXT PRIMARY KEY,
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  max_retry  INTEGER NOT NULL DEFAULT 5,
+  find_time  TEXT NOT NULL DEFAULT '10m0s',
+  ban_time   TEXT NOT NULL DEFAULT '1h0m0s',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+`
 
 // schemaV10 is per-database exposure: a database is private unless an operator says
 // otherwise, and "public" is a decision the panel records because it is the one that opened

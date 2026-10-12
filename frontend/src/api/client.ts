@@ -403,6 +403,14 @@ export interface GuardBan {
   expiresAt: string;
 }
 
+/** One engine's own lockout numbers, and whether they are its own or the default's. */
+export interface EngineNumbers {
+  maxRetry: number;
+  findTime: string;
+  banTime: string;
+  override: boolean;
+}
+
 /** The lockout's state: its numbers, what it is keeping out, and whether it can enforce. */
 export interface GuardStatus {
   enabled: boolean;
@@ -420,6 +428,8 @@ export interface GuardStatus {
   /** The nftables table and set the bans really live in. */
   table: string;
   set: string;
+  /** Every engine the lockout reads, with the numbers it would use for it. */
+  engines: Record<string, EngineNumbers>;
 }
 
 export const api = {
@@ -431,7 +441,12 @@ export const api = {
    */
   guard: () => request<GuardStatus>('/system/guard'),
 
-  saveGuardSettings: (settings: { enabled?: boolean; maxRetry?: number; findTime?: string; banTime?: string }) =>
+  /**
+   * Save the lockout's numbers. `engine` targets one engine instead of the default, and `reset`
+   * returns that engine to the default — the panel's Settings → Security is the only caller, because
+   * a lockout a tenant could loosen is not a lockout.
+   */
+  saveGuardSettings: (settings: { enabled?: boolean; maxRetry?: number; findTime?: string; banTime?: string; engine?: string; reset?: boolean }) =>
     request<GuardStatus>('/system/guard', { method: 'PATCH', body: JSON.stringify(settings) }),
 
   /** Let one address back in. Audited by the daemon, against the address. */

@@ -282,11 +282,19 @@ func scanMongo(log string) []Failure {
 // Decide is the whole policy, kept pure so it can be tested without a host: which
 // addresses have earned a ban, which bans have expired, and nothing else. `counts` is the
 // failures seen so far inside the window, per address.
-func Decide(settings Settings, failures []Failure, existing map[string]Ban, now time.Time) (ban []Ban, drop []string) {
+func Decide(settings Settings, perEngine map[string]Settings, failures []Failure, existing map[string]Ban, now time.Time) (ban []Ban, drop []string) {
 	if !settings.Enabled {
 		// Disabled drops nothing either: a ban stays until it expires, so switching the
 		// guard off does not quietly let an address back in.
 		return nil, nil
+	}
+	// An engine either has its own numbers or uses the default — one place to look, and an override
+	// that is easy to remove.
+	effective := func(engine string) Settings {
+		if custom, found := perEngine[engine]; found {
+			return custom
+		}
+		return settings
 	}
 	recent := map[string][]Failure{}
 	for _, failure := range failures {
@@ -302,19 +310,35 @@ func Decide(settings Settings, failures []Failure, existing map[string]Ban, now 
 		if _, already := existing[ip]; already {
 			continue
 		}
-		if len(seen) < settings.MaxRetry {
-			continue
+		// Counted per engine: five refusals from PostgreSQL and one from Redis is not six against
+		// either of them, and each engine's own threshold decides.
+		byEngine := map[string][]Failure{}
+		for _, failure := range seen {
+			byEngine[failure.Engine] = append(byEngine[failure.Engine], failure)
 		}
-		last := seen[len(seen)-1]
-		ban = append(ban, Ban{
-			IP:        ip,
-			Engine:    last.Engine,
-			User:      last.User,
-			Count:     len(seen),
-			Reason:    fmt.Sprintf("%d refused logins within %s", len(seen), settings.FindTime),
-			At:        now,
-			ExpiresAt: now.Add(settings.BanTime),
-		})
+		for engine, group := range byEngine {
+			engineSettings := effective(engine)
+			window := group[:0]
+			for _, failure := range group {
+				if now.Sub(failure.At) <= engineSettings.FindTime {
+					window = append(window, failure)
+				}
+			}
+			if len(window) < engineSettings.MaxRetry {
+				continue
+			}
+			last := window[len(window)-1]
+			ban = append(ban, Ban{
+				IP:        ip,
+				Engine:    engine,
+				User:      last.User,
+				Count:     len(window),
+				Reason:    fmt.Sprintf("%d refused logins within %s", len(window), engineSettings.FindTime),
+				At:        now,
+				ExpiresAt: now.Add(engineSettings.BanTime),
+			})
+			break // one ban per address per pass, named after the engine that earned it
+		}
 	}
 	for ip, entry := range existing {
 		if !entry.ExpiresAt.IsZero() && now.After(entry.ExpiresAt) {

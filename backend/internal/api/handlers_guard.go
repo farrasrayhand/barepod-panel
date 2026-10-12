@@ -51,6 +51,21 @@ func (a guardStoreAdapter) SaveBan(ban guard.Ban) error {
 
 func (a guardStoreAdapter) DropBan(ip string) error { return a.st.DropGuardBan(ip) }
 
+// EngineSettings reads the per-engine overrides, so an engine can carry its own numbers.
+func (a guardStoreAdapter) EngineSettings() (map[string]guard.Settings, error) {
+	rows, err := a.st.EngineGuardSettings()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]guard.Settings, len(rows))
+	for engine, row := range rows {
+		out[engine] = guard.Settings{
+			Enabled: row.Enabled, MaxRetry: row.MaxRetry, FindTime: row.FindTime, BanTime: row.BanTime,
+		}
+	}
+	return out, nil
+}
+
 func (a guardStoreAdapter) DropExpired(now time.Time) (int, error) {
 	released, err := a.st.DropExpiredGuardBans(now)
 	return int(released), err
@@ -86,6 +101,10 @@ func (s *Server) handleGuardSettings(w http.ResponseWriter, r *http.Request, use
 		MaxRetry *int    `json:"maxRetry"`
 		FindTime *string `json:"findTime"`
 		BanTime  *string `json:"banTime"`
+		// Engine targets one engine. Empty means the default, which every engine without its own
+		// numbers uses. Reset returns that engine to the default.
+		Engine string `json:"engine"`
+		Reset  bool   `json:"reset"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "could not read the lockout settings")
@@ -123,6 +142,39 @@ func (s *Server) handleGuardSettings(w http.ResponseWriter, r *http.Request, use
 		}
 		next.BanTime = parsed
 	}
+	// One engine may carry its own numbers, and this is the only place they are set: the panel's own
+	// Settings → Security, behind the administrative capability. A lockout a tenant could loosen is
+	// not a lockout.
+	if engine := strings.TrimSpace(body.Engine); engine != "" {
+		var err error
+		if body.Reset {
+			err = s.store.DropEngineGuardSettings(engine)
+		} else {
+			existing, _ := s.store.EngineGuardSettings()
+			value := next
+			if had, found := existing[engine]; found && body.MaxRetry == nil && body.FindTime == nil && body.BanTime == nil {
+				value = had
+			}
+			err = s.store.SaveEngineGuardSettings(engine, value)
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+			return
+		}
+		action := "guard.engine_settings"
+		detail := fmt.Sprintf("engine=%s maxRetry=%d findTime=%s banTime=%s", engine, next.MaxRetry, next.FindTime, next.BanTime)
+		if body.Reset {
+			detail = "engine=" + engine + " reset to the default"
+		}
+		_ = s.store.Audit(user.ID, action, "bruteforce", clientIP(r), detail)
+		if s.guard != nil {
+			writeJSON(w, http.StatusOK, s.guard.Snapshot(r.Context()))
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"settings": next, "engine": engine})
+		return
+	}
+
 	if err := s.store.SaveGuardSettings(next); err != nil {
 		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
 		return

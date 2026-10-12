@@ -71,6 +71,9 @@ export function GuardCard({
   const [busyIP, setBusyIP] = useState('');
   const [confirming, setConfirming] = useState('');
   const [form, setForm] = useState({ maxRetry: '', findTime: '', banTime: '' });
+  // Which engine's numbers the three fields are editing. Empty is the default every engine without
+  // its own numbers uses — the panel's Settings → Security is the only place these are set.
+  const [engineChoice, setEngineChoice] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -86,6 +89,17 @@ export function GuardCard({
   }, []);
 
   useEffect(() => {
+    if (status) {
+      const own = engineChoice ? status.engines?.[engineChoice] : undefined;
+      setForm(
+        own
+          ? { maxRetry: String(own.maxRetry), findTime: own.findTime, banTime: own.banTime }
+          : { maxRetry: String(status.maxRetry), findTime: status.findTime, banTime: status.banTime },
+      );
+    }
+  }, [engineChoice, status]);
+
+  useEffect(() => {
     void load();
     // The card is about something happening now, so it keeps up with it.
     const timer = setInterval(() => void load(), 30000);
@@ -96,6 +110,7 @@ export function GuardCard({
     setSaving(true);
     try {
       const next = await api.saveGuardSettings({
+        engine: engineChoice || undefined,
         maxRetry: Number(form.maxRetry) || undefined,
         findTime: form.findTime || undefined,
         banTime: form.banTime || undefined,
@@ -104,6 +119,19 @@ export function GuardCard({
       onShowToast?.('Lockout updated', 'The new numbers are used on the next check.', 'success');
     } catch (err) {
       onShowToast?.('Could not save', err instanceof Error ? err.message : 'unknown error', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetEngine = async () => {
+    if (!engineChoice || !status) return;
+    setSaving(true);
+    try {
+      setStatus(await api.saveGuardSettings({ engine: engineChoice, reset: true }));
+      onShowToast?.(`${engineLabel[engineChoice] ?? engineChoice} uses the default again`, 'The three fields now show the default values.', 'success');
+    } catch (err) {
+      onShowToast?.('Could not reset', err instanceof Error ? err.message : 'unknown error', 'error');
     } finally {
       setSaving(false);
     }
@@ -182,6 +210,32 @@ export function GuardCard({
           they live in one place now, and this says where that is rather than showing dead inputs. */}
       {variant === 'full' ? (
         <>
+          <div className="px-5 pt-4">
+            <label className="block">
+              <span className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">
+                Numbers for
+              </span>
+              <select
+                value={engineChoice}
+                onChange={(event) => setEngineChoice(event.target.value)}
+                className="mt-1 w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white"
+              >
+                <option value="">Every engine (the default)</option>
+                {Object.keys(status?.engines || {}).map((name) => (
+                  <option key={name} value={name}>
+                    {engineLabel[name] ?? name}
+                    {status?.engines?.[name]?.override ? ' — its own numbers' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="text-[11px] text-slate-400 mt-1">
+              {engineChoice
+                ? `Applies to ${engineLabel[engineChoice] ?? engineChoice} only. An address that keeps failing there is still kept out of the whole host.`
+                : 'Applies to every engine that has no numbers of its own. Each one is read independently.'}
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-5 py-4 border-b border-slate-200">
             {[
               { key: 'maxRetry' as const, label: 'Failed logins allowed', hint: '1 – 100' },
@@ -213,6 +267,16 @@ export function GuardCard({
                     .map(([name, note]) => ` ${engineLabel[name] ?? name}: ${note}.`)
                     .join('')}
             </p>
+            {engineChoice && status?.engines?.[engineChoice]?.override ? (
+              <button
+                type="button"
+                onClick={() => void resetEngine()}
+                disabled={saving}
+                className="mr-2 px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 rounded-xl transition-colors"
+              >
+                Use the default
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => void save()}

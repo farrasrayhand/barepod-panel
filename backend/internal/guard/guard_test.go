@@ -123,7 +123,7 @@ func TestDecideCountsInsideTheWindowAndNeverBansLoopback(t *testing.T) {
 		{Engine: "mariadb", IP: "198.51.100.9", At: now.Add(-time.Hour)},
 	}
 
-	ban, drop := Decide(settings, failures, nil, now)
+	ban, drop := Decide(settings, nil, failures, nil, now)
 	if len(ban) != 1 || ban[0].IP != "203.0.113.7" {
 		t.Fatalf("the address that kept trying was not banned: %+v", ban)
 	}
@@ -139,7 +139,7 @@ func TestDecideCountsInsideTheWindowAndNeverBansLoopback(t *testing.T) {
 		"203.0.113.7":   {IP: "203.0.113.7", ExpiresAt: now.Add(time.Minute)},
 		"198.51.100.44": {IP: "198.51.100.44", ExpiresAt: now.Add(-time.Minute)},
 	}
-	ban, drop = Decide(settings, failures, existing, now)
+	ban, drop = Decide(settings, nil, failures, existing, now)
 	if len(ban) != 0 {
 		t.Errorf("an address already banned was banned again: %+v", ban)
 	}
@@ -152,7 +152,7 @@ func TestDisabledGuardDoesNotQuietlyLetAddressesBackIn(t *testing.T) {
 	settings := Settings{Enabled: false, MaxRetry: 1, FindTime: time.Minute, BanTime: time.Hour}
 	now := time.Now()
 	failures := []Failure{{Engine: "postgresql", IP: "203.0.113.7", At: now}}
-	ban, drop := Decide(settings, failures, map[string]Ban{
+	ban, drop := Decide(settings, nil, failures, map[string]Ban{
 		"198.51.100.44": {IP: "198.51.100.44", ExpiresAt: now.Add(-time.Minute)},
 	}, now)
 	if len(ban) != 0 || len(drop) != 0 {
@@ -230,5 +230,41 @@ func TestRedisAggregatedRefusalsCountAsMany(t *testing.T) {
 	}
 	if got := Scan("redis", entry("1")); len(got) != 1 {
 		t.Errorf("a single refusal counted as %d", len(got))
+	}
+}
+
+// An engine may carry its own numbers, which is the whole point of separating them: five refusals
+// from Redis and five from PostgreSQL need not mean the same thing, and a cache can be given a
+// shorter window and a longer ban without touching every other engine.
+func TestAnEngineCanHaveItsOwnNumbers(t *testing.T) {
+	now := time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)
+	fallback := Settings{Enabled: true, MaxRetry: 5, FindTime: 10 * time.Minute, BanTime: time.Hour}
+	perEngine := map[string]Settings{
+		"redis": {Enabled: true, MaxRetry: 2, FindTime: time.Minute, BanTime: 6 * time.Hour},
+	}
+	failures := []Failure{
+		{Engine: "redis", IP: "203.0.113.7", At: now.Add(-10 * time.Second)},
+		{Engine: "redis", IP: "203.0.113.7", At: now.Add(-5 * time.Second)},
+		{Engine: "postgresql", IP: "198.51.100.9", At: now.Add(-time.Minute)},
+	}
+
+	ban, _ := Decide(fallback, perEngine, failures, nil, now)
+	if len(ban) != 1 {
+		t.Fatalf("want only the engine whose own threshold was reached, got %+v", ban)
+	}
+	if ban[0].IP != "203.0.113.7" || ban[0].Engine != "redis" {
+		t.Errorf("the wrong engine's address was banned: %+v", ban[0])
+	}
+	if !ban[0].ExpiresAt.Equal(now.Add(6 * time.Hour)) {
+		t.Errorf("the ban did not use the engine's own time: %+v", ban[0].ExpiresAt)
+	}
+	if ban[0].Count != 2 {
+		t.Errorf("the count is not the engine's own: %+v", ban[0])
+	}
+
+	// The same failures under the default saw nothing worth banning.
+	ban, _ = Decide(fallback, nil, failures, nil, now)
+	if len(ban) != 0 {
+		t.Errorf("the default threshold banned somebody under it: %+v", ban)
 	}
 }

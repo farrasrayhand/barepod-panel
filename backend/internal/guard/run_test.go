@@ -14,6 +14,7 @@ type fakeStore struct {
 	settings Settings
 	bans     map[string]Ban
 	refusals []LoginRefusal
+	engines  map[string]Settings
 }
 
 func newFakeStore(settings Settings) *fakeStore {
@@ -330,4 +331,9 @@ func (f *fakeStore) LatestLoginRefusalID() (int64, error) {
 		}
 	}
 	return highest, nil
+}
+
+// Per-engine overrides, as the persistence side would hand them over.
+func (f *fakeStore) EngineSettings() (map[string]Settings, error) {
+	return f.engines, nil
 }

@@ -155,3 +155,61 @@ func (s *Store) DropExpiredGuardBans(now time.Time) (int64, error) {
 	}
 	return affected, nil
 }
+
+// EngineGuardSettings lists the engines that have their own numbers. An engine with no row uses the
+// default, which is what makes this an override rather than a second place to configure everything.
+func (s *Store) EngineGuardSettings() (map[string]GuardSettings, error) {
+	rows, err := s.DB.Query(`SELECT engine, enabled, max_retry, find_time, ban_time, updated_at FROM guard_engine_settings`)
+	if err != nil {
+		return nil, fmt.Errorf("store: read engine guard settings: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]GuardSettings{}
+	for rows.Next() {
+		var engine string
+		settings := DefaultGuardSettings()
+		var enabled int
+		var findTime, banTime, updatedAt string
+		if err := rows.Scan(&engine, &enabled, &settings.MaxRetry, &findTime, &banTime, &updatedAt); err != nil {
+			return nil, fmt.Errorf("store: scan engine guard settings: %w", err)
+		}
+		settings.Enabled = enabled != 0
+		if parsed, err := time.ParseDuration(findTime); err == nil && parsed > 0 {
+			settings.FindTime = parsed
+		}
+		if parsed, err := time.ParseDuration(banTime); err == nil && parsed > 0 {
+			settings.BanTime = parsed
+		}
+		settings.UpdatedAt = updatedAt
+		out[engine] = settings
+	}
+	return out, rows.Err()
+}
+
+// SaveEngineGuardSettings writes one engine's numbers.
+func (s *Store) SaveEngineGuardSettings(engine string, in GuardSettings) error {
+	enabled := 0
+	if in.Enabled {
+		enabled = 1
+	}
+	_, err := s.DB.Exec(`
+INSERT INTO guard_engine_settings (engine, enabled, max_retry, find_time, ban_time, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(engine) DO UPDATE SET
+  enabled = excluded.enabled, max_retry = excluded.max_retry,
+  find_time = excluded.find_time, ban_time = excluded.ban_time, updated_at = excluded.updated_at`,
+		engine, enabled, in.MaxRetry, in.FindTime.String(), in.BanTime.String(),
+		time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("store: save engine guard settings: %w", err)
+	}
+	return nil
+}
+
+// DropEngineGuardSettings returns an engine to the default.
+func (s *Store) DropEngineGuardSettings(engine string) error {
+	if _, err := s.DB.Exec(`DELETE FROM guard_engine_settings WHERE engine = ?`, engine); err != nil {
+		return fmt.Errorf("store: drop engine guard settings: %w", err)
+	}
+	return nil
+}

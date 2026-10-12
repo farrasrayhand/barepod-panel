@@ -32,6 +32,8 @@ type Store interface {
 	LoginRefusals(afterID int64) ([]LoginRefusal, error)
 	// LatestLoginRefusalID is where to start counting from.
 	LatestLoginRefusalID() (int64, error)
+	// EngineSettings are the per-engine overrides. An engine with no entry uses the default.
+	EngineSettings() (map[string]Settings, error)
 }
 
 // LoginRefusal is one refused login to the panel, as the audit trail records it.
@@ -213,6 +215,12 @@ func (g *Guard) Sweep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Per-engine overrides: a cache asked for a password ten times a second and a panel login are not
+	// the same risk, so each engine may carry its own numbers.
+	perEngine, err := g.store.EngineSettings()
+	if err != nil {
+		return err
+	}
 	now := g.now()
 
 	// Reading happens outside the lock: the readers take it themselves to record their
@@ -227,14 +235,17 @@ func (g *Guard) Sweep(ctx context.Context) error {
 	g.mu.Lock()
 	// The window is pruned on every pass, so it cannot grow without bound: only the
 	// failures still inside findtime are kept, which is all the decision needs.
+	// Pruned with the widest window any engine uses, so an engine with a longer window is not robbed
+	// of its own history; Decide then applies each engine's window.
 	keep := g.window[:0]
+	window := widestFindTime(settings, perEngine)
 	for _, failure := range g.window {
-		if now.Sub(failure.At) <= settings.FindTime {
+		if now.Sub(failure.At) <= window {
 			keep = append(keep, failure)
 		}
 	}
 	g.window = append(keep, failures...)
-	window := append([]Failure(nil), g.window...)
+	kept := append([]Failure(nil), g.window...)
 	g.mu.Unlock()
 
 	existing := map[string]Ban{}
@@ -246,7 +257,7 @@ func (g *Guard) Sweep(ctx context.Context) error {
 		existing[ban.IP] = ban
 	}
 
-	ban, drop := Decide(settings, window, existing, now)
+	ban, drop := Decide(settings, perEngine, kept, existing, now)
 
 	var firstErr error
 	banned := 0
@@ -531,6 +542,15 @@ func (g *Guard) Enforcing(ctx context.Context) (bool, string) {
 	return true, ""
 }
 
+// EngineNumbers is one engine's own numbers, as the screen shows and edits them. Override says
+// whether they are the engine's or the default's, so a screen can say which it is looking at.
+type EngineNumbers struct {
+	MaxRetry int    `json:"maxRetry"`
+	FindTime string `json:"findTime"`
+	BanTime  string `json:"banTime"`
+	Override bool   `json:"override"`
+}
+
 // Status is what the panel shows about the lockout.
 type Status struct {
 	Enabled   bool              `json:"enabled"`
@@ -546,6 +566,10 @@ type Status struct {
 	Interval  string            `json:"interval"`
 	Table     string            `json:"table"`
 	Set       string            `json:"set"`
+	// Engines carries every engine the lockout reads, with the numbers it would use for it — its own
+	// if it has any, the default otherwise. These are edited in Panel Settings → Security and nowhere
+	// else: a lockout a tenant could loosen is not a lockout.
+	Engines map[string]EngineNumbers `json:"engines"`
 }
 
 // Snapshot reports the lockout's settings, its bans and whether it is really enforcing.
@@ -555,6 +579,19 @@ func (g *Guard) Snapshot(ctx context.Context) Status {
 	enforcing, reason := g.Enforcing(ctx)
 	if bans == nil {
 		bans = []Ban{}
+	}
+	perEngine, _ := g.store.EngineSettings()
+	engines := map[string]EngineNumbers{}
+	for _, src := range g.sources {
+		numbers := settings
+		override := false
+		if custom, found := perEngine[src.engine]; found {
+			numbers, override = custom, true
+		}
+		engines[src.engine] = EngineNumbers{
+			MaxRetry: numbers.MaxRetry, FindTime: numbers.FindTime.String(),
+			BanTime: numbers.BanTime.String(), Override: override,
+		}
 	}
 	g.mu.Lock()
 	sources := map[string]string{}
@@ -576,6 +613,7 @@ func (g *Guard) Snapshot(ctx context.Context) Status {
 		Interval:  g.interval.String(),
 		Table:     Table,
 		Set:       Set,
+		Engines:   engines,
 	}
 	if !lastSweep.IsZero() {
 		out.LastSweep = lastSweep.Format(time.RFC3339)
@@ -638,4 +676,15 @@ func newestMatch(pattern string) string {
 		}
 	}
 	return newest
+}
+
+// widestFindTime is the longest window in use, which is what a shared buffer has to survive.
+func widestFindTime(fallback Settings, perEngine map[string]Settings) time.Duration {
+	widest := fallback.FindTime
+	for _, settings := range perEngine {
+		if settings.FindTime > widest {
+			widest = settings.FindTime
+		}
+	}
+	return widest
 }
