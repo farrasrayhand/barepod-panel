@@ -682,15 +682,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="block text-xs font-bold text-slate-700 mb-1">Failed-login lockout</span>
-                  <p className="text-[11px] text-slate-500">
-                    Handled by the Brute-Force Guard above, whose settings are the attempts, the window
-                    and the ban time — and whose bans land in the host's firewall. There is no second
-                    limit here, and no fail2ban: that daemon was removed from this host because it does
-                    not run on it at all.
-                  </p>
-                </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">

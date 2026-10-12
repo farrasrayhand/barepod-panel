@@ -56,6 +56,26 @@ interface DatabaseDetailsModalProps {
 }
 
 /**
+ * The lockout names engines its own way: PostgreSQL's log source is `postgresql`, and MySQL and
+ * MariaDB share one source called `mariadb` (they share a log). A record's own type is not that
+ * name, so the banned list can only be filtered once the two are mapped.
+ */
+function guardEngineFor(type: string): string | undefined {
+  switch (type) {
+    case 'postgres':
+      return 'postgresql';
+    case 'mysql':
+    case 'mariadb':
+      return 'mariadb';
+    case 'mongodb':
+      return 'mongodb';
+    case 'redis':
+      return 'redis';
+  }
+  return undefined;
+}
+
+/**
  * What an address actually is, rather than what a label would like it to be: 172.19.1.26 is a
  * private address (RFC1918) and calling it an "External Public IP" tells the operator something
  * false about who can reach it.
@@ -917,7 +937,7 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
               </div>
               )}
 
-              <GuardCard onShowToast={onShowToast} variant="bans" />
+              <GuardCard onShowToast={onShowToast} variant="bans" engine={guardEngineFor(database.type)} />
             </div>
           ) : dataTabActive === 'overview' ? (
             <>

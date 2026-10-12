@@ -47,6 +47,7 @@ function remaining(expiresAt: string): string {
 export function GuardCard({
   onShowToast,
   variant = 'full',
+  engine,
 }: {
   onShowToast?: Toast;
   /**
@@ -56,6 +57,12 @@ export function GuardCard({
    * usefully show is who has been kept out, and that is what it keeps.
    */
   variant?: 'full' | 'bans';
+  /**
+   * Which engine's bans this view is about. Each source is read independently, but they share one
+   * policy and one ban list — the ban is a drop at the host's firewall, not per engine — so a list
+   * shown inside a database's tab has to be filtered to say something true about *that* database.
+   */
+  engine?: string;
 }) {
   const [status, setStatus] = useState<GuardStatus | null>(null);
   const [error, setError] = useState('');
@@ -114,6 +121,12 @@ export function GuardCard({
       setBusyIP('');
     }
   };
+
+  // Which bans this view is about. Each source is read independently, but the ban itself is a drop
+  // at the host's firewall — one list, not one per engine — so a database's tab filters the list to
+  // the engine it is showing rather than claiming every address was kept out because of it.
+  const allBans = status?.bans ?? [];
+  const visibleBans = engine ? allBans.filter((ban) => ban.engine === engine) : allBans;
 
   const enforcing = status?.enforcing === true;
   const enabled = status?.enabled === true;
@@ -191,12 +204,13 @@ export function GuardCard({
             <p className="text-[11px] text-slate-500">
               {Object.entries(status?.sources || {}).length === 0
                 ? 'No login has been read yet.'
-                : `Reading refused logins from ${Object.keys(status?.sources || {})
-                    .map((engine) => engineLabel[engine] ?? engine)
-                    .join(', ')}.` +
+                : `Watched independently: ${Object.keys(status?.sources || {})
+                    .map((name) => engineLabel[name] ?? name)
+                    .join(', ')}. They share one policy — the thresholds below — and one ban list, so
+                  an address that moves from one engine to another does not get a second run.` +
                   Object.entries(status?.sources || {})
                     .filter(([, note]) => note)
-                    .map(([engine, note]) => ` ${engineLabel[engine] ?? engine}: ${note}.`)
+                    .map(([name, note]) => ` ${engineLabel[name] ?? name}: ${note}.`)
                     .join('')}
             </p>
             <button
@@ -223,10 +237,18 @@ export function GuardCard({
         <div className="flex items-center gap-2 mb-2">
           <Ban className="w-3.5 h-3.5 text-slate-400" />
           <span className="text-xs font-bold text-slate-700">
-            Blocked addresses {status ? `(${status.bans.length})` : ''}
+            {engine ? `Kept out because of ${engineLabel[engine] ?? engine}` : 'Blocked addresses'}{' '}
+            {status ? `(${visibleBans.length})` : ''}
           </span>
         </div>
-        {status && status.bans.length > 0 ? (
+        {engine && (
+          <p className="text-[11px] text-slate-500 mb-2">
+            The ban itself applies to the address everywhere on this host, not only to this engine —
+            that is deliberate: moving from one engine to another should not give an attacker a second
+            run.
+          </p>
+        )}
+        {status && visibleBans.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="text-[11px] uppercase tracking-wide text-slate-400">
@@ -239,7 +261,7 @@ export function GuardCard({
                 </tr>
               </thead>
               <tbody>
-                {status.bans.map((ban: GuardBan) => (
+                {visibleBans.map((ban: GuardBan) => (
                   <tr key={ban.ip} className="border-t border-slate-100">
                     <td className="py-2 pr-3 font-mono font-semibold text-slate-800">{ban.ip}</td>
                     <td className="py-2 pr-3 text-slate-600">
