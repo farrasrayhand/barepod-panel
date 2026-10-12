@@ -244,7 +244,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
   // 2. Security Settings
   const [forceHttps, setForceHttps] = useState(true);
-  const [ipWhitelist, setIpWhitelist] = useState('');
   const [sessionTimeoutHours, setSessionTimeoutHours] = useState(24);
   const [jwtSecretMasked, setJwtSecretMasked] = useState(true);
 
@@ -815,7 +814,9 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   <p className="text-[11px] text-slate-500 mt-0.5">
                     One address or network per line, e.g. <code>172.19.1.100</code> or <code>10.8.0.0/24</code>.
                     Where you sign in from is added here automatically, which is what keeps a lockout from
-                    taking away the way back in. Leaving it empty exempts nobody.
+                    taking away the way back in. Leaving it empty exempts nobody. This exempts from bans —
+                    it does not restrict who may open the panel. A restriction of that kind would be a
+                    different feature, and this panel does not have one yet.
                   </p>
                 </label>
                 <textarea
@@ -892,23 +893,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  IP Whitelist for Admin Panel Access (not implemented)
-                </label>
-                <textarea
-                  rows={3}
-                  value={ipWhitelist}
-                  onChange={(e) => setIpWhitelist(e.target.value)}
-                  placeholder="Example: 192.168.1.100&#10;103.45.12.0/24&#10;(Leave empty to allow all IPs)"
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
-                />
-                <p className="text-[10px] text-rose-600 font-semibold mt-1">
-                  Not enforced: nothing in the daemon reads this, so it does not restrict who may open the
-                  panel. Do not rely on it — the host's firewall and the panel's own lockout are the real
-                  controls.
-                </p>
-              </div>
 
               <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
                 <div className="flex items-center justify-between">
