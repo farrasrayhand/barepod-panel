@@ -527,7 +527,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Panel FQDN Domain — not applied yet
+                    Panel FQDN Domain
                   </label>
                   <input
                     type="text"
@@ -535,13 +535,13 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     onChange={(e) => setPanelDomain(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">Domain used to access the dashboard — not applied: nothing reads this yet.</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this domain yet.</p>
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Default Web Server Engine for New Apps — not applied yet
+                  Default Web Server Engine for New Apps
                 </label>
                 <select
                   value={defaultWebServer}
@@ -553,12 +553,13 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   <option value="caddy">Caddy (Automatic HTTPS & modern HTTP/3)</option>
                   <option value="apache">Apache 2.4 (Best .htaccess compatibility)</option>
                 </select>
+                  <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this choice yet.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Server Timezone — not applied yet
+                    Server Timezone
                   </label>
                   <select
                     value={timezone}
@@ -571,11 +572,12 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     <option value="UTC">UTC (Universal Time)</option>
                     <option value="Asia/Singapore">Asia/Singapore (SGT - UTC+8)</option>
                   </select>
+                    <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this yet — this host runs WITA (UTC+8), not WIB.</p>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Interface Language — not applied yet
+                    Interface Language
                   </label>
                   <select
                     value={language}
@@ -585,6 +587,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     <option value="id">Indonesian</option>
                     <option value="en">English (US)</option>
                   </select>
+                    <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this yet.</p>
                 </div>
               </div>
 
@@ -601,7 +604,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     Automatic Core & Security Patches
                   </label>
                   <p className="text-[11px] text-slate-500">
-                    Not applied: the panel does not schedule patches today, and this host's clock is not WIB — it runs WITA (UTC+8). It is here as the plan it is.
+                    Not applied: the panel schedules no patches yet.
                   </p>
                 </div>
               </div>
@@ -1510,7 +1513,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Web GUI SSO Session Lifetime (phpMyAdmin / DbGate) — not applied yet
+                  Web GUI SSO Session Lifetime (phpMyAdmin / DbGate)
                 </label>
                 <select
                   value={ssoSessionMinutes}
@@ -1522,8 +1525,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   <option value={360}>360 Minutes (6 hours)</option>
                 </select>
                 <p className="text-[10px] text-rose-600 font-semibold mt-1">
-                  Not applied: the daemon closes an idle database manager on its own timer, and nothing
-                  reads this choice yet. It is here as the plan it is.
+                  Not applied: the daemon closes an idle manager on its own timer, and nothing reads this yet.
                 </p>
               </div>
             </div>
