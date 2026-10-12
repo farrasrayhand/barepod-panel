@@ -49,3 +49,16 @@ func TestPythonExecStartUsesAnASGIWorkerForFastAPI(t *testing.T) {
 		t.Errorf("fastapi exec must use an ASGI worker: %q", fastapi)
 	}
 }
+
+// Debian and Ubuntu name the binary after the version as written — php-fpm8.3 — so the path the
+// panel builds must keep the dot. Stripping it produced php-fpm83, which exists nowhere, so a PHP
+// website's unit could never have started (measured on the test host).
+func TestPhpFpmPathKeepsTheDottedVersion(t *testing.T) {
+	argv := ExecStart("php", "8.3", "", "/srv/site", 9000)
+	if len(argv) == 0 || argv[0] != "/usr/sbin/php-fpm8.3" {
+		t.Fatalf("php-fpm path = %v, want /usr/sbin/php-fpm8.3", argv)
+	}
+	if got := ExecStart("php", "", "", "/srv/site", 9000); len(got) == 0 || got[0] != "/usr/sbin/php-fpm" {
+		t.Errorf("unversioned php-fpm path = %v, want the distribution's default binary", got)
+	}
+}

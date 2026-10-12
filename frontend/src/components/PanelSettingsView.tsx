@@ -233,10 +233,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Real, unlike the rest of this screen: the daemon's brute-force lockout, which the
-          panel already enforces in the host's firewall. */}
-      <GuardCard onShowToast={onShowToast} />
-
       {/* Main Container with Sidebar Navigation */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col md:flex-row min-h-[580px]">
         
@@ -652,6 +648,11 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 <h2 className="text-base font-bold text-slate-900">Security & Access Control</h2>
                 <p className="text-xs text-slate-500 mt-0.5">Panel authentication policy, brute-force protection, and IP restrictions.</p>
               </div>
+
+              {/* Real, unlike the rest of this screen: the daemon's brute-force lockout, which the
+                  panel already enforces in the host's firewall. It lives here, in the Security tab,
+                  and not above the tab container — mounted there it appeared in every tab. */}
+              <GuardCard onShowToast={onShowToast} />
 
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
                 <div className="flex items-center justify-between">

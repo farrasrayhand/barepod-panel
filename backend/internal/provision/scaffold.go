@@ -208,12 +208,11 @@ func ExecStart(runtime, version, framework, workDir string, port int) []string {
 	}
 }
 
+// fpmSuffix is the version as the distribution names its php-fpm binary: Debian and Ubuntu ship
+// `/usr/sbin/php-fpm8.3`, keeping the dot. Stripping it produced `php-fpm83`, a path that does not
+// exist on either, so a PHP website's unit could never have started — measured on the test host.
 func fpmSuffix(version string) string {
-	v := strings.ReplaceAll(version, ".", "")
-	if v == "" {
-		return ""
-	}
-	return v
+	return strings.TrimSpace(version)
 }
 
 // EnvFileLines renders the .env body for a website.

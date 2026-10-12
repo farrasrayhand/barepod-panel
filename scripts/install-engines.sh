@@ -306,76 +306,14 @@ fi
 # the address that keeps failing. The numbers are deliberate panel defaults, not
 # fail2ban's, and they live in the jail files so an operator can change them in one place
 # (and the panel can rewrite them later).
-# A host where fail2ban is known not to run (measured: 1.0.2 against Python 3.12 prints "Server
-# ready" and exits 255) should not have it restarted on every install — a service that fails in a
-# loop is worse than one that is off. BAREPOD_SKIP_FAIL2BAN=1 leaves the jails written and the
-# daemon alone.
-if [[ "${BAREPOD_SKIP_FAIL2BAN:-0}" == "1" ]]; then
-  say "Leaving fail2ban alone (BAREPOD_SKIP_FAIL2BAN=1)"
-  have fail2ban-client >/dev/null 2>&1 || true
-else
-say "Installing fail2ban jails for the database engines"
-FB_MAXRETRY="${BAREPOD_F2B_MAXRETRY:-5}"
-FB_FINDTIME="${BAREPOD_F2B_FINDTIME:-10m}"
-FB_BANTIME="${BAREPOD_F2B_BANTIME:-1h}"
-if apt-get install -y -qq fail2ban >/dev/null 2>&1 || have fail2ban-client; then
-  mkdir -p /etc/fail2ban/jail.d
-  # Not every fail2ban build ships a postgresql filter (Debian 12's does not — measured:
-  # "Found no accessible config files for 'filter.d/postgresql'"), and a jail whose filter
-  # cannot be read is simply not started. So the filter is written here, matching the
-  # lines PostgreSQL itself writes.
-  cat > /etc/fail2ban/filter.d/barepod-postgresql.conf <<FILTER
-[Definition]
-failregex = ^.*FATAL:\s+password authentication failed for user .*$
-            ^.*FATAL:\s+no pg_hba.conf entry for host .*$
-ignoreregex =
-FILTER
-  cat > /etc/fail2ban/jail.d/barepod-postgresql.conf <<JAIL
-[postgresql]
-enabled  = true
-port     = 5432
-filter   = barepod-postgresql
-logpath  = /var/log/postgresql/postgresql-*.log
-maxretry = ${FB_MAXRETRY}
-findtime = ${FB_FINDTIME}
-bantime  = ${FB_BANTIME}
-# The panel and the engine's own administration arrive over loopback: banning it would
-# lock the panel out of the database it is managing.
-ignoreip = 127.0.0.1/8 ::1
-JAIL
-  cat > /etc/fail2ban/jail.d/barepod-mariadb.conf <<JAIL
-[mysqld-auth]
-enabled  = true
-port     = 3306
-filter   = mysqld-auth
-# MariaDB writes here on Debian; a distribution that logs elsewhere needs this changed,
-# and fail2ban refuses to watch a file that does not exist (it says so in its own log).
-logpath  = /var/log/mysql/error.log
-          /var/log/mysql/mariadb.log
-maxretry = ${FB_MAXRETRY}
-findtime = ${FB_FINDTIME}
-bantime  = ${FB_BANTIME}
-ignoreip = 127.0.0.1/8 ::1
-JAIL
-  systemctl enable fail2ban >/dev/null 2>&1 || true
-  systemctl restart fail2ban >/dev/null 2>&1 || true
-  note "jails written (maxretry=${FB_MAXRETRY}, findtime=${FB_FINDTIME}, bantime=${FB_BANTIME}); loopback is never banned"
-  # Verified, not assumed: on Ubuntu 24.04 this installs fail2ban 1.0.2 against Python 3.12,
-  # which prints "Server ready" and then exits 255 — with nothing in its own log to explain
-  # it, and with backend=polling as well. A jail that is written but whose daemon is not
-  # running protects nothing, so the warning is what keeps somebody from opening a port.
-  if systemctl is-active --quiet fail2ban; then
-    note "fail2ban is running: $(fail2ban-client status 2>/dev/null | grep 'Jail list' | tr -s ' \t' ' ')"
-  else
-    note "fail2ban did NOT stay up on this host — do not expose a database publicly until it does (journalctl -u fail2ban; a newer fail2ban or the panel's own watchdog)"
-  fi
-  # MongoDB is deliberately absent: the panel runs it as a container, so its log goes to
-  # `docker logs` and not to a file fail2ban can read. A jail for it needs its log written
-  # to a file first — saying so beats shipping a jail that never matches anything.
-else
-  note "fail2ban is not installed — do not open a database port to the outside before it is"
-fi
-fi
+# ---------------------------------------------------------------- the panel's own lockout
+# fail2ban used to be installed here, and is deliberately no longer: measured on this host, version
+# 1.0.2 against Python 3.12 prints "Server ready" and exits 255 with nothing in its own log — and a
+# jail that is written but whose daemon is dead protects nothing. The panel runs its own watchdog
+# instead: the same table the panel already uses, bans persisted in its database, re-applied at every
+# start, and it reads the engines' own logs. Nothing needs installing for that.
+say "Brute-force lockout: the panel's own watchdog (no fail2ban)"
+note "fail2ban is not installed and no jails are written — the daemon's watchdog covers the engines"
 
 # ---------------------------------------------------------------- optional managers
 # pgweb is one Go binary with no runtime of its own, and the panel starts it only
@@ -411,7 +349,13 @@ fi
 # phpMyAdmin is a PHP application and the panel runs it with PHP's own small server
 # (php -S) — one process, no Apache or PHP-FPM — so only the CLI and a few
 # extensions are needed. The panel reports it as unavailable until then.
-say "Installing PHP for the phpMyAdmin manager"
+# ------------------------------------------------------------ PHP: the manager, and the runtime
+# phpMyAdmin is a PHP application that the panel runs with PHP's own small server (php -S) — one
+# process, no Apache or PHP-FPM — so the CLI and a few extensions are what it needs. A *website*
+# with runtime `php` is a different thing: the panel runs one php-fpm master per site with a pool of
+# its own, so `php-fpm` must exist at the path it builds. Measured: it did not (this installer was
+# CLI-only), and the panel looked for `php-fpm83` where Debian and Ubuntu provide `php-fpm8.3`.
+say "Installing PHP for the phpMyAdmin manager and for PHP websites"
 if have php; then
   note "php already installed ($(php -r 'echo PHP_VERSION;' 2>/dev/null))"
 else
@@ -419,6 +363,17 @@ else
     && note "installed php-cli + extensions" \
     || note "php could not be installed — phpMyAdmin will be unavailable"
 fi
+
+# php-fpm is what serves a PHP website; without it such a site has a unit that cannot start.
+if ls /usr/sbin/php-fpm* >/dev/null 2>&1 || command -v php-fpm >/dev/null 2>&1; then
+  note "php-fpm already installed ($(ls /usr/sbin/php-fpm* 2>/dev/null | head -1))"
+else
+  apt-get install -y -qq php-fpm >/dev/null 2>&1 \
+    && note "installed php-fpm ($(ls /usr/sbin/php-fpm* 2>/dev/null | head -1)) — PHP websites can be served" \
+    || note "php-fpm could not be installed — a website with runtime php will not start"
+fi
+# The distribution's own php-fpm service is deliberately left alone: each site gets its own master
+# and pool, so a system-wide one would only hold a socket nothing talks to.
 
 # Keep in step with the daemon's -dbtools-dir (default: beside the panel database).
 DBTOOLS_DIR="${BAREPOD_DBTOOLS_DIR:-/var/lib/barepod/dbtools}"

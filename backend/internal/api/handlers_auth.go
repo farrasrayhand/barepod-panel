@@ -50,12 +50,16 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.store.UserByUsername(req.Username)
 	if err != nil {
-		// Same response for unknown user and wrong password.
+		// Same response for unknown user and wrong password — and the refusal is recorded, with the
+		// address it came from. Measured: a failed panel login left no trace at all, so nothing could
+		// count them and a brute-force attempt against the panel was invisible in its own audit trail.
+		_ = s.store.Audit("", "auth.login_refused", req.Username, clientIP(r), "unknown account")
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Invalid username or password")
 		return
 	}
 	ok, err := auth.VerifyPassword(req.Password, user.PasswordHash)
 	if err != nil || !ok {
+		_ = s.store.Audit("", "auth.login_refused", user.Username, clientIP(r), "wrong password")
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Invalid username or password")
 		return
 	}

@@ -910,7 +910,7 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
               </div>
               )}
 
-              <GuardCard onShowToast={onShowToast} />
+              <GuardCard onShowToast={onShowToast} variant="bans" />
             </div>
           ) : dataTabActive === 'overview' ? (
             <>

@@ -31,7 +31,19 @@ function remaining(expiresAt: string): string {
  * all. Nothing here is simulated — the bans live in the host's own nftables set, and the
  * screen says which engine's log it is reading and which it is not.
  */
-export function GuardCard({ onShowToast }: { onShowToast?: Toast }) {
+export function GuardCard({
+  onShowToast,
+  variant = 'full',
+}: {
+  onShowToast?: Toast;
+  /**
+   * 'full' is the settings screen, where the numbers live. 'bans' is for a record's own Security
+   * tab: the same global settings repeated per database and per cache was duplication, and the
+   * thresholds belong in one place — the panel's Settings → Security. What a record's tab can
+   * usefully show is who has been kept out, and that is what it keeps.
+   */
+  variant?: 'full' | 'bans';
+}) {
   const [status, setStatus] = useState<GuardStatus | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -139,43 +151,55 @@ export function GuardCard({ onShowToast }: { onShowToast?: Toast }) {
         <div className="px-5 py-3 text-xs text-rose-700 bg-rose-50 border-b border-rose-200">{error}</div>
       )}
 
-      {/* The numbers the lockout decides with. */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-5 py-4 border-b border-slate-200">
-        {[
-          { key: 'maxRetry' as const, label: 'Failed logins allowed', hint: '1 – 100' },
-          { key: 'findTime' as const, label: 'Within', hint: '10s – 24h, e.g. 10m' },
-          { key: 'banTime' as const, label: 'Kept out for', hint: '1m – 720h, e.g. 1h' },
-        ].map((field) => (
-          <label key={field.key} className="block">
-            <span className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">{field.label}</span>
-            <input
-              value={form[field.key]}
-              onChange={(event) => setForm({ ...form, [field.key]: event.target.value })}
-              className="mt-1 w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
-            />
-            <span className="block text-[11px] text-slate-400 mt-1">{field.hint}</span>
-          </label>
-        ))}
-      </div>
+      {/* The numbers the lockout decides with — only where they can be changed. In a record's own
+          tab they were the same global settings repeated per database and per cache, which is why
+          they live in one place now, and this says where that is rather than showing dead inputs. */}
+      {variant === 'full' ? (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-5 py-4 border-b border-slate-200">
+            {[
+              { key: 'maxRetry' as const, label: 'Failed logins allowed', hint: '1 – 100' },
+              { key: 'findTime' as const, label: 'Within', hint: '10s – 24h, e.g. 10m' },
+              { key: 'banTime' as const, label: 'Kept out for', hint: '1m – 720h, e.g. 1h' },
+            ].map((field) => (
+              <label key={field.key} className="block">
+                <span className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">{field.label}</span>
+                <input
+                  value={form[field.key]}
+                  onChange={(event) => setForm({ ...form, [field.key]: event.target.value })}
+                  className="mt-1 w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
+                />
+                <span className="block text-[11px] text-slate-400 mt-1">{field.hint}</span>
+              </label>
+            ))}
+          </div>
 
-      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50/50">
-        <p className="text-[11px] text-slate-500">
-          {Object.entries(status?.sources || {}).length === 0
-            ? 'No log has been read yet.'
-            : Object.entries(status?.sources || {})
-                .map(([engine, note]) => (note ? `${engine}: ${note}` : `${engine}: reading`))
-                .join(' · ')}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50/50">
+            <p className="text-[11px] text-slate-500">
+              {Object.entries(status?.sources || {}).length === 0
+                ? 'No log has been read yet.'
+                : Object.entries(status?.sources || {})
+                    .map(([engine, note]) => (note ? `${engine}: ${note}` : `${engine}: reading`))
+                    .join(' · ')}
+            </p>
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={saving || !status}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-sm shadow-blue-500/25 transition-all"
+            >
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              <span>{saving ? 'Saving…' : 'Save'}</span>
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="px-5 py-3 text-[11px] text-slate-500 border-b border-slate-200 bg-slate-50/50">
+          {status
+            ? `${status.maxRetry} failed logins within ${status.findTime} keep an address out for ${status.banTime}. The numbers are panel-wide — change them in Panel Settings → Security.`
+            : 'Reading the lockout…'}
         </p>
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={saving || !status}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-sm shadow-blue-500/25 transition-all"
-        >
-          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-          <span>{saving ? 'Saving…' : 'Save'}</span>
-        </button>
-      </div>
+      )}
 
       {/* What is actually being kept out. */}
       <div className="px-5 py-4">
