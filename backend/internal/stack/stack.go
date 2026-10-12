@@ -5,12 +5,17 @@ package stack
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
@@ -38,6 +43,7 @@ func Catalog() []Component {
 	return []Component{
 		{Name: "nginx", Label: "Nginx", Kind: "web", Description: "High-concurrency web server and reverse proxy"},
 		{Name: "caddy", Label: "Caddy", Kind: "web", Description: "Automatic HTTPS and HTTP/3 in one binary"},
+		{Name: "repositories", Label: "Package repositories", Kind: "repo", Description: "Sury for PHP and deadsnakes for Python — the versions Ubuntu does not ship"},
 		{Name: "php", Label: "PHP-FPM", Kind: "runtime", Versions: []string{"8.3", "8.2", "8.1"}, Description: "PHP runtime (one pool per site)"},
 		{Name: "node", Label: "Node.js", Kind: "runtime", Versions: []string{"22", "20", "18"}, Description: "Node.js runtime for JavaScript sites"},
 		{Name: "python", Label: "Python", Kind: "runtime", Versions: []string{"3.12", "3.11", "3.10"}, Description: "Python runtime (Flask, FastAPI, Django)"},
@@ -85,6 +91,16 @@ func Commands(component, version string) ([][]string, error) {
 	case "caddy":
 		// Debian/Ubuntu ship caddy in universe.
 		return apt("caddy"), nil
+	case "repositories":
+		// Every source that can hold several versions at once, added in one step: the two
+		// apt repositories plus the version managers for Ruby and Rust. Node's and Go's
+		// versions come from their vendor tarballs, so they need nothing added.
+		return [][]string{
+			{"bash", "-c", suryRepoScript},
+			{"bash", "-c", deadsnakesRepoScript},
+			{"bash", "-c", rbenvRepoScript},
+			{"bash", "-c", rustupRepoScript},
+		}, nil
 	case "php":
 		// A PHP install is a full one: the extensions the panel's Settings screen toggles
 		// (phpenmod/phpdismod) are installed here, so enabling one later is a switch rather
@@ -116,11 +132,22 @@ func Commands(component, version string) ([][]string, error) {
 		return append([][]string{{"bash", "-c", deadsnakesRepoScript}},
 			apt("python"+version, "python"+version+"-venv")...), nil
 	case "ruby":
-		return apt("ruby", "ruby-dev", "build-essential"), nil
+		if version == "" {
+			return nil, fmt.Errorf("stack: ruby needs a version (see the list from ruby-build)")
+		}
+		return [][]string{{"bash", "-c", rbenvRepoScript}, {"bash", "-c", "set -e; rbenv install -s " + version}}, nil
 	case "go":
-		return apt("golang-go"), nil
+		// Each toolchain is a tarball beside the others, so two Go versions can coexist.
+		if version == "" {
+			return nil, fmt.Errorf("stack: go needs a version (1.22, 1.23, …)")
+		}
+		script := "set -e\nV=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' | tr ',' '\\n' | grep -m1 -o '\"version\":\"go" + version + "\\.[0-9.]*\"' | cut -d'\"' -f4)\ntest -n \"$V\"\ncurl -fsSL https://go.dev/dl/$V.linux-amd64.tar.gz | tar -xz -C /usr/local\nrm -rf /usr/local/go" + version + "\nmv /usr/local/go /usr/local/go" + version
+		return [][]string{{"bash", "-c", script}}, nil
 	case "rust":
-		return apt("rustc", "cargo"), nil
+		if version == "" {
+			version = "stable"
+		}
+		return [][]string{{"bash", "-c", rustupRepoScript}, {"bash", "-c", "set -e; rustup toolchain install " + version}}, nil
 	case "postgresql":
 		return apt("postgresql-" + version), nil
 	case "mariadb":
@@ -153,6 +180,29 @@ const deadsnakesRepoScript = `set -e
 apt-get install -y -qq software-properties-common >/dev/null
 add-apt-repository -y ppa:deadsnakes/ppa
 apt-get update`
+
+// rbenvRepoScript installs rbenv and ruby-build into the panel's own directory, so Ruby
+// versions can be installed side by side (the distro ships exactly one).
+const rbenvRepoScript = `set -e
+apt-get install -y -qq git curl build-essential libssl-dev zlib1g-dev libreadline-dev libyaml-dev libffi-dev libgdbm-dev libncurses-dev >/dev/null
+[ -d /opt/barepod/rbenv ] || git clone --depth 1 https://github.com/rbenv/rbenv.git /opt/barepod/rbenv
+[ -d /opt/barepod/ruby-build ] || git clone --depth 1 https://github.com/rbenv/ruby-build.git /opt/barepod/ruby-build
+ln -sf /opt/barepod/rbenv/bin/rbenv /usr/local/bin/rbenv
+ln -sf /opt/barepod/ruby-build/bin/ruby-build /usr/local/bin/ruby-build`
+
+// rustupRepoScript installs rustup, which is itself the multi-toolchain manager. It
+// installs under the panel's own directory and never relies on $HOME: the runner may
+// hand it a clean environment, and "$HOME/.cargo" expanded to "/.cargo" once, which left
+// a symlink pointing at nothing.
+const rustupRepoScript = `set -e
+apt-get install -y -qq curl >/dev/null
+export RUSTUP_HOME=/opt/barepod/rustup CARGO_HOME=/opt/barepod/cargo
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
+if [ ! -x "$CARGO_HOME/bin/rustup" ]; then
+  curl -fsSL https://sh.rustup.rs -o /tmp/rustup-init.sh
+  sh /tmp/rustup-init.sh -y --no-modify-path --profile minimal
+fi
+for b in rustup rustc cargo; do ln -sf "$CARGO_HOME/bin/$b" /usr/local/bin/$b; done`
 
 func containsString(list []string, v string) bool {
 	for _, item := range list {
@@ -400,13 +450,13 @@ func runtimeSources() []runtimeSource {
 		{name: "python", perSite: true, source: "apt — deadsnakes PPA", kind: "apt-suffixed",
 			pkgPrefix: "python", candidates: []string{"3.9", "3.10", "3.11", "3.12", "3.13"},
 			probe: "python3", binary: []string{"python3", "--version"}},
-		{name: "node", perSite: true, source: "tarball — nodejs.org/dist (per site)", kind: "tarball",
+		{name: "node", perSite: true, source: "tarball — nodejs.org/dist (per site)", kind: "vendor-index",
 			probe: "node", binary: []string{"node", "--version"}},
-		{name: "ruby", perSite: true, source: "apt / rbenv", kind: "apt-single", pkg: "ruby",
+		{name: "ruby", perSite: true, source: "rbenv + ruby-build", kind: "rbenv",
 			probe: "ruby", binary: []string{"ruby", "--version"}},
-		{name: "go", perSite: false, source: "apt (build-time)", kind: "apt-single", pkg: "golang-go",
+		{name: "go", perSite: false, source: "tarball — go.dev/dl (per toolchain)", kind: "vendor-index",
 			probe: "go", binary: []string{"go", "version"}},
-		{name: "rust", perSite: false, source: "apt / rustup (build-time)", kind: "apt-single", pkg: "rustc",
+		{name: "rust", perSite: false, source: "rustup toolchains", kind: "rustup",
 			probe: "rustc", binary: []string{"rustc", "--version"}},
 	}
 }
@@ -435,8 +485,174 @@ func availableVersions(ctx context.Context, h *host.Host, r runtimeSource) []str
 			}
 			return []string{version}
 		}
+	case "vendor-index":
+		// No repository owns these versions; the vendor's own index does.
+		return vendorVersions(ctx, h, r.name)
+	case "rbenv":
+		// ruby-build ships the definitions rbenv installs from — the real list, not a
+		// hand-kept one.
+		if !h.Materialises() {
+			return nil
+		}
+		out, err := h.Run(ctx, []string{"ruby-build", "--definitions"})
+		if err != nil {
+			return nil
+		}
+		// ruby-build lists oldest-first; the newest are the ones worth showing.
+		set := map[string]bool{}
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimSpace(line)
+			if m := regexp.MustCompile(`^\d+\.\d+\.\d+$`).FindString(line); m != "" {
+				set[m] = true
+			}
+		}
+		return sortedDescending(set)
+	case "rustup":
+		// rustup manages toolchains itself; these are the channels it publishes.
+		if !h.Materialises() {
+			return nil
+		}
+		if _, err := h.Run(ctx, []string{"rustup", "--version"}); err != nil {
+			return nil
+		}
+		return []string{"stable", "beta", "nightly"}
 	}
 	return nil
+}
+
+// vendorCache remembers a vendor index for a while: it is a network fetch, and the list
+// changes at the pace of upstream releases, not of page loads.
+var vendorCache struct {
+	sync.Mutex
+	at     time.Time
+	byName map[string][]string
+}
+
+const vendorCacheTTL = 10 * time.Minute
+
+// vendorVersions lists the versions a vendor publishes (Node's and Go's own indexes), so
+// the screen offers the real list instead of a hand-kept one. A failed fetch answers nil
+// and never an invented list.
+func vendorVersions(ctx context.Context, h *host.Host, name string) []string {
+	if !h.Materialises() {
+		return nil // tests and dry-run stay off the network
+	}
+	vendorCache.Lock()
+	if time.Since(vendorCache.at) < vendorCacheTTL && vendorCache.byName != nil {
+		cached := vendorCache.byName[name]
+		vendorCache.Unlock()
+		return cached
+	}
+	vendorCache.Unlock()
+
+	fetched := map[string][]string{
+		"node": fetchNodeVersions(),
+		"go":   fetchGoVersions(),
+	}
+	vendorCache.Lock()
+	vendorCache.at = time.Now()
+	vendorCache.byName = fetched
+	vendorCache.Unlock()
+	return fetched[name]
+}
+
+type nodeRelease struct {
+	Version string `json:"version"`
+}
+
+func fetchNodeVersions() []string {
+	body, err := httpGet("https://nodejs.org/dist/index.json")
+	if err != nil {
+		return nil
+	}
+	var releases []nodeRelease
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return nil
+	}
+	majors := map[string]bool{}
+	for _, r := range releases {
+		fields := strings.Split(strings.TrimPrefix(r.Version, "v"), ".")
+		if len(fields) >= 1 && fields[0] != "" {
+			majors[fields[0]] = true
+		}
+	}
+	return sortedDescending(majors)
+}
+
+type goRelease struct {
+	Version string `json:"version"`
+	Stable  bool   `json:"stable"`
+}
+
+func fetchGoVersions() []string {
+	body, err := httpGet("https://go.dev/dl/?mode=json&include=all")
+	if err != nil {
+		return nil
+	}
+	var releases []goRelease
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return nil
+	}
+	minors := map[string]bool{}
+	for _, r := range releases {
+		if !r.Stable {
+			continue
+		}
+		fields := strings.Split(strings.TrimPrefix(r.Version, "go"), ".")
+		if len(fields) >= 2 {
+			minors[fields[0]+"."+fields[1]] = true
+		}
+	}
+	return sortedDescending(minors)
+}
+
+func httpGet(url string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("stack: %s answered %d", url, resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+}
+
+// sortedDescending returns the version set newest-first by numeric component, so 1.9
+// sorts below 1.10.
+func sortedDescending(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for v := range set {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return compareVersions(out[i], out[j]) > 0 })
+	return out
+}
+
+func compareVersions(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		var ai, bi int
+		if i < len(as) {
+			ai, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			bi, _ = strconv.Atoi(bs[i])
+		}
+		if ai != bi {
+			if ai > bi {
+				return 1
+			}
+			return -1
+		}
+	}
+	return 0
 }
 
 // aptCandidate reports the version apt would install for a package, and whether it

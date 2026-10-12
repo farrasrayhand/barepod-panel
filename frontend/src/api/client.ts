@@ -1045,7 +1045,7 @@ export interface StackWebServerStatus {
 export interface StackComponent {
   name: string;
   label: string;
-  kind: 'web' | 'runtime' | 'database';
+  kind: 'web' | 'runtime' | 'database' | 'repo';
   versions?: string[];
   description: string;
 }

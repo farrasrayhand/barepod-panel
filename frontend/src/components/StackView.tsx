@@ -238,6 +238,28 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       {/* Runtimes */}
       {activeTab === 'runtime' && (
         <div className="space-y-4">
+          {/* The version lists come from the repositories, so the sources are added first. */}
+          {componentsOf('repo').map((component) => (
+            <div key={component.name} className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Server className="w-4 h-4 text-amber-600" />
+                <span className="font-semibold text-amber-900 text-sm">{component.label}</span>
+                <span className="text-[11px] text-amber-800">{component.description}</span>
+              </div>
+              <div className="mt-3">
+                <button
+                  onClick={() => void install(component.name)}
+                  disabled={busy || live !== true}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
+                >
+                  <Download className="w-3.5 h-3.5" /> Prepare repositories
+                </button>
+                <span className="ml-2 text-[11px] text-amber-800">
+                  Adds Sury (PHP), deadsnakes (Python), rbenv (Ruby) and rustup (Rust); the version lists below fill from them.
+                </span>
+              </div>
+            </div>
+          ))}
           {componentsOf('runtime').map((component) => {
             const Icon = KINDS[component.kind]?.icon ?? Hexagon;
             const status_ = status?.runtimes?.[component.name];
@@ -262,9 +284,11 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 </div>
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
                   <span className="text-[11px] text-slate-500">
-                    {available.length > 0 ? 'From repositories:' : 'Install:'}
+                    {/* Not every list comes from an apt repository: Node and Go come from their
+                        vendor index, Ruby from ruby-build, Rust from rustup's channels. */}
+                    {offerable.length > 0 ? 'Available:' : 'Install:'}
                   </span>
-                  {offerable.map((version) => {
+                  {offerable.slice(0, 12).map((version) => {
                     const already = version !== '' && installed.includes(version);
                     return (
                       <button
@@ -285,6 +309,9 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                     );
                   })}
                   {offerable.length === 0 && <span className="text-[11px] text-slate-400">nothing offered by this host's repositories yet</span>}
+                  {offerable.length > 12 && (
+                    <span className="text-[10px] text-slate-400">+{offerable.length - 12} more (newest first)</span>
+                  )}
                 </div>
                 {(installed.length > 0 || chosen) && (
                   <p className="mt-2 text-[11px] text-slate-500">
