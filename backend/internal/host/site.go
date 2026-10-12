@@ -241,6 +241,29 @@ func (h *Host) Run(ctx context.Context, argv []string) (string, error) {
 	return h.Runner.Run(ctx, "", argv[0], argv[1:]...)
 }
 
+// RunDetached runs a command as a transient systemd unit, so the work belongs to the
+// system rather than to the daemon: a restart — a deploy — no longer kills an install
+// mid-flight. --pipe streams its output back the way Run does, and --collect removes the
+// unit afterwards. On a dry-run host it is simply Run.
+func (h *Host) RunDetached(ctx context.Context, unit string, argv []string) (string, error) {
+	if len(argv) == 0 {
+		return "", nil
+	}
+	if h.Runner == nil || h.Runner.Mode() != "real" {
+		return h.Run(ctx, argv)
+	}
+	args := append([]string{
+		"systemd-run",
+		"--unit=" + unit,
+		"--collect",
+		"--wait",
+		"--pipe",
+		"--property=Type=oneshot",
+		"--",
+	}, argv...)
+	return h.Run(ctx, args)
+}
+
 // RunAs executes a command as another user from the daemon's working directory.
 func (h *Host) RunAs(ctx context.Context, username string, argv []string) (string, error) {
 	if len(argv) == 0 {

@@ -26,6 +26,10 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
 )
 
+// mongodbImage is the repository the panel pulls MongoDB from, matching the image
+// dbengine.containerImages starts.
+const mongodbImage = "mongo"
+
 // JobSlug is the synthetic owner of an install job (a job needs no website).
 const JobSlug = "stack"
 
@@ -203,12 +207,16 @@ func Commands(component, version string) ([][]string, error) {
 	case "redis":
 		return apt("redis-server"), nil
 	case "mongodb":
-		return [][]string{
-			{"bash", "-c", "apt-get -o DPkg::Lock::Timeout=600 install -y gnupg curl && curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor"},
-			{"bash", "-c", `echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/7.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-7.0.list`},
-			aptGet("update"),
-			aptGet("install", "-y", "mongodb-org"),
-		}, nil
+		// MongoDB runs in a container on hosts that have Docker, so a version is an image tag
+		// and installing it is a pull; the packages are the fallback for a host without it.
+		script := "set -e\nif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then\n" +
+			"  echo 'this host runs MongoDB in Docker — pulling the image instead of installing packages'\n" +
+			"  docker pull " + mongodbImage + ":" + version + "\n" +
+			"else\n" +
+			"  echo 'no Docker here — installing MongoDB " + version + " packages'\n" +
+			"  apt-get " + strings.Join(aptWait, " ") + " install -y 'mongodb-org=" + version + "*'\n" +
+			"fi"
+		return [][]string{{"bash", "-c", mongodbRepoScript}, {"bash", "-c", script}}, nil
 	}
 	return nil, fmt.Errorf("stack: %s has no install recipe", c.Name)
 }
@@ -553,7 +561,9 @@ func (i *Installer) run(job *store.DeployJob, action, done, component, version s
 		job.CurrentStep = strings.Join(argv, " ")
 		_ = i.store.UpdateDeployJob(job)
 		log("step", fmt.Sprintf("-> [%d/%d] %s", n+1, len(commands), job.CurrentStep))
-		out, err := i.host.Run(ctx, argv)
+		// Each step is its own transient unit: a deploy that restarts the daemon no longer
+		// kills the apt or rustup running under it.
+		out, err := i.host.RunDetached(ctx, fmt.Sprintf("barepod-stack-%s-%d", job.ID, n+1), argv)
 		for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
 			if strings.TrimSpace(line) != "" {
 				log("stdout", line)
@@ -742,6 +752,33 @@ func nodeInstalled(ctx context.Context, h *host.Host, _ func(string) (string, er
 
 var nodeMajorPattern = regexp.MustCompile(`^\d+`)
 
+// dockerImageTags lists the version tags a Docker Hub image publishes (8.0, 7.0, 6.0 …).
+// A tag is what can be pulled, which is what "available" means for a container engine.
+func dockerImageTags(ctx context.Context, h *host.Host, image string) []string {
+	if _, err := h.Run(ctx, []string{"bash", "-c", "command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1"}); err != nil {
+		return nil
+	}
+	body, err := httpGet("https://registry.hub.docker.com/v2/repositories/library/" + image + "/tags?page_size=100")
+	if err != nil {
+		return nil
+	}
+	var payload struct {
+		Results []struct {
+			Name string `json:"name"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, tag := range payload.Results {
+		if regexp.MustCompile(`^\d+(\.\d+)?$`).MatchString(tag.Name) {
+			set[tag.Name] = true
+		}
+	}
+	return sortedDescending(set)
+}
+
 // pinnedApt installs one exact version of a package, resolved from what the repositories
 // actually carry: a version is offered as 1.29 and apt needs the whole 1.29.0-… string, so
 // the resolver picks the first madison entry that starts with what was asked for.
@@ -790,6 +827,12 @@ func databaseVersions(ctx context.Context, h *host.Host, engine string) []string
 	}
 	set := map[string]bool{}
 	switch engine {
+	case "mongodb":
+		// This host runs MongoDB in a container, so its versions are image tags: asking the
+		// registry is the honest answer, and the packages are only the fallback.
+		if tags := dockerImageTags(ctx, h, mongodbImage); len(tags) > 0 {
+			return tags
+		}
 	case "postgresql":
 		out, err := h.Run(ctx, []string{"bash", "-c", "apt-cache search --names-only '^postgresql-[0-9]+$' | awk '{print $1}'"})
 		if err != nil {
