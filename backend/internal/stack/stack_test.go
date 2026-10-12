@@ -23,12 +23,24 @@ func TestCommandsAreAllowlisted(t *testing.T) {
 		t.Error("a version that is not a version was accepted")
 	}
 	if _, err := Commands("nginx", "1.2"); err != nil {
-		t.Errorf("nginx takes no version but was refused: %v", err)
+		t.Errorf("nginx takes a version but was refused: %v", err)
 	}
 
+	// A web server install first adds the project's own repository (the distribution pins
+	// one version), then installs the package.
 	caddy, err := Commands("caddy", "")
-	if err != nil || len(caddy) != 1 || caddy[0][0] != "apt-get" {
+	if err != nil || len(caddy) < 2 || !strings.Contains(strings.Join(flatten(caddy), " "), "apt-get") {
 		t.Fatalf("caddy commands = %v (%v)", caddy, err)
+	}
+	joinedCaddy := strings.Join(flatten(caddy), " ")
+	if !strings.Contains(joinedCaddy, "caddy-stable") {
+		t.Errorf("caddy commands do not add caddy's own repository: %v", caddy)
+	}
+	// And asking for one version pins it through what the repository carries.
+	pinned, _ := Commands("caddy", "2.10")
+	joinedPinned := strings.Join(flatten(pinned), " ")
+	if !strings.Contains(joinedPinned, "apt-cache madison caddy") || !strings.Contains(joinedPinned, `caddy="$V"`) {
+		t.Errorf("a pinned caddy install does not resolve the version: %v", pinned)
 	}
 	php, _ := Commands("php", "8.3")
 	joinedPHP := strings.Join(flatten(php), " ")

@@ -184,6 +184,35 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
 
   const componentsOf = (kind: StackComponent['kind']) => status?.components?.filter((c) => c.kind === kind) ?? [];
 
+  // A source only needs adding once, so the card that adds them is drawn only while one is
+  // still missing — and beside the versions it fills, not all in one tab.
+  const missingIn = (group: string) =>
+    (status?.repositories ?? []).filter((repository) => !repository.present && repository.group === group);
+
+  const repositoriesCard = (group: string, where: string) => {
+    const missing = missingIn(group);
+    if (missing.length === 0) return null;
+    return (
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Server className="w-4 h-4 text-amber-600" />
+          <span className="font-semibold text-amber-900 text-sm">Package repositories</span>
+          <span className="text-[11px] text-amber-800">missing: {missing.map((r) => r.label).join(', ')}</span>
+        </div>
+        <div className="mt-3">
+          <button
+            onClick={() => void install('repositories')}
+            disabled={busy || live !== true}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
+          >
+            <Download className="w-3.5 h-3.5" /> Prepare repositories
+          </button>
+          <span className="ml-2 text-[11px] text-amber-800">The {where} version lists fill from these.</span>
+        </div>
+      </div>
+    );
+  };
+
   const webBadge = (installed: boolean, running: boolean, version?: string) => (
     <span className="flex items-center gap-1.5 text-[11px]">
       <span className={`w-1.5 h-1.5 rounded-full ${running ? 'bg-emerald-500' : installed ? 'bg-amber-500' : 'bg-slate-300'}`} />
@@ -208,6 +237,12 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
             The host-level choices: which web server serves the sites, and which runtime and database versions are installed.
             Installs run on this host and are logged below.
           </p>
+          {status?.installRunning && (
+            <p className="mt-2 inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-800">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              {status.installRunning} is installing — one install runs at a time, so another is refused until this finishes.
+            </p>
+          )}
         </div>
         <button
           onClick={() => void load()}
@@ -239,6 +274,8 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
 
       {/* Web server */}
       {activeTab === 'web' && (
+        <div className="space-y-4">
+          {repositoriesCard('web', 'web server')}
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
@@ -298,33 +335,14 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
             service. Panel vhosts live in <span className="font-mono">{status?.webServer.vhostsPath ?? '—'}</span>.
           </p>
         </div>
+
+        </div>
       )}
 
       {/* Runtimes */}
       {activeTab === 'runtime' && (
         <div className="space-y-4">
-          {/* The version lists come from the repositories, so the sources are added first. */}
-          {componentsOf('repo').map((component) => (
-            <div key={component.name} className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Server className="w-4 h-4 text-amber-600" />
-                <span className="font-semibold text-amber-900 text-sm">{component.label}</span>
-                <span className="text-[11px] text-amber-800">{component.description}</span>
-              </div>
-              <div className="mt-3">
-                <button
-                  onClick={() => void install(component.name)}
-                  disabled={busy || live !== true}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
-                >
-                  <Download className="w-3.5 h-3.5" /> Prepare repositories
-                </button>
-                <span className="ml-2 text-[11px] text-amber-800">
-                  Adds Sury (PHP), deadsnakes (Python), rbenv (Ruby) and rustup (Rust); the version lists below fill from them.
-                </span>
-              </div>
-            </div>
-          ))}
+          {repositoriesCard('runtime', 'runtime')}
           {componentsOf('runtime').map((component) => {
             const Icon = KINDS[component.kind]?.icon ?? Hexagon;
             const status_ = status?.runtimes?.[component.name];
@@ -374,7 +392,10 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         hint={installed.length > 0 ? 'upgrade to' : 'latest'}
                         installed={false}
                         disabled={busy || live !== true}
-                        onInstall={() => void install(component.name, latest)}
+                        // Rust is channel-based: asking for the newest release means moving
+                        // `stable`, not pinning a second toolchain that holds the same
+                        // version under a number as well.
+                        onInstall={() => void install(component.name, component.name === 'rust' ? undefined : latest)}
                       />
                     )}
                     {primary.map((version) => (
@@ -444,6 +465,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       {/* Databases */}
       {activeTab === 'database' && (
         <div className="space-y-4">
+          {repositoriesCard('database', 'database')}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">

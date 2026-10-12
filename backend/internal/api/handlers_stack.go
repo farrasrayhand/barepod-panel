@@ -18,7 +18,10 @@ import (
 // handleStackStatus reports the host-level platform choices and what is really
 // installed — the screen shows the truth, not a stored wish.
 func (s *Server) handleStackStatus(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
-	writeJSON(w, http.StatusOK, stack.Detect(r.Context(), s.store, s.host, s.lookPath))
+	status := stack.Detect(r.Context(), s.store, s.host, s.lookPath)
+	// So "nothing is running" is never a guess: the screen can name what holds the queue.
+	status.InstallRunning = s.installs.Running()
+	writeJSON(w, http.StatusOK, status)
 }
 
 // handleStackInstall runs an allowlisted install as a job with a live log.

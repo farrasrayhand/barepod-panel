@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -110,19 +111,24 @@ func Commands(component, version string) ([][]string, error) {
 	}
 	switch c.Name {
 	case "nginx":
-		return apt("nginx"), nil
+		return append([][]string{{"bash", "-c", nginxRepoScript}}, append(apt("nginx"), pinnedApt("nginx", version)...)...), nil
 	case "caddy":
-		// Debian/Ubuntu ship caddy in universe.
-		return apt("caddy"), nil
+		return append([][]string{{"bash", "-c", caddyRepoScript}}, append(apt("caddy"), pinnedApt("caddy", version)...)...), nil
 	case "repositories":
 		// Every source that can hold several versions at once, added in one step: the two
-		// apt repositories plus the version managers for Ruby and Rust. Node's and Go's
-		// versions come from their vendor tarballs, so they need nothing added.
+		// apt repositories, the version managers for Ruby and Rust, and the database
+		// engines' own repositories — a distribution carries one version of each engine,
+		// so without these the database version list has one entry by construction.
 		return [][]string{
 			{"bash", "-c", suryRepoScript},
 			{"bash", "-c", deadsnakesRepoScript},
-			{"bash", "-c", rbenvRepoScript},
 			{"bash", "-c", rustupRepoScript},
+			{"bash", "-c", pgdgRepoScript},
+			{"bash", "-c", mariadbRepoScript},
+			{"bash", "-c", mongodbRepoScript},
+			{"bash", "-c", redisRepoScript},
+			{"bash", "-c", nginxRepoScript},
+			{"bash", "-c", caddyRepoScript},
 		}, nil
 	case "php":
 		// A PHP install is a full one: the extensions the panel's Settings screen toggles
@@ -146,33 +152,50 @@ func Commands(component, version string) ([][]string, error) {
 	case "node":
 		// NodeSource replaces the system node, so it cannot hold two majors at once; the
 		// official tarball is unpacked under the panel's own directory instead, which is
-		// what lets 20 and 22 coexist for different sites.
-		return [][]string{
-			{"bash", "-c", "set -e; mkdir -p /opt/barepod/node; V=$(curl -fsSL https://nodejs.org/dist/index.json | tr ',' '\\n' | grep -m1 -o '\"version\":\"v" + version + "\\.[0-9.]*\"' | cut -d'\"' -f4); test -n \"$V\"; curl -fsSL https://nodejs.org/dist/$V/node-$V-linux-x64.tar.xz | tar -xJ -C /opt/barepod/node; rm -rf /opt/barepod/node/" + version + "; mv /opt/barepod/node/node-$V-linux-x64 /opt/barepod/node/" + version},
-		}, nil
+		// what lets 20 and 22 coexist for different sites. The tarball carries npm too, so
+		// it is never a second install — and the plain names follow the newest major, so
+		// `node` and `npm` in a shell are the ones a person just installed.
+		install := "set -e; mkdir -p /opt/barepod/node; V=$(curl -fsSL https://nodejs.org/dist/index.json | tr ',' '\\n' | grep -m1 -o '\"version\":\"v" + version + "\\.[0-9.]*\"' | cut -d'\"' -f4); test -n \"$V\"; curl -fsSL https://nodejs.org/dist/$V/node-$V-linux-x64.tar.xz | tar -xJ -C /opt/barepod/node; rm -rf /opt/barepod/node/" + version + "; mv /opt/barepod/node/node-$V-linux-x64 /opt/barepod/node/" + version
+		link := "set -e; newest=$(ls /opt/barepod/node | sort -V | tail -1); for b in node npm npx; do ln -sf /opt/barepod/node/$newest/bin/$b /usr/local/bin/$b; done; /usr/local/bin/node --version; /usr/local/bin/npm --version"
+		return [][]string{{"bash", "-c", install}, {"bash", "-c", link}}, nil
 	case "python":
-		// Debian/Ubuntu ship one python3; the other versions come from deadsnakes.
-		return append([][]string{{"bash", "-c", deadsnakesRepoScript}},
-			apt("python"+version, "python"+version+"-venv")...), nil
+		// Debian/Ubuntu ship one python3; the other versions come from deadsnakes. venv is
+		// installed with it and pip is made to exist inside it, because a Python without
+		// pip is not a Python anyone can use — the versioned package does not bring one on
+		// its own.
+		script := "set -e\napt-get " + strings.Join(aptWait, " ") + " install -y python" + version + " python" + version + "-venv python" + version + "-dev\npython" + version + " -m ensurepip --upgrade >/dev/null 2>&1 || true\npython" + version + " --version\npython" + version + " -m pip --version"
+		return append([][]string{{"bash", "-c", deadsnakesRepoScript}}, [][]string{{"bash", "-c", script}}...), nil
 	case "ruby":
 		if version == "" {
-			return nil, fmt.Errorf("stack: ruby needs a version (see the list from ruby-build)")
+			return nil, fmt.Errorf("stack: ruby needs a version (see its repository's list)")
 		}
-		return [][]string{{"bash", "-c", rbenvRepoScript}, {"bash", "-c", "set -e; rbenv install -s " + version}}, nil
+		// Prebuilt only: the distribution's packages install in seconds, where building Ruby
+		// from source takes minutes. A version without a package is not offered at all.
+		return apt("ruby"+version, "ruby"+version+"-dev"), nil
 	case "go":
 		// Each toolchain is a tarball beside the others, so two Go versions can coexist.
+		// The index writes `"version": "go1.27.2"` — with a space after the colon, which a
+		// pattern without one never matches, and a minor is offered but its patch is what
+		// the tarball is named after.
 		if version == "" {
 			return nil, fmt.Errorf("stack: go needs a version (1.22, 1.23, …)")
 		}
-		script := "set -e\nV=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' | tr ',' '\\n' | grep -m1 -o '\"version\":\"go" + version + "\\.[0-9.]*\"' | cut -d'\"' -f4)\ntest -n \"$V\"\ncurl -fsSL https://go.dev/dl/$V.linux-amd64.tar.gz | tar -xz -C /usr/local\nrm -rf /usr/local/go" + version + "\nmv /usr/local/go /usr/local/go" + version
+		script := "set -e\nV=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' | tr ',' '\\n' | grep -m1 -o '\"version\": *\"go" + version + "\\.[0-9.]*\"' | cut -d'\"' -f4)\ntest -n \"$V\"\ncurl -fsSL https://go.dev/dl/$V.linux-amd64.tar.gz | tar -xz -C /usr/local\nrm -rf /usr/local/go" + version + "\nmv /usr/local/go /usr/local/go" + version
 		return [][]string{{"bash", "-c", script}}, nil
 	case "rust":
 		if version == "" {
-			// No version means "move the channels to what they point at now", which is how
-			// Rust is upgraded: stable is a moving channel, not a fixed number.
-			return [][]string{{"bash", "-c", rustupRepoScript}, {"bash", "-c", "set -e; rustup update"}}, nil
+			// No version means "keep the channels current", which is how Rust is upgraded:
+			// stable is a moving channel, not a fixed number. A toolchain has to exist first
+			// — `rustup update` with nothing installed does nothing at all — and installing
+			// a *number* when a channel already holds that version is what left two
+			// toolchains holding the same release.
+			return [][]string{{"bash", "-c", rustupRepoScript}, {"bash", "-c",
+				"set -e; rustup toolchain install stable --profile minimal; rustup update"}}, nil
 		}
-		return [][]string{{"bash", "-c", rustupRepoScript}, {"bash", "-c", "set -e; rustup toolchain install " + version}}, nil
+		// A number is a pin. If a channel already holds that version, move the channel
+		// instead of adding a second toolchain that holds the same release under a number.
+		guard := "set -e; if rustc +stable --version 2>/dev/null | grep -q '" + version + "'; then echo 'stable already holds " + version + " — updating the channel instead of adding a second toolchain'; rustup update stable; else rustup toolchain install " + version + "; fi"
+		return [][]string{{"bash", "-c", rustupRepoScript}, {"bash", "-c", guard}}, nil
 	case "postgresql":
 		return apt("postgresql-" + version), nil
 	case "mariadb":
@@ -206,14 +229,47 @@ apt-get -o DPkg::Lock::Timeout=600 install -y -qq software-properties-common >/d
 add-apt-repository -y ppa:deadsnakes/ppa
 apt-get -o DPkg::Lock::Timeout=600 update`
 
-// rbenvRepoScript installs rbenv and ruby-build into the panel's own directory, so Ruby
-// versions can be installed side by side (the distro ships exactly one).
-const rbenvRepoScript = `set -e
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq git curl build-essential libssl-dev zlib1g-dev libreadline-dev libyaml-dev libffi-dev libgdbm-dev libncurses-dev >/dev/null
-[ -d /opt/barepod/rbenv ] || git clone --depth 1 https://github.com/rbenv/rbenv.git /opt/barepod/rbenv
-[ -d /opt/barepod/ruby-build ] || git clone --depth 1 https://github.com/rbenv/ruby-build.git /opt/barepod/ruby-build
-ln -sf /opt/barepod/rbenv/bin/rbenv /usr/local/bin/rbenv
-ln -sf /opt/barepod/ruby-build/bin/ruby-build /usr/local/bin/ruby-build`
+// The database engines' own repositories. Ubuntu carries one version of each, which is why
+// a version list from the distribution alone is a single entry: PGDG carries one package
+// per major, and the others carry the release lines they support.
+const pgdgRepoScript = `set -e
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+install -d /usr/share/postgresql-common/pgdg
+curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+
+const mariadbRepoScript = `set -e
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+curl -fsSL https://mariadb.org/mariadb_release_signing_key.pgp -o /usr/share/keyrings/mariadb-keyring.pgp
+echo "deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.org/repo/11.4/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/mariadb.list
+apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+
+const mongodbRepoScript = `set -e
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor --yes -o /usr/share/keyrings/mongodb-server-8.0.gpg
+echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/8.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-8.0.list
+apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+
+const redisRepoScript = `set -e
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+curl -fsSL https://packages.redis.io/gpg | gpg --dearmor --yes -o /usr/share/keyrings/redis-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" > /etc/apt/sources.list.d/redis.list
+apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+
+// The web servers' own repositories: Ubuntu pins one nginx and one caddy, and both
+// projects publish releases faster than the distribution.
+const nginxRepoScript = `set -e
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+curl -fsSL https://nginx.org/keys/nginx_signing.key -o /usr/share/keyrings/nginx-archive-keyring.asc
+echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.asc] https://nginx.org/packages/mainline/ubuntu $(lsb_release -cs) nginx" > /etc/apt/sources.list.d/nginx.list
+apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+
+const caddyRepoScript = `set -e
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt > /etc/apt/sources.list.d/caddy-stable.list
+apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
 
 // rustupRepoScript installs rustup, which is itself the multi-toolchain manager. It uses
 // rustup's own defaults (~/.cargo, ~/.rustup) so that `rustup`, `rustc` and `cargo` work
@@ -251,20 +307,25 @@ func DatabaseEngine(component string) bool {
 	return false
 }
 
-// Removable reports whether a component has an uninstall path at all. A database engine
-// does not: its packages are the storage, and removing them by a button would take the
-// data with them, so that stays an administrator's decision at a shell.
+// Removable reports whether a component has an uninstall path at all. Every runtime, web
+// server and database engine does; what decides whether one may actually go is whether a
+// project uses it, which the caller checks first.
 func Removable(component string) error {
 	switch component {
-	case "php", "python", "node", "ruby", "go", "rust":
+	case "php", "python", "node", "ruby", "go", "rust",
+		"nginx", "caddy", "postgresql", "mariadb", "mongodb", "redis":
 		return nil
-	case "nginx", "caddy":
-		return fmt.Errorf("stack: the web server is host-level — switch the ingress in Stack rather than removing it")
-	}
-	if DatabaseEngine(component) {
-		return fmt.Errorf("stack: a database engine holds data — removing its packages would take the data with them, so do it at a shell")
 	}
 	return fmt.Errorf("stack: %q has no uninstall path", component)
+}
+
+// purged removes packages and then says where the data stays. Removing an engine is not
+// shredding it, and a quiet removal would be the dangerous kind: the log names the
+// directories that are still there.
+func purged(packages []string, dataDirs ...string) [][]string {
+	args := append([]string{"purge", "-y"}, packages...)
+	note := "echo 'removed; data directories were left in place: " + strings.Join(dataDirs, " ") + "'"
+	return [][]string{aptGet(args...), {"bash", "-c", note}, aptGet("autoremove", "-y")}
 }
 
 // UninstallCommands is the allowlisted removal for an installed runtime version.
@@ -290,9 +351,22 @@ func UninstallCommands(component, version string) ([][]string, error) {
 	case "go":
 		return [][]string{{"bash", "-c", "rm -rf /usr/local/go" + version}}, nil
 	case "ruby":
-		return [][]string{{"bash", "-c", "rbenv uninstall -f " + version}}, nil
+		return purged([]string{"ruby" + version + "*"}, "the gems installed against it"), nil
 	case "rust":
 		return [][]string{{"bash", "-c", "rustup toolchain uninstall " + version}}, nil
+	case "nginx", "caddy":
+		if version != "" {
+			return nil, fmt.Errorf("stack: the web server's version is switched by installing one, not by removing %s %s", component, version)
+		}
+		return purged([]string{component}, "/etc/"+component), nil
+	case "postgresql":
+		return purged([]string{"postgresql-*", "postgresql"}, "/var/lib/postgresql"), nil
+	case "mariadb":
+		return purged([]string{"mariadb-server*"}, "/var/lib/mysql"), nil
+	case "mongodb":
+		return purged([]string{"mongodb-org*"}, "/var/lib/mongodb", "/var/log/mongodb"), nil
+	case "redis":
+		return purged([]string{"redis-server", "redis-tools"}, "/var/lib/redis"), nil
 	}
 	return nil, fmt.Errorf("stack: %q has no uninstall path", component)
 }
@@ -321,26 +395,44 @@ type Installer struct {
 	store *store.Store
 	host  *host.Host
 
-	mu      sync.Mutex
-	running string // the install in progress, empty when none is
+	mu        sync.Mutex
+	running   string    // the install in progress, empty when none is
+	claimedAt time.Time // when it was claimed, so a stranded claim can be taken over
 }
 
 func New(st *store.Store, h *host.Host) *Installer { return &Installer{store: st, host: h} }
+
+// claimTTL is how long a claim is believed. A job is given twenty minutes; past this it is
+// treated as stranded — a process that died mid-job, or a claim that was never released —
+// and the next install takes it over rather than being refused forever.
+const claimTTL = 30 * time.Minute
+
+// Running reports the install in progress, or empty.
+func (i *Installer) Running() string {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if time.Since(i.claimedAt) > claimTTL {
+		return ""
+	}
+	return i.running
+}
 
 // claim marks an install as running, or reports which one is in the way.
 func (i *Installer) claim(label string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if i.running != "" {
+	if i.running != "" && time.Since(i.claimedAt) < claimTTL {
 		return fmt.Errorf("stack: %s is installing right now — wait for it to finish (two installs would share one package lock)", i.running)
 	}
 	i.running = label
+	i.claimedAt = time.Now()
 	return nil
 }
 
 func (i *Installer) release() {
 	i.mu.Lock()
 	i.running = ""
+	i.claimedAt = time.Time{}
 	i.mu.Unlock()
 }
 
@@ -379,6 +471,7 @@ func (i *Installer) Start(component, version string) (*store.DeployJob, error) {
 		CreatedAt:  now(),
 	}
 	if err := i.store.CreateDeployJob(job); err != nil {
+		i.release() // a job that was never recorded must not hold the queue
 		return nil, err
 	}
 	snapshot := *job
@@ -504,6 +597,9 @@ type Status struct {
 		Installed  []WebServerStatus `json:"installed"`
 		WebUser    string            `json:"webUser"`
 		VhostsPath string            `json:"vhostsPath"`
+		// Available is what each engine's repositories carry; Latest is the newest of them.
+		Available map[string][]string `json:"available"`
+		Latest    map[string]string   `json:"latest"`
 	} `json:"webServer"`
 	Components []Component       `json:"components"`
 	Databases  []dbengine.Engine `json:"databases"`
@@ -522,7 +618,18 @@ type Status struct {
 		Installed []string `json:"installed"`
 		Default   string   `json:"default"`
 	} `json:"node"`
-	Mode string `json:"mode"`
+	// InstallRunning names an install in progress, so "nothing is running" is never a
+	// guess: the screen can say what holds the queue.
+	InstallRunning string `json:"installRunning,omitempty"`
+	// DatabaseAvailable is what each engine's repositories offer, read the same way a
+	// runtime's list is: a version is shown because apt has the package, not because a
+	// catalog names it.
+	DatabaseAvailable map[string][]string `json:"databaseAvailable"`
+	// DatabaseLatest is the newest of those, for the screen to mark.
+	DatabaseLatest map[string]string `json:"databaseLatest"`
+	// Repositories says which sources the panel adds are already here.
+	Repositories []RepositoryStatus `json:"repositories"`
+	Mode         string             `json:"mode"`
 }
 
 // Detect reports the host's real state — never a stored wish.
@@ -530,6 +637,9 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 	var out Status
 	out.Mode = h.Mode()
 	out.Components = Catalog()
+	if h.Materialises() {
+		out.Repositories = Repositories()
+	}
 
 	active := webserver.DefaultEngine
 	if v, err := st.PanelSetting("active_web_server"); err == nil && webserver.Supported(v) {
@@ -539,22 +649,30 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 	out.WebServer.Supported = []string{webserver.Nginx, webserver.Caddy}
 	out.WebServer.WebUser = webserver.WebUser(active)
 	out.WebServer.VhostsPath = h.VhostsFor(active)
+	out.WebServer.Available = map[string][]string{}
+	out.WebServer.Latest = map[string]string{}
 	for _, engine := range out.WebServer.Supported {
 		status := WebServerStatus{Engine: engine, Installed: webserver.Available(engine, lookPath)}
 		if status.Installed {
 			status.Running = serviceActive(ctx, h, engine)
 			status.Version = engineVersion(ctx, h, engine)
 		}
+		out.WebServer.Available[engine] = webServerVersions(ctx, h, engine)
+		out.WebServer.Latest[engine] = newestOf(out.WebServer.Available[engine])
 		out.WebServer.Installed = append(out.WebServer.Installed, status)
 	}
 
 	out.Databases = dbengine.Detect(ctx, h.Runner)
 	out.DatabaseVersions = map[string]string{}
+	out.DatabaseAvailable = map[string][]string{}
+	out.DatabaseLatest = map[string]string{}
 	for _, engine := range out.Databases {
 		// Detected, not remembered: this is the version the host actually runs.
 		if len(engine.Versions) > 0 {
 			out.DatabaseVersions[engine.Name] = engine.Versions[0]
 		}
+		out.DatabaseAvailable[engine.Name] = databaseVersions(ctx, h, engine.Name)
+		out.DatabaseLatest[engine.Name] = newestOf(out.DatabaseAvailable[engine.Name])
 	}
 	out.PHP.Installed = phpVersions()
 	// There is no stored "default" version: a site's version is chosen when the site is
@@ -566,11 +684,18 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 	out.Runtimes = map[string]RuntimeStatus{}
 	for _, r := range runtimeSources() {
 		status := RuntimeStatus{PerSite: r.perSite, Source: r.source}
+		// The repository's list comes first: a version is only "installed" if it is in it
+		// (Python answers per version, which is what a distribution install looks like).
+		status.Available = availableVersions(ctx, h, r)
 		switch {
 		case r.name == "php":
 			status.Installed = out.PHP.Installed
 		case r.name == "node":
 			status.Installed = nodeInstalled(ctx, h, lookPath)
+		case r.name == "python":
+			status.Installed = aptVersionedInstalled(ctx, h, "python", status.Available)
+		case r.name == "ruby":
+			status.Installed = aptVersionedInstalled(ctx, h, "ruby", status.Available)
 		case r.name == "go":
 			// Several Go toolchains coexist as /usr/local/go<version>, so the answer is a
 			// list and not one probe.
@@ -580,7 +705,6 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 		case len(r.binary) > 0:
 			status.Installed = probeVersions(ctx, h, lookPath, r.probe, r.binary)
 		}
-		status.Available = availableVersions(ctx, h, r)
 		status.Latest = newestOf(status.Available)
 		status.Supported = primaryVersions(r.name, status.Available)
 		if r.name == "node" && h.Materialises() {
@@ -593,19 +717,186 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 	return out
 }
 
-// nodeInstalled lists the Node runtimes the panel unpacked (one directory per major)
-// plus the one on PATH, so a site's version list is the truth.
-func nodeInstalled(ctx context.Context, h *host.Host, lookPath func(string) (string, error)) []string {
-	out := nodeVersions(ctx, h, lookPath)
+// nodeInstalled lists the Node majors the panel unpacked, one directory per major — which
+// is what a site chooses. The plain `node` on PATH is one of those same majors (the panel
+// points the name at the newest), so probing it as well reported the same Node twice: once
+// as "22" and once as "22.23.3".
+func nodeInstalled(ctx context.Context, h *host.Host, _ func(string) (string, error)) []string {
+	found := map[string]bool{}
 	if entries, err := os.ReadDir("/opt/barepod/node"); err == nil {
-		for _, e := range entries {
-			if e.IsDir() {
-				out = append(out, e.Name())
+		for _, entry := range entries {
+			// A directory is named with the major alone ("22"), not with a dotted version.
+			if entry.IsDir() && nodeMajorPattern.MatchString(entry.Name()) {
+				found[entry.Name()] = true
 			}
 		}
 	}
-	sort.Strings(out)
-	return out
+	// A Node installed by hand outside the panel still counts, reported by its major.
+	if out, err := h.Run(ctx, []string{"bash", "-c", "node --version 2>/dev/null || true"}); err == nil {
+		if m := nodeMajorPattern.FindString(strings.TrimPrefix(strings.TrimSpace(out), "v")); m != "" {
+			found[m] = true
+		}
+	}
+	return sortedDescending(found)
+}
+
+var nodeMajorPattern = regexp.MustCompile(`^\d+`)
+
+// pinnedApt installs one exact version of a package, resolved from what the repositories
+// actually carry: a version is offered as 1.29 and apt needs the whole 1.29.0-… string, so
+// the resolver picks the first madison entry that starts with what was asked for.
+func pinnedApt(pkg, version string) [][]string {
+	version = strings.TrimSpace(version)
+	if version == "" || !versionShape.MatchString(version) {
+		return nil // no version asked for: the repository's newest is the answer
+	}
+	script := "set -e\nV=$(apt-cache madison " + pkg + " | awk '{print $3}' | grep -m1 '^" + version + "')\ntest -n \"$V\"\napt-get " + strings.Join(aptWait, " ") + " install -y " + pkg + "=\"$V\""
+	return [][]string{{"bash", "-c", script}}
+}
+
+// webServerVersions lists what an engine's repositories carry, so the screen can offer a
+// specific version instead of whatever the distribution pinned.
+func webServerVersions(ctx context.Context, h *host.Host, engine string) []string {
+	if !h.Materialises() {
+		return nil
+	}
+	out, err := h.Run(ctx, []string{"bash", "-c", "apt-cache madison " + engine + " 2>/dev/null | awk '{print $3}'"})
+	if err != nil {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if _, after, found := strings.Cut(line, ":"); found && versionToken.MatchString(after) {
+			line = after
+		}
+		if m := versionToken.FindString(line); m != "" {
+			set[strings.TrimPrefix(m, "v")] = true
+		}
+	}
+	return sortedDescending(set)
+}
+
+// databaseVersions lists the versions an engine's repositories offer. PostgreSQL ships
+// one package per major (postgresql-16), so its list is real; the others carry a single
+// version in the distribution, and asking apt is how the screen learns that instead of
+// showing an empty column.
+func databaseVersions(ctx context.Context, h *host.Host, engine string) []string {
+	if !h.Materialises() {
+		return nil
+	}
+	set := map[string]bool{}
+	switch engine {
+	case "postgresql":
+		out, err := h.Run(ctx, []string{"bash", "-c", "apt-cache search --names-only '^postgresql-[0-9]+$' | awk '{print $1}'"})
+		if err != nil {
+			return nil
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if m := regexp.MustCompile(`^postgresql-(\d+)$`).FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+				set[m[1]] = true
+			}
+		}
+	default:
+		// One candidate: the version apt would install for the engine's package.
+		pkg := map[string]string{"mariadb": "mariadb-server", "redis": "redis-server", "mongodb": "mongodb-org"}[engine]
+		if pkg == "" {
+			return nil
+		}
+		// madison lists every version the repositories can install, which is what makes a
+		// second line (Redis 8 beside 7, MariaDB 11.4 beside 10.11) visible at all.
+		out, err := h.Run(ctx, []string{"bash", "-c", "apt-cache madison " + pkg + " 2>/dev/null | awk '{print $3}'"})
+		if err != nil {
+			return nil
+		}
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			// A Debian version reads 1:10.11.14-0ubuntu0.24.04.1: the epoch is not part of
+			// the version a person chooses.
+			if _, after, found := strings.Cut(line, ":"); found && runtimesVersionPattern.MatchString(after) {
+				line = after
+			}
+			if m := runtimesVersionPattern.FindStringSubmatch(line); m != nil {
+				set[m[1]+"."+m[2]] = true
+			}
+		}
+		if len(set) == 0 {
+			// No repository beyond the distribution's: fall back to its single candidate.
+			if candidate, ok := aptCandidate(ctx, h, pkg); ok {
+				if m := runtimesVersionPattern.FindStringSubmatch(candidate); m != nil {
+					set[m[1]+"."+m[2]] = true
+				}
+			}
+		}
+	}
+	return sortedDescending(set)
+}
+
+// RepositoryStatus is one source the panel adds for itself. The screen only offers to add
+// repositories when one is actually missing, so the card is not permanent furniture.
+type RepositoryStatus struct {
+	Name    string `json:"name"`
+	Label   string `json:"label"`
+	Present bool   `json:"present"`
+	// Group is the tab the source belongs to (web, runtime, database), so the card that
+	// offers to add it is drawn beside the versions it fills.
+	Group string `json:"group"`
+	Path  string `json:"path,omitempty"`
+}
+
+// Repositories reports which of the four sources are already here, by looking for what
+// each one leaves behind.
+func Repositories() []RepositoryStatus {
+	sury := "/etc/apt/sources.list.d/sury-php.list"
+	deadsnakes, _ := filepath.Glob("/etc/apt/sources.list.d/*deadsnakes*")
+	rustup := "/usr/local/bin/rustup"
+	pgdg := "/etc/apt/sources.list.d/pgdg.list"
+	mariadb := "/etc/apt/sources.list.d/mariadb.list"
+	mongodb, _ := filepath.Glob("/etc/apt/sources.list.d/mongodb-org-*.list")
+	redis := "/etc/apt/sources.list.d/redis.list"
+	nginx := "/etc/apt/sources.list.d/nginx.list"
+	caddy, _ := filepath.Glob("/etc/apt/sources.list.d/caddy-stable.list")
+
+	deadPath, mongoPath, caddyPath := "", "", ""
+	if len(deadsnakes) > 0 {
+		deadPath = deadsnakes[0]
+	}
+	if len(mongodb) > 0 {
+		mongoPath = mongodb[0]
+	}
+	if len(caddy) > 0 {
+		caddyPath = caddy[0]
+	}
+	return []RepositoryStatus{
+		{Name: "sury", Label: "Sury (PHP versions)", Present: exists(sury), Group: "runtime", Path: sury},
+		{Name: "deadsnakes", Label: "deadsnakes (Python versions)", Present: deadPath != "", Group: "runtime", Path: deadPath},
+		{Name: "rustup", Label: "rustup (Rust toolchains)", Present: isExecutable(rustup), Group: "runtime", Path: rustup},
+		{Name: "pgdg", Label: "PGDG (PostgreSQL versions)", Present: exists(pgdg), Group: "database", Path: pgdg},
+		{Name: "mariadb", Label: "MariaDB (version lines)", Present: exists(mariadb), Group: "database", Path: mariadb},
+		{Name: "mongodb", Label: "MongoDB (version lines)", Present: mongoPath != "", Group: "database", Path: mongoPath},
+		{Name: "redis", Label: "Redis (version lines)", Present: exists(redis), Group: "database", Path: redis},
+		{Name: "nginx", Label: "nginx.org (nginx versions)", Present: exists(nginx), Group: "web", Path: nginx},
+		{Name: "caddy", Label: "Cloudsmith (caddy versions)", Present: caddyPath != "", Group: "web", Path: caddyPath},
+	}
+}
+
+func exists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func isExecutable(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 }
 
 // RuntimeStatus is one language's versions on this host.
@@ -650,12 +941,11 @@ func runtimeSources() []runtimeSource {
 		{name: "php", perSite: true, source: "apt — packages.sury.org/php", kind: "apt-suffixed",
 			pkgPrefix: "php", pkgSuffix: "-fpm"},
 		{name: "python", perSite: true, source: "apt — deadsnakes PPA", kind: "apt-suffixed",
-			pkgPrefix: "python",
-			probe:     "python3", binary: []string{"python3", "--version"}},
+			pkgPrefix: "python"},
 		{name: "node", perSite: true, source: "tarball — nodejs.org/dist (per site)", kind: "vendor-index",
 			probe: "node", binary: []string{"node", "--version"}},
-		{name: "ruby", perSite: true, source: "rbenv + ruby-build", kind: "rbenv",
-			probe: "ruby", binary: []string{"ruby", "--version"}},
+		{name: "ruby", perSite: true, source: "apt — prebuilt (ruby3.x packages)", kind: "apt-suffixed",
+			pkgPrefix: "ruby"},
 		{name: "go", perSite: false, source: "tarball — go.dev/dl (per toolchain)", kind: "vendor-index",
 			probe: "go", binary: []string{"go", "version"}},
 		{name: "rust", perSite: false, source: "rustup toolchains", kind: "rustup",
@@ -701,24 +991,44 @@ func availableVersions(ctx context.Context, h *host.Host, r runtimeSource) []str
 		}
 		return vendorVersions(ctx, h, r.name)
 	case "rbenv":
-		// ruby-build ships the definitions rbenv installs from — the real list, not a
-		// hand-kept one.
+		// Two sources, and the difference matters: a distribution package (ruby3.2) installs
+		// in seconds, while ruby-build's list is compiled from source on this host. Both are
+		// offered; the labels say which is which.
 		if !h.Materialises() {
 			return nil
 		}
-		out, err := h.Run(ctx, []string{"ruby-build", "--definitions"})
-		if err != nil {
-			return nil
-		}
-		// ruby-build lists oldest-first; the newest are the ones worth showing.
 		set := map[string]bool{}
-		for _, line := range strings.Split(out, "\n") {
-			line = strings.TrimSpace(line)
-			if m := regexp.MustCompile(`^\d+\.\d+\.\d+$`).FindString(line); m != "" {
-				set[m] = true
+		if out, err := h.Run(ctx, []string{"bash", "-c", "apt-cache search --names-only '^ruby[0-9]+\\.[0-9]+$' | awk '{print $1}'"}); err == nil {
+			for _, line := range strings.Split(out, "\n") {
+				if m := regexp.MustCompile(`^ruby(\d+\.\d+)$`).FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+					set[m[1]] = true
+				}
 			}
 		}
-		return sortedDescending(set)
+		prebuilt := map[string]bool{}
+		for version := range set {
+			prebuilt[version] = true
+		}
+		if out, err := h.Run(ctx, []string{"ruby-build", "--definitions"}); err == nil {
+			for _, line := range strings.Split(out, "\n") {
+				line = strings.TrimSpace(line)
+				if m := regexp.MustCompile(`^\d+\.\d+\.\d+$`).FindString(line); m != "" {
+					set[m] = true
+				}
+			}
+		}
+		// The prebuilt packages come first: they are what to reach for, and everything else
+		// compiles on this host.
+		fast := []string{}
+		rest := []string{}
+		for _, version := range sortedDescending(set) {
+			if prebuilt[version] {
+				fast = append(fast, version)
+				continue
+			}
+			rest = append(rest, version)
+		}
+		return append(fast, rest...)
 	case "rustup":
 		// rustup publishes three channels, and any released version besides them can be
 		// installed by name — the list below is what its toolchain index answers with.
@@ -1027,6 +1337,28 @@ func upToDate(ctx context.Context, h *host.Host, name, latest string, installed 
 	return false
 }
 
+// aptVersionedInstalled lists the versions of a package family that are installed, by
+// asking each versioned binary apt creates (ruby3.2 --version, python3.15 --version). The
+// plain name is one of them, not a second version.
+func aptVersionedInstalled(ctx context.Context, h *host.Host, binary string, candidates []string) []string {
+	found := map[string]bool{}
+	for _, version := range candidates {
+		out, err := h.Run(ctx, []string{binary + version, "--version"})
+		if err != nil {
+			continue
+		}
+		if m := runtimesVersionPattern.FindStringSubmatch(out); m != nil {
+			found[m[1]+"."+m[2]] = true
+		}
+	}
+	if out, err := h.Run(ctx, []string{binary, "--version"}); err == nil {
+		if m := runtimesVersionPattern.FindStringSubmatch(out); m != nil {
+			found[m[1]+"."+m[2]] = true
+		}
+	}
+	return sortedDescending(found)
+}
+
 // rustInstalled lists what rustup actually has installed. It names toolchains with a
 // target triple ("stable-x86_64-unknown-linux-gnu"), and the part a person chooses is
 // only the first field.
@@ -1234,31 +1566,29 @@ func serviceActive(ctx context.Context, h *host.Host, engine string) bool {
 	return err == nil && strings.TrimSpace(out) == "active"
 }
 
+// engineVersion reads the engine's version and nothing else. Caddy writes a JSON warning
+// when it cannot find a configuration directory ("neither $XDG_CONFIG_HOME nor $HOME are
+// defined"), it lands in the same output, and taking the whole line put a log entry on the
+// screen where a version belongs. HOME is set so it does not warn at all, and the version
+// is picked out by shape either way.
 func engineVersion(ctx context.Context, h *host.Host, engine string) string {
-	argv := []string{"nginx", "-v"}
+	command := "HOME=${HOME:-/root} nginx -v"
 	if engine == webserver.Caddy {
-		argv = []string{"caddy", "version"}
+		command = "HOME=${HOME:-/root} caddy version"
 	}
-	out, err := h.Run(ctx, argv)
+	out, err := h.Run(ctx, []string{"bash", "-c", command + " 2>&1"})
 	if err != nil {
 		return ""
 	}
-	line := strings.TrimSpace(strings.Split(strings.TrimSpace(out), "\n")[0])
-	return strings.TrimPrefix(line, "nginx version: ")
+	if m := versionToken.FindString(out); m != "" {
+		return m
+	}
+	return ""
 }
+
+// versionToken is a version as a person writes it: v1.2.3, 1.2.3, 1.2.
+var versionToken = regexp.MustCompile(`v?\d+(\.\d+)+`)
 
 // phpVersions lists the PHP versions this host has. The scan lives with the extensions,
 // which is the other thing the host answers per version.
 func phpVersions() []string { return phpext.InstalledVersions() }
-
-// nodeVersions reports the Node.js version on the host.
-func nodeVersions(ctx context.Context, h *host.Host, lookPath func(string) (string, error)) []string {
-	if lookPath == nil || func() bool { _, err := lookPath("node"); return err != nil }() {
-		return nil
-	}
-	out, err := h.Run(ctx, []string{"node", "--version"})
-	if err != nil {
-		return nil
-	}
-	return []string{strings.TrimPrefix(strings.TrimSpace(out), "v")}
-}
