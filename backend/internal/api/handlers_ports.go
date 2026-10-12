@@ -43,7 +43,7 @@ func (s *Server) handleSystemPorts(w http.ResponseWriter, r *http.Request, _ *st
 	if _, port, err := net.SplitHostPort(s.cfg.Listen); err == nil {
 		panelPort, _ = strconv.Atoi(port)
 	}
-	sshPort := sshdPort()
+	sshPort := SSHPort()
 	if !listening[sshPort] {
 		// Not listening where its configuration says: report nothing rather than a number that is not
 		// true of this host.
@@ -81,8 +81,10 @@ func (s *Server) listeningPorts(r *http.Request) (map[int]bool, error) {
 	return ports, nil
 }
 
-// sshdPort reads the port sshd was told to use, and answers 22 when it was told nothing.
-func sshdPort() int {
+// SSHPort reads the port sshd was told to use, and answers 22 when it was told nothing. Exported
+// because the lockout closes the door it earned on SSH, and that door is this port — writing 22 into
+// the guard would have been one more hardcoded number in a screen that was just cleared of them.
+func SSHPort() int {
 	body, err := os.ReadFile("/etc/ssh/sshd_config")
 	if err != nil {
 		return 22
