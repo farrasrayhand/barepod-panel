@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,7 +37,7 @@ func (a guardStoreAdapter) Bans() ([]guard.Ban, error) {
 	for _, row := range rows {
 		out = append(out, guard.Ban{
 			IP: row.IP, Engine: row.Engine, User: row.User, Reason: row.Reason,
-			Count: row.Hits, Port: row.Port, At: row.BannedAt, ExpiresAt: row.ExpiresAt,
+			Count: row.Hits, Ports: splitPorts(row.Ports), At: row.BannedAt, ExpiresAt: row.ExpiresAt,
 		})
 	}
 	return out, nil
@@ -44,7 +45,7 @@ func (a guardStoreAdapter) Bans() ([]guard.Ban, error) {
 
 func (a guardStoreAdapter) SaveBan(ban guard.Ban) error {
 	return a.st.SaveGuardBan(store.GuardBan{
-		IP: ban.IP, Engine: ban.Engine, User: ban.User, Reason: ban.Reason, Hits: ban.Count, Port: ban.Port,
+		IP: ban.IP, Engine: ban.Engine, User: ban.User, Reason: ban.Reason, Hits: ban.Count, Ports: joinPorts(ban.Ports),
 		BannedAt: ban.At, ExpiresAt: ban.ExpiresAt,
 	})
 }
@@ -272,4 +273,23 @@ func GuardExecutor(run func(ctx context.Context, dir, name string, args ...strin
 	return func(ctx context.Context, name string, args ...string) (string, error) {
 		return run(ctx, "", name, args...)
 	}
+}
+
+// splitPorts and joinPorts move the list between the guard's shape and the one column that holds it.
+func splitPorts(value string) []int {
+	out := []int{}
+	for _, part := range strings.Split(value, ",") {
+		if port, err := strconv.Atoi(strings.TrimSpace(part)); err == nil && port > 0 {
+			out = append(out, port)
+		}
+	}
+	return out
+}
+
+func joinPorts(ports []int) string {
+	parts := make([]string, 0, len(ports))
+	for _, port := range ports {
+		parts = append(parts, strconv.Itoa(port))
+	}
+	return strings.Join(parts, ",")
 }

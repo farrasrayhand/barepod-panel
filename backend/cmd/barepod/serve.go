@@ -345,7 +345,7 @@ func runServe(args []string) error {
 	}
 	// Both doors read from the host: the panel's from how the daemon was started, SSH's from sshd's own
 	// configuration, so neither is a number written into the code.
-	watchdog.SetScopes(map[string]int{"panel": panelPort, "ssh": api.SSHPort()})
+	watchdog.SetScopes(map[string][]int{"panel": {panelPort}})
 	// Adopt first and wait for it: the reconciliation below needs the table and its sets to
 	// exist, and racing the goroutine left ports out of the set while reporting success —
 	// measured, a containerised MongoDB stayed reachable from the LAN that way.

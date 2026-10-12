@@ -21,7 +21,17 @@ var migrations = []migration{
 	{version: 11, statements: schemaV11},
 	{version: 12, statements: schemaV12},
 	{version: 13, statements: schemaV13},
+	{version: 14, statements: schemaV14},
 }
+
+// schemaV14 lets one ban close several ports. SSH can listen on more than one while its port is being
+// moved — the safe way to move it is to add the new one and keep the old until the new answers — and a
+// single-port scope meant the new door stood open for the length of that window. The old `port` column
+// is left in place and unused: dropping a column is the kind of migration that can fail on an older
+// SQLite, and a panel that will not start is a worse outcome than a column nobody reads.
+const schemaV14 = `
+ALTER TABLE guard_bans ADD COLUMN ports TEXT NOT NULL DEFAULT '';
+`
 
 // schemaV13 records what a ban covers. 0 is the whole host, which is what a ban earned on a database
 // engine is: an address attacking PostgreSQL has no business reaching anything else either. A port

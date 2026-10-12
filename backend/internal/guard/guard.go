@@ -44,11 +44,12 @@ type Failure struct {
 	At     time.Time
 }
 
-// Ban is one address the panel keeps out until ExpiresAt. Port 0 closes the whole host; a port closes
-// that door only, which is what the panel and SSH earn so an operator never loses their way back in.
+// Ban is one address the panel keeps out until ExpiresAt. No ports closes the whole host; ports close
+// those doors only, which is what the panel and SSH earn so an operator never loses their way back in.
+// SSH may have several while its port is being moved.
 type Ban struct {
 	IP        string    `json:"ip"`
-	Port      int       `json:"port,omitempty"`
+	Ports     []int     `json:"ports,omitempty"`
 	Engine    string    `json:"engine"`
 	User      string    `json:"user,omitempty"`
 	Count     int       `json:"count"`
@@ -457,24 +458,37 @@ func OpenPortArgv(port int) []string {
 // BanArgv keeps an address out for the rest of its ban time. The timeout is handed to the kernel as
 // well as recorded in the panel, so the ban ends on time even with the daemon stopped. A ban with a
 // port closes that door only.
-func BanArgv(ban Ban) []string {
+func BanArgv(ban Ban) [][]string {
 	seconds := int(time.Until(ban.ExpiresAt).Seconds())
 	if seconds < 1 {
 		seconds = 1
 	}
-	if ban.Port > 0 {
-		return []string{"nft", "add", "element", "inet", Table, ScopedSet, "{", ban.IP, ".", strconv.Itoa(ban.Port),
-			"timeout", strconv.Itoa(seconds) + "s", "}"}
+	timeout := strconv.Itoa(seconds) + "s"
+	if len(ban.Ports) == 0 {
+		return [][]string{{"nft", "add", "element", "inet", Table, Set, "{", ban.IP, "timeout", timeout, "}"}}
 	}
-	return []string{"nft", "add", "element", "inet", Table, Set, "{", ban.IP, "timeout", strconv.Itoa(seconds) + "s", "}"}
+	// One command per door. Measured: nft accepts a single element with a timeout, and silently adds
+	// nothing for the comma-separated form of several — so several ports mean several commands, each
+	// carrying its own timeout.
+	commands := make([][]string, 0, len(ban.Ports))
+	for _, port := range ban.Ports {
+		commands = append(commands, []string{"nft", "add", "element", "inet", Table, ScopedSet,
+			"{", ban.IP, ".", strconv.Itoa(port), "timeout", timeout, "}"})
+	}
+	return commands
 }
 
 // UnbanArgv lets an address back in, through the door it was kept out of.
-func UnbanBanArgv(ban Ban) []string {
-	if ban.Port > 0 {
-		return []string{"nft", "delete", "element", "inet", Table, ScopedSet, "{", ban.IP, ".", strconv.Itoa(ban.Port), "}"}
+func UnbanBanArgv(ban Ban) [][]string {
+	if len(ban.Ports) == 0 {
+		return [][]string{{"nft", "delete", "element", "inet", Table, Set, "{", ban.IP, "}"}}
 	}
-	return []string{"nft", "delete", "element", "inet", Table, Set, "{", ban.IP, "}"}
+	commands := make([][]string, 0, len(ban.Ports))
+	for _, port := range ban.Ports {
+		commands = append(commands, []string{"nft", "delete", "element", "inet", Table, ScopedSet,
+			"{", ban.IP, ".", strconv.Itoa(port), "}"})
+	}
+	return commands
 }
 
 // UnbanArgv lets an address back in.

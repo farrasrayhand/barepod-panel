@@ -104,7 +104,7 @@ type Guard struct {
 	// door only. The panel and SSH close their own door, so tripping either never removes the way back
 	// in; an engine's ban is host-wide, because an address attacking a database has no business
 	// reaching anything else either.
-	scopes map[string]int
+	scopes map[string][]int
 	// redisURL is the panel's own Redis identity, needed because ACL LOG can only be read by
 	// someone authenticated. Empty means the cache's refusals cannot be read, and the status says so.
 	redisURL string
@@ -119,14 +119,14 @@ type Guard struct {
 // work, unchanged.
 // SetScopes tells the guard which doors an engine's bans close: the panel's own port, from how the
 // daemon was started.
-func (g *Guard) SetScopes(scopes map[string]int) {
+func (g *Guard) SetScopes(scopes map[string][]int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.scopes == nil {
-		g.scopes = map[string]int{}
+		g.scopes = map[string][]int{}
 	}
-	for engine, port := range scopes {
-		g.scopes[engine] = port
+	for engine, ports := range scopes {
+		g.scopes[engine] = ports
 	}
 }
 
@@ -134,16 +134,18 @@ func (g *Guard) SetScopes(scopes map[string]int) {
 // configuration and can be changed from the panel, so reading it once at start meant a ban closing a
 // port sshd had stopped listening on — a door closed where nobody was knocking, and a new one open.
 func (g *Guard) refreshScopes() {
-	port := sshPortFromConfig()
+	// Every port sshd is configured for, not the first one: while its port is being moved it answers on
+	// two, and a scope that covered one of them would leave the other open to the same attacker.
+	ports := sshPortsFromConfig()
 	g.mu.Lock()
 	if g.scopes == nil {
-		g.scopes = map[string]int{}
+		g.scopes = map[string][]int{}
 	}
-	g.scopes["ssh"] = port
+	g.scopes["ssh"] = ports
 	g.mu.Unlock()
 }
 
-func (g *Guard) scopeFor(engine string) int {
+func (g *Guard) scopePorts(engine string) []int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.scopes[engine]
@@ -222,9 +224,14 @@ func (g *Guard) Adopt(ctx context.Context) error {
 			released++
 			continue
 		}
-		argv := BanArgv(ban)
-		if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
-			g.logf("guard: re-applying the ban on %s failed: %s (%v)", ban.IP, strings.TrimSpace(out), err)
+		failed := false
+		for _, argv := range BanArgv(ban) {
+			if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
+				g.logf("guard: re-applying the ban on %s failed: %s (%v)", ban.IP, strings.TrimSpace(out), err)
+				failed = true
+			}
+		}
+		if failed {
 			continue
 		}
 		reapplied++
@@ -315,14 +322,19 @@ func (g *Guard) Sweep(ctx context.Context) error {
 	banned := 0
 	for i := range ban {
 		// The door this ban closes, decided by the engine that earned it.
-		ban[i].Port = g.scopeFor(ban[i].Engine)
+		ban[i].Ports = g.scopePorts(ban[i].Engine)
 	}
 	for _, entry := range ban {
-		argv := BanArgv(entry)
-		if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
-			if firstErr == nil {
-				firstErr = errf("ban %s: %s (%v)", entry.IP, strings.TrimSpace(out), err)
+		banFailed := false
+		for _, argv := range BanArgv(entry) {
+			if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
+				if firstErr == nil {
+					firstErr = errf("ban %s: %s (%v)", entry.IP, strings.TrimSpace(out), err)
+				}
+				banFailed = true
 			}
+		}
+		if banFailed {
 			continue
 		}
 		if err := g.store.SaveBan(entry); err != nil {
@@ -338,15 +350,15 @@ func (g *Guard) Sweep(ctx context.Context) error {
 		g.logf("guard: banned %s for %s (%s)", entry.IP, settings.BanTime, entry.Reason)
 	}
 	for _, ip := range drop {
-		// The recorded scope, so a ban that closed one door is released from that door.
-		argv := UnbanBanArgv(existing[ip])
-		if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
-			// The kernel may have expired the element itself, which is a success.
-			if !strings.Contains(out, "No such file or directory") && !strings.Contains(out, "does not exist") {
-				if firstErr == nil {
-					firstErr = errf("release %s: %s (%v)", ip, strings.TrimSpace(out), err)
+		// The recorded scope, so a ban that closed those doors is released from those doors.
+		for _, argv := range UnbanBanArgv(existing[ip]) {
+			if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
+				// The kernel may have expired the element itself, which is a success.
+				if !strings.Contains(out, "No such file or directory") && !strings.Contains(out, "does not exist") {
+					if firstErr == nil {
+						firstErr = errf("release %s: %s (%v)", ip, strings.TrimSpace(out), err)
+					}
 				}
-				continue
 			}
 		}
 		_ = g.store.DropBan(ip)
@@ -481,10 +493,11 @@ func (g *Guard) Unban(ctx context.Context, ip string) error {
 			continue
 		}
 		removed = true
-		argv := UnbanBanArgv(ban)
-		if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
-			if !strings.Contains(out, "No such file or directory") && !strings.Contains(out, "does not exist") {
-				return errf("release %s: %s (%v)", ip, strings.TrimSpace(out), err)
+		for _, argv := range UnbanBanArgv(ban) {
+			if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
+				if !strings.Contains(out, "No such file or directory") && !strings.Contains(out, "does not exist") {
+					return errf("release %s: %s (%v)", ip, strings.TrimSpace(out), err)
+				}
 			}
 		}
 	}
@@ -793,20 +806,24 @@ func widestFindTime(fallback Settings, perEngine map[string]Settings) time.Durat
 	return widest
 }
 
-// sshPortFromConfig reads the port sshd was told to listen on: the first it names, or the documented
-// default when it names none, which is what this host does.
-func sshPortFromConfig() int {
+// sshPortsFromConfig reads every port sshd was told to listen on, or the documented default when it was
+// told nothing, which is what this host does.
+func sshPortsFromConfig() []int {
 	body, err := os.ReadFile("/etc/ssh/sshd_config")
 	if err != nil {
-		return 22
+		return []int{22}
 	}
+	ports := []int{}
 	for _, line := range strings.Split(string(body), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 2 && strings.EqualFold(fields[0], "Port") {
 			if port, err := strconv.Atoi(fields[1]); err == nil {
-				return port
+				ports = append(ports, port)
 			}
 		}
 	}
-	return 22
+	if len(ports) == 0 {
+		return []int{22}
+	}
+	return ports
 }

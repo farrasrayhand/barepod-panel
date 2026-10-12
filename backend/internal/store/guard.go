@@ -33,8 +33,8 @@ type GuardBan struct {
 	User   string `json:"user,omitempty"`
 	Reason string `json:"reason,omitempty"`
 	Hits   int    `json:"hits"`
-	// Port is the door this ban closes; 0 means the whole host.
-	Port      int       `json:"port,omitempty"`
+	// Ports are the doors this ban closes, comma separated; empty means the whole host.
+	Ports     string    `json:"ports,omitempty"`
 	BannedBy  string    `json:"bannedBy,omitempty"`
 	BannedAt  time.Time `json:"bannedAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
@@ -96,7 +96,7 @@ ON CONFLICT(id) DO UPDATE SET
 // GuardBans lists every address the panel currently keeps out, newest first.
 func (s *Store) GuardBans() ([]GuardBan, error) {
 	rows, err := s.DB.Query(`
-SELECT ip, engine, user_name, reason, hits, port, banned_at, expires_at
+SELECT ip, engine, user_name, reason, hits, ports, banned_at, expires_at
 FROM guard_bans ORDER BY banned_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list guard bans: %w", err)
@@ -106,7 +106,7 @@ FROM guard_bans ORDER BY banned_at DESC`)
 	for rows.Next() {
 		var entry GuardBan
 		var bannedAt, expiresAt string
-		if err := rows.Scan(&entry.IP, &entry.Engine, &entry.User, &entry.Reason, &entry.Hits, &entry.Port, &bannedAt, &expiresAt); err != nil {
+		if err := rows.Scan(&entry.IP, &entry.Engine, &entry.User, &entry.Reason, &entry.Hits, &entry.Ports, &bannedAt, &expiresAt); err != nil {
 			return nil, fmt.Errorf("store: scan guard ban: %w", err)
 		}
 		entry.BannedAt, _ = time.Parse(time.RFC3339, bannedAt)
@@ -120,17 +120,17 @@ FROM guard_bans ORDER BY banned_at DESC`)
 // of the panel.
 func (s *Store) SaveGuardBan(ban GuardBan) error {
 	_, err := s.DB.Exec(`
-INSERT INTO guard_bans (ip, engine, user_name, reason, hits, port, banned_at, expires_at)
+INSERT INTO guard_bans (ip, engine, user_name, reason, hits, ports, banned_at, expires_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(ip) DO UPDATE SET
   engine = excluded.engine,
   user_name = excluded.user_name,
   reason = excluded.reason,
   hits = excluded.hits,
-  port = excluded.port,
+  ports = excluded.ports,
   banned_at = excluded.banned_at,
   expires_at = excluded.expires_at`,
-		ban.IP, ban.Engine, ban.User, ban.Reason, ban.Hits, ban.Port,
+		ban.IP, ban.Engine, ban.User, ban.Reason, ban.Hits, ban.Ports,
 		ban.BannedAt.UTC().Format(time.RFC3339), ban.ExpiresAt.UTC().Format(time.RFC3339))
 	if err != nil {
 		return fmt.Errorf("store: save guard ban: %w", err)

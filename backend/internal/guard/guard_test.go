@@ -164,7 +164,7 @@ func TestDisabledGuardDoesNotQuietlyLetAddressesBackIn(t *testing.T) {
 // when its ban runs out — the timeout is handed to nft as well as recorded in the panel.
 func TestBansAreHandedToTheKernelWithTheirRemainingTime(t *testing.T) {
 	now := time.Now()
-	argv := strings.Join(BanArgv(Ban{IP: "203.0.113.7", ExpiresAt: now.Add(30 * time.Minute)}), " ")
+	argv := strings.Join(BanArgv(Ban{IP: "203.0.113.7", ExpiresAt: now.Add(30 * time.Minute)})[0], " ")
 	if !strings.HasPrefix(argv, "nft add element inet barepod banned { 203.0.113.7 timeout ") {
 		t.Fatalf("unexpected ban command: %s", argv)
 	}
