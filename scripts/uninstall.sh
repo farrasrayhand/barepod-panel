@@ -95,7 +95,20 @@ if [ "$ASSUME_YES" -eq 0 ]; then
   exit 0
 fi
 
-# --- 1. the backup, before anything is stopped or deleted ---
+# --- 1. stop the panel and the sites, and release anyone the lockout banned ---
+head "Stopping services"
+for unit in "${SITE_UNITS[@]:-}"; do
+  [ -n "${unit:-}" ] || continue
+  act "systemctl disable --now '$unit'"
+done
+act "systemctl disable --now barepod.service"
+act "systemctl reset-failed barepod.service"
+if cmd nft; then
+  act "nft delete table inet barepod"
+  say "(the lockout's bans lived here; deleting the table releases every blocked address)"
+fi
+
+# --- 2. the backup, taken with the panel stopped (see the note in the copy step) ---
 if [ "$BACKUP" != "none" ]; then
   head "Backing up"
   stamp="$(date +%Y%m%d-%H%M%S)"
@@ -104,7 +117,19 @@ if [ "$BACKUP" != "none" ]; then
   work="$(mktemp -d)"
   act "install -d -m 0700 '$BACKUP_DIR'"
   mkdir -p "$work/barepod"
-  [ -f "$DATA_DIR/barepod.db" ] && cp -a "$DATA_DIR/barepod.db" "$work/barepod/" || true
+  if [ -f "$DATA_DIR/barepod.db" ]; then
+    # sqlite3's own copy is consistent even if something is still writing; a plain cp of a WAL database can
+    # lose the commits sitting in barepod.db-wal. The service is already stopped above, and this is the
+    # belt to that pair of braces.
+    if cmd sqlite3 && sqlite3 "$DATA_DIR/barepod.db" "VACUUM INTO '$work/barepod/barepod.db'" 2>/dev/null; then
+      say "panel database copied with sqlite3 VACUUM INTO (consistent, includes the write-ahead log)"
+    else
+      act "cp -a '$DATA_DIR/barepod.db' '$work/barepod/'"
+      for sidecar in "$DATA_DIR"/barepod.db-wal "$DATA_DIR"/barepod.db-shm; do
+        [ -f "$sidecar" ] && act "cp -a '$sidecar' '$work/barepod/'"
+      done
+    fi
+  fi
   # The certificate is what stops a reinstall from showing a brand-new warning to the same operator.
   cp -a "$DATA_DIR"/panel-selfsigned.* "$work/barepod/" 2>/dev/null || true
   if [ "$BACKUP" = "full" ]; then
@@ -136,19 +161,6 @@ if [ "$BACKUP" != "none" ]; then
   rm -rf "$work"
   say "backup written: $archive"
   say "put it back later with: $(dirname "$0")/restore.sh --from '$archive'"
-fi
-
-# --- 2. stop the panel and the sites, and release anyone the lockout banned ---
-head "Stopping services"
-for unit in "${SITE_UNITS[@]:-}"; do
-  [ -n "${unit:-}" ] || continue
-  act "systemctl disable --now '$unit'"
-done
-act "systemctl disable --now barepod.service"
-act "systemctl reset-failed barepod.service"
-if cmd nft; then
-  act "nft delete table inet barepod"
-  say "(the lockout's bans lived here; deleting the table releases every blocked address)"
 fi
 
 # --- 3. the panel's own units and files ---

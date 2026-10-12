@@ -68,6 +68,18 @@ never be; it comes from the session environment. Same for any token.
    sites are born with an owner instead of being retrofitted.
 3. Then: domains & TLS, backups/migration, pods/Docker, tunnels — all still mocks.
 
+**Also queued — `barepod uninstall`, guided.** `scripts/uninstall.sh` works today (dry run until `--yes`,
+`--backup=db|full|none`, then `scripts/restore.sh`; the installer detects a previous backup and says so),
+but it is flag-driven rather than guided, and it has to *infer* what exists: tenants from the `User=` line in
+each `barepod-app@<slug>.service`, containers from a name prefix. The daemon already knows all of it — the
+config paths, the store's records and tenants, the guard's nftables table, the container supervisor — and
+`barepod service install|status|uninstall` is the established shape. So the real implementation belongs in
+the CLI: `barepod uninstall` with a guided mode (prompts with defaults, and a typed confirmation before
+anything destructive, the way the database-delete flow already asks), a backup taken with SQLite's own
+consistent copy rather than `cp` of a live WAL database, and the shell script reduced to a thin wrapper that
+delegates when the binary is present and stays as the best-effort path when it is not — a broken install is
+exactly when someone reaches for it.
+
 ## How this operator works (worth following)
 
 Direct, fast, and they check claims. Honest labels beat reassuring ones: mark what is not built, name what
