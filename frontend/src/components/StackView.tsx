@@ -370,6 +370,10 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   const state = status?.webServer.managedInstalled?.find((e) => e.engine === engine);
                   const versions = status?.webServer.available?.[engine] ?? [];
                   const installed = (state?.version ?? '').replace(/^v/, '');
+                  // The select shows its first option when nothing is picked, so the state
+                  // has to agree with what is on screen — otherwise the button reads an
+                  // empty string and appears to do nothing at all.
+                  const picked = pickedVersion[engine] ?? (installed || versions[0] || '');
                   return (
                     <tr key={engine} className="hover:bg-slate-50/70">
                       <td className="py-3 px-4 font-semibold text-slate-900">{engine}</td>
@@ -377,7 +381,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                       <td className="py-3 px-4 font-mono text-slate-700">{status?.webServer.latest?.[engine] ?? '—'}</td>
                       <td className="py-3 px-4">
                         <select
-                          value={pickedVersion[engine] ?? installed}
+                          value={picked}
                           onChange={(e) => setPickedVersion((prev) => ({ ...prev, [engine]: e.target.value }))}
                           className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
                         >
@@ -392,8 +396,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                       <td className="py-3 px-4 text-right">
                         <button
                           onClick={() => {
-                            const version = pickedVersion[engine] ?? installed;
-                            if (version && version !== installed) void install(engine, version);
+                            if (picked && picked !== installed) void install(engine, picked);
                           }}
                           disabled={busy || live !== true || versions.length === 0}
                           title={versions.length === 0 ? 'no versions listed — add this engine\'s repository' : 'Install the picked version'}
@@ -565,7 +568,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   const detected = status?.databases?.find((d) => d.engine === component.name);
                   const versions = status?.databaseAvailable?.[component.name] ?? component.versions ?? [];
                   const active = detected?.installedVersion ?? '';
-                  const picked = pickedVersion[component.name] ?? active;
+                  const picked = pickedVersion[component.name] ?? (active || versions[0] || '');
                   return (
                     <tr key={component.name} className="hover:bg-slate-50/70">
                       <td className="py-3 px-4 font-semibold text-slate-900">
