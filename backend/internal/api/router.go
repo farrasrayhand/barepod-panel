@@ -237,6 +237,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/databases/{id}/reveal", databases(s.handleRevealDatabase(store.KindDatabase)))
 	mux.HandleFunc("GET /api/v1/databases/{id}/connection-string", databases(s.handleConnectionString(store.KindDatabase)))
 	mux.HandleFunc("GET /api/v1/databases/{id}/export", databases(s.handleExportDatabase(store.KindDatabase)))
+	// Exposure: opening a database's port to the outside, which the daemon refuses while it
+	// cannot keep brute-force out, and the engine's own log, which explains what happened.
+	mux.HandleFunc("POST /api/v1/databases/{id}/exposure", databases(s.handleSetExposure))
+	mux.HandleFunc("GET /api/v1/databases/{id}/log", databases(s.handleDatabaseLog))
 	mux.HandleFunc("POST /api/v1/databases/{id}/restore", databases(s.handleRestoreDatabase(store.KindDatabase)))
 	mux.HandleFunc("POST /api/v1/databases/{id}/purge", databases(s.handlePurgeDatabase(store.KindDatabase)))
 	// Data browsing, served by the daemon itself: no extra port, no GUI process —

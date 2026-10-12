@@ -110,6 +110,14 @@ export interface DatabaseItem {
   deletedAt?: string;
   /** Kept when its website was deleted: the file moved into the tenant's home. */
   detachedAt?: string;
+  /**
+   * "" or "private" until an operator opens the port, then "public". The note is what the panel
+   * actually did about it — an engine whose listener is engine-wide says so there rather than
+   * pretending a per-database boundary exists.
+   */
+  exposure?: string;
+  exposureNote?: string;
+  exposedAt?: string;
   /** Live extras: what the daemon answered. */
   note?: string;
   websiteSlug?: string;

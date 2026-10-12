@@ -50,7 +50,7 @@ type Database struct {
 	ExposureNote string `json:"exposureNote,omitempty"`
 	ExposedAt    string `json:"exposedAt,omitempty"`
 	CreatedAt    string `json:"createdAt"`
-	FileBased  bool   `json:"fileBased"`
+	FileBased    bool   `json:"fileBased"`
 	// Detected marks a file the panel found inside a website: the application made
 	// it, so the panel reports and browses it but never deletes it.
 	Detected bool `json:"detected,omitempty"`

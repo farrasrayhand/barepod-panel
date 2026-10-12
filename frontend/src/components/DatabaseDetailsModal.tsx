@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   X, 
   Database, 
@@ -20,6 +20,8 @@ import {
   Trash2,
   Download,
   Loader2,
+  FileText,
+  Globe,
   Table,
   Play,
   RefreshCw,
@@ -91,7 +93,67 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   };
 
   // Data Browser & SQL Tab States
-  const [dataTabActive, setDataTabActive] = useState<'overview' | 'data'>('overview');
+  const [dataTabActive, setDataTabActive] = useState<'overview' | 'data' | 'logs'>('overview');
+
+  // The engine's own log, and the exposure switch. Both are the daemon's answer rather than a
+  // local guess: opening a port is refused while the lockout cannot keep brute-force out.
+  const [logs, setLogs] = useState<{
+    engine: string;
+    source: string;
+    note: string;
+    lines: string[];
+    audit: { id?: number; ts: string; action: string; target: string; detail: string }[];
+  } | null>(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [exposure, setExposure] = useState<'public' | 'private'>(
+    database?.exposure === 'public' ? 'public' : 'private',
+  );
+  const [exposureNote, setExposureNote] = useState(database?.exposureNote || '');
+  const [exposureBusy, setExposureBusy] = useState(false);
+  const [guard, setGuard] = useState<{ enforcing: boolean; reason: string } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const status = await api.guard();
+        if (alive) setGuard({ enforcing: status.enforcing, reason: status.reason || '' });
+      } catch {
+        // A panel that cannot report the lockout cannot be assumed to have one.
+        if (alive) setGuard({ enforcing: false, reason: 'the lockout status could not be read' });
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const loadLogs = async () => {
+    if (!database || logsLoading) return;
+    setLogsLoading(true);
+    try {
+      setLogs(await api.databaseLog(database.id));
+    } catch (err) {
+      setLogs({ engine: database.type, source: '', note: failureMessage(err, 'the log could not be read'), lines: [], audit: [] });
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  const changeExposure = async (next: 'public' | 'private') => {
+    if (!database || exposureBusy) return;
+    setExposureBusy(true);
+    setErrorMsg('');
+    try {
+      const result = await api.setDatabaseExposure(database.id, next);
+      setExposure(next);
+      setExposureNote(result.note);
+    } catch (err) {
+      setErrorMsg(failureMessage(err, 'the exposure could not be changed'));
+    } finally {
+      setExposureBusy(false);
+    }
+  };
   const [tableList, setTableList] = useState<string[]>([]);
   const [redisKeys, setRedisKeys] = useState<{ keys: string[]; count: number } | null>(null);
   const [loadingTables, setLoadingTables] = useState(false);
@@ -422,11 +484,65 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
               <span>{database.type === 'redis' ? 'Keys' : database.type === 'mongodb' ? 'Data' : 'Browse Data'}</span>
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              setDataTabActive('logs');
+              if (!logs) void loadLogs();
+            }}
+            className={`px-3 py-2 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+              dataTabActive === 'logs'
+                ? 'border-blue-600 text-blue-600 bg-white'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Logs</span>
+          </button>
         </div>
 
         {/* Modal Scrollable Body */}
         <div className="p-6 space-y-5 overflow-y-auto flex-1">
-          {dataTabActive === 'overview' ? (
+          {dataTabActive === 'logs' ? (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">The engine's own log</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {logsLoading ? 'Reading…' : logs?.source || 'no source yet'}
+                    {logs?.note ? ` · ${logs.note}` : ''}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadLogs()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors self-start"
+                >
+                  {logsLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  <span>Refresh</span>
+                </button>
+              </div>
+              <pre className="text-[11px] leading-relaxed bg-slate-900 text-slate-100 rounded-xl p-3 overflow-auto max-h-72 whitespace-pre-wrap font-mono">
+{logs && logs.lines.length > 0 ? logs.lines.join('\n') : logs?.note || 'Nothing to show yet — open the tab to read it.'}
+              </pre>
+              <div>
+                <h4 className="text-xs font-bold text-slate-700 mb-1.5">What the panel did with this database</h4>
+                {logs && logs.audit.length > 0 ? (
+                  <ul className="text-xs text-slate-600 space-y-1">
+                    {logs.audit.slice(0, 20).map((entry, index) => (
+                      <li key={`${entry.ts}-${index}`} className="flex gap-2">
+                        <span className="text-slate-400 shrink-0">{entry.ts.replace('T', ' ').slice(0, 19)}</span>
+                        <span className="font-semibold text-slate-700 shrink-0">{entry.action}</span>
+                        <span className="truncate">{entry.detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-slate-500">Nothing recorded about this database yet.</p>
+                )}
+              </div>
+            </div>
+          ) : dataTabActive === 'overview' ? (
             <>
           {/* Direct SSO Web GUI Launcher Section */}
           <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 to-indigo-950 text-white shadow-md">
@@ -497,6 +613,39 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                       <Download className="w-3.5 h-3.5 text-emerald-300" />
                     )}
                     <span>{exporting ? 'Dumping…' : `Export ${database.type === 'sqlite' ? '.sqlite' : '.sql'}`}</span>
+                  </button>
+                )}
+
+                {/* Exposure: whether this database's port answers from outside. Private is the
+                    default everywhere, and the daemon refuses to open it while the brute-force
+                    lockout is not enforcing — so the button disables itself rather than letting
+                    the request fail. */}
+                {database.type !== 'sqlite' && (database.port || 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void changeExposure(exposure === 'public' ? 'private' : 'public')}
+                    disabled={exposureBusy || (exposure === 'private' && guard?.enforcing === false)}
+                    title={
+                      exposure === 'public'
+                        ? `Open to the outside. ${exposureNote || ''}`
+                        : guard?.enforcing === false
+                          ? `Cannot be opened: ${guard.reason || 'the lockout is not enforcing'}`
+                          : 'Reachable from the panel and the host only. Click to open it to the outside.'
+                    }
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                      exposure === 'public'
+                        ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 border-amber-400/30'
+                        : 'bg-white/10 hover:bg-white/20 text-slate-100 border-white/20'
+                    }`}
+                  >
+                    {exposureBusy ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : exposure === 'public' ? (
+                      <Globe className="w-3.5 h-3.5" />
+                    ) : (
+                      <Lock className="w-3.5 h-3.5" />
+                    )}
+                    <span>{exposure === 'public' ? 'Public' : 'Private'}</span>
                   </button>
                 )}
               </div>

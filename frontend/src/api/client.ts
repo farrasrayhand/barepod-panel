@@ -403,6 +403,29 @@ export const api = {
    */
   databaseExport: (id: string) => request<Blob>(`/databases/${id}/export`, { raw: true }),
 
+  /**
+   * Open or close one database's port. The daemon refuses "public" while the brute-force
+   * lockout is not enforcing, and answers 409 with the reason.
+   */
+  setDatabaseExposure: (id: string, exposure: 'public' | 'private') =>
+    request<{ exposure: string; note: string; database: unknown }>(`/databases/${id}/exposure`, {
+      method: 'POST',
+      body: JSON.stringify({ exposure }),
+    }),
+
+  /**
+   * The engine's own log for one database, plus what the panel did with the record: the two
+   * halves of "why did this happen".
+   */
+  databaseLog: (id: string) =>
+    request<{
+      engine: string;
+      source: string;
+      note: string;
+      lines: string[];
+      audit: { id?: number; ts: string; action: string; target: string; detail: string }[];
+    }>(`/databases/${id}/log`),
+
   login: async (username: string, password: string) => {
     const session = await request<{ user: PanelUser; csrfToken: string }>('/auth/login', {
       method: 'POST',

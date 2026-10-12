@@ -157,3 +157,25 @@ func TestBansAreHandedToTheKernelWithTheirRemainingTime(t *testing.T) {
 		t.Error("the set is not created with timeout support")
 	}
 }
+
+// `nft add rule` appends where `add table` and `add set` do not, so preparing the guard twice
+// would leave two copies of the drop rules — measured on the host as one more copy per restart.
+// The chain is flushed before its rules are written, and this pins that order.
+func TestPreparingTheGuardDoesNotDuplicateItsRules(t *testing.T) {
+	flushAt, firstRuleAt := -1, -1
+	for index, argv := range EnsureArgv() {
+		line := strings.Join(argv, " ")
+		switch {
+		case line == "nft flush chain inet barepod input":
+			flushAt = index
+		case strings.HasPrefix(line, "nft add rule inet barepod input") && firstRuleAt < 0:
+			firstRuleAt = index
+		}
+	}
+	if flushAt < 0 || firstRuleAt < 0 {
+		t.Fatalf("the chain is not flushed before its rules are written: flush=%d rule=%d", flushAt, firstRuleAt)
+	}
+	if flushAt > firstRuleAt {
+		t.Errorf("the flush comes after the first rule (%d > %d), so a restart still duplicates", flushAt, firstRuleAt)
+	}
+}

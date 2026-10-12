@@ -237,25 +237,50 @@ func Decide(settings Settings, failures []Failure, existing map[string]Ban, now 
 
 // --- host enforcement -------------------------------------------------------------------
 
-// Table is the panel's own nftables table: a filter that drops banned addresses, kept
-// apart from docker's tables so the two never have to agree about anything.
+// Table is the panel's own nftables table: a filter that drops banned addresses and keeps a
+// private database's port off every interface but loopback, kept apart from docker's tables so
+// the two never have to agree about anything.
 const (
-	Table    = "barepod"
-	Set      = "banned"
+	Table = "barepod"
+	Set   = "banned"
+	// PortsSet holds the engine ports a database has not opened. Membership is what makes a
+	// port private, so opening one is removing a single element — instantly reversible, and
+	// visible in the same table as everything else the panel enforces.
+	PortsSet = "private_ports"
 	chainRun = "-10" // before the general filter chains: a banned address is dropped early
 )
 
-// EnsureArgv creates the table, the set and the rule that reads it, and is safe to run
-// again and again (`nft -f` on an existing object is a no-op with `add`).
+// EnsureArgv creates the table, the two sets and the rules that read them, and is safe to run
+// again and again (`nft add` on an existing object is a no-op).
 func EnsureArgv() [][]string {
 	return [][]string{
 		{"nft", "add", "table", "inet", Table},
 		// flags timeout lets the kernel expire a ban on its own, so an address is out even
 		// if the panel is down when its ban runs out.
 		{"nft", "add", "set", "inet", Table, Set, "{", "type", "ipv4_addr;", "flags", "timeout;", "}"},
+		{"nft", "add", "set", "inet", Table, PortsSet, "{", "type", "inet_service;", "}"},
 		{"nft", "add", "chain", "inet", Table, "input", "{", "type", "filter", "hook", "input", "priority", chainRun, ";", "policy", "accept", ";", "}"},
+		// `add rule` appends, unlike `add table`/`add set`, so this guard is prepared by
+		// flushing its own chain first. Measured: without it, every panel restart left another
+		// copy of the drop rules behind (seven restarts, seven identical rules).
+		{"nft", "flush", "chain", "inet", Table, "input"},
 		{"nft", "add", "rule", "inet", Table, "input", "ip", "saddr", "@" + Set, "drop"},
+		// Loopback is never dropped here either: that is how the panel and the site's own
+		// application reach the database.
+		{"nft", "add", "rule", "inet", Table, "input", "ip", "saddr", "!=", "127.0.0.1", "tcp", "dport", "@" + PortsSet, "drop"},
 	}
+}
+
+// PrivatePortArgv keeps an engine's port reachable from the host only. A database that has not
+// been opened is in this set, so "private" is the default state of the kernel's side too.
+func PrivatePortArgv(port int) []string {
+	return []string{"nft", "add", "element", "inet", Table, PortsSet, "{", strconv.Itoa(port), "}"}
+}
+
+// OpenPortArgv lets an engine's port be reached from anywhere — the kernel half of making one
+// database public, applied only after the operator has said so and the watchdog is enforcing.
+func OpenPortArgv(port int) []string {
+	return []string{"nft", "delete", "element", "inet", Table, PortsSet, "{", strconv.Itoa(port), "}"}
 }
 
 // BanArgv keeps an address out for the rest of its ban time. The timeout is handed to the

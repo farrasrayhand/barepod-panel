@@ -222,9 +222,12 @@ func TestAdoptReappliesBansAcrossARestart(t *testing.T) {
 	if _, still := store.bans["198.51.100.44"]; still {
 		t.Error("the expired ban was not released from the panel")
 	}
+	// Loopback is never itself banned. (The private-ports rule mentions 127.0.0.1 to let it
+	// through, which is the opposite of banning it, so the check is about what is put into the
+	// ban set.)
 	for _, call := range host.calls {
-		if strings.Contains(call, "127.0.0.1") {
-			t.Errorf("loopback was touched: %s", call)
+		if strings.Contains(call, "nft add element inet barepod banned {") && strings.Contains(call, "127.") {
+			t.Errorf("loopback was put into the ban set: %s", call)
 		}
 	}
 	// The set itself is prepared before anything is put into it.
