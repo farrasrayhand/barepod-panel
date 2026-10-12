@@ -370,21 +370,35 @@ func (s *Server) engineLog(ctx context.Context, record *store.Database) ([]strin
 			return nil, path, "", fmt.Errorf("the log could not be read: %v", err)
 		}
 		return splitLines(out), path, "", nil
-	case "mongodb", "redis":
-		container := "barepod-" + record.Engine
-		if record.Engine == "mongodb" {
-			container = "barepod-mongo"
+	case "redis":
+		// Redis is not a container here: the installer puts the host's own redis-server on
+		// 127.0.0.1, whose log is a file. Assuming a container of the same name made the Logs
+		// tab answer "could not be read" for a database whose log was sitting right there, so
+		// the host's file is tried first and the container is the fallback.
+		if path := newestPath("/var/log/redis/*.log"); path != "" {
+			out, err := s.host.Run(ctx, []string{"tail", "-n", fmt.Sprint(tail), path})
+			if err != nil {
+				return nil, path, "", fmt.Errorf("the log could not be read: %v", err)
+			}
+			return splitLines(out), path, "", nil
 		}
-		out, err := s.host.Run(ctx, []string{"docker", "logs", "--tail", fmt.Sprint(tail), container})
-		if err != nil {
-			message := strings.TrimSpace(out)
-			return nil, "", "the container's output could not be read (" + message + "); it may not be running", nil
-		}
-		return splitLines(out), "docker logs " + container, "", nil
+		return s.containerLog(ctx, "barepod-redis", tail)
+	case "mongodb":
+		return s.containerLog(ctx, "barepod-mongo", tail)
 	case "sqlite":
 		return []string{}, record.FilePath, "SQLite is a file-based embedded database — it operates directly in-process without a separate server daemon or service log file.", nil
 	}
 	return nil, "", "this engine keeps no log the panel can read", nil
+}
+
+// containerLog reads a container's output, or says honestly that it could not.
+func (s *Server) containerLog(ctx context.Context, container string, tail int) ([]string, string, string, error) {
+	out, err := s.host.Run(ctx, []string{"docker", "logs", "--tail", fmt.Sprint(tail), container})
+	if err != nil {
+		message := strings.TrimSpace(out)
+		return nil, "", "the container's output could not be read (" + message + "); it may not be running", nil
+	}
+	return splitLines(out), "docker logs " + container, "", nil
 }
 
 // newestPath picks the newest file a glob matches, or "" when there is none.

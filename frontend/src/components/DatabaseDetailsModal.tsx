@@ -280,10 +280,13 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   // The in-panel tab stays only where no manager can open the record. PostgreSQL,
   // MySQL and MariaDB open pgweb / phpMyAdmin; SQLite (a file DbGate mounts) and
   // MongoDB (a document store it speaks) open DbGate — so those two no longer get a
-  // "Browse Data" tab, and MongoDB's was a note rather than a browser. Redis keeps
-  // its key inspector: a host cache listens on TCP loopback, which is the one thing a
-  // container cannot reach, so DbGate is not offered for it.
-  const showsDataTab = database.type === 'redis';
+  // "Browse Data" tab, and MongoDB's was a note rather than a browser. The key inspector
+  // was then removed too: DbGate browses a cache, so the panel does not keep a second
+  // browser of its own. (The container reaches a cache the panel provisions — it is the
+  // panel's own container, on the same docker network. A *host* cache bound to 127.0.0.1 is
+  // the case this used to cover, and DbGate can only reach that if it is run with host
+  // networking; if a cache turns out unreachable there, this is the line to bring back.)
+  const showsDataTab = false;
   // A logical dump exists for the SQL engines (SQLite's is a copy of its file).
   const canExport =
     database.type === 'sqlite' ||
@@ -526,26 +529,6 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
               {exposure === 'public' && (
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Public access active" />
               )}
-            </button>
-          )}
-
-          {showsDataTab && (
-            <button
-              type="button"
-              onClick={() => {
-                setDataTabActive('data');
-                if (tableList.length === 0 && !redisKeys && !tablesError) {
-                  loadTables();
-                }
-              }}
-              className={`px-3 py-2 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
-                dataTabActive === 'data'
-                  ? 'border-blue-600 text-blue-600 bg-white'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Table className="w-3.5 h-3.5" />
-              <span>{database.type === 'redis' ? 'Keys' : database.type === 'mongodb' ? 'Data' : 'Browse Data'}</span>
             </button>
           )}
 
