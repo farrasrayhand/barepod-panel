@@ -74,6 +74,45 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sessionResponse{User: user, CSRFToken: sess.CSRFToken})
 }
 
+// handleChangePassword sets a new panel password, after checking the current one. The
+// Profile screen used to report success without calling anything at all; this is what it
+// calls. Every other session is signed out, because they were opened with the old
+// password.
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	var req struct {
+		CurrentPassword string `json:"currentPassword"`
+		NewPassword     string `json:"newPassword"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "Invalid JSON body")
+		return
+	}
+	if len(req.NewPassword) < 12 {
+		writeError(w, http.StatusBadRequest, "validation_error", "A panel password must be at least 12 characters")
+		return
+	}
+	ok, err := auth.VerifyPassword(req.CurrentPassword, user.PasswordHash)
+	if err != nil || !ok {
+		_ = s.store.Audit(user.ID, "auth.password_change_refused", user.Username, clientIP(r), "")
+		writeError(w, http.StatusForbidden, "invalid_credentials", "The current password is not right")
+		return
+	}
+	hash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Could not hash the new password")
+		return
+	}
+	// The store's own rule: a password change invalidates every session for that account,
+	// this one included. That is the panel's established behaviour (the CLI does it too),
+	// so the answer says it rather than pretending the caller stays signed in.
+	if _, err := s.store.SetUserPassword(user.Username, hash); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Could not save the new password")
+		return
+	}
+	_ = s.store.Audit(user.ID, "auth.password_change", user.Username, clientIP(r), "every session signed out")
+	writeJSON(w, http.StatusOK, map[string]any{"status": "changed", "signedOutEverywhere": true})
+}
+
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {
 	_ = s.store.DeleteSession(sess.ID)
 	setSessionCookie(w, "", -1, requestScheme(r) == "https")

@@ -136,7 +136,17 @@ func (h *Host) FetchSource(ctx context.Context, tenant, slug, kind, repo, branch
 			return nil, ErrSiteMissing
 		}
 		return nil, nil
-	case "upload", "scaffold":
+	case "upload":
+		// The wizard's own screen promises "the archive is extracted into the website
+		// directory on deploy", and nothing extracted anything — a zip simply sat there. It
+		// is unpacked in place, as the tenant, so the unpacked tree belongs to the account.
+		script := `set -e; for f in *.zip; do [ -e "$f" ] || continue; unzip -oq "$f"; rm -f "$f"; done; ` +
+			`for f in *.tar.gz *.tgz; do [ -e "$f" ] || continue; tar xzf "$f"; rm -f "$f"; done`
+		if _, err := h.RunInSite(ctx, tenant, slug, []string{"sh", "-c", script}); err != nil {
+			return nil, fmt.Errorf("host: the uploaded archive could not be extracted: %w", err)
+		}
+		return []string{"sh -c <extract archive>"}, nil
+	case "scaffold":
 		return nil, nil
 	default:
 		return nil, fmt.Errorf("host: unknown source kind %q", kind)

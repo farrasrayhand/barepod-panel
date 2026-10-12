@@ -412,7 +412,7 @@ export function App() {
     };
   }, [session.mode, session.user]);
 
-  const handleAddApp = (newApp: Partial<WebApp>) => {
+  const handleAddApp = (newApp: Partial<WebApp>, archive?: File) => {
     const created: WebApp = {
       id: `app-${Date.now()}`,
       name: newApp.name || 'new-app',
@@ -464,6 +464,17 @@ export function App() {
             cache: newApp.cacheAutoProvision ? { engine: 'redis' } : undefined,
             autoEnv: newApp.autoEnv,
           });
+          // An "Upload Archive" source has to actually arrive: the bytes go to the site,
+          // then the pipeline runs again so it builds with the code present (the create
+          // ran before anything was uploaded).
+          if (archive) {
+            await api.uploadFiles(slug, '', [archive]);
+            const again = await api.redeploy(slug);
+            showToast('Archive uploaded', `${archive.name} sent to ${slug}; rebuilding (job ${again.deployId}).`, 'success');
+            setDeployWatch({ slug, deployId: again.deployId });
+            setAppsLoaded(true);
+            return;
+          }
           showToast('Deploy started', `${slug} — ${result.mode}. Its log is streaming below.`, 'success');
           setDeployWatch({ slug, deployId: result.deployId });
         } catch (err) {

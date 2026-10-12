@@ -376,6 +376,13 @@ export const api = {
     return session;
   },
 
+  /** Change the panel password; every other session is signed out by the daemon. */
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ status: string; signedOutEverywhere: boolean }>('/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
   verify: (password: string) =>
     request<{ elevated: boolean; elevatedUntil: string }>('/auth/verify', {
       method: 'POST',

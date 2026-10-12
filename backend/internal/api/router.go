@@ -120,6 +120,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/logout", s.requireAuth(s.handleLogout))
 	mux.HandleFunc("GET /api/v1/auth/me", s.requireAuth(s.handleMe))
 	mux.HandleFunc("POST /api/v1/auth/verify", s.requireAuth(s.handleVerify))
+	mux.HandleFunc("POST /api/v1/auth/password", s.requireAuth(s.handleChangePassword))
 	mux.HandleFunc("GET /api/v1/sessions", s.requireAuth(s.handleListSessions))
 	mux.HandleFunc("DELETE /api/v1/sessions/{id}", s.requireAuth(s.handleRevokeSession))
 	mux.HandleFunc("GET /api/v1/audit", s.requireAuth(s.handleListAudit))

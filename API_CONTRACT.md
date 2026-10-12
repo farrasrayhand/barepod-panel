@@ -91,6 +91,7 @@ This is the main rework risk — the UI currently stores some values as presenta
 ## 4. Endpoints by Module
 
 ### 4.1 Auth, Profile & Session
+- **`POST /auth/password`** `{ currentPassword, newPassword }` (session + CSRF) → `200 { status: "changed", signedOutEverywhere: true }`. The current password is verified (`403` when it is not right, `400` when the new one is under 12 characters) and **every session for the account is invalidated**, the caller's included — the store's own rule, and what the CLI does. Both outcomes are audited (`auth.password_change`, `auth.password_change_refused`).
 - `POST /auth/login` → `{ token, user }`
 - `POST /auth/logout`
 - `GET /auth/me` → `{ user, role, group, permissions }`

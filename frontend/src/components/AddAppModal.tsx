@@ -36,7 +36,11 @@ import { api, apiReachable, ApiError } from '../api/client';
 interface AddAppModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddApp: (newApp: Partial<WebApp>) => void;
+  /**
+   * The archive is handed over as well: an "Upload Archive" source is only real if those
+   * bytes reach the website, and the caller is what talks to the daemon.
+   */
+  onAddApp: (newApp: Partial<WebApp>, archive?: File) => void;
 }
 
 type WizardStep = 'basics' | 'engine' | 'source' | 'database' | 'upstream' | 'review';
@@ -96,6 +100,9 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const [gitBranch, setGitBranch] = useState('main');
   const [autoDeploy, setAutoDeploy] = useState(true);
   const [uploadFile, setUploadFile] = useState<string | null>(null);
+  // The archive itself, not only its name: the deploy has to send these bytes (the name
+  // used to be a validity gate and a Review label, and nothing was ever uploaded).
+  const [uploadArchive, setUploadArchive] = useState<File | null>(null);
   const [dirCheck, setDirCheck] = useState<'idle' | 'checking' | 'ok' | 'created' | 'error'>('idle');
   const [dirPath, setDirPath] = useState<string | null>(null);
   const [dirError, setDirError] = useState('');
@@ -471,7 +478,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
       gitBranch: effectiveSource === 'github' ? gitBranch : undefined,
       autoDeploy: effectiveSource === 'github' ? autoDeploy : undefined,
       buildScript: buildScript || undefined,
-    });
+    }, effectiveSource === 'upload' ? (uploadArchive ?? undefined) : undefined);
 
     onClose();
     resetForm();
@@ -798,7 +805,11 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       type="file"
                       accept=".zip,.tar,.gz,.tgz"
                       className="hidden"
-                      onChange={(e) => setUploadFile(e.target.files?.[0]?.name ?? null)}
+                      onChange={(e) => {
+                        const picked = e.target.files?.[0] ?? null;
+                        setUploadArchive(picked);
+                        setUploadFile(picked?.name ?? null);
+                      }}
                     />
                   </label>
                   <p className="text-[10px] text-slate-400">The archive is extracted into the website directory on deploy.</p>

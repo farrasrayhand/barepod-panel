@@ -37,7 +37,7 @@ const MOCK_SESSIONS: SessionItem[] = [
 ];
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigatePath }) => {
-  const [twoFactor, setTwoFactor] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -89,12 +89,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
     onShowToast?.('Session Revoked', `Signed out ${device}.`, 'info');
   };
 
-  const updatePassword = (e: React.FormEvent) => {
+  // This used to report "Your panel password has been changed." without calling anything —
+  // it calls the daemon now, and a refusal is shown as the daemon worded it.
+  const updatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentPassword || !newPassword) return;
-    setCurrentPassword('');
-    setNewPassword('');
-    onShowToast?.('Password Updated', 'Your panel password has been changed.', 'success');
+    setPasswordBusy(true);
+    try {
+      const result = await api.changePassword(currentPassword, newPassword);
+      setCurrentPassword('');
+      setNewPassword('');
+      onShowToast?.(
+        'Password changed',
+        result.signedOutEverywhere
+          ? 'Your panel password is updated. Every session was signed out — reload to sign in again.'
+          : 'Your panel password is updated.',
+        'success',
+      );
+    } catch (err) {
+      onShowToast?.('Could not change the password', err instanceof Error ? err.message : 'The daemon refused.', 'error');
+    } finally {
+      setPasswordBusy(false);
+    }
   };
 
   const grantedPermissions = PERMISSION_MATRIX.filter((item) => item.key !== 'users' || true);
@@ -186,20 +202,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
               <span className="font-semibold text-slate-800 flex items-center gap-1.5">
                 <Smartphone className="w-3.5 h-3.5 text-slate-500" /> Two-factor authentication (TOTP)
               </span>
-              <span className="text-slate-500 block mt-0.5">Require a 6-digit code from an authenticator app at sign-in.</span>
+              <span className="text-slate-500 block mt-0.5">
+                Not available yet — the daemon has no TOTP enrolment, so this cannot be switched on from here.
+              </span>
             </span>
             <input
               type="checkbox"
-              checked={twoFactor}
-              onChange={(e) => {
-                setTwoFactor(e.target.checked);
-                onShowToast?.(
-                  e.target.checked ? '2FA Enabled' : '2FA Disabled',
-                  e.target.checked ? 'Scan the QR code in your authenticator app.' : 'Two-factor authentication turned off.',
-                  e.target.checked ? 'success' : 'info',
-                );
-              }}
-              className="mt-0.5 w-4 h-4 rounded text-blue-600 border-slate-300"
+              checked={false}
+              disabled
+              title="Not available yet"
+              className="mt-0.5 w-4 h-4 rounded text-blue-600 border-slate-300 opacity-50 cursor-not-allowed"
             />
           </label>
 
