@@ -306,6 +306,14 @@ fi
 # the address that keeps failing. The numbers are deliberate panel defaults, not
 # fail2ban's, and they live in the jail files so an operator can change them in one place
 # (and the panel can rewrite them later).
+# A host where fail2ban is known not to run (measured: 1.0.2 against Python 3.12 prints "Server
+# ready" and exits 255) should not have it restarted on every install — a service that fails in a
+# loop is worse than one that is off. BAREPOD_SKIP_FAIL2BAN=1 leaves the jails written and the
+# daemon alone.
+if [[ "${BAREPOD_SKIP_FAIL2BAN:-0}" == "1" ]]; then
+  say "Leaving fail2ban alone (BAREPOD_SKIP_FAIL2BAN=1)"
+  have fail2ban-client >/dev/null 2>&1 || true
+else
 say "Installing fail2ban jails for the database engines"
 FB_MAXRETRY="${BAREPOD_F2B_MAXRETRY:-5}"
 FB_FINDTIME="${BAREPOD_F2B_FINDTIME:-10m}"
@@ -366,6 +374,7 @@ JAIL
   # to a file first — saying so beats shipping a jail that never matches anything.
 else
   note "fail2ban is not installed — do not open a database port to the outside before it is"
+fi
 fi
 
 # ---------------------------------------------------------------- optional managers
