@@ -37,8 +37,31 @@ func TestMariaDBRefusalCarriesTheAddress(t *testing.T) {
 	if len(got) != 1 || got[0].IP != "203.0.113.7" || got[0].User != "evil" {
 		t.Fatalf("MariaDB refusal not read: %+v", got)
 	}
-	if got[0].At.IsZero() {
-		t.Errorf("the timestamp was not read: %+v", got[0])
+	// No time is taken from the engine's stamp: MariaDB writes the hour space-padded and in
+	// its own timezone, and the caller stamps the moment it read the line instead.
+	if !got[0].At.IsZero() {
+		t.Errorf("Scan should record no time of its own: %+v", got[0])
+	}
+}
+
+// Measured on the test host: a server with log_connections off writes the refusal with no
+// address anywhere (the "connection received" line does not exist at all). Such a refusal
+// cannot be attributed, and blaming it on the last connection seen would ban an innocent
+// address — so it is skipped.
+func TestARefusalWithNoAddressIsSkipped(t *testing.T) {
+	log := `2026-10-11 21:47:01.460 WITA [57579] root@admin_reports_db FATAL:  password authentication failed for user "root"`
+	if got := Scan("postgresql", log); len(got) != 0 {
+		t.Errorf("a refusal naming no address was attributed anyway: %+v", got)
+	}
+}
+
+// The other shape, for an installation whose log_line_prefix carries the host (`%h`): the
+// refusal names its own peer and needs no pairing.
+func TestARefusalThatNamesItsOwnHostIsRead(t *testing.T) {
+	log := `2026-10-12 09:00:00.010 UTC [123] evil@shop 203.0.113.7 host=198.51.100.9 FATAL:  password authentication failed for user "evil"`
+	got := Scan("postgresql", log)
+	if len(got) != 1 || got[0].IP != "198.51.100.9" || got[0].User != "evil" {
+		t.Fatalf("a refusal carrying its own peer was not read: %+v", got)
 	}
 }
 

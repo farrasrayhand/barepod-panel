@@ -166,6 +166,11 @@ func (g *Guard) Sweep(ctx context.Context) error {
 	// Reading happens outside the lock: the readers take it themselves to record their
 	// offsets, and holding it across them would deadlock the guard against itself.
 	failures := g.collect(ctx, now)
+	if len(failures) > 0 {
+		// Only when something was actually read: a line per pass would be noise, and silence
+		// while refusals are arriving is what makes a lockout impossible to diagnose.
+		g.logf("guard: read %d refusal(s) from the engines' logs", len(failures))
+	}
 
 	g.mu.Lock()
 	// The window is pruned on every pass, so it cannot grow without bound: only the
@@ -267,7 +272,7 @@ func (g *Guard) collect(ctx context.Context, now time.Time) []Failure {
 				continue
 			}
 			g.noteSource(src.engine, "")
-			out = append(out, withFallbackTime(Scan(src.engine, text), now)...)
+			out = append(out, stampReadTime(Scan(src.engine, text), now)...)
 		default:
 			_, text, err := g.fileDelta(src)
 			if err != nil {
@@ -275,7 +280,7 @@ func (g *Guard) collect(ctx context.Context, now time.Time) []Failure {
 				continue
 			}
 			g.noteSource(src.engine, "")
-			out = append(out, withFallbackTime(Scan(src.engine, text), now)...)
+			out = append(out, stampReadTime(Scan(src.engine, text), now)...)
 		}
 	}
 	return out
@@ -452,11 +457,14 @@ func (g *Guard) noteSource(engine, note string) {
 	g.mu.Unlock()
 }
 
-func withFallbackTime(failures []Failure, now time.Time) []Failure {
+// stampReadTime marks every refusal with the moment the panel read it, rather than with the
+// engine's own timestamp. Engines stamp in their own timezone — this host's PostgreSQL writes
+// "Asia/Makassar", eight hours from the panel's clock — and a stamp read at face value can
+// land outside the window, silently letting a real attack pass. The tailer reads only what
+// was just appended, so the read time is within one interval of when it happened.
+func stampReadTime(failures []Failure, now time.Time) []Failure {
 	for i := range failures {
-		if failures[i].At.IsZero() {
-			failures[i].At = now
-		}
+		failures[i].At = now
 	}
 	return failures
 }

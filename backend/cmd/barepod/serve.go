@@ -333,7 +333,7 @@ func runServe(args []string) error {
 	// instead of forgetting it. It must run before any database port is opened to the world.
 	guardCtx, stopGuard := context.WithCancel(context.Background())
 	defer stopGuard()
-	watchdog := api.NewGuard(api.GuardExecutor(h.Runner.Run), st, guardInterval)
+	watchdog := api.NewGuard(api.GuardExecutor(h.Runner.Run), st, guardInterval, log.Printf)
 	go watchdog.Run(guardCtx)
 	log.Printf("guard: watching %d log source(s) every %s; table inet %s",
 		len(guard.Sources()), guardInterval, guard.Table)

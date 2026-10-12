@@ -170,9 +170,11 @@ func (s *Server) handleGuardUnban(w http.ResponseWriter, r *http.Request, user *
 // the table it owns is the one it names.
 func EnsureArgvForTest() [][]string { return guard.EnsureArgv() }
 
-// NewGuard builds the watchdog this server runs.
-func NewGuard(exec guard.Executor, st *store.Store, interval time.Duration) *guard.Guard {
-	return guard.New(exec, NewGuardStore(st), interval, nil)
+// NewGuard builds the watchdog this server runs. Its logger is the panel's own: a security
+// loop nothing can observe is one nobody can diagnose, and a ban that failed to install must
+// not be silent.
+func NewGuard(exec guard.Executor, st *store.Store, interval time.Duration, logf func(string, ...any)) *guard.Guard {
+	return guard.New(exec, NewGuardStore(st), interval, logf)
 }
 
 // GuardExecutor turns a host runner into the watchdog's way of reaching the host.

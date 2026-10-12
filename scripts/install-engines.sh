@@ -132,6 +132,38 @@ else
   note "could not find pg_hba.conf — a manager may not reach PostgreSQL over the socket"
 fi
 
+# ---------------------------------------------------------------- attributing a refusal
+# A lockout can only ban an address it can name, and PostgreSQL does not name it unless
+# log_connections is on. Measured on a stock install: a refused password writes
+# "FATAL:  password authentication failed for user ..." with no address anywhere, and there is
+# no "connection received" line at all — so the watchdog has nothing to pair a pid with and
+# skips every refusal, leaving PostgreSQL unprotectable however the panel is configured.
+PG_CONF="$(ls /etc/postgresql/*/main/postgresql.conf 2>/dev/null | head -n1)"
+if [[ -n "$PG_CONF" ]]; then
+  if grep -qE '^[[:space:]]*#?[[:space:]]*log_connections' "$PG_CONF"; then
+    sed -i 's/^[[:space:]]*#\?[[:space:]]*log_connections.*/log_connections = on/' "$PG_CONF"
+  else
+    printf '\n# Added by BarePod: without this a refused login names no address, and the\n# brute-force lockout cannot ban one.\nlog_connections = on\n' >> "$PG_CONF"
+  fi
+  # A reload is enough for this setting and does not interrupt anything.
+  systemctl reload postgresql >/dev/null 2>&1 || true
+  note "PostgreSQL now logs its connections, so a refused login can be attributed"
+else
+  note "no postgresql.conf found — a refused login may name no address, and nothing can ban it"
+fi
+
+# The same idea for MariaDB, for the opposite reason: some installs log to the journal, and a
+# log the watchdog cannot read is an engine with no lockout. Pointing it at a file is what
+# makes it watchable.
+MY_CONF=/etc/mysql/mariadb.conf.d/50-server.cnf
+if [[ -f "$MY_CONF" ]]; then
+  install -d -o mysql -g adm -m 2750 /var/log/mysql 2>/dev/null || mkdir -p /var/log/mysql
+  if ! grep -qE '^[[:space:]]*log_error' "$MY_CONF"; then
+    printf '\n# Added by BarePod: the brute-force lockout reads this file.\nlog_error = /var/log/mysql/error.log\n' >> "$MY_CONF"
+  fi
+  note "MariaDB will log to /var/log/mysql/error.log (on its next restart)"
+fi
+
 # ---------------------------------------------------------------- brute-force lockout
 # A database port that is opened to the outside (per-database "public" exposure) needs a
 # lockout before it is opened, not after: fail2ban watches the engines' own logs and bans

@@ -15,7 +15,6 @@
 package guard
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -61,14 +60,20 @@ type Ban struct {
 //	2026-10-12 09:00:00.000 UTC [123] LOG:  connection received: host=203.0.113.7 port=51000
 //	2026-10-12 09:00:00.010 UTC [123] FATAL:  password authentication failed for user "evil"
 //
-// The peer address is on the *first* line and the refusal on a later one carrying the same
+// The peer address is on the *first* line and the refusal on a later line carrying the same
 // session pid, so a single-line regex cannot see both — the pair is joined by pid. (This is
 // the case a naive filter gets wrong.)
+//
+// The line prefix is deliberately not matched: log_line_prefix is configurable, and the
+// prefixes measured in practice differ (this host writes `%m [%p] %q%u@%d`). The pid and the
+// message are all that is needed, and when the prefix carries the address itself (`%h`) the
+// refusal names its own peer.
 var (
-	pgLineRegex    = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})[^ ]* [^ ]+ \[\d+\]\s+(.*)$`)
-	pgConnRegex    = regexp.MustCompile(`connection received: host=([0-9a-fA-F:.]+)`)
-	pgFailureRegex = regexp.MustCompile(`FATAL:\s+(?:password authentication failed for user|no pg_hba\.conf entry for host[^,]*, user|role ".*" does not exist)[^\n]*`)
-	pgUserRegex    = regexp.MustCompile(`for user "([^"]+)"`)
+	pgPIDRegex        = regexp.MustCompile(`\[(\d+)\]`)
+	pgConnRegex       = regexp.MustCompile(`connection received: host=([0-9a-fA-F:.]+)`)
+	pgFailureRegex    = regexp.MustCompile(`FATAL:\s+(?:password authentication failed for user|no pg_hba\.conf entry|role "[^"]*" does not exist)`)
+	pgUserRegex       = regexp.MustCompile(`(?:for user|user) "([^"]+)"`)
+	pgHostInLineRegex = regexp.MustCompile(`host=([0-9a-fA-F:.]+)`)
 )
 
 // mariadb addresses: MariaDB writes the peer into the refusal itself,
@@ -84,6 +89,13 @@ var (
 	mongoUserRegex   = regexp.MustCompile(`"principalName"\s*:\s*"([^"]+)"`)
 )
 
+// Scan records *what* happened and from where; it deliberately records no time. Engines
+// stamp their own timezone into their own format — this host's PostgreSQL writes
+// "Asia/Makassar", eight hours from the panel's clock — and a stamp taken at face value can
+// land outside the window and let a real attack pass. The caller stamps each refusal with the
+// moment it read the line, which is within one interval of the truth because the tailer reads
+// only what was just appended.
+//
 // Scan reads one engine's log text (newest lines last, as every engine appends) and returns
 // the refusals it can prove, with the address each one came from.
 func Scan(engine, log string) []Failure {
@@ -99,32 +111,41 @@ func Scan(engine, log string) []Failure {
 	return nil
 }
 
-// scanPostgres joins a connection's peer address with the refusal that ends it, by pid.
+// scanPostgres joins a connection's peer address with the refusal that ends it, by pid. When
+// the prefix carries the address itself (`%h`) it is read from the refusal instead.
 func scanPostgres(log string) []Failure {
 	peers := map[string]string{} // session pid -> peer address
 	out := []Failure{}
 	for _, raw := range strings.Split(log, "\n") {
 		line := strings.TrimRight(raw, "\r")
-		match := pgLineRegex.FindStringSubmatch(line)
-		if match == nil {
+		pid := ""
+		if match := pgPIDRegex.FindStringSubmatch(line); match != nil {
+			pid = match[1]
+		}
+		if conn := pgConnRegex.FindStringSubmatch(line); conn != nil {
+			if pid != "" {
+				peers[pid] = conn[1]
+			}
 			continue
 		}
-		at := parseStamp(match[1])
-		body, pid := match[2], pidOf(line)
-		if conn := pgConnRegex.FindStringSubmatch(body); conn != nil {
-			peers[pid] = conn[1]
+		if !pgFailureRegex.MatchString(line) {
 			continue
 		}
-		if pgFailureRegex.MatchString(body) {
-			user := ""
-			if u := pgUserRegex.FindStringSubmatch(body); u != nil {
-				user = u[1]
+		user := ""
+		if u := pgUserRegex.FindStringSubmatch(line); u != nil {
+			user = u[1]
+		}
+		peer := peers[pid]
+		if peer == "" {
+			if h := pgHostInLineRegex.FindStringSubmatch(line); h != nil {
+				peer = h[1]
 			}
-			// A refusal for an address we never saw connected cannot name one: skip it
-			// rather than blame whoever the last connection happened to be.
-			if peer := peers[pid]; peer != "" {
-				out = append(out, Failure{Engine: "postgresql", IP: peer, User: user, At: at})
-			}
+		}
+		// A refusal that names no address at all — the usual state of a server with
+		// log_connections off — cannot be attributed, and is skipped rather than blamed on
+		// whoever the last connection happened to be.
+		if peer != "" {
+			out = append(out, Failure{Engine: "postgresql", IP: normaliseIP(peer), User: user})
 		}
 	}
 	return out
@@ -140,7 +161,6 @@ func scanLinewise(log string, re *regexp.Regexp, userGroup, ipGroup int) []Failu
 				Engine: "mariadb",
 				IP:     normaliseIP(match[ipGroup]),
 				User:   match[userGroup],
-				At:     parseStamp(stampPrefix(line)),
 			})
 		}
 	}
@@ -155,12 +175,6 @@ func scanMongo(log string) []Failure {
 		if !strings.Contains(line, "Authentication failed") && !strings.Contains(line, "AuthenticationFailed") {
 			continue
 		}
-		var entry struct {
-			T struct {
-				Date time.Time `json:"$date"`
-			} `json:"t"`
-		}
-		_ = json.Unmarshal([]byte(line), &entry)
 		ip, user := "", ""
 		if m := mongoRemoteRegex.FindStringSubmatch(line); m != nil {
 			ip = m[1]
@@ -171,7 +185,7 @@ func scanMongo(log string) []Failure {
 		if ip == "" {
 			continue
 		}
-		out = append(out, Failure{Engine: "mongodb", IP: normaliseIP(ip), User: user, At: entry.T.Date})
+		out = append(out, Failure{Engine: "mongodb", IP: normaliseIP(ip), User: user})
 	}
 	return out
 }
@@ -296,47 +310,4 @@ func normaliseIP(ip string) string {
 		ip = ip[:idx]
 	}
 	return ip
-}
-
-// pidOf pulls the bracketed session pid out of a PostgreSQL line.
-func pidOf(line string) string {
-	start := strings.Index(line, "[")
-	if start < 0 {
-		return ""
-	}
-	end := strings.Index(line[start:], "]")
-	if end < 0 {
-		return ""
-	}
-	return line[start+1 : start+end]
-}
-
-// stampPrefix is the leading "YYYY-MM-DD HH:MM:SS" of a log line, when it has one.
-func stampPrefix(line string) string {
-	if len(line) < 19 {
-		return ""
-	}
-	return line[:19]
-}
-
-// parseStamp reads the stamps the engines write, and answers the zero time rather than
-// guessing when it cannot (the caller then falls back to when the line was read).
-func parseStamp(value string) time.Time {
-	value = strings.TrimSpace(value)
-	// MariaDB pads the hour with a space rather than a zero — "2026-10-12  9:00:00" — and no
-	// Go layout covers that, so the two fields are put back into one known shape. The window
-	// depends on these stamps, so reading them right is what keeps findtime honest.
-	if fields := strings.Fields(value); len(fields) == 2 {
-		clock := fields[1]
-		if len(clock) == 7 { // "9:00:00"
-			clock = "0" + clock
-		}
-		value = fields[0] + " " + clock
-	}
-	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02 15:04:05.000"} {
-		if at, err := time.ParseInLocation(layout, value, time.UTC); err == nil {
-			return at
-		}
-	}
-	return time.Time{}
 }
