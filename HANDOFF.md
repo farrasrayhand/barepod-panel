@@ -51,6 +51,11 @@ never be; it comes from the session environment. Same for any token.
   the same wrong belief; the kernel and the host caught both.
 - **Timestamps:** the panel stores UTC, sshd/Postgres log in host-local time, and this host is
   **WITA (UTC+8), not WIB**. Use read-time ordering, not parsed log timestamps.
+- **Don't make the operator the test runner, and don't make them wait.** Three things cost an hour here: the
+  deploy uploaded a **31 MB** binary every iteration (strip it and gzip it — 8 MB); an interactive test was
+  run without `timeout`, so a real `whiptail` menu waited for a keypress and hung the whole call; and the
+  `git commit` sat *after* the host steps, so an aborted call took the commit with it. Order: verify the
+  logic locally with a stub on `PATH` (no upload at all), commit locally first, then one short deploy.
 - **Don't make the operator wait.** Verify with short windows, poll for the result, and use a `trap` so a
   half-finished probe cannot leave the host changed.
 
@@ -68,7 +73,11 @@ never be; it comes from the session environment. Same for any token.
    sites are born with an owner instead of being retrofitted.
 3. Then: domains & TLS, backups/migration, pods/Docker, tunnels — all still mocks.
 
-**`barepod uninstall` is built, guided, and verified by a dry run.** It reads the truth from the store
+**`barepod uninstall` is built and guided.** The menus are `whiptail` (present on any base Ubuntu/Debian),
+driven through `sh -c … 3>&1 1>&2 2>&3` — the fd swap has to happen in a shell, and passing it as argv to
+whiptail is a usage error (`--output-fd` is not in every version either); both of those were shipped and
+then found by the operator. The final confirmation is a box with *No* preselected, and a menu that cannot be
+drawn falls back to plain questions rather than to a silent default. Verified by a dry run: It reads the truth from the store
 rather than inferring it: on this host the plan named 3 sites, 1 tenant account, 9 ledger databases, the
 lockout's nftables table and 2 panel containers — and running it without `--yes` left the state identical
 (service active, database present, units and table untouched). Guided by default: it prints the plan, then

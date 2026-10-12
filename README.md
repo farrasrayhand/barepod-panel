@@ -81,6 +81,13 @@ barepod uninstall --yes --backup=full  # also save /etc/barepod and the systemd 
 barepod uninstall --yes --purge-data   # also delete /var/lib/barepod (records, accounts, certificate)
 ```
 
+Run it without `--yes` and it is interactive, because a decision this final should be read before it is
+made: the backup level is a **menu** (arrows, Enter), the removals are one **checklist** (space toggles,
+Enter confirms — data directory, tenant accounts, their files, container volumes), and the last question is a
+**box holding the summary with *No* preselected**, so pressing Enter alone never removes anything. **Esc**
+cancels, **Ctrl-C** ends it saying *nothing was changed*, and on a bare console where a box cannot be drawn
+the same questions are asked in plain text.
+
 The backup is written **before** anything is removed and is read back before the first deletion, it refuses
 to land inside a directory the uninstall deletes, and it lives in `/var/backups/barepod` — outside
 everything the run touches. Put it back later:
