@@ -404,6 +404,9 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     switch (database.type) {
       case 'postgres':
         return `# PostgreSQL Configuration
+# Both shapes are given on purpose, not by accident: DATABASE_URL is for anything that takes one
+# connection URL, and the individual variables are what a Laravel-style framework reads. A PHP site
+# is given both by the daemon; a Node or Python site is given DATABASE_URL.
 DATABASE_URL="postgresql://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}?schema=public"
 DB_CONNECTION=pgsql
 DB_HOST=${effectiveHost}
@@ -414,6 +417,8 @@ DB_PASSWORD=${pwd}`;
       case 'mysql':
       case 'mariadb':
         return `# MySQL / MariaDB Configuration
+# Two shapes, two consumers: DATABASE_URL for a tool that takes one URL, and the individual
+# variables for a Laravel-style framework. A PHP site is given both; other runtimes only the URL.
 DATABASE_URL="mysql://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}"
 DB_CONNECTION=mysql
 DB_HOST=${effectiveHost}
@@ -423,6 +428,8 @@ DB_USERNAME=${database.username}
 DB_PASSWORD=${pwd}`;
       case 'mongodb':
         return `# MongoDB Connection
+# The URI is what an application uses. MONGO_INITDB_DATABASE is only for the official image's first
+# start — it does not configure an application.
 MONGODB_URI="mongodb://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}?authSource=admin"
 MONGO_INITDB_DATABASE=${database.name}`;
       case 'redis':
