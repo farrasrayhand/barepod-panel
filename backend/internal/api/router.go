@@ -199,6 +199,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/stream", deploy(s.handleDeployStream))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/{id}", deploy(s.handleDeployJob))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/metrics", deploy(s.handleWebsiteMetrics))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/runtime", deploy(s.handleGetRuntime))
+	mux.HandleFunc("PUT /api/v1/websites/{slug}/runtime", deploy(s.handlePutRuntime))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/vhost/preview", deploy(s.handleVhostPreview))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/php-fpm/reload", deploy(s.handlePhpFpmReload))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/secrets", deploy(s.handleListSecrets))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/secrets/{name}/reveal", deploy(s.handleRevealSecret))
 

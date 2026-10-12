@@ -271,7 +271,7 @@ func runServe(args []string) error {
 	if dryRun {
 		runner = &host.DryRunner{}
 	}
-	h := &host.Host{Runner: runner, SitesRoot: cfg.SitesRoot, UnitsDir: cfg.UnitsDir}
+	h := &host.Host{Runner: runner, SitesRoot: cfg.SitesRoot, UnitsDir: cfg.UnitsDir, VHostsDir: cfg.VHostsDir, WebUser: cfg.WebUser}
 	deploys := deploy.NewManager(st, h, key)
 	tenants := tenant.New(runner, cfg.SitesRoot, caps)
 

@@ -17,6 +17,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/validate"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
 )
 
 type sourcePayload struct {
@@ -156,6 +157,17 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		writeJSON(w, http.StatusBadRequest, validationResponse(
 			map[string]string{"tenantUser": "no panel account is named " + req.TenantUser},
 			"The owner account does not exist"))
+		return
+	}
+	// The engine has to exist and be one this panel can configure: a site whose vhost
+	// cannot be written is not a site, so it is refused before anything is created.
+	if !webserver.Supported(req.WebServer) {
+		writeError(w, http.StatusNotImplemented, "not_supported_yet",
+			req.WebServer+" is not supported yet — choose nginx")
+		return
+	}
+	if !webserver.Available(s.lookPath) {
+		writeError(w, http.StatusConflict, "engine_not_installed", "nginx is not installed — "+webserver.InstallHint)
 		return
 	}
 	// Package guard: the tenant's group may cap how many websites it can own.

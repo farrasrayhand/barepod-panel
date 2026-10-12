@@ -17,20 +17,22 @@ const TemplateName = "barepod-app@.service"
 
 // Spec is everything a website needs to run as a service.
 type Spec struct {
-	Slug        string
-	Tenant      string
-	Runtime     string
-	Version     string
-	Framework   string
-	WorkDir     string
-	EnvFile     string
-	ExecStart   []string
-	Port        int
-	MemoryMaxMB int
-	CPUQuota    int // percent of one core, e.g. 100 = one full core
-	TasksMax    int // max processes/threads
-	Restart     string
-	ExtraEnv    map[string]string
+	Slug      string
+	Tenant    string
+	Runtime   string
+	Version   string
+	Framework string
+	WorkDir   string
+	EnvFile   string
+	ExecStart []string
+	Port      int
+	// ReadWritePath is re-opened for writing under ProtectHome (default: WorkDir).
+	ReadWritePath string
+	MemoryMaxMB   int
+	CPUQuota      int // percent of one core, e.g. 100 = one full core
+	TasksMax      int // max processes/threads
+	Restart       string
+	ExtraEnv      map[string]string
 }
 
 // Template returns the shared unit body (settings that never vary per site).
@@ -103,6 +105,16 @@ func DropIn(s Spec) string {
 	b.WriteString("PrivateTmp=true\n")
 	b.WriteString("ProtectSystem=full\n")
 	b.WriteString("ProtectHome=read-only\n")
+	// ProtectHome makes /home read-only; the site's own process must still be able to
+	// write there (a PHP-FPM master writes its pid, log and socket inside its site),
+	// so the one path it owns is re-opened explicitly.
+	rw := s.ReadWritePath
+	if rw == "" {
+		rw = s.WorkDir
+	}
+	if rw != "" {
+		fmt.Fprintf(&b, "ReadWritePaths=%s\n", rw)
+	}
 	return b.String()
 }
 

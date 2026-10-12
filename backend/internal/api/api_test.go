@@ -73,7 +73,7 @@ func newTestPanel(t *testing.T) *testPanel {
 	}
 
 	runner := &host.DryRunner{}
-	h := &host.Host{Runner: runner, SitesRoot: filepath.Join(dir, "home"), UnitsDir: filepath.Join(dir, "units")}
+	h := &host.Host{Runner: runner, SitesRoot: filepath.Join(dir, "home"), UnitsDir: filepath.Join(dir, "units"), VHostsDir: filepath.Join(dir, "vhosts")}
 	key := make([]byte, 32)
 
 	sites := []store.Website{
@@ -102,9 +102,15 @@ func newTestPanel(t *testing.T) *testPanel {
 		// The lockout is wired as the daemon wires it, over a host that answers; the tests
 		// that need it started call Run themselves.
 		Guard: testGuard(st),
-		// Availability must not depend on the machine running the tests: here no
-		// third-party manager is installed, so the gate is deterministic.
-		LookPath: func(string) (string, error) { return "", errors.New("not installed") },
+		// Availability must not depend on the machine running the tests: here nginx is
+		// "installed" (so a website can be created) and no third-party manager is, so
+		// the manager gate stays deterministic.
+		LookPath: func(name string) (string, error) {
+			if name == "nginx" {
+				return "/usr/sbin/nginx", nil
+			}
+			return "", errors.New("not installed")
+		},
 	})
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)

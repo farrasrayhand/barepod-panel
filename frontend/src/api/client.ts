@@ -626,6 +626,27 @@ export const api = {
       { method: 'POST' },
     ),
 
+  /** How a site is served: engine, whether it is installed, docroot and socket. */
+  runtime: (slug: string) => request<SiteRuntime>(`/websites/${encodeURIComponent(slug)}/runtime`),
+
+  updateRuntime: (slug: string, body: { engine?: string }) =>
+    request<SiteRuntime>(`/websites/${encodeURIComponent(slug)}/runtime`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
+  vhostPreview: (slug: string, engine?: string) =>
+    request<{ engine: string; config: string }>(
+      `/websites/${encodeURIComponent(slug)}/vhost/preview${engine ? `?engine=${encodeURIComponent(engine)}` : ''}`,
+    ),
+
+  /** Restart the site's PHP-FPM master (the pool reload). */
+  reloadPhpFpm: (slug: string) =>
+    request<{ status: string; mode: string; pool: string; output?: string }>(
+      `/websites/${encodeURIComponent(slug)}/php-fpm/reload`,
+      { method: 'POST' },
+    ),
+
   deployStreamUrl: (slug: string, deployId?: string) =>
     `${API_BASE}/websites/${slug}/deploy/stream${deployId ? `?id=${deployId}` : ''}`,
 
@@ -971,6 +992,21 @@ export interface UpdateUserPayload {
   email?: string;
   groupName?: string;
   status?: 'active' | 'suspended';
+}
+
+/** How a website is served (GET /websites/:slug/runtime). */
+export interface SiteRuntime {
+  runtime: string;
+  version: string;
+  webServer: string;
+  engine: string;
+  engineSupported: boolean;
+  engineInstalled: boolean;
+  docRoot: string;
+  port: number;
+  vhostPath: string;
+  socket?: string;
+  mode: string;
 }
 
 /** True when the daemon answers — the prototype keeps working when it does not. */

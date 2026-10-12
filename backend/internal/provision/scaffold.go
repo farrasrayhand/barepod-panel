@@ -131,7 +131,17 @@ func DefaultPage(slug, domain string) string {
 // defines `app`, so a preset that only installs packages would deploy a broken
 // site. These files are only written when the target does not exist, so uploaded
 // or cloned code is never clobbered.
-func StarterFiles(framework string, port int) map[string]string {
+func StarterFiles(runtime, framework string, port int) map[string]string {
+	// A PHP site with no framework of its own still needs something to answer with;
+	// framework presets (Laravel, WordPress, …) bring their own entrypoint.
+	if runtime == "php" && (strings.TrimSpace(framework) == "" || strings.EqualFold(framework, "generic php")) {
+		return map[string]string{
+			"index.php": `<?php
+// Written by BarePod Panel so a new PHP site answers before you add your own code.
+echo "BarePod: PHP " . PHP_VERSION . "\n";
+`,
+		}
+	}
 	switch strings.ToLower(framework) {
 	case "flask":
 		return map[string]string{

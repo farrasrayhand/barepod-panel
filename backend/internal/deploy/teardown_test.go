@@ -15,7 +15,7 @@ func TestTeardownRemovesServiceFilesAndRecords(t *testing.T) {
 
 	site := &store.Website{
 		Slug: "to-remove", Domain: "remove.example.com", TenantUser: "tester",
-		Runtime: "nodejs", Version: "22", WebServer: "caddy",
+		Runtime: "nodejs", Version: "22", WebServer: "nginx",
 		Status: "running", DeployStatus: "ready", Port: 4002,
 	}
 	if err := st.CreateWebsite(site); err != nil {
@@ -101,7 +101,7 @@ func TestRedeployKeepsExistingDatabaseAndCache(t *testing.T) {
 	_, st, h, _, _ := newTestManager(t)
 	site := &store.Website{
 		Slug: "keep-db", Domain: "keep.example.com", TenantUser: "tester",
-		Runtime: "nodejs", Version: "22", WebServer: "caddy",
+		Runtime: "nodejs", Version: "22", WebServer: "nginx",
 		Status: "running", DeployStatus: "ready", Port: 4003, SourceKind: "existing",
 	}
 	if err := st.CreateWebsite(site); err != nil {
@@ -117,7 +117,7 @@ func TestRedeployKeepsExistingDatabaseAndCache(t *testing.T) {
 	m := NewManager(st, h, make([]byte, 32))
 	job, err := m.Start(Request{
 		Slug: "keep-db", Tenant: "tester", Domain: "keep.example.com",
-		Runtime: "nodejs", Version: "22", WebServer: "caddy", Port: 4003,
+		Runtime: "nodejs", Version: "22", WebServer: "nginx", Port: 4003,
 		Source: SourceSpec{Kind: "existing"}, Redeploy: true,
 	})
 	if err != nil {

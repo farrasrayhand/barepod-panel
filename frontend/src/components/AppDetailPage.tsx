@@ -66,6 +66,8 @@ import { runtimeIcon, frameworkIcon } from '../utils/brandIcons';
 import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
+import { api, apiReachable } from '../api/client';
+import { describeError } from '../utils/format';
 
 export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'routing' | 'files' | 'env' | 'php' | 'security' | 'deploy';
 
@@ -760,12 +762,20 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   const phpVersion = app.runtime === 'php' ? app.version : '8.4';
   const AppIcon = frameworkIcon(app.framework) ?? runtimeIcon[app.runtime] ?? Server;
 
-  const handleRestartFpmPool = () => {
+  const handleRestartFpmPool = async () => {
     setIsReloadingFpm(true);
-    setTimeout(() => {
+    try {
+      if (await apiReachable()) {
+        const res = await api.reloadPhpFpm(app.name);
+        onShowToast?.('PHP-FPM reloaded', `Pool ${res.pool} restarted (${res.mode}).`, 'success');
+      } else {
+        onShowToast?.('PHP-FPM reloaded', `Pool for ${app.name} restarted (simulation).`, 'success');
+      }
+    } catch (err) {
+      onShowToast?.('Could not reload PHP-FPM', describeError(err), 'error');
+    } finally {
       setIsReloadingFpm(false);
-      onShowToast?.('PHP-FPM Reloaded', `Pool /run/php/php${phpVersion}-fpm.sock restarted gracefully.`, 'success');
-    }, 500);
+    }
   };
 
   // Simulated live CPU & RAM metrics

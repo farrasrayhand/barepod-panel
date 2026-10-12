@@ -27,6 +27,7 @@ func newTestManager(t *testing.T) (*Manager, *store.Store, *host.Host, []byte, s
 		Runner:    &host.DryRunner{},
 		SitesRoot: filepath.Join(dir, "home"),
 		UnitsDir:  filepath.Join(dir, "units"),
+		VHostsDir: filepath.Join(dir, "vhosts"),
 	}
 	key := make([]byte, 32)
 	return NewManager(st, h, key), st, h, key, dir
@@ -59,7 +60,7 @@ func TestDeployRunsSiteCommandsAsTheTenant(t *testing.T) {
 	job, err := m.Start(Request{
 		Slug: "tenant-owned", Tenant: "tester", Domain: "tenant.example.com",
 		Runtime: "python", Version: "3.12", Framework: "flask",
-		WebServer: "caddy", Port: 4010,
+		WebServer: "nginx", Port: 4010,
 		Source: SourceSpec{Kind: "scaffold"},
 	})
 	if err != nil {
@@ -124,8 +125,8 @@ func TestPipelineDryRunSucceeds(t *testing.T) {
 		}
 		t.Fatalf("job status = %q, error = %q\n%s", finished.Status, finished.Error, b.String())
 	}
-	if finished.Step != finished.TotalSteps || finished.TotalSteps != 8 {
-		t.Fatalf("finished at step %d/%d, want 8/8", finished.Step, finished.TotalSteps)
+	if finished.Step != finished.TotalSteps || finished.TotalSteps != 10 {
+		t.Fatalf("finished at step %d/%d, want 10/10", finished.Step, finished.TotalSteps)
 	}
 
 	logs, err := st.DeployLogs(job.ID, 0)
@@ -138,15 +139,15 @@ func TestPipelineDryRunSucceeds(t *testing.T) {
 		if l.Stream == "step" {
 			stepCount++
 		}
-		if strings.Contains(l.Line, "[8/8]") {
+		if strings.Contains(l.Line, "[10/10]") {
 			sawLastStep = true
 		}
 		if strings.Contains(l.Line, "[dry-run]") {
 			sawDryRunNote = true
 		}
 	}
-	if stepCount != 8 {
-		t.Errorf("step lines = %d, want 8", stepCount)
+	if stepCount != 10 {
+		t.Errorf("step lines = %d, want 10", stepCount)
 	}
 	if !sawLastStep {
 		t.Error("log does not reach the final step")
@@ -213,7 +214,7 @@ func TestPipelineFailsWhenExistingDirectoryIsEmpty(t *testing.T) {
 	}
 	site := &store.Website{
 		Slug: "empty-app", Domain: "empty.example.com", TenantUser: "tester",
-		Runtime: "nodejs", Version: "22", WebServer: "caddy",
+		Runtime: "nodejs", Version: "22", WebServer: "nginx",
 		Status: "stopped", DeployStatus: "pending", Port: 4000,
 	}
 	if err := st.CreateWebsite(site); err != nil {
@@ -222,7 +223,7 @@ func TestPipelineFailsWhenExistingDirectoryIsEmpty(t *testing.T) {
 
 	job, err := m.Start(Request{
 		Slug: "empty-app", Tenant: "tester", Domain: "empty.example.com",
-		Runtime: "nodejs", Version: "22", WebServer: "caddy", Port: 4000,
+		Runtime: "nodejs", Version: "22", WebServer: "nginx", Port: 4000,
 		Source: SourceSpec{Kind: "existing"},
 	})
 	if err != nil {
@@ -250,7 +251,7 @@ func TestPipelineUsesExistingFiles(t *testing.T) {
 	}
 	site := &store.Website{
 		Slug: "uploaded-app", Domain: "uploaded.example.com", TenantUser: "tester",
-		Runtime: "nodejs", Version: "22", WebServer: "caddy",
+		Runtime: "nodejs", Version: "22", WebServer: "nginx",
 		Status: "stopped", DeployStatus: "pending", Port: 4001,
 	}
 	if err := st.CreateWebsite(site); err != nil {
@@ -259,7 +260,7 @@ func TestPipelineUsesExistingFiles(t *testing.T) {
 
 	job, err := m.Start(Request{
 		Slug: "uploaded-app", Tenant: "tester", Domain: "uploaded.example.com",
-		Runtime: "nodejs", Version: "22", WebServer: "caddy", Port: 4001,
+		Runtime: "nodejs", Version: "22", WebServer: "nginx", Port: 4001,
 		Source: SourceSpec{Kind: "existing"},
 	})
 	if err != nil {
@@ -285,7 +286,7 @@ func TestPipelineFailsWhenExistingDirectoryIsMissing(t *testing.T) {
 
 	site := &store.Website{
 		Slug: "no-files", Domain: "nofiles.example.com", TenantUser: "tester",
-		Runtime: "nodejs", Version: "22", WebServer: "caddy",
+		Runtime: "nodejs", Version: "22", WebServer: "nginx",
 		Status: "stopped", DeployStatus: "pending", Port: 3000,
 	}
 	if err := st.CreateWebsite(site); err != nil {
@@ -294,7 +295,7 @@ func TestPipelineFailsWhenExistingDirectoryIsMissing(t *testing.T) {
 
 	job, err := m.Start(Request{
 		Slug: "no-files", Tenant: "tester", Domain: "nofiles.example.com",
-		Runtime: "nodejs", Version: "22", WebServer: "caddy", Port: 3000,
+		Runtime: "nodejs", Version: "22", WebServer: "nginx", Port: 3000,
 		Source: SourceSpec{Kind: "existing"},
 	})
 	if err != nil {

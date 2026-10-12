@@ -86,11 +86,15 @@ never be; it comes from the session environment. Same for any token.
    home (`disk{usedBytes,maxBytes}` in `GET /users`, shown on the screen) and refuses its own editor
    saves/uploads that would exceed the package allowance (`409 quota_exceeded`, `enforcedBy: "panel"`). A
    process writing from inside a site is not stopped — only a kernel quota does that.
-2. **Websites, one PHP site end to end.** Two core pieces do not exist: **nothing writes a site's
-   `php-fpm.conf`** (the panel already shells out to `php-fpm --fpm-config <site>/php-fpm.conf`), and there
-   is **no web-server → PHP-FPM connector** (no nginx/OpenLiteSpeed on the host yet). The web-server choice
-   and PHP version selects in Settings are marked not applied. Build it in the order: tenancy first, so
-   sites are born with an owner instead of being retrofitted.
+2. **Websites, one PHP site end to end — the two missing pieces now exist (nginx).** `internal/phpfpm`
+   writes the pool the unit's `ExecStart` already pointed at (`<site>/php-fpm.conf`, tenant-owned, a unix
+   socket inside the site, `open_basedir` = the site + `/tmp`), and `internal/webserver` writes the nginx
+   vhost (`/etc/nginx/sites-enabled/barepod-<slug>.conf`, `fastcgi_pass` to that socket; the site is
+   granted read access to `www-data` with the setgid bit). The pipeline gained two steps (10 now: pool,
+   vhost, then unit/start/health) and the health check asks for the site **by domain through nginx**.
+   `GET|PUT /websites/:slug/runtime`, `vhost/preview` and `php-fpm/reload` are live; the wizard only
+   offers nginx (the other engines answer `501 not_supported_yet`), and the operator installs nginx +
+   php-fpm. Next in this module: OpenLiteSpeed/Caddy/Apache, TLS, then logs/traffic/access control.
 3. Then: domains & TLS, backups/migration, pods/Docker, tunnels — all still mocks.
 
 **`barepod uninstall` is built and guided.** The menus are `whiptail` (present on any base Ubuntu/Debian),

@@ -8,7 +8,7 @@
 
 | Already served by the daemon | Contract only (planned) |
 |---|---|
-| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `system/guard` (+ `unban`) · `system/settings` · `system/ports` (panel/ssh) · **accounts & packages**: `users` list/create/patch/delete + password reset + `provision`, `groups` list/create/`PATCH`/delete · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**, plus **DbGate** as a per-database container), and a real logical **`export`** | Pods (Docker) · backups & migration · domains & SSL · Cloudflare tunnels · webhooks · MCP server · per-app access control (503, basic auth, anti-brute-force) · vhost writing |
+| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `system/guard` (+ `unban`) · `system/settings` · `system/ports` (panel/ssh) · **accounts & packages**: `users` list/create/patch/delete + password reset + `provision`, `groups` list/create/`PATCH`/delete · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · **`runtime` (get/put) + `vhost/preview` + `php-fpm/reload`** · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**, plus **DbGate** as a per-database container), and a real logical **`export`** | Pods (Docker) · backups & migration · domains & SSL · Cloudflare tunnels · webhooks · MCP server · per-app access control (503, basic auth, anti-brute-force) · the other three web servers · PHP extensions/ini |
 
 `mode: "real" | "dry-run"` appears on every response that depends on privileged work — off Linux+systemd the daemon is in dry-run and says so instead of faking success.
 
@@ -178,10 +178,13 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - **Pods reuse the same `Limits` model** as their Docker resource spec (Phase 3): one model, three consumers.
 
 ### 4.3 Runtime, VHost & PHP
-- `GET|PUT /websites/:slug/runtime` (engine: openlitespeed/nginx/caddy/apache, version)
-- `GET /websites/:slug/vhost/preview?engine=` → `{ config: string }`
+- `GET /websites/:slug/runtime` → `{ runtime, version, webServer, engine, engineSupported, engineInstalled, docRoot, port, vhostPath, socket?, mode }`.
+- `PUT /websites/:slug/runtime` `{ engine }` → switches the engine, rewrites the vhost and reloads the web server. A runtime **version** change is refused with `409 redeploy_required` (it rewrites the unit's ExecStart, which the deploy pipeline owns). An engine the daemon cannot write answers `501 not_supported_yet`; one that is not installed answers `409 engine_not_installed`.
+- `GET /websites/:slug/vhost/preview?engine=` → `{ engine, config }` — rendered **by the daemon** (the client used to build this string itself).
+- `POST /websites/:slug/php-fpm/reload` → `{ status: "reloaded", mode, pool, output }`; a non-PHP site answers `409 not_applicable`.
 - `GET|PUT /websites/:slug/php/extensions` · `POST .../php/extensions/install` (PECL)
-- `GET|PUT /websites/:slug/php/ini` · `POST /websites/:slug/php-fpm/reload`
+- `GET|PUT /websites/:slug/php/ini`
+> **Engine support today:** nginx only. `openlitespeed`, `caddy` and `apache` are still *valid* site choices (`validate.WebServer`) but are refused at create with `501 not_supported_yet` rather than silently ignored, and the wizard disables them.
 
 ### 4.4 File Manager
 - `GET /websites/:slug/files?path=` → `{ path, site, tenant, items[FileEntry], maxSize }`

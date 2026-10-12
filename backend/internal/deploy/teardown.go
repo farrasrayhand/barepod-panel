@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/supervisor"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
 )
 
 // Teardown removes a website completely: service, unit, files and records.
@@ -49,14 +50,23 @@ func (m *Manager) Teardown(ctx context.Context, slug string) ([]string, error) {
 		logf("removed the unit override and reloaded systemd")
 	}
 
-	// 3. Delete the site directory, guarded so it stays inside the sites root.
+	// 3. Remove the vhost, so the web server stops answering for the domain.
+	if err := webserver.Remove(m.host.Vhosts(), slug); err != nil {
+		logf("vhost removal failed (continuing): %v", err)
+	} else if err := webserver.Reload(ctx, m.host); err != nil && m.host.Materialises() {
+		logf("the web server was not reloaded (continuing): %v", err)
+	} else {
+		logf("removed the vhost and reloaded the web server")
+	}
+
+	// 4. Delete the site directory, guarded so it stays inside the sites root.
 	dir := m.host.SitePath(site.TenantUser, slug)
 	if err := guardedRemoveAll(m.host.SitesRoot, dir); err != nil {
 		return steps, err
 	}
 	logf("deleted %s", dir)
 
-	// 4. Forget the rows (secrets first, then the website).
+	// 5. Forget the rows (secrets first, then the website).
 	if err := m.store.DeleteWebsiteSecrets(slug); err != nil {
 		return steps, err
 	}

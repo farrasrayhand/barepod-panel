@@ -115,3 +115,9 @@ func (s *Store) SetWebsiteRuntimeState(slug, status, deployStatus string) error 
 	_, err := s.DB.Exec(`UPDATE websites SET status = ?, deploy_status = ? WHERE slug = ?`, status, deployStatus, slug)
 	return err
 }
+
+// SetWebsiteWebServer records the engine a site is served by after it is switched.
+func (s *Store) SetWebsiteWebServer(slug, engine string) error {
+	_, err := s.DB.Exec(`UPDATE websites SET web_server = ? WHERE slug = ?`, engine, slug)
+	return err
+}

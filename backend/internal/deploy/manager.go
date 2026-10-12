@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,11 +19,13 @@ import (
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/phpfpm"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/provision"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/supervisor"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
 )
 
 // keepRecentJobs is how many deploy jobs (with their logs) are retained per
@@ -134,6 +137,8 @@ func plan() []step {
 		{"Write environment file", stepWriteEnv},
 		{"Provision database", stepProvisionDatabase},
 		{"Provision cache", stepProvisionCache},
+		{"Write PHP-FPM pool", stepWritePhpPool},
+		{"Write web-server vhost", stepWriteVhost},
 		{"Render service unit", stepRenderUnit},
 		{"Start service", stepStartService},
 		{"Health check", stepHealthCheck},
@@ -331,7 +336,7 @@ func (s *state) writeDefaultPage(ctx context.Context) error {
 
 // writeStarterFiles places the framework's entrypoint inside the site.
 func (s *state) writeStarterFiles(ctx context.Context) error {
-	files := provision.StarterFiles(s.req.Framework, s.req.Port)
+	files := provision.StarterFiles(s.req.Runtime, s.req.Framework, s.req.Port)
 	if len(files) == 0 {
 		return nil
 	}
@@ -517,22 +522,77 @@ func (m *Manager) tenantLimits(tenant string) resources.Limits {
 	return group.Limits
 }
 
+// stepWritePhpPool writes the per-site PHP-FPM pool. The unit's ExecStart already
+// points php-fpm at <siteDir>/php-fpm.conf; without this file the master cannot start.
+func stepWritePhpPool(ctx context.Context, s *state) error {
+	if s.req.Runtime != "php" {
+		return nil
+	}
+	limits := s.m.tenantLimits(s.req.Tenant)
+	spec := phpfpm.Spec{
+		Tenant:      s.req.Tenant,
+		SiteDir:     s.siteDir,
+		Socket:      phpfpm.SocketIn(s.siteDir),
+		MaxChildren: phpfpm.MaxChildren(limits.MemoryMB),
+		MemoryMB:    limits.MemoryMB,
+	}
+	path, err := phpfpm.Write(ctx, s.m.host, spec)
+	if err != nil {
+		return err
+	}
+	s.log("stdout", "php-fpm pool: "+path)
+	s.log("stdout", fmt.Sprintf("pool socket %s; limits from the package: pm.max_children=%d memory_limit=%dM",
+		spec.Socket, spec.MaxChildren, spec.MemoryMB))
+	return nil
+}
+
+// stepWriteVhost writes the site's vhost and reloads the web server, so the site is
+// reachable by its domain. Only nginx is implemented; any other engine is refused by
+// name rather than silently ignored.
+func stepWriteVhost(ctx context.Context, s *state) error {
+	engine := strings.TrimSpace(s.req.WebServer)
+	if !webserver.Supported(engine) {
+		return fmt.Errorf("%s is not supported yet — only nginx is implemented", engine)
+	}
+
+	// Laravel and Symfony serve from public/; everything else from the site root.
+	home := filepath.Join(s.m.host.SitesRoot, s.req.Tenant)
+	if err := webserver.GrantRead(ctx, s.m.host, home, s.siteDir, s.m.host.EffectiveWebUser()); err != nil {
+		return err
+	}
+	if _, err := webserver.WriteDefault(s.m.host.Vhosts()); err != nil {
+		s.log("stdout", "note: the catch-all vhost was not written: "+err.Error())
+	}
+	spec := webserver.SpecFor(s.req.Slug, s.req.Domain, s.req.Runtime, s.siteDir, s.req.Port)
+	path, err := webserver.Apply(ctx, s.m.host, s.m.host.Vhosts(), spec)
+	if err != nil {
+		return err
+	}
+	s.log("stdout", "vhost written and the web server reloaded: "+path)
+	s.log("stdout", fmt.Sprintf("the site is served on %s (docroot %s)", s.req.Domain, spec.DocRoot))
+	return nil
+}
+
 func stepRenderUnit(ctx context.Context, s *state) error {
 	// cgroup v2 limits come from the tenant's package (group), never hardcoded.
 	limits := s.m.tenantLimits(s.req.Tenant)
 	spec := supervisor.Spec{
-		Slug:        s.req.Slug,
-		Tenant:      s.req.Tenant,
-		Runtime:     s.req.Runtime,
-		Version:     s.req.Version,
-		Framework:   s.req.Framework,
-		WorkDir:     s.siteDir,
-		EnvFile:     s.envPath,
-		ExecStart:   provision.ExecStart(s.req.Runtime, s.req.Version, s.req.Framework, s.siteDir, s.req.Port),
-		Port:        s.req.Port,
-		MemoryMaxMB: limits.MemoryMB,
-		CPUQuota:    limits.CPUQuotaPercent,
-		TasksMax:    limits.TasksMax,
+		Slug:      s.req.Slug,
+		Tenant:    s.req.Tenant,
+		Runtime:   s.req.Runtime,
+		Version:   s.req.Version,
+		Framework: s.req.Framework,
+		WorkDir:   s.siteDir,
+		EnvFile:   s.envPath,
+		// The tenant's whole home is writable by its service: a tool the app runs may
+		// keep state beside the site (composer, npm cache), and it is the tenant's own
+		// space — not another account's.
+		ReadWritePath: filepath.Join(s.m.host.SitesRoot, s.req.Tenant),
+		ExecStart:     provision.ExecStart(s.req.Runtime, s.req.Version, s.req.Framework, s.siteDir, s.req.Port),
+		Port:          s.req.Port,
+		MemoryMaxMB:   limits.MemoryMB,
+		CPUQuota:      limits.CPUQuotaPercent,
+		TasksMax:      limits.TasksMax,
 	}
 
 	templatePath, dropInPath, err := supervisor.Write(s.m.host.UnitsDir, spec)
@@ -571,6 +631,11 @@ func stepHealthCheck(ctx context.Context, s *state) error {
 		s.log("stdout", "[dry-run] health check skipped (no service was started)")
 		return nil
 	}
+	// A site with a vhost is asked for by name through the web server: that is the
+	// real proof it is served (a PHP site's FPM listens on a socket, not a port).
+	if webserver.Supported(s.req.WebServer) && strings.TrimSpace(s.req.Domain) != "" {
+		return checkVhost(ctx, s)
+	}
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(s.req.Port))
 	deadline := time.Now().Add(30 * time.Second)
 	for {
@@ -582,6 +647,40 @@ func stepHealthCheck(ctx context.Context, s *state) error {
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("health check failed: %s did not accept connections", addr)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+// checkVhost asks the web server for the site by its domain on loopback and accepts
+// any answer below 500 — a site that renders an error page is still being served.
+func checkVhost(ctx context.Context, s *state) error {
+	client := &http.Client{Timeout: 3 * time.Second}
+	deadline := time.Now().Add(30 * time.Second)
+	last := "no response"
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1/", nil)
+		if err != nil {
+			return err
+		}
+		req.Host = s.req.Domain
+		resp, err := client.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode < 500 {
+				s.log("stdout", fmt.Sprintf("healthy: http://%s/ answered %d through the web server", s.req.Domain, resp.StatusCode))
+				return nil
+			}
+			last = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		} else {
+			last = err.Error()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("health check failed: http://%s/ did not answer (last: %s)", s.req.Domain, last)
 		}
 		select {
 		case <-ctx.Done():

@@ -386,7 +386,7 @@ func TestMaxSitesRefusalUsesQuotaExceeded(t *testing.T) {
 
 	resp, body = panel.do(t, http.MethodPost, "/api/v1/websites", map[string]any{
 		"slug": "one-too-many", "domain": "one.example.com", "tenantUser": "alex",
-		"runtime": "static", "webServer": "caddy", "source": map[string]string{"kind": "default"},
+		"runtime": "static", "webServer": "nginx", "source": map[string]string{"kind": "default"},
 	})
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("over-quota create = %d (%s)", resp.StatusCode, body)

@@ -18,9 +18,15 @@ type Config struct {
 	KeyPath   string
 	StaticDir string
 	// RedisURL is the admin connection used to create per-cache ACL users.
-	RedisURL    string
-	SitesRoot   string
-	UnitsDir    string
+	RedisURL  string
+	SitesRoot string
+	UnitsDir  string
+	// VHostsDir is where the web server includes its vhosts (nginx: sites-enabled);
+	// empty means the engine default.
+	VHostsDir string
+	// WebUser is the user the web server runs as (nginx: www-data); a site is granted
+	// read access to it so the web server can serve it.
+	WebUser     string
 	LogLevel    string
 	DryRun      bool
 	MaxUploadMB int
@@ -130,6 +136,8 @@ func Load(args []string) (Config, error) {
 	sitesRoot := fs.String("sites-root", env("BAREPOD_SITES_ROOT", DefaultSitesRoot()), "directory that holds tenant home directories")
 	redisURL := fs.String("redis-url", env("BAREPOD_REDIS_URL", "redis://127.0.0.1:6379"), "admin connection used to create per-cache Redis users")
 	unitsDir := fs.String("units-dir", env("BAREPOD_UNITS_DIR", defaultUnitsDir()), "directory for systemd unit files")
+	vhostsDir := fs.String("vhosts-dir", env("BAREPOD_VHOSTS_DIR", ""), "directory the web server includes vhosts from (default: nginx's sites-enabled)")
+	webUser := fs.String("web-user", env("BAREPOD_WEB_USER", ""), "user the web server runs as (default: www-data); a site is granted read access to it")
 	logLevel := fs.String("log-level", env("BAREPOD_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	dryRun := fs.Bool("dry-run", envBool("BAREPOD_DRY_RUN", false), "never execute privileged commands (forced on non-Linux hosts)")
 	maxUpload := fs.Int("max-upload-mb", envInt("BAREPOD_MAX_UPLOAD_MB", 64), "upload/edit ceiling for the file manager, in MiB")
@@ -150,6 +158,8 @@ func Load(args []string) (Config, error) {
 		SitesRoot:       filepath.Clean(*sitesRoot),
 		RedisURL:        strings.TrimSpace(*redisURL),
 		UnitsDir:        filepath.Clean(*unitsDir),
+		VHostsDir:       strings.TrimSpace(*vhostsDir),
+		WebUser:         strings.TrimSpace(*webUser),
 		LogLevel:        *logLevel,
 		DryRun:          *dryRun,
 		MaxUploadMB:     *maxUpload,

@@ -13,11 +13,39 @@ import (
 // ErrSiteMissing is returned when a source kind expects an existing directory.
 var ErrSiteMissing = errors.New("host: site directory does not exist")
 
+// DefaultVhostsDir is where Debian/Ubuntu nginx already includes *.conf from, so a
+// panel vhost needs no edit to nginx.conf itself.
+const DefaultVhostsDir = "/etc/nginx/sites-enabled"
+
+// DefaultWebUser is the user nginx runs as on Debian/Ubuntu.
+const DefaultWebUser = "www-data"
+
 // Host owns the on-disk layout and the service lifecycle of websites.
 type Host struct {
 	Runner    Runner
 	SitesRoot string // e.g. /home
 	UnitsDir  string // e.g. /etc/systemd/system
+	// VHostsDir is where the web server includes its vhosts; empty means the default.
+	VHostsDir string
+	// WebUser is the user the web server runs as; empty means the default. A site is
+	// granted read access to this user so the web server can serve it.
+	WebUser string
+}
+
+// Vhosts returns the configured vhost directory, or the engine default.
+func (h *Host) Vhosts() string {
+	if h.VHostsDir != "" {
+		return h.VHostsDir
+	}
+	return DefaultVhostsDir
+}
+
+// EffectiveWebUser returns the configured web-server user, or the default.
+func (h *Host) EffectiveWebUser() string {
+	if h.WebUser != "" {
+		return h.WebUser
+	}
+	return DefaultWebUser
 }
 
 // Mode reports how privileged commands are handled: "real" or "dry-run".

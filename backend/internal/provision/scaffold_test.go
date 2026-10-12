@@ -6,7 +6,7 @@ import (
 )
 
 func TestStarterFilesExistForFrameworksThatNeedAnEntrypoint(t *testing.T) {
-	flask := StarterFiles("flask", 8000)
+	flask := StarterFiles("python", "flask", 8000)
 	if len(flask) == 0 {
 		t.Fatal("flask needs a starter app, otherwise gunicorn app:app fails")
 	}
@@ -20,7 +20,7 @@ func TestStarterFilesExistForFrameworksThatNeedAnEntrypoint(t *testing.T) {
 		}
 	}
 
-	fastapi := StarterFiles("fastapi", 8000)
+	fastapi := StarterFiles("python", "fastapi", 8000)
 	if !strings.Contains(fastapi["app.py"], "FastAPI") {
 		t.Errorf("fastapi starter = %q", fastapi["app.py"])
 	}
@@ -28,9 +28,20 @@ func TestStarterFilesExistForFrameworksThatNeedAnEntrypoint(t *testing.T) {
 
 func TestNoStarterFilesForBringYourOwnCode(t *testing.T) {
 	for _, framework := range []string{"", "generic", "laravel", "nextjs"} {
-		if files := StarterFiles(framework, 8000); len(files) != 0 {
+		if files := StarterFiles("static", framework, 8000); len(files) != 0 {
 			t.Errorf("StarterFiles(%q) = %v, want none (the download provides the app)", framework, files)
 		}
+	}
+}
+
+func TestPhpStarterAnswersOnlyForAPlainPhpSite(t *testing.T) {
+	files := StarterFiles("php", "generic php", 8001)
+	if _, ok := files["index.php"]; !ok {
+		t.Fatalf("a plain PHP site needs an index.php, got %v", files)
+	}
+	// A framework preset brings its own entrypoint; nothing is invented for it.
+	if files := StarterFiles("php", "laravel", 8001); len(files) != 0 {
+		t.Errorf("StarterFiles(php, laravel) = %v, want none", files)
 	}
 }
 
