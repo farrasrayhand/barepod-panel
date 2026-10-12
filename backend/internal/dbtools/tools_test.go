@@ -520,3 +520,23 @@ func TestAFailedStopIsReported(t *testing.T) {
 		t.Fatalf("a stop that failed was not reported: %v", failed)
 	}
 }
+
+// Inspiration, not decoration: this is the bug measured on the host. Adoption used to hand every
+// container a fresh idle window, so a manager nobody had used for hours was forgiven on each restart —
+// and with a daemon restarting every couple of minutes, it was never swept at all.
+func TestAnOldContainerIsNotForgivenOnAdoption(t *testing.T) {
+	now := time.Now()
+	window := 15 * time.Minute
+	if got := adoptStamp(now, now.Add(-3*time.Hour), window); now.Sub(got) < window {
+		t.Errorf("a three-hour-old container was given a fresh window: %s", now.Sub(got))
+	}
+	if due := adoptStamp(now, now.Add(-3*time.Hour), window).Add(window); due.After(now) {
+		t.Errorf("an old container is not due yet: %s after now", due.Sub(now))
+	}
+	if got := adoptStamp(now, now.Add(-2*time.Minute), window); !got.Equal(now.Add(-2 * time.Minute)) {
+		t.Errorf("a recently started container lost its own start time: %s", now.Sub(got))
+	}
+	if got := adoptStamp(now, time.Time{}, window); !got.Equal(now) {
+		t.Errorf("an unknown start time should fall back to now, got %s", now.Sub(got))
+	}
+}

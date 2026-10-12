@@ -552,10 +552,11 @@ func (s *Supervisor) Reconcile(ctx context.Context) []string {
 			adopted := spec
 			adopted.ContainerName = name
 			adopted.Port = publishedPort(ports)
+			started := s.containerStartedAt(ctx, name)
 			s.mu.Lock()
 			s.active[name] = adopted
 			s.startedByTool[name] = true
-			s.lastAccess[name] = s.now()
+			s.lastAccess[name] = adoptStamp(s.now(), started, s.idleTimeout)
 			if adopted.Port != 0 {
 				s.ports[name] = adopted.Port
 			}
@@ -654,4 +655,36 @@ func StartArgv(spec Spec, connectionURL string) []string {
 		return argv
 	}
 	return nil
+}
+
+// containerStartedAt reads when a container was started, so adoption can tell a manager used a minute
+// ago from one nobody has touched in hours.
+func (s *Supervisor) containerStartedAt(ctx context.Context, name string) time.Time {
+	out, err := s.runner.Run(ctx, "", "docker", "inspect", "--format", "{{.State.StartedAt}}", name)
+	if err != nil {
+		return time.Time{}
+	}
+	when, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(out))
+	if err != nil {
+		return time.Time{}
+	}
+	return when
+}
+
+// adoptStamp decides what an adopted instance's last use is taken to be.
+//
+// A fresh window looked generous and was wrong: a daemon that restarts more often than the window is
+// long forgives every manager it adopts, and an abandoned one then lives as long as the host does.
+// Measured on this host: a container survived three hours while the daemon averaged a restart every
+// 2.4 minutes, because each adoption handed it another fifteen. A container that has already been
+// running longer than the window is therefore treated as due on the next sweep; one that started
+// inside it keeps its own start time, which is the only evidence of use there is.
+func adoptStamp(now, started time.Time, window time.Duration) time.Time {
+	if started.IsZero() {
+		return now
+	}
+	if now.Sub(started) > window {
+		return now.Add(-window)
+	}
+	return started
 }
