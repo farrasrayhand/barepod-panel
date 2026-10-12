@@ -953,6 +953,8 @@ export interface ApiUser {
   osExists: boolean;
   sites: { used: number; max: number };
   databases: { used: number; max: number };
+  /** Measured disk use against the package allowance (maxBytes 0 = unlimited). */
+  disk?: { usedBytes: number; maxBytes: number };
   /** Present only on the create/reset response, and shown once. */
   password?: string;
   passwordShownOnce?: boolean;

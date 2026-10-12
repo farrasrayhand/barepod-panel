@@ -33,7 +33,7 @@ wish list: every claim in them was measured on the host.
 
 ## The working loop
 
-Backend (Go, `backend/`): `go build ./...` then `go test -timeout 250s ./...` (235 tests, ~25s).
+Backend (Go, `backend/`): `go build ./...` then `go test -timeout 250s ./...` (236 tests, ~25s).
 Frontend (`frontend/`): `npx tsc -b` **and** `npx vite build` — the type-checker is not enough (see traps).
 Deploy: build `linux/amd64` binary + `vite build`, copy both to the host, move the binary into place,
 unpack the bundle to `/var/lib/barepod/dist`, `systemctl restart barepod`, then **verify by measurement on
@@ -82,7 +82,10 @@ never be; it comes from the session environment. Same for any token.
    is false; deleting an account removes its Linux account and home with it. The quota capability is only
    claimed when the filesystem actually has user quotas enabled — this host does not (an unprivileged
    container cannot remount its root), so the panel reports it unavailable instead of failing every
-   `setquota`.
+   `setquota`. **Because the kernel cannot enforce it here, the panel does:** it measures each account's
+   home (`disk{usedBytes,maxBytes}` in `GET /users`, shown on the screen) and refuses its own editor
+   saves/uploads that would exceed the package allowance (`409 quota_exceeded`, `enforcedBy: "panel"`). A
+   process writing from inside a site is not stopped — only a kernel quota does that.
 2. **Websites, one PHP site end to end.** Two core pieces do not exist: **nothing writes a site's
    `php-fpm.conf`** (the panel already shells out to `php-fpm --fpm-config <site>/php-fpm.conf`), and there
    is **no web-server → PHP-FPM connector** (no nginx/OpenLiteSpeed on the host yet). The web-server choice

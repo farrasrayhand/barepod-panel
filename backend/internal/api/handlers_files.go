@@ -147,6 +147,34 @@ type writeFileRequest struct {
 	Encoding string `json:"encoding"`
 }
 
+// enforceDiskQuota refuses a panel-driven write that would exceed the account's
+// package disk allowance. It runs only where the kernel does not enforce quotas (an
+// unprivileged container): when the filesystem has them, the kernel is the authority
+// and this would be redundant. What it cannot cover is a process writing from inside
+// the site — that is what a kernel quota is for, and the API says which one is in
+// force ("enforcedBy"). A measurement that fails does not block the write.
+func (s *Server) enforceDiskQuota(w http.ResponseWriter, r *http.Request, tenant string, incoming int64) bool {
+	if s.tenants == nil || s.tenants.QuotaEnforcedByKernel() {
+		return true
+	}
+	limit := s.limitsForTenant(tenant).DiskQuotaBytes()
+	if limit <= 0 {
+		return true
+	}
+	used, err := s.tenants.Usage(r.Context(), tenant)
+	if err != nil {
+		return true
+	}
+	if used+incoming > limit {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": apiError{Code: "quota_exceeded", Message: "this account's disk allowance is full; free space or raise the package limit"},
+			"quota": map[string]any{"usedBytes": used, "maxBytes": limit, "enforcedBy": "panel"},
+		})
+		return false
+	}
+	return true
+}
+
 // handleWriteFile saves the editor buffer.
 func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	manager, site, ok := s.fileManagerFor(w, r, user)
@@ -175,6 +203,9 @@ func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request, user *s
 	}
 	if int64(len(data)) > manager.MaxUploadBytes() {
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "The content is larger than the upload limit")
+		return
+	}
+	if !s.enforceDiskQuota(w, r, site.TenantUser, int64(len(data))) {
 		return
 	}
 
@@ -447,6 +478,9 @@ func (s *Server) handleUploadFiles(w http.ResponseWriter, r *http.Request, user 
 		data, err := io.ReadAll(manager.LimitReader(part))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "bad_request", "The upload could not be read")
+			return
+		}
+		if !s.enforceDiskQuota(w, r, site.TenantUser, int64(len(data))) {
 			return
 		}
 		if _, err := manager.Write(target, data); err != nil {

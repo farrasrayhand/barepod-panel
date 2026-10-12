@@ -109,6 +109,17 @@ func (s *Server) tenantUserView(u *store.User) map[string]any {
 			osExists = true
 		}
 	}
+
+	// Disk is measured rather than assumed, so the figure is real on a host whose
+	// kernel does not enforce quotas (where the panel enforces them itself).
+	var usedDisk int64
+	if s.tenants != nil {
+		if size, err := s.tenants.Usage(context.Background(), u.Username); err == nil {
+			usedDisk = size
+		}
+	}
+	maxDisk := group.Limits.DiskQuotaBytes()
+
 	return map[string]any{
 		"id":        u.ID,
 		"username":  u.Username,
@@ -121,6 +132,7 @@ func (s *Server) tenantUserView(u *store.User) map[string]any {
 		"osExists":  osExists,
 		"sites":     map[string]any{"used": sites, "max": maxSites},
 		"databases": map[string]any{"used": databases, "max": maxDatabases},
+		"disk":      map[string]any{"usedBytes": usedDisk, "maxBytes": maxDisk},
 	}
 }
 

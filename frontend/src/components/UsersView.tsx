@@ -33,6 +33,7 @@ import {
   type UpdateUserPayload,
 } from '../api/client';
 import { describeError } from '../utils/format';
+import { formatBytes } from '../api/adapters';
 
 interface UsersViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
@@ -66,9 +67,9 @@ const MOCK_GROUPS: GroupRow[] = [
 ];
 
 const MOCK_USERS: ApiUser[] = [
-  { id: 'u-1', username: 'farras', email: 'farras@barepod.cloud', role: 'admin', groupName: 'Unlimited', status: 'active', createdAt: '', home: '/home/farras', osExists: true, sites: { used: 2, max: 0 }, databases: { used: 3, max: 0 } },
-  { id: 'u-2', username: 'tenant_alex', email: 'alex@clientdomain.com', role: 'user', groupName: 'Basic', status: 'active', createdAt: '', home: '/home/tenant_alex', osExists: true, sites: { used: 1, max: 5 }, databases: { used: 1, max: 2 } },
-  { id: 'u-3', username: 'tenant_clientB', email: 'team@agencypartner.id', role: 'user', groupName: 'Basic', status: 'active', createdAt: '', home: '/home/tenant_clientB', osExists: true, sites: { used: 2, max: 5 }, databases: { used: 1, max: 2 } },
+  { id: 'u-1', username: 'farras', email: 'farras@barepod.cloud', role: 'admin', groupName: 'Unlimited', status: 'active', createdAt: '', home: '/home/farras', osExists: true, sites: { used: 2, max: 0 }, databases: { used: 3, max: 0 }, disk: { usedBytes: 1_500_000_000, maxBytes: 0 } },
+  { id: 'u-2', username: 'tenant_alex', email: 'alex@clientdomain.com', role: 'user', groupName: 'Basic', status: 'active', createdAt: '', home: '/home/tenant_alex', osExists: true, sites: { used: 1, max: 5 }, databases: { used: 1, max: 2 }, disk: { usedBytes: 470_000_000, maxBytes: 10_737_418_240 } },
+  { id: 'u-3', username: 'tenant_clientB', email: 'team@agencypartner.id', role: 'user', groupName: 'Basic', status: 'active', createdAt: '', home: '/home/tenant_clientB', osExists: true, sites: { used: 2, max: 5 }, databases: { used: 1, max: 2 }, disk: { usedBytes: 860_000_000, maxBytes: 10_737_418_240 } },
 ];
 
 const fmtCount = (n: number): string => (n > 0 ? String(n) : 'Unlimited');
@@ -383,9 +384,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-1.5 text-slate-700" title="Usage is not measured here; the quota is what the package applies.">
+                      <div className="flex items-center gap-1.5 text-slate-700" title="Measured from the account's home directory">
                         <HardDrive className="w-3.5 h-3.5 text-slate-400" />
-                        <span>— / <strong className={isAdmin ? 'text-purple-600' : ''}>{fmtGb(group?.limits?.diskQuotaGb ?? 0)}</strong></span>
+                        <span>
+                          {t.disk ? formatBytes(t.disk.usedBytes) : '—'} /{' '}
+                          <strong className={isAdmin ? 'text-purple-600' : ''}>
+                            {t.disk?.maxBytes ? formatBytes(t.disk.maxBytes) : fmtGb(group?.limits?.diskQuotaGb ?? 0)}
+                          </strong>
+                        </span>
                       </div>
                     </td>
 

@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -335,6 +337,38 @@ func TestCreateUserReportsTheLinuxStepAndCanReconcile(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"linux"`) {
 		t.Errorf("provision response has no linux block: %s", body)
+	}
+}
+
+// The kernel cannot enforce quotas in an unprivileged container, so the panel does:
+// a write that would exceed the package allowance is refused. The test fills the
+// allowance with a sparse file, so it does not write a gigabyte to disk.
+func TestPanelEnforcesDiskQuotaWhereTheKernelDoesNot(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	resp, body := panel.do(t, http.MethodPatch, "/api/v1/groups/Basic", map[string]any{
+		"limits": map[string]int{"cpuQuotaPercent": 100, "memoryMb": 1024, "tasksMax": 256, "diskQuotaGb": 1, "maxSites": 5, "maxDatabases": 2},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch group = %d (%s)", resp.StatusCode, body)
+	}
+	big := filepath.Join(panel.home, "alex", "big.bin")
+	if err := os.WriteFile(big, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(big, 1<<30+4096); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body = panel.do(t, http.MethodPut, "/api/v1/websites/alex-site/files/content", map[string]string{
+		"path": "tiny.txt", "content": "hello",
+	})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("write over quota = %d (%s), want 409", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "quota_exceeded") {
+		t.Errorf("expected quota_exceeded, got %s", body)
 	}
 }
 

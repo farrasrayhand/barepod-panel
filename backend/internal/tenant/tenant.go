@@ -10,6 +10,7 @@ package tenant
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -58,6 +59,36 @@ func New(runner host.Runner, homeBase string, caps sysinfo.Capabilities) *Manage
 
 // Mode reports "real" or "dry-run".
 func (m *Manager) Mode() string { return m.runner.Mode() }
+
+// QuotaEnforcedByKernel reports whether the filesystem enforces per-user quotas, so
+// a caller knows whether its own check is the only line of defence (it is on an
+// unprivileged container, where the kernel cannot be asked to do it).
+func (m *Manager) QuotaEnforcedByKernel() bool { return m.caps.Quota }
+
+// Usage sums the bytes under the tenant's home. It is how a host whose kernel does
+// not enforce quotas can still report — and let the panel enforce — a package's disk
+// allowance. Unreadable entries are skipped rather than failing the whole figure.
+func (m *Manager) Usage(_ context.Context, user string) (int64, error) {
+	if !validate.TenantUser(user) {
+		return 0, fmt.Errorf("tenant: %q is not a valid account name", user)
+	}
+	var total int64
+	err := filepath.WalkDir(m.Home(user), func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.Type().IsRegular() {
+			if info, ierr := d.Info(); ierr == nil {
+				total += info.Size()
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
+}
 
 func (m *Manager) real() bool { return m.runner.Mode() == "real" }
 
