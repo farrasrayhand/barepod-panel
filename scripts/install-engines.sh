@@ -132,6 +132,74 @@ else
   note "could not find pg_hba.conf — a manager may not reach PostgreSQL over the socket"
 fi
 
+# ---------------------------------------------------------------- brute-force lockout
+# A database port that is opened to the outside (per-database "public" exposure) needs a
+# lockout before it is opened, not after: fail2ban watches the engines' own logs and bans
+# the address that keeps failing. The numbers are deliberate panel defaults, not
+# fail2ban's, and they live in the jail files so an operator can change them in one place
+# (and the panel can rewrite them later).
+say "Installing fail2ban jails for the database engines"
+FB_MAXRETRY="${BAREPOD_F2B_MAXRETRY:-5}"
+FB_FINDTIME="${BAREPOD_F2B_FINDTIME:-10m}"
+FB_BANTIME="${BAREPOD_F2B_BANTIME:-1h}"
+if apt-get install -y -qq fail2ban >/dev/null 2>&1 || have fail2ban-client; then
+  mkdir -p /etc/fail2ban/jail.d
+  # Not every fail2ban build ships a postgresql filter (Debian 12's does not — measured:
+  # "Found no accessible config files for 'filter.d/postgresql'"), and a jail whose filter
+  # cannot be read is simply not started. So the filter is written here, matching the
+  # lines PostgreSQL itself writes.
+  cat > /etc/fail2ban/filter.d/barepod-postgresql.conf <<FILTER
+[Definition]
+failregex = ^.*FATAL:\s+password authentication failed for user .*$
+            ^.*FATAL:\s+no pg_hba.conf entry for host .*$
+ignoreregex =
+FILTER
+  cat > /etc/fail2ban/jail.d/barepod-postgresql.conf <<JAIL
+[postgresql]
+enabled  = true
+port     = 5432
+filter   = barepod-postgresql
+logpath  = /var/log/postgresql/postgresql-*.log
+maxretry = ${FB_MAXRETRY}
+findtime = ${FB_FINDTIME}
+bantime  = ${FB_BANTIME}
+# The panel and the engine's own administration arrive over loopback: banning it would
+# lock the panel out of the database it is managing.
+ignoreip = 127.0.0.1/8 ::1
+JAIL
+  cat > /etc/fail2ban/jail.d/barepod-mariadb.conf <<JAIL
+[mysqld-auth]
+enabled  = true
+port     = 3306
+filter   = mysqld-auth
+# MariaDB writes here on Debian; a distribution that logs elsewhere needs this changed,
+# and fail2ban refuses to watch a file that does not exist (it says so in its own log).
+logpath  = /var/log/mysql/error.log
+          /var/log/mysql/mariadb.log
+maxretry = ${FB_MAXRETRY}
+findtime = ${FB_FINDTIME}
+bantime  = ${FB_BANTIME}
+ignoreip = 127.0.0.1/8 ::1
+JAIL
+  systemctl enable fail2ban >/dev/null 2>&1 || true
+  systemctl restart fail2ban >/dev/null 2>&1 || true
+  note "jails written (maxretry=${FB_MAXRETRY}, findtime=${FB_FINDTIME}, bantime=${FB_BANTIME}); loopback is never banned"
+  # Verified, not assumed: on Ubuntu 24.04 this installs fail2ban 1.0.2 against Python 3.12,
+  # which prints "Server ready" and then exits 255 — with nothing in its own log to explain
+  # it, and with backend=polling as well. A jail that is written but whose daemon is not
+  # running protects nothing, so the warning is what keeps somebody from opening a port.
+  if systemctl is-active --quiet fail2ban; then
+    note "fail2ban is running: $(fail2ban-client status 2>/dev/null | grep 'Jail list' | tr -s ' \t' ' ')"
+  else
+    note "fail2ban did NOT stay up on this host — do not expose a database publicly until it does (journalctl -u fail2ban; a newer fail2ban or the panel's own watchdog)"
+  fi
+  # MongoDB is deliberately absent: the panel runs it as a container, so its log goes to
+  # `docker logs` and not to a file fail2ban can read. A jail for it needs its log written
+  # to a file first — saying so beats shipping a jail that never matches anything.
+else
+  note "fail2ban is not installed — do not open a database port to the outside before it is"
+fi
+
 # ---------------------------------------------------------------- optional managers
 # pgweb is one Go binary with no runtime of its own, and the panel starts it only
 # when someone opens it and stops it when it goes idle — so having it installed
