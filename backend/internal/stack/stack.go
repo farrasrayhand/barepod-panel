@@ -872,8 +872,19 @@ var nodeMajorPattern = regexp.MustCompile(`^\d+`)
 // dockerRunningTag is the tag of the image the panel's container for an engine is running,
 // which is that engine's version on a host whose engines live in containers.
 func dockerRunningTag(ctx context.Context, h *host.Host, engine string) string {
+	// The container the panel starts is named after the engine, but not always with the
+	// engine's own spelling ("barepod-mongo" for mongodb) — and the image repository is the
+	// surest way to find it. Matching on a guessed name missed the running container and
+	// answered with the newest image on disk instead, so MongoDB read 9.0 while 7.0 was up.
+	repo := map[string]string{
+		"mongodb": "mongo", "mariadb": "mariadb", "mysql": "mysql",
+		"postgresql": "postgres", "redis": "redis",
+	}[engine]
+	if repo == "" {
+		return ""
+	}
 	out, err := h.Run(ctx, []string{"bash", "-c",
-		"docker ps --filter name=barepod-" + engine + " --format '{{.Image}}' 2>/dev/null | head -1"})
+		"docker ps --format '{{.Image}}' 2>/dev/null | grep -E '^" + repo + "(:|$)' | head -1"})
 	if err != nil {
 		return ""
 	}
@@ -881,11 +892,8 @@ func dockerRunningTag(ctx context.Context, h *host.Host, engine string) string {
 	if image == "" {
 		return ""
 	}
-	if _, tag, found := strings.Cut(image, ":"); found {
-		// "mongo:7.0" → 7.0; a bare repository has no tag to report.
-		if tag != "latest" {
-			return tag
-		}
+	if _, tag, found := strings.Cut(image, ":"); found && tag != "latest" {
+		return tag
 	}
 	return ""
 }
