@@ -407,7 +407,10 @@ func (s *Server) handleSPA(w http.ResponseWriter, r *http.Request) {
 	// index.html must always be revalidated: it names the hashed bundle, and a
 	// cached copy pins the browser to an old build, which makes a deploy look as
 	// though it changed nothing.
-	w.Header().Set("Cache-Control", "no-cache, must-revalidate")
+	// no-store, not merely no-cache: a browser that keeps a revalidated copy of a page can
+	// still pin an old bundle, which made a deploy look as though it changed nothing
+	// several times while this was being built.
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	http.ServeFile(w, r, index)
 }
 
