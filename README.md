@@ -170,4 +170,4 @@ go build -o ./barepod ./cmd/barepod
 ./barepod serve -listen 127.0.0.1:8080 -db ./data/barepod.db -key ./data/secret.key
 ```
 
-Also available: `barepod user create --username <name> --group Developer`, `user list`, `user suspend|activate`, `admin passwd`. Privileged work only runs for real on **Linux with systemd** — elsewhere the daemon runs in **dry-run** and reports `mode: "dry-run"` instead of pretending. The only built-in data is three permission groups. See [`backend/README.md`](./backend/README.md) for flags, endpoints, permissions and a smoke test.
+Also available: `barepod user create --username <name> --group Basic`, `user list`, `user suspend|activate`, `admin passwd`. Privileged work only runs for real on **Linux with systemd** — elsewhere the daemon runs in **dry-run** and reports `mode: "dry-run"` instead of pretending. The only built-in data is two packages (`Unlimited`, `Basic`). See [`backend/README.md`](./backend/README.md) for flags, endpoints, permissions and a smoke test.

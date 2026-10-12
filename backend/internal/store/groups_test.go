@@ -60,16 +60,6 @@ func TestGroupPermissionsRoundTrip(t *testing.T) {
 			t.Errorf("root group lost %q after a database round trip", capability)
 		}
 	}
-
-	readOnly, err := st.GroupByName("Read Only")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, capability := range rbac.All {
-		if readOnly.Permissions.Allows(capability) {
-			t.Errorf("Read Only gained %q after a database round trip", capability)
-		}
-	}
 }
 
 func TestGroupMemberCount(t *testing.T) {
@@ -78,15 +68,15 @@ func TestGroupMemberCount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := st.CreateUser("alex", "alex@example.com", "hash", "user", "Developer"); err != nil {
+	if _, err := st.CreateUser("alex", "alex@example.com", "hash", "user", "Basic"); err != nil {
 		t.Fatal(err)
 	}
-	group, err := st.GroupByName("Developer")
+	group, err := st.GroupByName("Basic")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if group.Members != 1 {
-		t.Fatalf("Developer has %d members, want 1", group.Members)
+		t.Fatalf("Basic has %d members, want 1", group.Members)
 	}
 }
 

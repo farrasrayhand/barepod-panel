@@ -45,40 +45,30 @@ interface UsersViewProps {
 const MOCK_GROUPS: GroupRow[] = [
   {
     id: 'g-1',
-    name: 'Starter Client',
-    description: 'Single website package for small business landing pages',
-    permissions: { deployApps: true, fileManager: true, terminal: false, databases: true, backups: false, domains: false, cloudflareTunnels: false, monitoring: false, users: false, apiTokens: false },
-    limits: { cpuQuotaPercent: 100, memoryMb: 512, tasksMax: 128, diskQuotaGb: 2, inodeQuota: 0, maxSites: 1, maxDatabases: 1 },
-    members: 1,
-    isDefault: false,
-    isSystem: false,
-  },
-  {
-    id: 'g-2',
-    name: 'Developer Pro',
-    description: 'Multi-site development package with CLI terminal access',
-    permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false, apiTokens: true },
-    limits: { cpuQuotaPercent: 200, memoryMb: 2048, tasksMax: 512, diskQuotaGb: 10, inodeQuota: 0, maxSites: 5, maxDatabases: 5 },
-    members: 1,
-    isDefault: false,
-    isSystem: false,
-  },
-  {
-    id: 'g-3',
-    name: 'Superadmin (Root)',
-    description: 'Built-in root package — unlimited resources',
+    name: 'Unlimited',
+    description: 'Built-in package — every capability, no resource limits.',
     permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: true, apiTokens: true },
     limits: { cpuQuotaPercent: 0, memoryMb: 0, tasksMax: 0, diskQuotaGb: 0, inodeQuota: 0, maxSites: 0, maxDatabases: 0 },
     members: 1,
     isDefault: true,
     isSystem: true,
   },
+  {
+    id: 'g-2',
+    name: 'Basic',
+    description: 'Deploy and operate websites; no user or token administration.',
+    permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false, apiTokens: false },
+    limits: { cpuQuotaPercent: 100, memoryMb: 1024, tasksMax: 256, diskQuotaGb: 10, inodeQuota: 0, maxSites: 5, maxDatabases: 2 },
+    members: 2,
+    isDefault: true,
+    isSystem: true,
+  },
 ];
 
 const MOCK_USERS: ApiUser[] = [
-  { id: 'u-1', username: 'farras', email: 'farras@barepod.cloud', role: 'admin', groupName: 'Superadmin (Root)', status: 'active', createdAt: '', home: '/home/farras', osExists: true, sites: { used: 2, max: 0 }, databases: { used: 3, max: 0 } },
-  { id: 'u-2', username: 'tenant_alex', email: 'alex@clientdomain.com', role: 'user', groupName: 'Starter Client', status: 'active', createdAt: '', home: '/home/tenant_alex', osExists: true, sites: { used: 1, max: 1 }, databases: { used: 1, max: 1 } },
-  { id: 'u-3', username: 'tenant_clientB', email: 'team@agencypartner.id', role: 'user', groupName: 'Developer Pro', status: 'active', createdAt: '', home: '/home/tenant_clientB', osExists: true, sites: { used: 1, max: 5 }, databases: { used: 2, max: 5 } },
+  { id: 'u-1', username: 'farras', email: 'farras@barepod.cloud', role: 'admin', groupName: 'Unlimited', status: 'active', createdAt: '', home: '/home/farras', osExists: true, sites: { used: 2, max: 0 }, databases: { used: 3, max: 0 } },
+  { id: 'u-2', username: 'tenant_alex', email: 'alex@clientdomain.com', role: 'user', groupName: 'Basic', status: 'active', createdAt: '', home: '/home/tenant_alex', osExists: true, sites: { used: 1, max: 5 }, databases: { used: 1, max: 2 } },
+  { id: 'u-3', username: 'tenant_clientB', email: 'team@agencypartner.id', role: 'user', groupName: 'Basic', status: 'active', createdAt: '', home: '/home/tenant_clientB', osExists: true, sites: { used: 2, max: 5 }, databases: { used: 1, max: 2 } },
 ];
 
 const fmtCount = (n: number): string => (n > 0 ? String(n) : 'Unlimited');
@@ -135,7 +125,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
 
   const createUser = async (payload: CreateUserPayload) => {
     if (!live) {
-      setUsers((prev) => [...prev, { id: `u-${Date.now()}`, username: payload.username, email: payload.email ?? '', role: payload.groupName === 'Superadmin (Root)' ? 'admin' : 'user', groupName: payload.groupName, status: 'active', createdAt: '', home: `/home/${payload.username}`, osExists: false, sites: { used: 0, max: groupByName(payload.groupName)?.limits?.maxSites ?? 0 }, databases: { used: 0, max: groupByName(payload.groupName)?.limits?.maxDatabases ?? 0 } }]);
+      setUsers((prev) => [...prev, { id: `u-${Date.now()}`, username: payload.username, email: payload.email ?? '', role: payload.groupName === 'Unlimited' ? 'admin' : 'user', groupName: payload.groupName, status: 'active', createdAt: '', home: `/home/${payload.username}`, osExists: false, sites: { used: 0, max: groupByName(payload.groupName)?.limits?.maxSites ?? 0 }, databases: { used: 0, max: groupByName(payload.groupName)?.limits?.maxDatabases ?? 0 } }]);
       onShowToast?.('User Created', `Account ${payload.username} created (simulation).`, 'success');
       return;
     }

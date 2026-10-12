@@ -53,7 +53,7 @@ func userCreate(args []string) error {
 	fs := flag.NewFlagSet("barepod user create", flag.ContinueOnError)
 	username := fs.String("username", "", "account name")
 	email := fs.String("email", "", "email address (defaults to <username>@barepod.local)")
-	group := fs.String("group", "Developer", "permission group (package) the account joins")
+	group := fs.String("group", "Basic", "permission group (package) the account joins")
 	password := fs.String("password", "", "password (defaults to a generated one; BAREPOD_ADMIN_PASSWORD)")
 	quota := fs.String("quota", "", "disk quota override, e.g. 10GB (defaults to the package limit)")
 	dryRun := fs.Bool("dry-run", false, "record OS commands instead of running them")

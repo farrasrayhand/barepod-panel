@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Users, ShieldCheck } from 'lucide-react';
+import { X, Users, ShieldCheck, Sparkles } from 'lucide-react';
 import type { ApiUser, CreateUserPayload, GroupRow, UpdateUserPayload } from '../api/client';
 
 interface AddUserModalProps {
@@ -13,6 +13,9 @@ interface AddUserModalProps {
   selfUsername?: string;
   busy?: boolean;
 }
+
+/** The built-in package whose membership is what makes an account an admin. */
+const ROOT_PACKAGE = 'Unlimited';
 
 export const AddUserModal: React.FC<AddUserModalProps> = ({
   isOpen,
@@ -28,8 +31,11 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState<'admin' | 'user'>('user');
   const [groupName, setGroupName] = useState('');
   const [status, setStatus] = useState<'active' | 'suspended'>('active');
+
+  const userPackages = groups.filter((g) => g.name !== ROOT_PACKAGE);
 
   // Sync form fields whenever the modal opens (create vs edit target changes)
   React.useEffect(() => {
@@ -37,44 +43,68 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
     if (editUser) {
       setUsername(editUser.username);
       setEmail(editUser.email);
+      setRole(editUser.role);
       setGroupName(editUser.groupName);
       setStatus(editUser.status);
     } else {
       setUsername('');
       setEmail('');
       setPassword('');
-      setGroupName(groups[0]?.name ?? '');
+      setRole('user');
+      setGroupName((groups.find((g) => g.name !== ROOT_PACKAGE) ?? groups[0])?.name ?? '');
       setStatus('active');
     }
   }, [isOpen, editUser, groups]);
 
   if (!isOpen) return null;
 
-  const selectedGroup = groups.find((g) => g.name === groupName) ?? groups[0];
-  const makesAdmin = selectedGroup?.name === 'Superadmin (Root)';
   const isSelf = isEditing && editUser?.username === selfUsername;
+  const effectiveGroup = role === 'admin' ? ROOT_PACKAGE : groupName;
+
+  const chooseRole = (next: 'admin' | 'user') => {
+    setRole(next);
+    if (next === 'admin') {
+      setGroupName(ROOT_PACKAGE);
+    } else if (groupName === ROOT_PACKAGE) {
+      setGroupName((userPackages[0] ?? groups[1] ?? groups[0])?.name ?? '');
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
     if (isEditing && editUser) {
-      onUpdate(editUser.id, { email: email.trim(), groupName, status });
+      onUpdate(editUser.id, { email: email.trim(), groupName: effectiveGroup, status });
       onClose();
       return;
     }
-    if (!username.trim() || !groupName) return;
+    if (!username.trim() || !effectiveGroup) return;
     onCreate({
       username: username.trim().toLowerCase(),
       email: email.trim(),
       password: password.trim() || undefined,
-      groupName,
+      groupName: effectiveGroup,
     });
     onClose();
   };
 
+  const roleButton = (value: 'user' | 'admin', title: string, subtitle: string, accent: string) => (
+    <button
+      type="button"
+      onClick={() => chooseRole(value)}
+      disabled={isSelf}
+      className={`p-2.5 rounded-xl border text-xs text-left transition-all disabled:opacity-60 ${
+        role === value ? accent : 'border-slate-200 bg-white text-slate-700'
+      }`}
+    >
+      <span className="block font-semibold">{title}</span>
+      <span className="text-[10px] font-normal opacity-80">{subtitle}</span>
+    </button>
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full overflow-hidden max-h-[90vh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
@@ -82,11 +112,11 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-semibold text-slate-900">
-                {isEditing ? 'Edit Tenant Account' : 'Add New Tenant Account'}
+                {isEditing ? 'Edit Account' : 'Add Account'}
               </h2>
               <p className="text-xs text-slate-500">
                 {isEditing
-                  ? 'Update the package, status and contact of this account'
+                  ? 'Update the role, package, status and contact of this account'
                   : 'The daemon also creates the Linux account and applies the package quota'}
               </p>
             </div>
@@ -110,7 +140,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
             />
             {isEditing && (
               <p className="text-[11px] text-slate-400 mt-1">
-                The tenant Linux username cannot be changed (it would require recreating the jail user).
+                The Linux username cannot be changed (it would require recreating the account).
               </p>
             )}
           </div>
@@ -143,28 +173,38 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Assign to Package</label>
-            <select
-              value={groupName}
-              onChange={(e) => setGroupName(e.target.value)}
-              className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
-            >
-              {groups.map((g) => (
-                <option key={g.id} value={g.name}>
-                  {g.name} (Max {g.limits?.maxSites || '∞'} Sites • {g.limits?.diskQuotaGb || '∞'} GB Disk • {g.limits?.maxDatabases || '∞'} DBs)
-                </option>
-              ))}
-            </select>
-            <p className="text-[11px] text-slate-500 mt-1">
-              Resource limits come from the package. Membership of the <strong>Superadmin (Root)</strong> package is what makes an account an admin.
-            </p>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Account Role</label>
+            <div className="grid grid-cols-2 gap-2">
+              {roleButton('user', 'Regular User', 'Limited by its package', 'border-blue-600 bg-blue-50 font-bold text-blue-900 ring-2 ring-blue-500/10')}
+              {roleButton('admin', 'Administrator', 'Unlimited, full access', 'border-purple-600 bg-purple-50 font-bold text-purple-900 ring-2 ring-purple-500/10')}
+            </div>
+            {isSelf && <p className="text-[11px] text-slate-400 mt-1">You cannot change your own role.</p>}
           </div>
 
-          {makesAdmin && (
+          {role === 'user' ? (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Assign to Package</label>
+              <select
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
+              >
+                {userPackages.map((g) => (
+                  <option key={g.id} value={g.name}>
+                    {g.name} (Max {g.limits?.maxSites || '∞'} Sites • {g.limits?.diskQuotaGb || '∞'} GB Disk • {g.limits?.maxDatabases || '∞'} DBs)
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-slate-500 mt-1">
+                A package bundles what the account may do (capabilities) and how much it may use (limits).
+              </p>
+            </div>
+          ) : (
             <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-start gap-2">
-              <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+              <Sparkles className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
               <p className="text-[11px]">
-                <strong>Administrator</strong>: the Root package grants every capability and cross-tenant visibility.
+                <strong>Administrator</strong> accounts join the <strong>{ROOT_PACKAGE}</strong> package: every capability,
+                cross-tenant visibility, no resource limits.
               </p>
             </div>
           )}
@@ -182,6 +222,13 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
                 <option value="suspended">Suspended</option>
               </select>
               {isSelf && <p className="text-[11px] text-slate-400 mt-1">You cannot change your own status.</p>}
+            </div>
+          )}
+
+          {effectiveGroup === ROOT_PACKAGE && !isSelf && (
+            <div className="flex items-start gap-2 text-[11px] text-purple-800">
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-600 shrink-0 mt-0.5" />
+              <span>This account will be able to manage every tenant on the panel.</span>
             </div>
           )}
 

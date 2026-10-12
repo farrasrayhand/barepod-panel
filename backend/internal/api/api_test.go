@@ -67,7 +67,7 @@ func newTestPanel(t *testing.T) *testPanel {
 	if err != nil {
 		t.Fatal(err)
 	}
-	alex, err := st.CreateUser("alex", "alex@example.com", hash, "user", "Developer")
+	alex, err := st.CreateUser("alex", "alex@example.com", hash, "user", "Basic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,12 +275,12 @@ func TestFileManagerIsScopedToTheCaller(t *testing.T) {
 
 func TestFileManagerRequiresTheCapability(t *testing.T) {
 	panel := newTestPanel(t)
-	group, err := panel.store.GroupByName("Developer")
+	group, err := panel.store.GroupByName("Basic")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Keep the package limits, drop only the file manager capability.
-	if err := panel.store.UpdateGroup("Developer", "no file access",
+	if err := panel.store.UpdateGroup("Basic", "no file access",
 		rbac.Permissions{rbac.CapDeployApps: true}, group.Limits); err != nil {
 		t.Fatal(err)
 	}

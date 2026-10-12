@@ -39,7 +39,7 @@ privileges per request, so those options would break it rather than protect it.
 | `barepod serve` | Run the daemon (API + SPA fallback) |
 | `barepod admin create [--username X] [--password Y] [--force]` | Create the root admin; prints a generated password once |
 | `barepod admin passwd <username>` | Reset a password (revokes that account's sessions) |
-| `barepod user create --username X [--group Developer] [--quota 10GB]` | Create a non-admin account in a package (also creates the Linux tenant account) |
+| `barepod user create --username X [--group Basic] [--quota 10GB]` | Create a non-admin account in a package (also creates the Linux tenant account) |
 | `barepod user list` | List panel accounts |
 | `barepod user suspend\|activate <username>` | Disable/enable an account (also locks/unlocks the Linux user) |
 | `barepod group list` | Show packages with their capabilities and resource limits |
@@ -142,14 +142,13 @@ provision cache → render systemd unit → start service → health check.
 
 ## Permissions (per account, not global)
 
-The panel ships with **three built-in groups** — and that is the only data it
+The panel ships with **two built-in packages** — and that is the only data it
 creates by itself:
 
-| Group | May do |
+| Package | May do |
 |---|---|
-| `Superadmin (Root)` | Everything |
-| `Developer` | Deploy/operate websites, files, terminal, databases, backups, domains, tunnels, monitoring — **no** user or API-token administration |
-| `Read Only` | View dashboards, metrics and logs; change nothing |
+| `Unlimited` | Everything, no resource limits — membership is what makes an account an admin |
+| `Basic` | Deploy/operate websites, files, terminal, databases, backups, domains, tunnels, monitoring — **no** user or API-token administration |
 
 - Every endpoint is gated on a capability (`deployApps`, `fileManager`, `terminal`,
   `databases`, `backups`, `domains`, `cloudflareTunnels`, `monitoring`, `users`,
@@ -159,7 +158,8 @@ creates by itself:
   another tenant's website returns `404`, and deploying into another tenant is
   refused. **Admins are the exception** — they see and manage every tenant.
 - Backup/migration and every other module follow the same rule: per account, own
-  resources only, admin sees all. `Read Only` cannot even start one.
+  resources only, admin sees all. A package that lacks a capability cannot even
+  start the module.
 
 ## Resource limits (packages) & the capacity guard
 

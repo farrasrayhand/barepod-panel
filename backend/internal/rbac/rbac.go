@@ -77,8 +77,11 @@ type Group struct {
 	CreatedAt   string           `json:"createdAt,omitempty"`
 }
 
-// RootGroup is the group every account created by `barepod admin create` joins.
-const RootGroup = "Superadmin (Root)"
+// RootGroup is the package whose membership makes an account an admin: it is what
+// `barepod admin create` joins, and what grants cross-tenant visibility. It is
+// named for what it offers (no limits), not for a rank — the panel shows it beside
+// the other packages.
+const RootGroup = "Unlimited"
 
 // DefaultGroups are seeded once on a fresh database — and that is the only
 // built-in data the panel has.
@@ -97,7 +100,7 @@ func DefaultGroups() []Group {
 			IsSystem:    true,
 		},
 		{
-			Name:        "Developer",
+			Name:        "Basic",
 			Description: "Deploy and operate websites; no user or token administration.",
 			Permissions: Permissions{
 				CapDeployApps:        true,
@@ -112,19 +115,6 @@ func DefaultGroups() []Group {
 				CapAPITokens:         false,
 			},
 			Limits:    resources.DefaultLimits(),
-			IsDefault: true,
-			IsSystem:  true,
-		},
-		{
-			Name:        "Read Only",
-			Description: "View dashboards, metrics and logs; nothing can be changed.",
-			Permissions: GrantNothing(),
-			Limits: resources.Limits{
-				CPUQuotaPercent: 50,
-				MemoryMB:        512,
-				TasksMax:        128,
-				DiskQuotaGB:     5,
-			},
 			IsDefault: true,
 			IsSystem:  true,
 		},

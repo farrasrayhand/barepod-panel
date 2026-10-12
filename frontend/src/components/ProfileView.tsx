@@ -139,7 +139,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
               <Mail className="w-3.5 h-3.5 text-slate-400" /> farras@barepod.cloud
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-slate-400" /> Tenant group: Superadmin (Root)
+              <User className="w-3.5 h-3.5 text-slate-400" /> Package: Unlimited
             </span>
           </div>
           <p className="text-[11px] text-slate-400 font-mono">/home/farras · member since 2026-09-22</p>

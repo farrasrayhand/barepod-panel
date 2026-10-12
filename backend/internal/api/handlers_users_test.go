@@ -59,12 +59,12 @@ func TestCreateUserProvisionsTheLinuxAccountAndListsIt(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list status = %d (%s)", resp.StatusCode, body)
 	}
-	if got := firstUser(t, body, "alex"); got.GroupName != "Developer" {
-		t.Errorf("alex group = %q, want Developer", got.GroupName)
+	if got := firstUser(t, body, "alex"); got.GroupName != "Basic" {
+		t.Errorf("alex group = %q, want Basic", got.GroupName)
 	}
 
 	resp, body = panel.do(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"username": "carol", "email": "carol@example.com", "groupName": "Developer",
+		"username": "carol", "email": "carol@example.com", "groupName": "Basic",
 	})
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("create status = %d (%s)", resp.StatusCode, body)
@@ -73,8 +73,8 @@ func TestCreateUserProvisionsTheLinuxAccountAndListsIt(t *testing.T) {
 	if err := json.Unmarshal(body, &created); err != nil {
 		t.Fatal(err)
 	}
-	if created.GroupName != "Developer" || created.Role != "user" {
-		t.Errorf("created = %+v, want Developer/user", created)
+	if created.GroupName != "Basic" || created.Role != "user" {
+		t.Errorf("created = %+v, want Basic/user", created)
 	}
 	if created.Password == "" {
 		t.Error("a generated password should be returned once")
@@ -115,7 +115,7 @@ func TestCreateUserRefusesUnknownGroupAndDuplicate(t *testing.T) {
 	}
 
 	resp, body = panel.do(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"username": "alex", "groupName": "Developer",
+		"username": "alex", "groupName": "Basic",
 	})
 	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(body), "already_exists") {
 		t.Fatalf("duplicate status = %d (%s)", resp.StatusCode, body)
@@ -127,14 +127,14 @@ func TestUpdateUserChangesPackageLocksAndSuspends(t *testing.T) {
 	panel.login(t, "admin")
 
 	_, body := panel.do(t, http.MethodPost, "/api/v1/users", map[string]any{
-		"username": "carol", "groupName": "Developer",
+		"username": "carol", "groupName": "Basic",
 	})
 	var carol userRow
 	if err := json.Unmarshal(body, &carol); err != nil {
 		t.Fatal(err)
 	}
 
-	resp, body := panel.do(t, http.MethodPatch, "/api/v1/users/"+carol.ID, map[string]any{"groupName": "Read Only"})
+	resp, body := panel.do(t, http.MethodPatch, "/api/v1/users/"+carol.ID, map[string]any{"groupName": "Unlimited"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("group change status = %d (%s)", resp.StatusCode, body)
 	}
@@ -142,8 +142,8 @@ func TestUpdateUserChangesPackageLocksAndSuspends(t *testing.T) {
 	if err := json.Unmarshal(body, &afterGroup); err != nil {
 		t.Fatal(err)
 	}
-	if afterGroup.GroupName != "Read Only" {
-		t.Fatalf("group = %q, want Read Only", afterGroup.GroupName)
+	if afterGroup.GroupName != "Unlimited" {
+		t.Fatalf("group = %q, want Unlimited", afterGroup.GroupName)
 	}
 
 	resp, body = panel.do(t, http.MethodPatch, "/api/v1/users/"+carol.ID, map[string]any{"status": "suspended"})
@@ -190,7 +190,7 @@ func TestDeleteUserRefusesWhenItOwnsResources(t *testing.T) {
 	}
 
 	// An account with nothing to its name is deleted for real.
-	_, body = panel.do(t, http.MethodPost, "/api/v1/users", map[string]any{"username": "carol", "groupName": "Developer"})
+	_, body = panel.do(t, http.MethodPost, "/api/v1/users", map[string]any{"username": "carol", "groupName": "Basic"})
 	var carol userRow
 	if err := json.Unmarshal(body, &carol); err != nil {
 		t.Fatal(err)
@@ -222,7 +222,7 @@ func TestGroupsCreateGuardAndDelete(t *testing.T) {
 	}
 
 	// A built-in package cannot be deleted.
-	resp, body = panel.do(t, http.MethodDelete, "/api/v1/groups/Developer", nil)
+	resp, body = panel.do(t, http.MethodDelete, "/api/v1/groups/Basic", nil)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("delete built-in status = %d (%s)", resp.StatusCode, body)
 	}
@@ -244,12 +244,12 @@ func TestGroupsCreateGuardAndDelete(t *testing.T) {
 
 func TestNonAdminCannotManageUsers(t *testing.T) {
 	panel := newTestPanel(t)
-	panel.login(t, "alex") // Developer: no `users` capability
+	panel.login(t, "alex") // Basic: no `users` capability
 
 	if resp, _ := panel.do(t, http.MethodGet, "/api/v1/users", nil); resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("alex list users = %d, want 403", resp.StatusCode)
 	}
-	resp, body := panel.do(t, http.MethodPost, "/api/v1/users", map[string]any{"username": "x", "groupName": "Developer"})
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/users", map[string]any{"username": "x", "groupName": "Basic"})
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("alex create user = %d (%s), want 403", resp.StatusCode, body)
 	}
@@ -315,7 +315,7 @@ func TestCreateUserReportsTheLinuxStepAndCanReconcile(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")
 
-	_, body := panel.do(t, http.MethodPost, "/api/v1/users", map[string]any{"username": "carol", "groupName": "Developer"})
+	_, body := panel.do(t, http.MethodPost, "/api/v1/users", map[string]any{"username": "carol", "groupName": "Basic"})
 	var created struct {
 		ID    string `json:"id"`
 		Linux struct {
@@ -342,8 +342,8 @@ func TestMaxSitesRefusalUsesQuotaExceeded(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")
 
-	// alex already owns one website; cap the Developer package at one.
-	resp, body := panel.do(t, http.MethodPatch, "/api/v1/groups/Developer", map[string]any{
+	// alex already owns one website; cap the Basic package at one.
+	resp, body := panel.do(t, http.MethodPatch, "/api/v1/groups/Basic", map[string]any{
 		"limits": map[string]int{"cpuQuotaPercent": 100, "memoryMb": 1024, "tasksMax": 256, "diskQuotaGb": 10, "maxSites": 1, "maxDatabases": 2},
 	})
 	if resp.StatusCode != http.StatusOK {

@@ -324,6 +324,14 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request, actor 
 			writeError(w, http.StatusConflict, "no_such_group", "No such package: "+groupName)
 			return
 		}
+		// Moving an admin into a non-admin package is a demotion: refuse it when it
+		// would leave the panel with no administrator at all.
+		if account.Role == "admin" && roleForGroup(group.Name) != "admin" {
+			if last, err := s.isLastAdmin(account.Username); err == nil && last {
+				writeError(w, http.StatusConflict, "last_admin", "This is the only admin account; the panel would be locked out")
+				return
+			}
+		}
 		delta := map[string]int{group.Name: 1}
 		if account.GroupName != "" {
 			delta[account.GroupName] = -1

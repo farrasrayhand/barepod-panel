@@ -22,7 +22,22 @@ var migrations = []migration{
 	{version: 12, statements: schemaV12},
 	{version: 13, statements: schemaV13},
 	{version: 14, statements: schemaV14},
+	{version: 15, statements: schemaV15},
 }
+
+// schemaV15 renames two built-in packages to the names the panel uses now. The
+// names are stored data (groups.name AND users.group_name), so a rename is a
+// migration rather than a constant change; each statement is a no-op when the old
+// name is absent, which is the case on a fresh database where EnsureDefaultGroups
+// inserts the new names.
+const schemaV15 = `
+UPDATE groups SET name = 'Unlimited' WHERE name = 'Superadmin (Root)';
+UPDATE users  SET group_name = 'Unlimited' WHERE group_name = 'Superadmin (Root)';
+UPDATE groups SET name = 'Basic' WHERE name = 'Developer';
+UPDATE users  SET group_name = 'Basic' WHERE group_name = 'Developer';
+DELETE FROM groups WHERE name = 'Read Only'
+  AND NOT EXISTS (SELECT 1 FROM users u WHERE u.group_name = 'Read Only');
+`
 
 // schemaV14 lets one ban close several ports. SSH can listen on more than one while its port is being
 // moved — the safe way to move it is to add the new one and keep the old until the new answers — and a

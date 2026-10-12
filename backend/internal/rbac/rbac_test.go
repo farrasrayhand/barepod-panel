@@ -40,40 +40,25 @@ func TestRootGroupGrantsEverything(t *testing.T) {
 	}
 }
 
-func TestDeveloperGroupIsLimited(t *testing.T) {
+func TestBasicGroupIsLimited(t *testing.T) {
 	var dev Group
 	for _, g := range DefaultGroups() {
-		if g.Name == "Developer" {
+		if g.Name == "Basic" {
 			dev = g
 		}
 	}
 	if dev.Name == "" {
-		t.Fatal("no Developer group")
+		t.Fatal("no Basic group")
 	}
 	if !dev.Permissions.Allows(CapDeployApps) {
-		t.Error("Developer must be able to deploy")
+		t.Error("Basic must be able to deploy")
 	}
 	if dev.Permissions.Allows(CapUsers) {
-		t.Error("Developer must not be able to manage users")
+		t.Error("Basic must not be able to manage users")
 	}
 	if dev.Permissions.Allows(CapAPITokens) {
-		t.Error("Developer must not be able to mint API tokens")
+		t.Error("Basic must not be able to mint API tokens")
 	}
-}
-
-func TestReadOnlyGroupGrantsNothing(t *testing.T) {
-	for _, g := range DefaultGroups() {
-		if g.Name != "Read Only" {
-			continue
-		}
-		for _, capability := range All {
-			if g.Permissions.Allows(capability) {
-				t.Errorf("Read Only grants %q", capability)
-			}
-		}
-		return
-	}
-	t.Fatal("no Read Only group")
 }
 
 func TestNormalisedDropsUnknownKeys(t *testing.T) {
