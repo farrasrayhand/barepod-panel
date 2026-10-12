@@ -1,3 +1,4 @@
+import { describeAddress } from '../utils/address';
 import React, { useState } from 'react';
 import { 
   LayoutDashboard, 
@@ -38,6 +39,10 @@ interface NavGroupItem {
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed, isAdmin = false }) => {
   const [copiedIp, setCopiedIp] = useState(false);
+  // The address this panel is being used on — the only one the panel can honestly name. Behind NAT
+  // the public address is not discoverable from inside, and the sidebar used to hardcode one.
+  const panelAddress = typeof window !== 'undefined' ? window.location.hostname : '';
+  const panelAddressKind = describeAddress(panelAddress);
 
   const handleCopyIp = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -136,14 +141,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
           <div className="flex items-center justify-between text-xs">
             <span className="flex items-center gap-1.5 text-slate-500 font-medium">
               <Globe className="w-3.5 h-3.5 text-blue-600" />
-              <span>IP Public:</span>
+              <span title="The address you reached this panel on. The host does not report a public address to the panel — behind NAT there is none to report.">
+                Panel address:
+              </span>
             </span>
             <button
               onClick={handleCopyIp}
               className="group flex items-center gap-1 font-mono font-bold text-slate-800 text-[11px] bg-white hover:bg-blue-50 px-2 py-0.5 rounded border border-slate-200 hover:border-blue-300 transition-colors shadow-2xs"
-              title="Click to copy Public IP"
+              title="Click to copy this address"
             >
-              <span>103.147.154.82</span>
+              <span>{panelAddress}</span>
               {copiedIp ? (
                 <Check className="w-3 h-3 text-emerald-600" />
               ) : (
@@ -162,9 +169,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
               <CloudRain className="w-3.5 h-3.5 text-amber-500" />
               <span>CF Tunnel:</span>
             </span>
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 group-hover:bg-emerald-100 transition-colors">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Connected
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 group-hover:bg-slate-200 transition-colors"
+              title="No tunnel is configured in the daemon yet — this badge used to claim a connection that was never checked."
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+              Not configured
             </span>
           </div>
         </div>

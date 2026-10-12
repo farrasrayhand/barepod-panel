@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import type { DatabaseItem } from '../types';
 import { api } from '../api/client';
+import { describeAddress } from '../utils/address';
 import { saveBlob, failureMessage } from '../api/download';
 import { GuardCard } from './GuardCard';
 
@@ -73,29 +74,6 @@ function guardEngineFor(type: string): string | undefined {
       return 'redis';
   }
   return undefined;
-}
-
-/**
- * What an address actually is, rather than what a label would like it to be: 172.19.1.26 is a
- * private address (RFC1918) and calling it an "External Public IP" tells the operator something
- * false about who can reach it.
- */
-function describeAddress(address: string): { label: string; tone: 'loopback' | 'private' | 'public' } {
-  const value = (address || '').trim();
-  if (/^(localhost|::1)$/i.test(value)) return { label: 'Loopback Only', tone: 'loopback' };
-  const octets = value.split('.').map((part) => Number(part));
-  if (octets.length !== 4 || octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
-    return { label: 'Hostname', tone: 'public' };
-  }
-  const [first, second] = octets;
-  if (first === 127) return { label: 'Loopback Only', tone: 'loopback' };
-  const privateRange =
-    first === 10 ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168) ||
-    (first === 169 && second === 254) ||
-    (first === 100 && second >= 64 && second <= 127);
-  return privateRange ? { label: 'Private network', tone: 'private' } : { label: 'Public address', tone: 'public' };
 }
 
 export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
