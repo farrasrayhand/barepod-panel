@@ -141,6 +141,14 @@ func (s *Server) handleGuardSettings(w http.ResponseWriter, r *http.Request, use
 // handleGuardUnban releases one address, and says which one in the audit trail: letting
 // somebody back in is a security decision and has to be attributable.
 func (s *Server) handleGuardUnban(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	// Asked before the body is read: a panel with no watchdog cannot release anything whatever
+	// the request says, and answering "invalid body" would blame the caller for the panel's
+	// own state.
+	if s.guard == nil {
+		writeError(w, http.StatusServiceUnavailable, "guard_unavailable",
+			"the brute-force lockout is not running in this process")
+		return
+	}
 	var body struct {
 		IP string `json:"ip"`
 	}
@@ -151,11 +159,6 @@ func (s *Server) handleGuardUnban(w http.ResponseWriter, r *http.Request, user *
 	ip := strings.TrimSpace(body.IP)
 	if net.ParseIP(ip) == nil || strings.Contains(ip, ":") {
 		writeError(w, http.StatusBadRequest, "invalid_ip", "give one IPv4 address to release")
-		return
-	}
-	if s.guard == nil {
-		writeError(w, http.StatusServiceUnavailable, "guard_unavailable",
-			"the brute-force lockout is not running in this process")
 		return
 	}
 	if err := s.guard.Unban(r.Context(), ip); err != nil {

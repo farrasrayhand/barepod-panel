@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { GuardCard } from './GuardCard';
 import { 
   Settings, 
   ShieldCheck, 
@@ -231,6 +232,10 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Real, unlike the rest of this screen: the daemon's brute-force lockout, which the
+          panel already enforces in the host's firewall. */}
+      <GuardCard onShowToast={onShowToast} />
 
       {/* Main Container with Sidebar Navigation */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col md:flex-row min-h-[580px]">

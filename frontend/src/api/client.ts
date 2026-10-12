@@ -345,8 +345,51 @@ const databaseFamily = (base: string) => ({
     }>(`${base}/${id}/gui${tool ? `/${tool}` : ''}`),
 });
 
+/** One address the brute-force lockout is keeping out of the database engines. */
+export interface GuardBan {
+  ip: string;
+  engine?: string;
+  user?: string;
+  reason?: string;
+  count: number;
+  at: string;
+  expiresAt: string;
+}
+
+/** The lockout's state: its numbers, what it is keeping out, and whether it can enforce. */
+export interface GuardStatus {
+  enabled: boolean;
+  maxRetry: number;
+  findTime: string;
+  banTime: string;
+  enforcing: boolean;
+  reason?: string;
+  bans: GuardBan[];
+  /** Per engine: empty means the log is being read, otherwise why it is not. */
+  sources: Record<string, string>;
+  lastSweep?: string;
+  lastError?: string;
+  interval: string;
+  /** The nftables table and set the bans really live in. */
+  table: string;
+  set: string;
+}
+
 export const api = {
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
+
+  /**
+   * The brute-force lockout. The daemon decides with these numbers and keeps the addresses
+   * out in an nftables set, so this is the panel's view of something that is really enforced.
+   */
+  guard: () => request<GuardStatus>('/system/guard'),
+
+  saveGuardSettings: (settings: { enabled?: boolean; maxRetry?: number; findTime?: string; banTime?: string }) =>
+    request<GuardStatus>('/system/guard', { method: 'PATCH', body: JSON.stringify(settings) }),
+
+  /** Let one address back in. Audited by the daemon, against the address. */
+  unban: (ip: string) =>
+    request<GuardStatus>('/system/guard/unban', { method: 'POST', body: JSON.stringify({ ip }) }),
 
   login: async (username: string, password: string) => {
     const session = await request<{ user: PanelUser; csrfToken: string }>('/auth/login', {

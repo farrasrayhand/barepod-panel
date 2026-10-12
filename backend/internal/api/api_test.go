@@ -96,6 +96,9 @@ func newTestPanel(t *testing.T) *testPanel {
 		Tenants:        tenant.New(runner, h.SitesRoot, sysinfo.Capabilities{}),
 		MaxUploadBytes: 1 << 20,
 		Tools:          dbtools.New(runner, time.Minute),
+		// The lockout is wired as the daemon wires it, over a host that answers; the tests
+		// that need it started call Run themselves.
+		Guard: testGuard(st),
 		// Availability must not depend on the machine running the tests: here no
 		// third-party manager is installed, so the gate is deterministic.
 		LookPath: func(string) (string, error) { return "", errors.New("not installed") },
