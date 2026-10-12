@@ -406,7 +406,11 @@ func (s *Server) handleDatabaseGui(kind string) authedHandler {
 
 		path, available, reason := s.guiToolAvailability(kind, record, known)
 		if !available {
-			_ = s.store.Audit(user.ID, "database.gui_open", record.Name, clientIP(r), tool+": "+reason)
+			// A refusal is its own action. Auditing it as "gui_open" made the trail read as if
+			// the manager had been opened, when what happened was the opposite — the operator saw
+			// "database.gui_open: dbgate is not hosted here yet" and reasonably asked why a
+			// manager that is not hosted had a log at all.
+			_ = s.store.Audit(user.ID, "database.gui_refused", record.Name, clientIP(r), tool+": "+reason)
 			// The tool may exist and be installed; if the database itself is what is
 			// blocking, say that instead of "not hosted", which would blame the tool.
 			if _, isRecord := guiRecordBlocked(record); isRecord {
@@ -420,6 +424,9 @@ func (s *Server) handleDatabaseGui(kind string) authedHandler {
 				tool, reason))
 			return
 		}
+		// The other half of the same record: when the manager really is offered, the trail says
+		// so, so "refused" and "opened" can never be confused again.
+		_ = s.store.Audit(user.ID, "database.gui_open", record.Name, clientIP(r), tool)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"tool": tool, "database": record.ID, "available": true, "path": path,
 			"note": "Open that path: it runs behind this same session, on loopback, with this database's credential injected server-side, and stops when idle.",

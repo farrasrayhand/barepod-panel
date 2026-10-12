@@ -1125,8 +1125,13 @@ func TestDatabaseGuiNeedsThePanelSession(t *testing.T) {
 		t.Errorf("the refusal should state the rule: %s", body)
 	}
 	_, auditBody := panel.do(t, http.MethodGet, "/api/v1/audit?limit=10", nil)
-	if !strings.Contains(string(auditBody), "database.gui_open") {
-		t.Errorf("opening a manager was not audited: %s", auditBody)
+	// The refusal has its own action: auditing it as "gui_open" read as if the manager had been
+	// opened, which is exactly what it had not been.
+	if !strings.Contains(string(auditBody), "database.gui_refused") {
+		t.Errorf("the refusal was not audited: %s", auditBody)
+	}
+	if strings.Contains(string(auditBody), "database.gui_open") {
+		t.Errorf("a refused manager was recorded as opened: %s", auditBody)
 	}
 }
 
