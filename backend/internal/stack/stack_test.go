@@ -13,8 +13,12 @@ import (
 )
 
 func TestCommandsAreAllowlisted(t *testing.T) {
-	if _, err := Commands("openlitespeed", ""); err == nil {
+	if _, err := Commands("tomcat", ""); err == nil {
 		t.Error("an engine outside the allowlist was accepted")
+	}
+	// Apache and OpenLiteSpeed are in it: the version manager offers them.
+	if _, err := Commands("openlitespeed", ""); err != nil {
+		t.Errorf("openlitespeed is allowed but was refused: %v", err)
 	}
 	if _, err := Commands("php", ""); err == nil {
 		t.Error("php without a version was accepted")

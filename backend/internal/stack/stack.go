@@ -49,6 +49,8 @@ func Catalog() []Component {
 	return []Component{
 		{Name: "nginx", Label: "Nginx", Kind: "web", Description: "High-concurrency web server and reverse proxy"},
 		{Name: "caddy", Label: "Caddy", Kind: "web", Description: "Automatic HTTPS and HTTP/3 in one binary"},
+		{Name: "apache", Label: "Apache", Kind: "web", Description: "Apache HTTP Server (backend or version manager)"},
+		{Name: "openlitespeed", Label: "OpenLiteSpeed", Kind: "web", Description: "OpenLiteSpeed (backend or version manager)"},
 		{Name: "repositories", Label: "Package repositories", Kind: "repo", Description: "Sury for PHP and deadsnakes for Python — the versions Ubuntu does not ship"},
 		{Name: "php", Label: "PHP-FPM", Kind: "runtime", Versions: []string{"8.3", "8.2", "8.1"}, Description: "PHP runtime (one pool per site)"},
 		{Name: "node", Label: "Node.js", Kind: "runtime", Versions: []string{"22", "20", "18"}, Description: "Node.js runtime for JavaScript sites"},
@@ -126,6 +128,10 @@ func Commands(component, version string) ([][]string, error) {
 		return append([][]string{{"bash", "-c", nginxRepoScript}}, installEngine("nginx", version)...), nil
 	case "caddy":
 		return append([][]string{{"bash", "-c", caddyRepoScript}}, installEngine("caddy", version)...), nil
+	case "apache":
+		return append([][]string{{"bash", "-c", apacheRepoScript}}, installEngine("apache2", version)...), nil
+	case "openlitespeed":
+		return append([][]string{{"bash", "-c", openlitespeedRepoScript}}, installEngine("openlitespeed", version)...), nil
 	case "repositories":
 		// Every source that can hold several versions at once, added in one step: the two
 		// apt repositories, the version managers for Ruby and Rust, and the database

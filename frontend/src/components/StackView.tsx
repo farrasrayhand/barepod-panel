@@ -289,79 +289,6 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       {activeTab === 'web' && (
         <div className="space-y-4">
           {repositoriesCard('web', 'web server')}
-          {/* Version manager: every web server the panel keeps versions for, which is more
-              than the two that can be the ingress. */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-slate-200 flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">Version manager</span>
-              <span className="text-[11px] text-slate-500">
-                Every web server the panel keeps versions for. Only nginx and Caddy can own :80 — the rest run as
-                backends, or are here so a version can be installed.
-              </span>
-            </div>
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
-                <tr>
-                  <th className="py-3 px-4">Engine</th>
-                  <th className="py-3 px-4">Active</th>
-                  <th className="py-3 px-4">Newest</th>
-                  <th className="py-3 px-4">Versions</th>
-                  <th className="py-3 px-4 text-right">Switch</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {(status?.webServer.managed ?? []).map((engine) => {
-                  const state = status?.webServer.managedInstalled?.find((e) => e.engine === engine);
-                  const versions = status?.webServer.available?.[engine] ?? [];
-                  const installed = (state?.version ?? '').replace(/^v/, '');
-                  return (
-                    <tr key={engine} className="hover:bg-slate-50/70">
-                      <td className="py-3 px-4 font-semibold text-slate-900">{engine}</td>
-                      <td className="py-3 px-4 font-mono text-slate-700">{state?.installed ? installed || '—' : 'not installed'}</td>
-                      <td className="py-3 px-4 font-mono text-slate-700">{status?.webServer.latest?.[engine] ?? '—'}</td>
-                      <td className="py-3 px-4">
-                        <select
-                          value={pickedVersion[engine] ?? installed}
-                          onChange={(e) => setPickedVersion((prev) => ({ ...prev, [engine]: e.target.value }))}
-                          className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
-                        >
-                          {Array.from(new Set([installed, ...versions].filter(Boolean))).map((version) => (
-                            <option key={version} value={version}>
-                              {version}
-                              {installed === version ? ' (installed)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => {
-                            const version = pickedVersion[engine] ?? installed;
-                            if (version && version !== installed) void install(engine, version);
-                          }}
-                          disabled={busy || live !== true || versions.length === 0}
-                          title={versions.length === 0 ? 'no versions listed — add this engine\'s repository' : 'Install the picked version'}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-                        >
-                          <Download className="w-3 h-3" /> Switch
-                        </button>
-                        {state?.installed && installed && (
-                          <button
-                            onClick={() => void uninstall(engine, installed)}
-                            disabled={busy || live !== true}
-                            title={`Uninstall ${engine} ${installed} — refused while a project uses it`}
-                            className="ml-1.5 p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
@@ -418,6 +345,79 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           </p>
         </div>
 
+          {/* Version manager: every web server the panel keeps versions for, which is more
+              than the two that can be the ingress. */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-slate-200 flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">Version manager</span>
+              <span className="text-[11px] text-slate-500">
+                Every web server the panel keeps versions for. Only nginx and Caddy can own :80 — the rest run as
+                backends, or are here so a version can be installed.
+              </span>
+            </div>
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
+                <tr>
+                  <th className="py-3 px-4">Engine</th>
+                  <th className="py-3 px-4">Active</th>
+                  <th className="py-3 px-4">Newest</th>
+                  <th className="py-3 px-4">Versions</th>
+                  <th className="py-3 px-4 text-right">Switch</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(status?.webServer.managed ?? []).map((engine) => {
+                  const state = status?.webServer.managedInstalled?.find((e) => e.engine === engine);
+                  const versions = status?.webServer.available?.[engine] ?? [];
+                  const installed = (state?.version ?? '').replace(/^v/, '');
+                  return (
+                    <tr key={engine} className="hover:bg-slate-50/70">
+                      <td className="py-3 px-4 font-semibold text-slate-900">{engine}</td>
+                      <td className="py-3 px-4 font-mono text-slate-700">{state?.installed ? installed || '—' : 'not installed'}</td>
+                      <td className="py-3 px-4 font-mono text-slate-700">{status?.webServer.latest?.[engine] ?? '—'}</td>
+                      <td className="py-3 px-4">
+                        <select
+                          value={pickedVersion[engine] ?? installed}
+                          onChange={(e) => setPickedVersion((prev) => ({ ...prev, [engine]: e.target.value }))}
+                          className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
+                        >
+                          {Array.from(new Set([installed, ...versions].filter(Boolean))).map((version) => (
+                            <option key={version} value={version}>
+                              {version}
+                              {installed === version ? ' (installed)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={() => {
+                            const version = pickedVersion[engine] ?? installed;
+                            if (version && version !== installed) void install(engine, version);
+                          }}
+                          disabled={busy || live !== true || versions.length === 0}
+                          title={versions.length === 0 ? 'no versions listed — add this engine\'s repository' : 'Install the picked version'}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          <Download className="w-3 h-3" /> {state?.installed ? 'Switch' : 'Install'}
+                        </button>
+                        {state?.installed && installed && (
+                          <button
+                            onClick={() => void uninstall(engine, installed)}
+                            disabled={busy || live !== true}
+                            title={`Uninstall ${engine} ${installed} — refused while a project uses it`}
+                            className="ml-1.5 p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -548,84 +548,75 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       {activeTab === 'database' && (
         <div className="space-y-4">
           {repositoriesCard('database', 'database')}
-
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
                 <tr>
                   <th className="py-3 px-4">Engine</th>
-                  <th className="py-3 px-4">Installed</th>
+                  <th className="py-3 px-4">Active</th>
                   <th className="py-3 px-4">Newest</th>
                   <th className="py-3 px-4">State</th>
-                  <th className="py-3 px-4 text-right">Install</th>
+                  <th className="py-3 px-4">Version</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {componentsOf('database').map((component) => {
                   const detected = status?.databases?.find((d) => d.engine === component.name);
-                  const chosen = status?.databaseVersions?.[component.name];
+                  const versions = status?.databaseAvailable?.[component.name] ?? component.versions ?? [];
+                  const active = detected?.installedVersion ?? '';
+                  const picked = pickedVersion[component.name] ?? active;
                   return (
                     <tr key={component.name} className="hover:bg-slate-50/70">
                       <td className="py-3 px-4 font-semibold text-slate-900">
                         {component.label}
                         <span className="block text-[10px] font-normal text-slate-400">{component.description}</span>
                       </td>
-                      <td className="py-3 px-4 font-mono text-slate-700">
-                        {detected?.installedVersion || (detected?.available ? '—' : 'not installed')}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-slate-700">
-                        {status?.databaseLatest?.[component.name] ?? '—'}
-                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-700">{active || '—'}</td>
+                      <td className="py-3 px-4 font-mono text-slate-700">{status?.databaseLatest?.[component.name] ?? '—'}</td>
                       <td className="py-3 px-4">
                         <span className="flex items-center gap-1.5 text-[11px]">
                           <span className={`w-1.5 h-1.5 rounded-full ${detected?.running ? 'bg-emerald-500' : detected?.available ? 'bg-amber-500' : 'bg-slate-300'}`} />
                           {detected ? `${detected.mode}${detected.running ? ' · running' : ''}` : 'unknown'}
                         </span>
                       </td>
+                      <td className="py-3 px-4">
+                        {/* The active version is always in the list, even when the repository
+                            no longer carries it. */}
+                        <select
+                          value={picked}
+                          onChange={(e) => setPickedVersion((prev) => ({ ...prev, [component.name]: e.target.value }))}
+                          className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
+                        >
+                          {Array.from(new Set([active, ...versions].filter(Boolean))).map((version) => (
+                            <option key={version} value={version}>
+                              {version}
+                              {active.startsWith(version) ? ' (active)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {/* Choosing the version is a choice, so it is a picker: the
-                              installed one is marked, and Switch installs what is picked. */}
-                          <select
-                            value={pickedVersion[component.name] ?? detected?.installedVersion ?? ''}
-                            onChange={(e) => setPickedVersion((prev) => ({ ...prev, [component.name]: e.target.value }))}
-                            className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
-                          >
-                            {/* The installed version is always in the list, even when the
-                                repository no longer carries it. */}
-                            {Array.from(new Set([
-                              detected?.installedVersion ?? '',
-                              ...(status?.databaseAvailable?.[component.name] ?? component.versions ?? []),
-                            ].filter(Boolean))).map((version) => (
-                              <option key={version} value={version}>
-                                {version}
-                                {detected?.installedVersion?.startsWith(version) ? ' (active)' : ''}
-                              </option>
-                            ))}
-                          </select>
                           <button
                             onClick={() => {
-                              const version = pickedVersion[component.name] ?? detected?.installedVersion ?? '';
-                              if (version && !detected?.installedVersion?.startsWith(version)) void install(component.name, version);
+                              if (picked && !active.startsWith(picked)) void install(component.name, picked);
                             }}
-                            disabled={busy || live !== true || !(pickedVersion[component.name] ?? detected?.installedVersion)}
+                            disabled={busy || live !== true || !picked || active.startsWith(picked)}
                             title="Install the picked version — a database with data needs a dump first"
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
                           >
-                            <Download className="w-3 h-3" /> Switch
+                            <Download className="w-3 h-3" /> {active ? 'Switch' : 'Install'}
                           </button>
-                          {detected?.installedVersion && (
-                            <span className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
-                              <span className="font-mono">{detected.installedVersion}</span>
-                              <button
-                                onClick={() => void uninstall(component.name, detected.installedVersion!)}
-                                disabled={busy || live !== true}
-                                title={`Uninstall ${component.label} ${detected.installedVersion} — refused while a database on it exists`}
-                                className="p-0.5 rounded hover:bg-emerald-100 disabled:opacity-40"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            </span>
+                          {active && (
+                            <button
+                              onClick={() => void uninstall(component.name, active)}
+                              disabled={busy || live !== true}
+                              title={`Uninstall ${component.label} ${active} — refused while a database on it exists`}
+                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           )}
                         </div>
                       </td>
@@ -634,11 +625,12 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 })}
               </tbody>
             </table>
+            <p className="px-4 py-3 text-[11px] text-slate-500 border-t border-slate-100">
+              Active is the version the engine is running, probed from the engine itself. One version per engine at a
+              time: switching means installing the new one and migrating — which needs a dump first while databases
+              exist on it.
+            </p>
           </div>
-          <p className="text-[11px] text-slate-500">
-            One version per engine: installing records the version the panel will use (a port is one slot).
-            The panel installs it on this host; the "Installed" column is probed from the engine's own binary.
-          </p>
         </div>
       )}
 
