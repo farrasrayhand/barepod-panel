@@ -4,6 +4,8 @@ BarePod Panel: a hosting panel that manages databases, caches and (next) website
 its own anti-brute-force watchdog instead of fail2ban. One session per module; this file is written so a
 new session can start working in minutes instead of re-reading the plan.
 
+**MASTER_PLAN.md was compacted** on 2026-10-12: its 137-line build log became 22 lines of decisions (kept: every measured claim that a later change must not undo; dropped: the narration, which is in the file's own git history). The remaining sections were **not** touched, deliberately — they are module specifications for things not built yet (domains, backups, telemetry) plus the repo map and the status table, and rewriting a spec nobody has read is how this session lost work twice. If it needs a second pass, read §3.x and §4.1 first, and check §4.1 against `HANDOFF.md`, which is newer.
+
 **Authoritative documents:** `MASTER_PLAN.md` = decisions *with the measurements behind them* (592 lines —
 read the sections you need, not all of it). `API_CONTRACT.md` = what the daemon serves. Neither is a
 wish list: every claim in them was measured on the host.
