@@ -100,7 +100,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-semibold text-slate-900">
-                {isEditing ? 'Edit Tenant Group / Package' : 'Create Tenant Group / Package'}
+                {isEditing ? 'Edit Package' : 'Create Package'}
               </h2>
               <p className="text-xs text-slate-500">
                 {isEditing ? 'Change capabilities and resource quotas' : 'Define resource quotas and capabilities for accounts'}
@@ -114,7 +114,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Group / Package Name</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Package Name</label>
             <input
               type="text"
               required
@@ -213,7 +213,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               disabled={busy}
               className="px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 disabled:opacity-60"
             >
-              {isEditing ? 'Save Changes' : 'Save Group Package'}
+              {isEditing ? 'Save Changes' : 'Save Package'}
             </button>
           </div>
         </form>

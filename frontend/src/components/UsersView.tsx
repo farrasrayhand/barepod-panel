@@ -7,6 +7,7 @@ import {
   Layers,
   Trash2,
   Database,
+  User,
   Crown,
   CheckCircle2,
   XCircle,
@@ -204,10 +205,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
     if (!live) {
       if (editingGroup) {
         setGroups((prev) => prev.map((g) => (g.name === payload.name ? { ...g, description: payload.description ?? g.description, permissions: payload.permissions ?? g.permissions, limits: { ...g.limits, ...(payload.limits ?? {}) } } : g)));
-        onShowToast?.('Group Updated', `${payload.name} updated (simulation).`, 'success');
+        onShowToast?.('Package updated', `${payload.name} updated (simulation).`, 'success');
       } else {
         setGroups((prev) => [...prev, { id: `g-${Date.now()}`, name: payload.name, description: payload.description ?? '', permissions: payload.permissions ?? {}, limits: payload.limits ?? {}, members: 0, isDefault: false, isSystem: false }]);
-        onShowToast?.('Group Created', `Package ${payload.name} created (simulation).`, 'success');
+        onShowToast?.('Package created', `Package ${payload.name} created (simulation).`, 'success');
       }
       return;
     }
@@ -234,14 +235,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
     if (!live) {
       if (kind === 'user') setUsers((prev) => prev.filter((u) => u.id !== id));
       else setGroups((prev) => prev.filter((g) => g.id !== id));
-      onShowToast?.(kind === 'user' ? 'Tenant Removed' : 'Group Deleted', `${name} removed (simulation).`, 'info');
+      onShowToast?.(kind === 'user' ? 'Tenant Removed' : 'Package deleted', `${name} removed (simulation).`, 'info');
       return;
     }
     setBusy(true);
     try {
       if (kind === 'user') await api.deleteUser(id);
       else await api.deleteGroup(name);
-      onShowToast?.(kind === 'user' ? 'Tenant Removed' : 'Group Deleted', `${name} removed.`, 'success');
+      onShowToast?.(kind === 'user' ? 'Tenant Removed' : 'Package deleted', `${name} removed.`, 'success');
       reload();
     } catch (err) {
       onShowToast?.('Could not delete', describeError(err), 'error');
@@ -256,7 +257,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Users & Groups</h1>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Users & Packages</h1>
             <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5" /> cgroups v2 Quotas
             </span>
@@ -296,7 +297,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25"
             >
               <Plus className="w-4 h-4" />
-              <span>Create Limit Group</span>
+              <span>Create Package</span>
             </button>
           )}
         </div>
@@ -342,7 +343,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
                 const isAdmin = t.role === 'admin';
                 const group = groupByName(t.groupName);
                 return (
-                  <tr key={t.id} className="hover:bg-slate-50/70 transition-colors">
+                  <tr
+                    key={t.id}
+                    className={`transition-colors ${isAdmin ? 'bg-purple-50/30 hover:bg-purple-50/60' : 'hover:bg-slate-50/70'}`}
+                  >
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-2.5">
                         <div className={`w-8 h-8 rounded-full font-bold flex items-center justify-center text-xs ${
@@ -368,11 +372,17 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${
-                        isAdmin ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
-                      }`}>
-                        {t.groupName}
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold ${
+                          isAdmin ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          {isAdmin ? <Crown className="w-3 h-3 text-purple-600" /> : <User className="w-3 h-3" />}
+                          {isAdmin ? 'Administrator' : 'User'}
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-white text-slate-600 border border-slate-200">
+                          {t.groupName}
+                        </span>
+                      </div>
                     </td>
 
                     <td className="py-3.5 px-4">
@@ -463,7 +473,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
               <tr>
-                <th className="py-3.5 px-4">Group Name</th>
+                <th className="py-3.5 px-4">Package Name</th>
                 <th className="py-3.5 px-4">Max Sites</th>
                 <th className="py-3.5 px-4">Disk Quota</th>
                 <th className="py-3.5 px-4">Max Databases</th>
@@ -523,7 +533,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
                       <button
                         onClick={() => { setEditingGroup(g); setIsGroupModalOpen(true); }}
                         className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
-                        title="Edit Group Package"
+                        title="Edit Package"
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
@@ -531,7 +541,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
                         <button
                           onClick={() => setPendingDelete({ kind: 'group', id: g.id, name: g.name })}
                           className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                          title="Delete Group Package"
+                          title="Delete Package"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -577,8 +587,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
         isOpen={pendingDelete !== null}
         onClose={() => setPendingDelete(null)}
         onConfirm={performDelete}
-        title={pendingDelete?.kind === 'group' ? 'Delete Group Package' : 'Delete Tenant Account'}
-        itemType={pendingDelete?.kind === 'group' ? 'Group' : 'Account'}
+        title={pendingDelete?.kind === 'group' ? 'Delete Package' : 'Delete Tenant Account'}
+        itemType={pendingDelete?.kind === 'group' ? 'Package' : 'Account'}
         itemName={pendingDelete?.name ?? ''}
         warningDescription={
           pendingDelete?.kind === 'group'

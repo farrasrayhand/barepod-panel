@@ -143,7 +143,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Assign to Group / Package</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Assign to Package</label>
             <select
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}

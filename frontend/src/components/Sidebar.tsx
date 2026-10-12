@@ -68,7 +68,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
     { id: 'terminal', label: 'Isolated Web Terminal', icon: Terminal },
     ...(isAdmin ? [{ id: 'files' as NavItem, label: 'Host Files', icon: FolderTree }] : []),
     { id: 'api', label: 'API & MCP', icon: Webhook },
-    { id: 'users', label: 'Users & Groups', icon: Users },
+    { id: 'users', label: 'Users & Packages', icon: Users },
     { id: 'settings', label: 'Panel Settings', icon: Settings },
   ];
 
