@@ -708,8 +708,13 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 		// version is the image tag Docker is running — which is what "installed" means for
 		// it. Without this the screen said "—" for a MongoDB that was up.
 		if engine.Mode == dbengine.ModeDocker {
+			// A container's version is its image tag. A running container answers directly;
+			// when none is up, the images present locally are what is installed here — which
+			// is why MongoDB showed "—" while mongo:7 and mongo:7.0 sat on the host.
 			if tag := dockerRunningTag(ctx, h, engine.Name); tag != "" {
 				engine.Installed = tag
+			} else if tag := dockerNewestLocalTag(ctx, h, engine.Name); tag != "" {
+				engine.Installed = tag + " (image)"
 			}
 		}
 		// The probe, not the catalogue: Versions is what the engine *could* run, and using
@@ -806,6 +811,17 @@ func dockerRunningTag(ctx context.Context, h *host.Host, engine string) string {
 		}
 	}
 	return ""
+}
+
+// dockerNewestLocalTag is the newest tag of the panel's image for an engine that is present
+// on this host, which is the version installed when no container is running.
+func dockerNewestLocalTag(ctx context.Context, h *host.Host, engine string) string {
+	out, err := h.Run(ctx, []string{"bash", "-c",
+		"docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^[^:]+:([0-9]+(\\.[0-9]+)*)$' | awk -F: '{print $2}' | sort -V | tail -1"})
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // dockerImageTags lists the version tags a Docker Hub image publishes (8.0, 7.0, 6.0 …).

@@ -352,10 +352,13 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                             <Download className="w-3.5 h-3.5" /> Install
                           </button>
                         )}
-                        {found?.installed && !active && (
+                        {/* Always offered for the engine that is not the ingress, so the way
+                            back is never hidden; disabled until it is installed. */}
+                        {!active && (
                           <button
                             onClick={() => void switchWebServer(engine)}
-                            disabled={busy || live !== true}
+                            disabled={busy || live !== true || !found?.installed}
+                            title={found?.installed ? `Serve every site with ${engine}` : `Install ${engine} first`}
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-700 border border-slate-300 hover:bg-slate-50 disabled:opacity-50"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" /> Set as ingress
