@@ -137,6 +137,8 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   const [exposureNote, setExposureNote] = useState(database?.exposureNote || '');
   const [exposureBusy, setExposureBusy] = useState(false);
   const [guard, setGuard] = useState<{ enforcing: boolean; reason: string } | null>(null);
+  // The panel-wide external address, when the operator has set one.
+  const [externalAddress, setExternalAddress] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -147,6 +149,12 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
       } catch {
         // A panel that cannot report the lockout cannot be assumed to have one.
         if (alive) setGuard({ enforcing: false, reason: 'the lockout status could not be read' });
+      }
+      try {
+        const settings = await api.panelSettings();
+        if (alive) setExternalAddress(settings.externalAddress || '');
+      } catch {
+        // A panel that cannot read the setting simply names the address it is being used on.
       }
     })();
     return () => {
@@ -365,9 +373,14 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   const effectivePassword = isUnlocked ? plainPassword : '••••••••••••';
 
   const isPublic = exposure === 'public';
-  const effectiveHost = isPublic
-    ? (typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : (database.host || '127.0.0.1'))
-    : (database.host || '127.0.0.1');
+  // The operator's answer wins where it applies — when the database is public, because that is when a
+  // client outside this host has to reach it and the daemon cannot know the address. A private
+  // database keeps its own host, because loopback is exactly what private means.
+  const effectiveHost = isPublic && externalAddress
+    ? externalAddress
+    : isPublic
+      ? (typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : (database.host || '127.0.0.1'))
+      : (database.host || '127.0.0.1');
 
   const host = effectiveHost;
   const addressKind = describeAddress(host);
@@ -1107,6 +1120,14 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                     )}
                   </div>
                   <span className="font-mono font-semibold text-slate-800 text-xs">{host}</span>
+                  {isPublic && database.type !== 'sqlite' && (
+                    <p className="text-[11px] text-slate-500 mt-1 max-w-xs">
+                      {externalAddress ? 'The address set in Panel Settings. ' : ''}
+                      For a direct TCP connection: a domain proxied by a CDN carries only HTTP(S) on its
+                      own ports, so it cannot be a database address — use a public IP, an unproxied name,
+                      or a port forward.
+                    </p>
+                  )}
                 </div>
                 <button
                   onClick={() => handleCopy(host, 'host')}

@@ -1,3 +1,4 @@
+import { api } from '../api/client';
 import React, { useState } from 'react';
 import { GuardCard } from './GuardCard';
 import { 
@@ -49,6 +50,45 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useSubRoute<'general' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'databases' | 'php_defaults' | 'maintenance'>('general');
   const [isSaving, setIsSaving] = useState(false);
+  // The address an external client should use. Unlike most of this screen it is real: the daemon
+  // stores it and every connection snippet prefers it. It cannot be detected — behind NAT there is
+  // no public address to find, and a domain is knowledge only the operator has.
+  const [externalAddress, setExternalAddress] = useState('');
+  const [externalSaving, setExternalSaving] = useState(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const settings = await api.panelSettings();
+        if (alive) setExternalAddress(settings.externalAddress || '');
+      } catch {
+        // Left empty: the panel then names the address it is being used on.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const saveExternalAddress = async () => {
+    setExternalSaving(true);
+    try {
+      const saved = await api.savePanelSettings({ externalAddress: externalAddress.trim() });
+      setExternalAddress(saved.externalAddress || '');
+      onShowToast?.(
+        saved.externalAddress ? 'External address saved' : 'External address cleared',
+        saved.externalAddress
+          ? 'Connection snippets and the sidebar will use it from now on.'
+          : 'The panel will name the address it is being used on.',
+        'success',
+      );
+    } catch (err) {
+      onShowToast?.('Could not save', err instanceof Error ? err.message : 'unknown error', 'error');
+    } finally {
+      setExternalSaving(false);
+    }
+  };
 
   // System & Docker Cleanup
   const [autoCleanupEnabled, setAutoCleanupEnabled] = useState(true);
@@ -358,6 +398,37 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               <div>
                 <h2 className="text-base font-bold text-slate-900">General Panel Preferences</h2>
                 <p className="text-xs text-slate-500 mt-0.5">Daemon port, panel domain, and default web server.</p>
+              </div>
+
+              {/* Real, unlike most of this tab: stored by the daemon, and every connection snippet
+                  prefers it when a database is public. */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-800">External address (what clients use)</span>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    A bare hostname or public IP — no scheme, no port. The daemon cannot detect it:
+                    behind NAT there is no public address to find, and a domain proxied by a CDN cannot
+                    carry a database port. Leave it empty and the panel names the address it is being
+                    used on.
+                  </p>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    value={externalAddress}
+                    onChange={(e) => setExternalAddress(e.target.value)}
+                    disabled={!isAdmin}
+                    placeholder="db.example.com or 203.0.113.10"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500 disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void saveExternalAddress()}
+                    disabled={!isAdmin || externalSaving}
+                    className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors shrink-0"
+                  >
+                    {externalSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

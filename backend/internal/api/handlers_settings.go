@@ -1,0 +1,72 @@
+package api
+
+import (
+	"net"
+	"net/http"
+	"strings"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
+)
+
+// externalAddressKey is the panel-wide setting for "the address an external client should use".
+//
+// It exists because the daemon cannot work that out for itself: behind NAT it has no public address
+// to discover, a domain is knowledge only the operator has, and a domain proxied by a CDN carries
+// only HTTP(S) on its own ports — so it can never be a database address. Measured on the test host,
+// where the panel's own interfaces are 127.0.0.1, 172.19.1.26 and 172.17.0.1: there is nothing to
+// detect, and an external echo service would return the wrong thing (a proxy's edge address, or an
+// ISP address that is not reachable at all).
+const externalAddressKey = "external_address"
+
+// handlePanelSettings reads the panel-wide settings. Any signed-in user may look: these values end
+// up in the snippets an operator hands out, and they are not secrets.
+func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
+	address, err := s.store.PanelSetting(externalAddressKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"externalAddress": address})
+}
+
+// handleSavePanelSettings changes them. Administrative, and audited: an address published to clients
+// is a decision worth a name against it.
+func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	var body struct {
+		ExternalAddress *string `json:"externalAddress"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "could not read the settings")
+		return
+	}
+	if body.ExternalAddress == nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "nothing to change")
+		return
+	}
+	address := strings.TrimSpace(*body.ExternalAddress)
+	if address != "" {
+		// A host, not a URL: the port comes from the record, and a scheme or path here would be
+		// pasted into a connection string as-is and break it. Accepting either shape quietly would
+		// mean the panel handing clients an address it knows is malformed.
+		if strings.ContainsAny(address, "/: \t") {
+			writeError(w, http.StatusBadRequest, "invalid_address",
+				"give a bare hostname or IP address, without a scheme, path or port")
+			return
+		}
+		if net.ParseIP(address) == nil && !strings.Contains(address, ".") {
+			writeError(w, http.StatusBadRequest, "invalid_address",
+				"that does not look like a hostname or an IP address")
+			return
+		}
+	}
+	if err := s.store.SavePanelSetting(externalAddressKey, address); err != nil {
+		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
+	detail := "cleared — the panel will name the address it is being used on"
+	if address != "" {
+		detail = "set to " + address
+	}
+	_ = s.store.Audit(user.ID, "panel.settings", "external_address", clientIP(r), detail)
+	writeJSON(w, http.StatusOK, map[string]any{"externalAddress": address})
+}

@@ -145,6 +145,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/system/guard", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleGuardSettings)))
 	mux.HandleFunc("POST /api/v1/system/guard/unban", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleGuardUnban)))
 
+	// Panel-wide settings. The one that matters today is the address an external client should use:
+	// the daemon cannot detect it (behind NAT there is nothing to detect), so the operator sets it
+	// and every snippet prefers it.
+	mux.HandleFunc("GET /api/v1/system/settings", s.requireAuth(s.handlePanelSettings))
+	mux.HandleFunc("PATCH /api/v1/system/settings", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSavePanelSettings)))
+
 	// System — "monitoring" capability
 	mux.HandleFunc("GET /api/v1/system/capabilities", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleCapabilities)))
 	mux.HandleFunc("GET /api/v1/system/metrics", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemMetrics)))

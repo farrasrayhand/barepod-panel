@@ -221,6 +221,9 @@ func (s *Server) handleGuardUnban(w http.ResponseWriter, r *http.Request, user *
 	writeJSON(w, http.StatusOK, s.guard.Snapshot(r.Context()))
 }
 
+// Trusted lists the addresses the lockout must never ban.
+func (a guardStoreAdapter) Trusted() ([]string, error) { return a.st.TrustedAddresses() }
+
 // LoginRefusals reads the panel's own refused logins from its audit trail. The address there
 // carries the client's port, which is stripped: a ban is about an address, not a connection.
 func (a guardStoreAdapter) LoginRefusals(afterID int64) ([]guard.LoginRefusal, error) {

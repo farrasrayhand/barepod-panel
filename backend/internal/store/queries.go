@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
@@ -353,4 +354,86 @@ func (s *Store) LatestRefusedLoginID() (int64, error) {
 		return 0, fmt.Errorf("store: read audit high-water mark: %w", err)
 	}
 	return id, nil
+}
+
+// PanelSetting reads one panel-wide setting, empty when it has never been set.
+func (s *Store) PanelSetting(key string) (string, error) {
+	var value string
+	err := s.DB.QueryRow(`SELECT value FROM panel_settings WHERE key = ?`, key).Scan(&value)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("store: read panel setting %q: %w", key, err)
+	}
+	return value, nil
+}
+
+// SavePanelSetting writes one panel-wide setting. An empty value clears it, which is how a setting is
+// removed rather than left saying something stale.
+func (s *Store) SavePanelSetting(key, value string) error {
+	if value == "" {
+		if _, err := s.DB.Exec(`DELETE FROM panel_settings WHERE key = ?`, key); err != nil {
+			return fmt.Errorf("store: clear panel setting %q: %w", key, err)
+		}
+		return nil
+	}
+	_, err := s.DB.Exec(`
+INSERT INTO panel_settings (key, value, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+		key, value, time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("store: save panel setting %q: %w", key, err)
+	}
+	return nil
+}
+
+// trustedAddressesKey holds the addresses the lockout must never ban. It exists because the operator
+// administers the panel from somewhere, and a host-wide ban that includes that somewhere takes away
+// the way back in: measured, an operator's own address was banned by their own brute-force test and
+// with it went SSH.
+const trustedAddressesKey = "trusted_addresses"
+
+// TrustedAddresses lists them, comma separated in one setting.
+func (s *Store) TrustedAddresses() ([]string, error) {
+	raw, err := s.PanelSetting(trustedAddressesKey)
+	if err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, entry := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\t' }) {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			out = append(out, entry)
+		}
+	}
+	return out, nil
+}
+
+// AddTrustedAddress adds one, if it is not already there.
+func (s *Store) AddTrustedAddress(address string) error {
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return nil
+	}
+	current, err := s.TrustedAddresses()
+	if err != nil {
+		return err
+	}
+	for _, entry := range current {
+		if entry == address {
+			return nil
+		}
+	}
+	return s.SavePanelSetting(trustedAddressesKey, strings.Join(append(current, address), ","))
+}
+
+// SetTrustedAddresses replaces the list, which is how the screen edits it.
+func (s *Store) SetTrustedAddresses(addresses []string) error {
+	clean := []string{}
+	for _, entry := range addresses {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			clean = append(clean, entry)
+		}
+	}
+	return s.SavePanelSetting(trustedAddressesKey, strings.Join(clean, ","))
 }

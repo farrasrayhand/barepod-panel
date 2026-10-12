@@ -453,6 +453,15 @@ export const api = {
   unban: (ip: string) =>
     request<GuardStatus>('/system/guard/unban', { method: 'POST', body: JSON.stringify({ ip }) }),
 
+  /**
+   * Panel-wide settings. `externalAddress` is the address an external client should use — the daemon
+   * cannot detect it, so the operator sets it and every snippet prefers it.
+   */
+  panelSettings: () => request<{ externalAddress: string }>('/system/settings'),
+
+  savePanelSettings: (settings: { externalAddress: string }) =>
+    request<{ externalAddress: string }>('/system/settings', { method: 'PATCH', body: JSON.stringify(settings) }),
+
   login: async (username: string, password: string) => {
     const session = await request<{ user: PanelUser; csrfToken: string }>('/auth/login', {
       method: 'POST',

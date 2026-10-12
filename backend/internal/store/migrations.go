@@ -19,7 +19,20 @@ var migrations = []migration{
 	{version: 9, statements: schemaV9},
 	{version: 10, statements: schemaV10},
 	{version: 11, statements: schemaV11},
+	{version: 12, statements: schemaV12},
 }
+
+// schemaV12 is where the panel keeps a setting that belongs to the panel and not to any record. The
+// first one is the address an external client should use, which the daemon cannot work out for
+// itself: behind NAT it has no public address to discover, and a domain is knowledge only the
+// operator has.
+const schemaV12 = `
+CREATE TABLE IF NOT EXISTS panel_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+`
 
 // schemaV11 lets an engine have its own lockout numbers. The row in guard_settings stays the
 // default for every engine; a row here overrides it for one of them, because a cache that is asked

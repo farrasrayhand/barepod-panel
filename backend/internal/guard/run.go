@@ -34,6 +34,9 @@ type Store interface {
 	LatestLoginRefusalID() (int64, error)
 	// EngineSettings are the per-engine overrides. An engine with no entry uses the default.
 	EngineSettings() (map[string]Settings, error)
+	// Trusted is the addresses the lockout must never ban: the places the operator administers the
+	// panel from. A ban that includes one of those takes away the way back in.
+	Trusted() ([]string, error)
 }
 
 // LoginRefusal is one refused login to the panel, as the audit trail records it.
@@ -220,6 +223,11 @@ func (g *Guard) Sweep(ctx context.Context) error {
 	perEngine, err := g.store.EngineSettings()
 	if err != nil {
 		return err
+	}
+	// Refreshed every sweep, so an address that has just proved it is the operator's is exempt from
+	// the pass that follows. Decide consults it (IsTrusted); nothing else writes it.
+	if trusted, err := g.store.Trusted(); err == nil {
+		Trusted = trusted
 	}
 	now := g.now()
 

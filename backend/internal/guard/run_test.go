@@ -15,6 +15,7 @@ type fakeStore struct {
 	bans     map[string]Ban
 	refusals []LoginRefusal
 	engines  map[string]Settings
+	trusted  []string
 }
 
 func newFakeStore(settings Settings) *fakeStore {
@@ -337,3 +338,6 @@ func (f *fakeStore) LatestLoginRefusalID() (int64, error) {
 func (f *fakeStore) EngineSettings() (map[string]Settings, error) {
 	return f.engines, nil
 }
+
+// The addresses the lockout must never ban.
+func (f *fakeStore) Trusted() ([]string, error) { return f.trusted, nil }
