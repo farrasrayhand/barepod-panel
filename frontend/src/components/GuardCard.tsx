@@ -213,26 +213,26 @@ export function GuardCard({
           <div className="px-5 pt-4">
             <label className="block">
               <span className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">
-                Numbers for
+                Limits for
               </span>
               <select
                 value={engineChoice}
                 onChange={(event) => setEngineChoice(event.target.value)}
                 className="mt-1 w-full px-3 py-2 text-sm border border-slate-200 rounded-xl bg-white"
               >
-                <option value="">Every engine (the default)</option>
+                <option value="">All engines (default)</option>
                 {Object.keys(status?.engines || {}).map((name) => (
                   <option key={name} value={name}>
                     {engineLabel[name] ?? name}
-                    {status?.engines?.[name]?.override ? ' — its own numbers' : ''}
+                    {status?.engines?.[name]?.override ? ' — its own limits' : ''}
                   </option>
                 ))}
               </select>
             </label>
             <p className="text-[11px] text-slate-400 mt-1">
               {engineChoice
-                ? `Applies to ${engineLabel[engineChoice] ?? engineChoice} only. An address that keeps failing there is still kept out of the whole host.`
-                : 'Applies to every engine that has no numbers of its own. Each one is read independently.'}
+                ? `Only ${engineLabel[engineChoice] ?? engineChoice} uses these. A banned address is kept out of the whole host.`
+                : 'Used by every engine that has no limits of its own.'}
             </p>
           </div>
 
@@ -258,10 +258,10 @@ export function GuardCard({
             <p className="text-[11px] text-slate-500">
               {Object.entries(status?.sources || {}).length === 0
                 ? 'No login has been read yet.'
-                : `Watched independently: ${Object.keys(status?.sources || {})
+                : `Read separately: ${Object.keys(status?.sources || {})
                     .map((name) => engineLabel[name] ?? name)
-                    .join(', ')}. They share one policy — the thresholds below — and one ban list, so
-                  an address that moves from one engine to another does not get a second run.` +
+                    .join(', ')}. Each has its own limits below; a ban keeps the address out of the
+                  whole host.` +
                   Object.entries(status?.sources || {})
                     .filter(([, note]) => note)
                     .map(([name, note]) => ` ${engineLabel[name] ?? name}: ${note}.`)
@@ -274,7 +274,7 @@ export function GuardCard({
                 disabled={saving}
                 className="mr-2 px-3.5 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50 rounded-xl transition-colors"
               >
-                Use the default
+                Reset to default
               </button>
             ) : null}
             <button
@@ -291,7 +291,7 @@ export function GuardCard({
       ) : (
         <p className="px-5 py-3 text-[11px] text-slate-500 border-b border-slate-200 bg-slate-50/50">
           {status
-            ? `${status.maxRetry} failed logins within ${status.findTime} keep an address out for ${status.banTime}. The numbers are panel-wide — change them in Panel Settings → Security.`
+            ? `This engine allows ${status.maxRetry} failed logins within ${status.findTime} and keeps an address out for ${status.banTime}. Every engine has its own limits — change them in Panel Settings → Security.`
             : 'Reading the lockout…'}
         </p>
       )}
@@ -307,9 +307,7 @@ export function GuardCard({
         </div>
         {engine && (
           <p className="text-[11px] text-slate-500 mb-2">
-            The ban itself applies to the address everywhere on this host, not only to this engine —
-            that is deliberate: moving from one engine to another should not give an attacker a second
-            run.
+            The ban applies to the whole host, not only to this engine.
           </p>
         )}
         {status && visibleBans.length > 0 ? (
