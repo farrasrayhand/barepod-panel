@@ -136,6 +136,31 @@ func TestTheDatabaseLogEndpointSaysWhatItCanShow(t *testing.T) {
 	if !found {
 		t.Errorf("the record's own audit trail was not included: %+v", payload.Audit)
 	}
+
+	// SQLite returns its embedded file path and an explanation instead of failing
+	sqliteRecord := &store.Database{
+		Kind: store.KindDatabase, TenantUser: "admin", Engine: "sqlite", Alias: "Shop",
+		Name: "bptest_shop", FilePath: "/tmp/test.sqlite", Status: "ready",
+	}
+	if err := panel.store.CreateDatabase(sqliteRecord); err != nil {
+		t.Fatal(err)
+	}
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/databases/"+sqliteRecord.ID+"/log", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sqlite status = %d (%s)", resp.StatusCode, body)
+	}
+	var sqlitePayload struct {
+		Engine string   `json:"engine"`
+		Source string   `json:"source"`
+		Note   string   `json:"note"`
+		Lines  []string `json:"lines"`
+	}
+	if err := json.Unmarshal(body, &sqlitePayload); err != nil {
+		t.Fatal(err)
+	}
+	if sqlitePayload.Engine != "sqlite" || sqlitePayload.Note == "" || sqlitePayload.Source != "/tmp/test.sqlite" {
+		t.Errorf("expected sqlite file info and explanation: %+v", sqlitePayload)
+	}
 }
 
 // The exposure of a record is one value with one note, written together, so a record can never

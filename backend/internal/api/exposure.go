@@ -372,6 +372,9 @@ func (s *Server) engineLog(ctx context.Context, record *store.Database) ([]strin
 		return splitLines(out), path, "", nil
 	case "mongodb", "redis":
 		container := "barepod-" + record.Engine
+		if record.Engine == "mongodb" {
+			container = "barepod-mongo"
+		}
 		out, err := s.host.Run(ctx, []string{"docker", "logs", "--tail", fmt.Sprint(tail), container})
 		if err != nil {
 			message := strings.TrimSpace(out)
