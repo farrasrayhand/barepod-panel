@@ -73,7 +73,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", "Could not create session")
 		return
 	}
-	setSessionCookie(w, sess.ID, 0, requestScheme(r) == "https")
+	setSessionCookie(w, sess.Token, 0, requestScheme(r) == "https")
 	_ = s.store.Audit(user.ID, "auth.login", user.Username, clientIP(r), "")
 	// Where an operator signs in from is a place the lockout must never ban: banning it would take
 	// away the way back in — measured, an operator's own brute-force test banned their address and

@@ -24,10 +24,16 @@ wish list: every claim in them was measured on the host.
   the sweeper, failures now logged. An adopted container older than the idle window is due immediately.
 - **Mocks stay, marked.** The operator's rule: a mock is a plan, so it is labelled `Not applied: …`, not
   deleted and not silently kept. An unmarked mock is treated as a bug.
+- **Tenants & User Groups: live and measured on the host.** The users/groups API answers (`401` without a
+  session), and an authenticated smoke test created a package and an account (the Linux account and its
+  `/home` were really created), suspended and reactivated it, then deleted both; the audit recorded each
+  step. **Not verified:** a full browser click-through of the screen. Two hardening changes ride with it:
+  a suspended account's websites are stopped and marked `suspended` (a start is refused until
+  reactivation), and **session tokens are stored only as a hash** while the panel database is `0600`.
 
 ## The working loop
 
-Backend (Go, `backend/`): `go build ./...` then `go test -timeout 250s ./...` (233 tests, ~25s).
+Backend (Go, `backend/`): `go build ./...` then `go test -timeout 250s ./...` (234 tests, ~25s).
 Frontend (`frontend/`): `npx tsc -b` **and** `npx vite build` — the type-checker is not enough (see traps).
 Deploy: build `linux/amd64` binary + `vite build`, copy both to the host, move the binary into place,
 unpack the bundle to `/var/lib/barepod/dist`, `systemctl restart barepod`, then **verify by measurement on

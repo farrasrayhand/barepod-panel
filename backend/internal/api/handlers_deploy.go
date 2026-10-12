@@ -373,6 +373,15 @@ func (s *Server) handleWebsiteAction(w http.ResponseWriter, r *http.Request, use
 		writeError(w, http.StatusForbidden, "forbidden", "You can only manage your own websites")
 		return
 	}
+	// A suspended owner's website stays down: starting it would make the suspension
+	// cosmetic. The account has to be activated first.
+	if action == "start" || action == "restart" {
+		if owner, err := s.store.UserByUsername(site.TenantUser); err == nil && owner.Status != "active" {
+			writeError(w, http.StatusConflict, "owner_suspended",
+				"The owner account is suspended; activate it before starting this website")
+			return
+		}
+	}
 
 	out, runErr := s.host.ServiceAction(r.Context(), action, slug)
 	if runErr != nil && s.host.Materialises() {

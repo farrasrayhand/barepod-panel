@@ -302,10 +302,10 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
                   <td className="py-2.5 px-5 font-mono text-slate-600">{app.tenantUser}</td>
                   <td className="py-2.5 px-5">
                     <span className={`inline-flex items-center gap-1.5 font-medium ${
-                      app.status === 'running' ? 'text-emerald-700' : 'text-slate-500'
+                      app.status === 'suspended' ? 'text-amber-700' : app.status === 'running' ? 'text-emerald-700' : 'text-slate-500'
                     }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${app.status === 'running' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                      {app.status === 'running' ? 'Active' : 'Stopped'}
+                      <span className={`w-1.5 h-1.5 rounded-full ${app.status === 'suspended' ? 'bg-amber-500' : app.status === 'running' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                      {app.status === 'suspended' ? 'Suspended' : app.status === 'running' ? 'Active' : 'Stopped'}
                     </span>
                   </td>
                 </tr>

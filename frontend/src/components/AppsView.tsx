@@ -241,6 +241,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
               ) : (
                 filteredApps.map((app) => {
                   const isRunning = app.status === 'running';
+                  const isSuspended = app.status === 'suspended';
                   const wsBadge = getWebServerBadge(app.webServer);
 
                   return (
@@ -324,10 +325,10 @@ export const AppsView: React.FC<AppsViewProps> = ({
                       <td className="py-3.5 px-4">
                         <div className="inline-flex items-center gap-1.5">
                           <span className={`h-2 w-2 rounded-full ${
-                            isRunning ? 'bg-emerald-500 shadow-xs shadow-emerald-400' : 'bg-slate-300'
+                            isSuspended ? 'bg-amber-500' : isRunning ? 'bg-emerald-500 shadow-xs shadow-emerald-400' : 'bg-slate-300'
                           }`} />
-                          <span className={`font-medium ${isRunning ? 'text-emerald-700' : 'text-slate-500'}`}>
-                            {isRunning ? 'Active' : 'Stopped'}
+                          <span className={`font-medium ${isSuspended ? 'text-amber-700' : isRunning ? 'text-emerald-700' : 'text-slate-500'}`}>
+                            {isSuspended ? 'Suspended' : isRunning ? 'Active' : 'Stopped'}
                           </span>
                         </div>
                       </td>
@@ -405,12 +406,15 @@ export const AppsView: React.FC<AppsViewProps> = ({
                           {/* Toggle Status */}
                           <button
                             onClick={() => onToggleAppStatus(app.id)}
+                            disabled={isSuspended}
                             className={`p-1.5 rounded-lg transition-colors ${
-                              isRunning 
-                                ? 'text-amber-600 hover:bg-amber-50' 
-                                : 'text-emerald-600 hover:bg-emerald-50'
+                              isSuspended
+                                ? 'text-slate-300 cursor-not-allowed'
+                                : isRunning
+                                  ? 'text-amber-600 hover:bg-amber-50'
+                                  : 'text-emerald-600 hover:bg-emerald-50'
                             }`}
-                            title={isRunning ? 'Stop App' : 'Start App'}
+                            title={isSuspended ? 'Owner suspended — activate the account first' : isRunning ? 'Stop App' : 'Start App'}
                           >
                             {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                           </button>

@@ -270,6 +270,47 @@ func TestPrepareDirectoryRejectsUnknownOwner(t *testing.T) {
 	}
 }
 
+func TestSuspendingAnAccountStopsAndMarksItsWebsites(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	// alex owns alex-site (running in the seed).
+	resp, body := panel.do(t, http.MethodPatch, "/api/v1/users/"+panel.alexID, map[string]any{"status": "suspended"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("suspend = %d (%s)", resp.StatusCode, body)
+	}
+	site, err := panel.store.WebsiteBySlug("alex-site")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if site.Status != "suspended" {
+		t.Fatalf("site status = %q, want suspended", site.Status)
+	}
+	if !contains(panel.runner.Commands(), "stop barepod-app@alex-site") {
+		t.Errorf("expected the unit to be stopped, recorded: %v", panel.runner.Commands())
+	}
+
+	// Starting a suspended owner's website is refused, so the suspension holds.
+	resp, body = panel.do(t, http.MethodPost, "/api/v1/websites/alex-site/start", nil)
+	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(body), "owner_suspended") {
+		t.Fatalf("start while suspended = %d (%s)", resp.StatusCode, body)
+	}
+
+	// Reactivating releases the site to `stopped` (not started by itself).
+	resp, body = panel.do(t, http.MethodPatch, "/api/v1/users/"+panel.alexID, map[string]any{"status": "active"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("activate = %d (%s)", resp.StatusCode, body)
+	}
+	site, _ = panel.store.WebsiteBySlug("alex-site")
+	if site.Status != "stopped" {
+		t.Fatalf("released status = %q, want stopped", site.Status)
+	}
+	resp, body = panel.do(t, http.MethodPost, "/api/v1/websites/alex-site/start", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("start after activate = %d (%s)", resp.StatusCode, body)
+	}
+}
+
 func TestMaxSitesRefusalUsesQuotaExceeded(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")

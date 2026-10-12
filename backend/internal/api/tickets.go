@@ -58,7 +58,9 @@ func (t *ticketStore) redeem(token string) (string, bool) {
 
 // handleWSTicket issues a one-time WebSocket ticket for the current session.
 func (s *Server) handleWSTicket(w http.ResponseWriter, r *http.Request, _ *store.User, sess *store.Session) {
-	token, exp := s.tickets.issue(sess.ID, 30*time.Second)
+	// The ticket carries the raw session token, which the terminal path resolves
+	// through SessionByID (the store only ever holds its hash).
+	token, exp := s.tickets.issue(sess.Token, 30*time.Second)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"ticket":    token,
 		"expiresAt": exp.UTC().Format(time.RFC3339),

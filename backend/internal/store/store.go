@@ -44,9 +44,11 @@ type User struct {
 	CreatedAt    string `json:"createdAt"`
 }
 
-// Session is a browser session (opaque id stored in the cookie).
+// Session is a browser session. ID is the stored (hashed) key; Token is the raw
+// value the cookie carries and is never persisted or serialised.
 type Session struct {
 	ID            string `json:"id"`
+	Token         string `json:"-"`
 	UserID        string `json:"userId"`
 	CSRFToken     string `json:"-"`
 	UserAgent     string `json:"userAgent"`
@@ -85,6 +87,15 @@ func Open(path string) (*Store, error) {
 	s := &Store{DB: db}
 	if err := s.migrate(); err != nil {
 		return nil, err
+	}
+	// The panel database holds password hashes, session keys and encrypted
+	// credentials: keep it and its WAL/SHM siblings root-only (0600). The data
+	// directory is 0750, so only the owner can reach them anyway — this is the
+	// layer that does not depend on the directory.
+	for _, f := range []string{path, path + "-wal", path + "-shm"} {
+		if _, err := os.Stat(f); err == nil {
+			_ = os.Chmod(f, 0o600)
+		}
 	}
 	return s, nil
 }

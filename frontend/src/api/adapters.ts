@@ -76,9 +76,11 @@ export function toWebApp(site: ApiWebsite, metrics?: SiteMetrics): WebApp {
         ? 'error'
         : site.deployStatus === 'building' || site.deployStatus === 'pending'
           ? 'building'
-          : site.status === 'running'
-            ? 'running'
-            : 'stopped',
+          : site.status === 'suspended'
+            ? 'suspended'
+            : site.status === 'running'
+              ? 'running'
+              : 'stopped',
     ssl: site.ssl,
     tunnelEnabled: site.tunnelEnabled,
     tunnelRoute: site.tunnelEnabled ? `${site.domain} -> 127.0.0.1:${site.port}` : undefined,

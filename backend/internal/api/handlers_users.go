@@ -111,6 +111,32 @@ func (s *Server) tenantUserView(u *store.User) map[string]any {
 	}
 }
 
+// setTenantSitesStatus carries an account's suspension down to the services it
+// owns: a suspended owner's websites are stopped and marked `suspended` so the
+// state is visible and a start is refused until the account is active again. On
+// reactivation the sites are marked `stopped` — left down for the operator to
+// start, not started by themselves.
+func (s *Server) setTenantSitesStatus(ctx context.Context, username, accountStatus string) {
+	sites, err := s.store.ListWebsitesByTenant(username)
+	if err != nil {
+		return
+	}
+	for _, site := range sites {
+		if accountStatus == "active" {
+			if site.Status == "suspended" {
+				_ = s.store.SetWebsiteRuntimeState(site.Slug, "stopped", site.DeployStatus)
+				_ = s.store.Audit("", "website.released", site.Slug, "", "owner activated")
+			}
+			continue
+		}
+		if _, err := s.host.ServiceAction(ctx, "stop", site.Slug); err != nil && s.host.Materialises() {
+			_ = s.store.Audit("", "website.suspend_failed", site.Slug, "", err.Error())
+		}
+		_ = s.store.SetWebsiteRuntimeState(site.Slug, "suspended", site.DeployStatus)
+		_ = s.store.Audit("", "website.suspended", site.Slug, "", "owner suspended")
+	}
+}
+
 // handleListUsers lists every panel account with its package and usage.
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
 	users, err := s.store.ListUsers()
@@ -290,6 +316,8 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request, actor 
 				_ = s.tenants.Lock(r.Context(), account.Username)
 			}
 		}
+		// Suspend or release the account's services with it.
+		s.setTenantSitesStatus(r.Context(), account.Username, status)
 	}
 
 	_ = s.store.Audit(actor.ID, "user.update", account.Username, clientIP(r), "")

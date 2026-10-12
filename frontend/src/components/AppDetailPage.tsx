@@ -793,6 +793,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   }, []);
 
   const isRunning = app.status === 'running';
+  const isSuspended = app.status === 'suspended';
   const appPath = app.path || `/home/${app.tenantUser}/apps/${app.name}`;
 
   // Realistic Logs Generator with Visitor Client IP
@@ -1119,12 +1120,14 @@ QUEUE_CONNECTION=redis`;
         {/* Global App Status Pill */}
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
-            isRunning 
-              ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-              : 'bg-slate-100 text-slate-600 border-slate-200'
+            isSuspended
+              ? 'bg-amber-50 text-amber-700 border-amber-200'
+              : isRunning
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-slate-100 text-slate-600 border-slate-200'
           }`}>
-            <span className={`w-2 h-2 rounded-full ${isRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-            {isRunning ? 'Online & Running' : 'Stopped'}
+            <span className={`w-2 h-2 rounded-full ${isSuspended ? 'bg-amber-500' : isRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+            {isSuspended ? 'Owner Suspended' : isRunning ? 'Online & Running' : 'Stopped'}
           </span>
         </div>
       </div>
@@ -1262,10 +1265,14 @@ QUEUE_CONNECTION=redis`;
 
             <button
               onClick={() => onToggleStatus(app.id)}
+              disabled={isSuspended}
+              title={isSuspended ? 'Owner suspended — activate the account first' : undefined}
               className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-sm ${
-                isRunning
-                  ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
-                  : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-500/25'
+                isSuspended
+                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                  : isRunning
+                    ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-500/25'
               }`}
             >
               {isRunning ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}

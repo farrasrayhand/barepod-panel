@@ -1,7 +1,9 @@
 package store
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +16,13 @@ import (
 var ErrNotFound = errors.New("store: not found")
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
+
+// sessionKey is what the database stores for a session: the SHA-256 of the token
+// the cookie carries. A leaked database therefore holds no usable session token.
+func sessionKey(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
 
 // --- Users ---
 
@@ -75,10 +84,13 @@ func (s *Store) CountUsers() (int, error) {
 
 // --- Sessions ---
 
-// CreateSession stores a new browser session and returns it.
+// CreateSession stores a new browser session and returns it. The raw token (what
+// the cookie carries) is returned in Token; only its hash is written to disk.
 func (s *Store) CreateSession(userID, userAgent, ip, csrf string) (*Session, error) {
+	token := id.Token(24)
 	sess := &Session{
-		ID:         id.Token(24),
+		ID:         sessionKey(token),
+		Token:      token,
 		UserID:     userID,
 		CSRFToken:  csrf,
 		UserAgent:  userAgent,
@@ -97,13 +109,18 @@ func (s *Store) CreateSession(userID, userAgent, ip, csrf string) (*Session, err
 	return sess, nil
 }
 
-// SessionByID loads a session by its opaque id.
-func (s *Store) SessionByID(sessionID string) (*Session, error) {
+// SessionByID loads a session by the token its cookie carries, hashing it to the
+// stored id. The returned session keeps the raw token in Token so callers (the
+// WebSocket ticket) can hand it on without ever reading it back from the store.
+func (s *Store) SessionByID(token string) (*Session, error) {
+	if token == "" {
+		return nil, ErrNotFound
+	}
 	var sess Session
 	var elevated sql.NullString
 	err := s.DB.QueryRow(
 		`SELECT id, user_id, csrf_token, user_agent, ip, elevated_until, created_at, last_seen_at
-		 FROM sessions WHERE id = ?`, sessionID,
+		 FROM sessions WHERE id = ?`, sessionKey(token),
 	).Scan(&sess.ID, &sess.UserID, &sess.CSRFToken, &sess.UserAgent, &sess.IP, &elevated, &sess.CreatedAt, &sess.LastSeenAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -112,6 +129,7 @@ func (s *Store) SessionByID(sessionID string) (*Session, error) {
 		return nil, err
 	}
 	sess.ElevatedUntil = elevated.String
+	sess.Token = token
 	return &sess, nil
 }
 
