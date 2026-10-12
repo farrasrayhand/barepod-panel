@@ -40,6 +40,7 @@ Commands:
   tenant provision      create/repair the Linux account for a panel user
   service install       install the daemon as a systemd service (serve flags apply)
   service status        show whether barepod.service is installed/active/enabled
+  uninstall             take the panel off this host (guided; backs up first, asks before deleting)
   service uninstall     stop, disable and remove the daemon's unit
   pty-exec              hidden: open a site shell confined to one directory
   version               print the version
@@ -70,6 +71,10 @@ func main() {
 		err = runTenant(os.Args[2:])
 	case "service":
 		err = runService(os.Args[2:])
+	case "uninstall":
+		// Guided by default: it reads what is really here, prints it, and asks before anything that
+		// cannot be undone. See scripts/uninstall.sh for the path to take when the binary is gone.
+		err = runUninstall(os.Args[2:])
 	case "pty-exec":
 		// Hidden helper: a confined site shell (see internal/terminal).
 		err = runPTYExec(os.Args[2:])

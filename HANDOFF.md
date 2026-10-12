@@ -68,17 +68,21 @@ never be; it comes from the session environment. Same for any token.
    sites are born with an owner instead of being retrofitted.
 3. Then: domains & TLS, backups/migration, pods/Docker, tunnels — all still mocks.
 
-**Also queued — `barepod uninstall`, guided.** `scripts/uninstall.sh` works today (dry run until `--yes`,
-`--backup=db|full|none`, then `scripts/restore.sh`; the installer detects a previous backup and says so),
-but it is flag-driven rather than guided, and it has to *infer* what exists: tenants from the `User=` line in
-each `barepod-app@<slug>.service`, containers from a name prefix. The daemon already knows all of it — the
-config paths, the store's records and tenants, the guard's nftables table, the container supervisor — and
-`barepod service install|status|uninstall` is the established shape. So the real implementation belongs in
-the CLI: `barepod uninstall` with a guided mode (prompts with defaults, and a typed confirmation before
-anything destructive, the way the database-delete flow already asks), a backup taken with SQLite's own
-consistent copy rather than `cp` of a live WAL database, and the shell script reduced to a thin wrapper that
-delegates when the binary is present and stays as the best-effort path when it is not — a broken install is
-exactly when someone reaches for it.
+**`barepod uninstall` is built, guided, and verified by a dry run.** It reads the truth from the store
+rather than inferring it: on this host the plan named 3 sites, 1 tenant account, 9 ledger databases, the
+lockout's nftables table and 2 panel containers — and running it without `--yes` left the state identical
+(service active, database present, units and table untouched). Guided by default: it prints the plan, then
+asks with `Type uninstall` and one question per irreversible step; with `--yes` nothing irreversible happens
+unless a flag names it (`--purge-data`, `--remove-tenants`, `--remove-tenant-data`, `--remove-volumes`), and
+it refuses a backup directory inside anything it deletes — a guard whose first version was wrong in exactly
+that case and was caught by its own test. The backup is written with the panel already stopped (SQLite WAL:
+a copy of a live database can miss the write-ahead log), prefers `sqlite3 VACUUM INTO`, and is read back
+before a single file is removed.
+
+**Still script-only:** `scripts/uninstall.sh` does not yet delegate to the CLI — it stands alone, which is
+what a host needs when the binary is gone (a broken install is exactly when someone reaches for it), but
+where both exist the script should hand over to `barepod uninstall` and keep only the package removal that
+the CLI deliberately does not do.eone reaches for it.
 
 ## How this operator works (worth following)
 
