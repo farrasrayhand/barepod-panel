@@ -16,6 +16,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbtools"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/guard"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/metrics"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/rbac"
@@ -40,6 +41,9 @@ type Deps struct {
 	// Tools is the supervisor for the on-demand database managers. Nil means no
 	// manager can be hosted (the gate still reports honestly).
 	Tools *dbtools.Supervisor
+	// Guard is the brute-force lockout. Nil means none is running, and the endpoints
+	// say so rather than reporting a protection that does not exist.
+	Guard *guard.Guard
 	// LookPath finds a tool's binary; nil means exec.LookPath (tests inject one so
 	// availability does not depend on the machine).
 	LookPath func(string) (string, error)
@@ -63,6 +67,8 @@ type Server struct {
 	// is offered at all.
 	tools    *dbtools.Supervisor
 	lookPath func(string) (string, error)
+	// guard is the brute-force lockout watching the engines' logs.
+	guard *guard.Guard
 	// guiMu serialises switching a manager between databases; guiServed records
 	// which database each running manager is scoped to.
 	guiMu     sync.Mutex
@@ -108,6 +114,7 @@ func New(d Deps) http.Handler {
 		maxUploadBytes: maxUpload,
 		tools:          d.Tools,
 		lookPath:       lookPath,
+		guard:          d.Guard,
 	}
 
 	mux := http.NewServeMux()
@@ -129,6 +136,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/groups", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleListGroups)))
 	mux.HandleFunc("PATCH /api/v1/groups/{name}", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleUpdateGroup)))
 	mux.HandleFunc("GET /api/v1/system/capacity", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleCapacity)))
+
+	// Brute-force lockout. Reading it is monitoring; changing it, and letting somebody back
+	// in, is an administrative act and is audited.
+	mux.HandleFunc("GET /api/v1/system/guard", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleGuardStatus)))
+	mux.HandleFunc("PATCH /api/v1/system/guard", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleGuardSettings)))
+	mux.HandleFunc("POST /api/v1/system/guard/unban", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleGuardUnban)))
 
 	// System — "monitoring" capability
 	mux.HandleFunc("GET /api/v1/system/capabilities", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleCapabilities)))

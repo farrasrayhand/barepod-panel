@@ -23,6 +23,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbtools"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/guard"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/metrics"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
@@ -36,6 +37,12 @@ import (
 // window itself is exact (the supervisor slides it on every request); this is only
 // how often the daemon looks.
 const dbtoolsSweepInterval = time.Minute
+
+// guardInterval is how often the brute-force lockout looks at the engines' logs. Often
+// enough that an attacker cannot get far between two looks, rare enough that the read is
+// invisible — and because each pass reads only what was appended since the last one, the
+// cost does not grow with how long the log is.
+const guardInterval = 15 * time.Second
 
 // httpsPort is the port the panel serves HTTPS on, which the plain-HTTP redirect
 // points at. An address with no port yields nothing, so the default is used.
@@ -320,6 +327,17 @@ func runServe(args []string) error {
 		}
 	}()
 
+	// Brute-force lockout: the watchdog reads the engines' own logs (a host engine's file,
+	// a container's `docker logs`) and keeps the addresses that keep failing out of them, in
+	// the kernel's own nft set as well as in the panel — so a restart re-applies every ban
+	// instead of forgetting it. It must run before any database port is opened to the world.
+	guardCtx, stopGuard := context.WithCancel(context.Background())
+	defer stopGuard()
+	watchdog := api.NewGuard(api.GuardExecutor(h.Runner.Run), st, guardInterval)
+	go watchdog.Run(guardCtx)
+	log.Printf("guard: watching %d log source(s) every %s; table inet %s",
+		len(guard.Sources()), guardInterval, guard.Table)
+
 	log.Printf("host: %s/%s %q systemd=%v lxc=%v docker=%v smart=%v fstrim=%v",
 		caps.OS, caps.Arch, caps.Distro, caps.Systemd, caps.LXC, caps.Docker, caps.Smart, caps.Fstrim)
 	log.Printf("execution mode: %s (sites root %s, units dir %s)", h.Mode(), cfg.SitesRoot, cfg.UnitsDir)
@@ -340,6 +358,7 @@ func runServe(args []string) error {
 			SiteMetrics:    siteSampler,
 			MaxUploadBytes: int64(cfg.MaxUploadMB) << 20,
 			Tools:          tools,
+			Guard:          watchdog,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

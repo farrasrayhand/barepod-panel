@@ -16,7 +16,35 @@ var migrations = []migration{
 	{version: 6, statements: schemaV6},
 	{version: 7, statements: schemaV7},
 	{version: 8, statements: schemaV8},
+	{version: 9, statements: schemaV9},
 }
+
+// schemaV9 is the brute-force lockout: the addresses the panel keeps out of the engines,
+// and the numbers it decides with. The bans live here rather than only in the kernel
+// because a panel restart must not forget one — the nft set is re-filled from this table
+// at every start — and because an operator should be able to see and release them without
+// knowing nft exists.
+const schemaV9 = `
+CREATE TABLE IF NOT EXISTS guard_bans (
+  ip         TEXT PRIMARY KEY,
+  engine     TEXT NOT NULL DEFAULT '',
+  user_name  TEXT NOT NULL DEFAULT '',
+  reason     TEXT NOT NULL DEFAULT '',
+  hits       INTEGER NOT NULL DEFAULT 0,
+  banned_at  TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_guard_bans_expiry ON guard_bans(expires_at);
+
+CREATE TABLE IF NOT EXISTS guard_settings (
+  id         INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  max_retry  INTEGER NOT NULL DEFAULT 5,
+  find_time  TEXT NOT NULL DEFAULT '10m0s',
+  ban_time   TEXT NOT NULL DEFAULT '1h0m0s',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+`
 
 // schemaV8 marks a database that outlived its website: deleting a website can keep its
 // databases, and a kept record would otherwise be indistinguishable from one that was

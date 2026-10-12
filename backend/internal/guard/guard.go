@@ -319,11 +319,22 @@ func stampPrefix(line string) string {
 	return line[:19]
 }
 
-// parseStamp reads the two stamps the engines write, and answers the zero time rather than
-// guessing when it cannot.
+// parseStamp reads the stamps the engines write, and answers the zero time rather than
+// guessing when it cannot (the caller then falls back to when the line was read).
 func parseStamp(value string) time.Time {
-	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02  15:04:05", "2006-01-02 15:04:05.000"} {
-		if at, err := time.ParseInLocation(layout, strings.TrimSpace(value), time.UTC); err == nil {
+	value = strings.TrimSpace(value)
+	// MariaDB pads the hour with a space rather than a zero — "2026-10-12  9:00:00" — and no
+	// Go layout covers that, so the two fields are put back into one known shape. The window
+	// depends on these stamps, so reading them right is what keeps findtime honest.
+	if fields := strings.Fields(value); len(fields) == 2 {
+		clock := fields[1]
+		if len(clock) == 7 { // "9:00:00"
+			clock = "0" + clock
+		}
+		value = fields[0] + " " + clock
+	}
+	for _, layout := range []string{"2006-01-02 15:04:05", "2006-01-02 15:04:05.000"} {
+		if at, err := time.ParseInLocation(layout, value, time.UTC); err == nil {
 			return at
 		}
 	}
