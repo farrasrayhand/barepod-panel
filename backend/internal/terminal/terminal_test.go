@@ -35,14 +35,24 @@ func (c *collector) String() string {
 // waitFor polls until the terminal echoed the marker, or fails the test.
 func (c *collector) waitFor(t *testing.T, marker string) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	if c.waitForUpTo(t, marker, time.Now().Add(10*time.Second)) {
+		return
+	}
+	t.Fatalf("the terminal never printed %q\n--- output so far ---\n%s", marker, c.String())
+}
+
+// waitForUpTo polls until the deadline; it reports whether the marker appeared, so a
+// caller can ask again (a resize, for instance, is a signal the shell may not have
+// processed yet).
+func (c *collector) waitForUpTo(t *testing.T, marker string, deadline time.Time) bool {
+	t.Helper()
 	for time.Now().Before(deadline) {
 		if c.contains(marker) {
-			return
+			return true
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("the terminal never printed %q\n--- output so far ---\n%s", marker, c.String())
+	return c.contains(marker)
 }
 
 func TestSessionEchoAndResize(t *testing.T) {
@@ -72,14 +82,25 @@ func TestSessionEchoAndResize(t *testing.T) {
 	}
 	out.waitFor(t, "BAREPOD-TERMINAL-OK")
 
-	// A resize must reach the shell: `stty size` reports "<rows> <cols>".
+	// A resize must reach the shell: `stty size` reports "<rows> <cols>". The signal may
+	// not have been processed by the time the shell reads the command, so the question is
+	// asked again until it reports the new size rather than once and hopefully.
 	if err := session.Resize(120, 40); err != nil {
 		t.Fatalf("Resize: %v", err)
 	}
-	if _, err := session.Write([]byte("stty size\n")); err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := session.Write([]byte("stty size\n")); err != nil {
+			t.Fatal(err)
+		}
+		if out.waitForUpTo(t, "40 120", deadline) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the terminal never reported the new size\n--- output so far ---\n%s", out.String())
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	out.waitFor(t, "40 120")
 }
 
 func TestSessionRunsInTheGivenDirectory(t *testing.T) {

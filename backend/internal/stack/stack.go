@@ -384,8 +384,10 @@ type runtimeSource struct {
 	name       string
 	perSite    bool
 	source     string
-	pkgPrefix  string // apt package = pkgPrefix + version + pkgSuffix
+	kind       string // apt-suffixed (php8.3-fpm) | apt-single (ruby) | tarball
+	pkgPrefix  string // apt-suffixed: package = pkgPrefix + version + pkgSuffix
 	pkgSuffix  string
+	pkg        string // apt-single: one package, its candidate version is the version
 	candidates []string
 	binary     []string
 	probe      string // binary to look up before asking its version
@@ -393,15 +395,19 @@ type runtimeSource struct {
 
 func runtimeSources() []runtimeSource {
 	return []runtimeSource{
-		{name: "php", perSite: true, source: "apt — packages.sury.org/php", pkgPrefix: "php", pkgSuffix: "-fpm",
-			candidates: []string{"7.4", "8.0", "8.1", "8.2", "8.3", "8.4"}},
-		{name: "python", perSite: true, source: "apt — deadsnakes PPA", pkgPrefix: "python", candidates: []string{"3.9", "3.10", "3.11", "3.12", "3.13"},
+		{name: "php", perSite: true, source: "apt — packages.sury.org/php", kind: "apt-suffixed",
+			pkgPrefix: "php", pkgSuffix: "-fpm", candidates: []string{"7.4", "8.0", "8.1", "8.2", "8.3", "8.4"}},
+		{name: "python", perSite: true, source: "apt — deadsnakes PPA", kind: "apt-suffixed",
+			pkgPrefix: "python", candidates: []string{"3.9", "3.10", "3.11", "3.12", "3.13"},
 			probe: "python3", binary: []string{"python3", "--version"}},
-		{name: "node", perSite: true, source: "tarball — nodejs.org/dist (per site)",
+		{name: "node", perSite: true, source: "tarball — nodejs.org/dist (per site)", kind: "tarball",
 			probe: "node", binary: []string{"node", "--version"}},
-		{name: "ruby", perSite: true, source: "apt / rbenv", probe: "ruby", binary: []string{"ruby", "--version"}},
-		{name: "go", perSite: false, source: "toolchain (build-time)", probe: "go", binary: []string{"go", "version"}},
-		{name: "rust", perSite: false, source: "rustup (build-time)", probe: "rustc", binary: []string{"rustc", "--version"}},
+		{name: "ruby", perSite: true, source: "apt / rbenv", kind: "apt-single", pkg: "ruby",
+			probe: "ruby", binary: []string{"ruby", "--version"}},
+		{name: "go", perSite: false, source: "apt (build-time)", kind: "apt-single", pkg: "golang-go",
+			probe: "go", binary: []string{"go", "version"}},
+		{name: "rust", perSite: false, source: "apt / rustup (build-time)", kind: "apt-single", pkg: "rustc",
+			probe: "rustc", binary: []string{"rustc", "--version"}},
 	}
 }
 
@@ -409,29 +415,49 @@ func runtimeSources() []runtimeSource {
 // can actually install that package here. Dry-run and a non-real host report none — an
 // unmeasured "available" would be a lie of the kind this panel avoids.
 func availableVersions(ctx context.Context, h *host.Host, r runtimeSource) []string {
-	if r.pkgPrefix == "" || !h.Materialises() {
+	if !h.Materialises() {
 		return nil
 	}
-	var out []string
-	for _, version := range r.candidates {
-		pkg := r.pkgPrefix + version + r.pkgSuffix
-		res, err := h.Run(ctx, []string{"apt-cache", "policy", pkg})
-		if err != nil {
-			continue
-		}
-		for _, line := range strings.Split(res, "\n") {
-			line = strings.TrimSpace(line)
-			if !strings.HasPrefix(line, "Candidate:") {
-				continue
-			}
-			candidate := strings.TrimSpace(strings.TrimPrefix(line, "Candidate:"))
-			if candidate != "" && candidate != "(none)" {
+	switch r.kind {
+	case "apt-suffixed":
+		var out []string
+		for _, version := range r.candidates {
+			if _, ok := aptCandidate(ctx, h, r.pkgPrefix+version+r.pkgSuffix); ok {
 				out = append(out, version)
 			}
-			break
+		}
+		return out
+	case "apt-single":
+		// The distro ships one version of this runtime; its own candidate is the answer.
+		if version, ok := aptCandidate(ctx, h, r.pkg); ok {
+			if m := runtimesVersionPattern.FindStringSubmatch(version); m != nil {
+				return []string{m[1] + "." + m[2]}
+			}
+			return []string{version}
 		}
 	}
-	return out
+	return nil
+}
+
+// aptCandidate reports the version apt would install for a package, and whether it
+// exists here at all ("Candidate: (none)" means the package is not in any repository).
+func aptCandidate(ctx context.Context, h *host.Host, pkg string) (string, bool) {
+	res, err := h.Run(ctx, []string{"apt-cache", "policy", pkg})
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(res, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "Candidate:") {
+			continue
+		}
+		candidate := strings.TrimSpace(strings.TrimPrefix(line, "Candidate:"))
+		if candidate == "" || candidate == "(none)" {
+			return "", false
+		}
+		return candidate, true
+	}
+	return "", false
 }
 
 var runtimesVersionPattern = regexp.MustCompile(`(\d+)\.(\d+)`)
