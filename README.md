@@ -23,7 +23,16 @@
 - **World traffic map & streaming telemetry**: an interactive equirectangular world map with pulsing visitor pins, per-country filtering (latency, ISP), and a console log studio with light/dark themes, text-wrap toggle, and expandable request inspectors.
 - **Backup & migration hub**: one-click server-to-server live migration (pull from an old VPS with a 2-hour token), portable `.bpod` snapshots with SHA-256/AES-256, drag-and-drop restore, and scheduled cloud sync to Cloudflare R2 / AWS S3 / Google Cloud Storage / Wasabi (MinIO) with retention policies.
 - **Hardware health & network telemetry**: S.M.A.R.T. disk diagnostics with interactive self-test, ingress/egress sparklines, per-interface monitoring, ICMP edge-latency probes, and TCP socket / listening-port inspectors.
-- **Per-app access control**: HTTP 503 maintenance mode, HTTP Basic Auth (`.htpasswd`), and anti-brute-force protection (failed-login throttling with temporary IP bans).
+- **Anti-brute-force watchdog built into the panel** (it replaces fail2ban, which is no longer installed or
+  needed): it reads **six sources independently** — PostgreSQL, MariaDB, MongoDB, Redis (its own `ACL LOG`,
+  because Redis logs no refusals at all), the panel's own refused sign-ins, and sshd's journal — with
+  thresholds per engine in **Settings → Security**, and bans applied in the kernel with a timeout, persisted
+  across restarts. What a ban closes depends on what it was earned on: the **panel's port** for a panel ban,
+  **SSH's port** for an SSH ban (so a brute-force on SSH never takes away your way back in), and the **whole
+  host** for a database engine. Addresses on the never-ban list are never banned, and where you sign in from
+  is added to it automatically. Verified on a real host: six refused panel logins closed only the panel port,
+  and a real SSH brute-force dropped port 22 while the panel kept answering.
+- **Per-app access control**: HTTP 503 maintenance mode and HTTP Basic Auth (`.htpasswd`).
 - **URL-addressable UI**: every menu and app sub-tab has its own route (`/apps/<app>/logs`, `/settings/backups`, …) so refresh and back/forward keep your place.
 
 ---
@@ -60,6 +69,38 @@ Run the environment check (detects architecture and container type automatically
 bash scripts/install.sh
 ```
 
+### Removing it, and putting it back
+
+Take the panel off a host with the CLI, which reads what is really there (websites, tenants, ledger
+records, containers, the lockout's firewall table) and asks before anything it cannot undo:
+
+```bash
+barepod uninstall                      # print the plan and change nothing
+barepod uninstall --yes                # remove it; the panel database is backed up first
+barepod uninstall --yes --backup=full  # also save /etc/barepod and the systemd unit files
+barepod uninstall --yes --purge-data   # also delete /var/lib/barepod (records, accounts, certificate)
+```
+
+The backup is written **before** anything is removed and is read back before the first deletion, it refuses
+to land inside a directory the uninstall deletes, and it lives in `/var/backups/barepod` — outside
+everything the run touches. Put it back later:
+
+```bash
+scripts/restore.sh                    # newest backup; prints its manifest first
+scripts/restore.sh --from /mnt/usb/barepod-backup-host-20261012-1930.tar.gz
+```
+
+**What a backup holds, and what it does not:** the panel database (accounts, records, their settings and the
+audit log) plus the self-signed certificate, and with `--backup=full` also `/etc/barepod` and the unit files.
+It does **not** hold the contents of your databases or your site files — their credentials are encrypted
+inside the panel database, so a dump cannot be authenticated for from here. Use the panel's **Export** for
+each database, and copy site files, before uninstalling.
+
+`scripts/install.sh` looks in `/var/backups/barepod` and, when it finds one, says so and tells you to restore
+it instead of creating a fresh admin. If the panel binary is already gone, `scripts/uninstall.sh` does the
+same job as a standalone script (`--backup=db|full|none`, dry run until `--yes`), because a broken install is
+exactly when someone reaches for it.
+
 ---
 
 ## Repository Structure
@@ -68,8 +109,10 @@ bash scripts/install.sh
 BarePod-Panel/
 ├── frontend/             # Dashboard web UI (React + Vite + TypeScript + Tailwind CSS)
 ├── backend/              # Core daemon (Go) — Phase 2 skeleton (SQLite, auth, websites API)
-├── scripts/              # One-line VPS install scripts (Ubuntu/Debian) — planned
-├── MASTER_PLAN.md        # Master architecture & development roadmap
+├── scripts/              # install.sh, install-engines.sh, uninstall.sh, restore.sh (Ubuntu/Debian)
+├── HANDOFF.md            # Start here: verified state, the working loop, what is next
+├── MASTER_PLAN.md        # Architecture, decisions with the measurements behind them, roadmap
+├── API_CONTRACT.md       # What the daemon serves, endpoint by endpoint
 └── README.md
 ```
 

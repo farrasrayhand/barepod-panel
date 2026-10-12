@@ -155,6 +155,11 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - A pod has no `/pty` endpoint yet: container shells arrive with the pods module (Phase 3). Until then a pod target is a UI-only concept.
 
 ### 4.2.2 Accounts, Groups & Permissions (per account)
+> Not part of this contract, because it is not an HTTP surface: `barepod uninstall` removes the panel from
+> the host (guided; backs up and verifies the backup before deleting anything; `--backup=db|full|none`),
+> `barepod service install|status|uninstall` manages its systemd unit, and `scripts/` carries the same
+> operations for a host whose binary is already gone.
+
 - **No built-in account.** The operator creates the root admin during installation with the CLI: `barepod admin create` (generated password shown once). The daemon refuses to start while no account exists.
 - **The only built-in data is three permission groups**, created on first run: `Superadmin (Root)`, `Developer`, `Read Only`. `users.group_name` is the membership.
 - `GET /groups` → `{ items: [{ id, name, description, permissions{10 capabilities}, members, isDefault, isSystem }], capabilities: [...] }` (requires the `users` capability). `POST|PATCH|DELETE /groups` and member management land with the users module; system groups cannot be deleted.
