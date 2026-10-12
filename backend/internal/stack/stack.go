@@ -301,26 +301,28 @@ apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
 // install anything — which is worse than a version list with one entry.
 const apacheRepoScript = `set -e
 apt-get -o DPkg::Lock::Timeout=600 install -y -qq software-properties-common >/dev/null
-if ! add-apt-repository -y ppa:ondrej/apache2 >/dev/null 2>&1; then
+# --no-update, because add-apt-repository runs its own apt-get update, and letting that
+# failure look like "the PPA is unavailable" removed a PPA that is perfectly available.
+if add-apt-repository -y --no-update ppa:ondrej/apache2 >/dev/null 2>&1; then
+  if ! apt-get -o DPkg::Lock::Timeout=600 update >/dev/null 2>&1; then
+    add-apt-repository -y --remove ppa:ondrej/apache2 >/dev/null 2>&1 || true
+    echo "the Apache PPA could not be updated — removed it again rather than leaving apt broken"
+  fi
+else
   echo "the Apache PPA is not available for this release — keeping the distribution's Apache"
-  add-apt-repository -y --remove ppa:ondrej/apache2 >/dev/null 2>&1 || true
-  exit 0
-fi
-if ! apt-get -o DPkg::Lock::Timeout=600 update >/dev/null 2>&1; then
-  add-apt-repository -y --remove ppa:ondrej/apache2 >/dev/null 2>&1 || true
-  echo "the Apache PPA could not be updated — removed it again rather than leaving apt broken"
 fi`
 
 const openlitespeedRepoScript = `set -e
 apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
-curl -fsSL https://rpms.litespeedtech.com/debian/lst_repo.gpg -o /usr/share/keyrings/lst_repo.gpg || true
+# The key is fetched ASCII-armoured by the project's own instructions and must be
+# dearmoured: saving it as it arrives leaves "signed-by" pointing at something apt cannot
+# read, so every apt-get update fails and the source looks unavailable.
+curl -fsSL https://rpms.litespeedtech.com/debian/lst_repo.gpg | gpg --dearmor --yes -o /usr/share/keyrings/lst_repo.gpg
 echo "deb [signed-by=/usr/share/keyrings/lst_repo.gpg] http://rpms.litespeedtech.com/debian/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/openlitespeed.list
 if ! apt-get -o DPkg::Lock::Timeout=600 update >/dev/null 2>&1; then
   rm -f /etc/apt/sources.list.d/openlitespeed.list
-  echo "OpenLiteSpeed's repository is not published for this release — removed it again rather than leaving apt broken"
+  echo "OpenLiteSpeed's repository could not be updated — removed it again rather than leaving apt broken"
 fi`
-
-// rbenvRoot is where the panel keeps rbenv.
 
 // rustupRepoScript installs rustup, which is itself the multi-toolchain manager. It uses
 // rustup's own defaults (~/.cargo, ~/.rustup) so that `rustup`, `rustc` and `cargo` work
