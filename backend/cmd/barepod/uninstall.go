@@ -116,41 +116,27 @@ func runUninstall(args []string) error {
 			fmt.Printf("\nDry run: nothing was changed (no terminal to ask in). Re-run with --yes, and name what\nyou want removed: --purge-data, --remove-tenants, --remove-tenant-data, --remove-volumes.\n")
 			return nil
 		}
-		// Choices first, then the plan they produce, and only then the one answer that is final. Asking for
-		// a typed "uninstall" before showing what could be chosen read as a demand, not a choice — the
-		// operator said so after running it.
+		// Choices first, then the plan they produce, and only then the one answer that is final. The
+		// operator asked for a real menu — arrows and Enter — rather than numbered questions, so the
+		// options are offered through whiptail when it is installed (it is part of a base Ubuntu/Debian
+		// install) and through plain prompts when it is not.
 		if !named["backup"] {
-			answer, _ := ask("Back it up first?\n    1) the panel database and the certificate (default)\n    2) those plus /etc/barepod and the systemd unit files\n    3) nothing at all\n  Choose [1]")
-			switch strings.TrimSpace(answer) {
-			case "2":
-				plan.backup = "full"
-			case "3":
-				plan.backup = "none"
-			default:
-				plan.backup = "db"
+			if choice, ok := chooseBackupLevel(); ok {
+				plan.backup = choice
 			}
 		}
-		if !named["purge-data"] {
-			if answer, _ := ask("Delete the data directory %s as well (records, accounts, audit log, certificate)? [y/N]", dataDir); isYes(answer) {
-				plan.purgeData = true
-			}
+		removals := chooseRemovals(plan, named)
+		if removals.data {
+			plan.purgeData = true
 		}
-		if len(plan.tenants) > 0 {
-			if !named["remove-tenants"] {
-				if answer, _ := ask("Delete the tenant accounts %s? [y/N]", strings.Join(plan.tenants, ", ")); isYes(answer) {
-					plan.removeTenants = true
-				}
-			}
-			if plan.removeTenants && !named["remove-tenant-data"] {
-				if answer, _ := ask("Delete their files under %s too? [y/N]", config.DefaultSitesRoot()); isYes(answer) {
-					plan.removeTenantData = true
-				}
-			}
+		if removals.tenants {
+			plan.removeTenants = true
 		}
-		if !named["remove-volumes"] {
-			if answer, _ := ask("Delete the container volumes as well (they hold containerised database data)? [y/N]"); isYes(answer) {
-				plan.removeVolumes = true
-			}
+		if removals.tenantFiles {
+			plan.removeTenantData = true
+		}
+		if removals.volumes {
+			plan.removeVolumes = true
 		}
 
 		fmt.Printf("\nThat is the plan:\n")
@@ -649,4 +635,125 @@ func panelStopped(ctx context.Context) bool {
 		return true
 	}
 	return strings.TrimSpace(out) != "active"
+}
+
+// --- the interactive part ---------------------------------------------------
+//
+// whiptail gives a real menu (arrows, Enter, Esc to cancel) and needs nothing added to go.mod; it is part
+// of a base Ubuntu/Debian install. Where it is missing the same questions are asked in plain text, so the
+// command is usable on a minimal host too.
+
+type removalChoices struct {
+	data, tenants, tenantFiles, volumes bool
+}
+
+func hasWhiptail() bool {
+	for _, tool := range []string{"whiptail", "dialog"} {
+		if _, err := exec.LookPath(tool); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func whiptailBin() string {
+	if _, err := exec.LookPath("whiptail"); err == nil {
+		return "whiptail"
+	}
+	return "dialog"
+}
+
+func runMenu(bin string, args []string) (string, bool, error) {
+	cmd := exec.Command(bin, args...)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return strings.TrimSpace(string(out)), false, nil // Esc or Cancel: not an error, just no answer
+	}
+	return strings.TrimSpace(string(out)), true, nil
+}
+
+// chooseBackupLevel offers the three levels as one menu, so "database only", "full" and "none" are visible
+// choices rather than something an operator has to know to pass as a flag.
+func chooseBackupLevel() (string, bool) {
+	if !hasWhiptail() {
+		answer, _ := ask("Back it up first?\n    1) the panel database and the certificate (default)\n    2) those plus /etc/barepod and the systemd unit files\n    3) nothing at all\n  Choose [1]")
+		switch strings.TrimSpace(answer) {
+		case "2":
+			return "full", true
+		case "3":
+			return "none", true
+		default:
+			return "db", true
+		}
+	}
+	answer, ok, _ := runMenu(whiptailBin(), []string{
+		"--title", "BarePod uninstall", "--menu",
+		"Back up before removing anything?", "16", "76", "3",
+		"db", "The panel database and the certificate",
+		"full", "Those plus /etc/barepod and the systemd unit files",
+		"none", "No backup at all",
+	})
+	if !ok {
+		return "", false
+	}
+	return answer, true
+}
+
+// chooseRemovals is one checklist for everything destructive, so the operator sees the whole set at once
+// instead of answering a yes/no in a sequence and losing track of what was agreed.
+func chooseRemovals(plan uninstallPlan, named map[string]bool) removalChoices {
+	choices := removalChoices{}
+	// The backup is worthless if the data goes in the same run and nobody noticed, so a question whose
+	// answer already came from a flag, or which the backup level makes moot, is not asked again.
+	if !named["purge-data"] && !hasWhiptail() {
+		if answer, _ := ask("Delete the data directory %s as well (records, accounts, audit log, certificate)? [y/N]", plan.dataDir); isYes(answer) {
+			choices.data = true
+		}
+		if len(plan.tenants) > 0 {
+			if answer, _ := ask("Delete the tenant accounts %s? [y/N]", strings.Join(plan.tenants, ", ")); isYes(answer) {
+				choices.tenants = true
+			}
+			if choices.tenants {
+				if answer, _ := ask("Delete their files under %s too? [y/N]", config.DefaultSitesRoot()); isYes(answer) {
+					choices.tenantFiles = true
+				}
+			}
+		}
+		if answer, _ := ask("Delete the container volumes as well (they hold containerised database data)? [y/N]"); isYes(answer) {
+			choices.volumes = true
+		}
+		return choices
+	}
+	args := []string{"--title", "BarePod uninstall", "--checklist",
+		"Remove these as well? (space toggles, Enter confirms)", "18", "78", "4",
+		"data", "Delete the data directory " + plan.dataDir + " (records, accounts, certificate)", "off",
+	}
+	if len(plan.tenants) > 0 {
+		args = append(args,
+			"tenants", "Delete the tenant accounts "+strings.Join(plan.tenants, ", "), "off",
+			"tenant-files", "Delete the tenant files under "+config.DefaultSitesRoot(), "off",
+		)
+	}
+	args = append(args, "volumes", "Delete the container volumes (they hold containerised data)", "off")
+	answer, ok, _ := runMenu(whiptailBin(), args)
+	if !ok {
+		return removalChoices{}
+	}
+	for _, field := range strings.FieldsFunc(answer, func(r rune) bool { return r == '"' || r == ' ' }) {
+		switch field {
+		case "data":
+			choices.data = true
+		case "tenants":
+			choices.tenants = true
+		case "tenant-files":
+			choices.tenantFiles = true
+		case "volumes":
+			choices.volumes = true
+		}
+	}
+	if choices.tenantFiles {
+		choices.tenants = true // their files imply their accounts
+	}
+	return choices
 }
