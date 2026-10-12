@@ -205,9 +205,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [smtpPassword, setSmtpPassword] = useState('••••••••••••');
 
   // 6. Databases
-  const [pgPort, setPgPort] = useState(5432);
-  const [mysqlPort, setMysqlPort] = useState(3306);
-  const [redisPort, setRedisPort] = useState(6379);
   const [ssoSessionMinutes, setSsoSessionMinutes] = useState(120);
 
   const handleSaveAll = (e: React.FormEvent) => {
