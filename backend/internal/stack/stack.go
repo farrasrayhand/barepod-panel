@@ -816,8 +816,17 @@ func dockerRunningTag(ctx context.Context, h *host.Host, engine string) string {
 // dockerNewestLocalTag is the newest tag of the panel's image for an engine that is present
 // on this host, which is the version installed when no container is running.
 func dockerNewestLocalTag(ctx context.Context, h *host.Host, engine string) string {
+	// The engine's own repository only: without this the newest tag on the host answered
+	// for every engine, and MongoDB reported the tag of a MariaDB image.
+	repo := map[string]string{
+		"mongodb": "mongo", "mariadb": "mariadb", "mysql": "mysql",
+		"postgresql": "postgres", "redis": "redis",
+	}[engine]
+	if repo == "" {
+		return ""
+	}
 	out, err := h.Run(ctx, []string{"bash", "-c",
-		"docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^[^:]+:([0-9]+(\\.[0-9]+)*)$' | awk -F: '{print $2}' | sort -V | tail -1"})
+		"docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^" + repo + ":[0-9]+(\\.[0-9]+)*$' | awk -F: '{print $2}' | sort -V | tail -1"})
 	if err != nil {
 		return ""
 	}
