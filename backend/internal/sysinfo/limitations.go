@@ -30,8 +30,8 @@ func (c Capabilities) Limitations() []Limitation {
 	}
 	if !c.Quota {
 		add("quota",
-			"setquota needs quota support on the host filesystem plus access to the quotactl interface.",
-			"Per-tenant disk limits are enforced with host-side quotas instead: XFS project quotas, a ZFS dataset per tenant, or an LVM volume. The package's cgroup v2 limits (memory, CPU, tasks) still apply inside the container.")
+			"Per-tenant disk quotas need the setquota tools AND usrquota enabled at mount time on the filesystem holding the sites; here one of the two is missing (an unprivileged container cannot remount its root filesystem to turn it on).",
+			"Enable quotas where the platform allows it — on a VPS/VM add usrquota,grpquota to the mount and run quotacheck/quotaon; on a Proxmox host do it in the container config — or enforce the limit host-side instead (XFS project quotas, a ZFS dataset per tenant, an LVM volume). The package's cgroup v2 limits (memory, CPU, tasks) still apply either way.")
 	}
 	if !c.Useradd {
 		add("useradd",

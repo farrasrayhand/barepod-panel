@@ -436,12 +436,32 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request, actor 
 		return
 	}
 
+	// Remove the Linux account too, so deleting a panel account cannot leave an OS
+	// account or an orphan home behind. Only when it exists — a drifted account has
+	// nothing to remove — and a failure keeps the panel row, so the two stay in step.
+	linux := map[string]any{"removed": false, "mode": s.host.Mode()}
+	if s.tenants != nil {
+		if _, ok := s.tenants.Lookup(r.Context(), account.Username); ok {
+			result, err := s.tenants.Remove(r.Context(), account.Username)
+			if err != nil {
+				writeError(w, http.StatusBadGateway, "provisioning_failed", "Could not remove the Linux account: "+err.Error())
+				return
+			}
+			linux["removed"] = true
+			if result != nil {
+				linux["home"] = result.Home
+				linux["notes"] = result.Notes
+			}
+			_ = s.store.Audit(actor.ID, "user.remove_os", account.Username, clientIP(r), s.host.Mode())
+		}
+	}
+
 	if err := s.store.DeleteUser(account.Username); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Could not delete the account")
 		return
 	}
 	_ = s.store.Audit(actor.ID, "user.delete", account.Username, clientIP(r), "")
-	writeJSON(w, http.StatusOK, map[string]any{"username": account.Username, "deleted": true})
+	writeJSON(w, http.StatusOK, map[string]any{"username": account.Username, "deleted": true, "linux": linux})
 }
 
 // handleResetUserPassword sets a new password for an account and signs that

@@ -79,7 +79,10 @@ never be; it comes from the session environment. Same for any token.
    on the next deploy). The Linux account is now **mandatory at creation** (the CLI `barepod admin create`
    provisions too, and a real host that cannot make one refuses rather than recording the account);
    `POST /users/{id}/provision` reconciles an older account and the screen offers it whenever `osExists`
-   is false.
+   is false; deleting an account removes its Linux account and home with it. The quota capability is only
+   claimed when the filesystem actually has user quotas enabled — this host does not (an unprivileged
+   container cannot remount its root), so the panel reports it unavailable instead of failing every
+   `setquota`.
 2. **Websites, one PHP site end to end.** Two core pieces do not exist: **nothing writes a site's
    `php-fpm.conf`** (the panel already shells out to `php-fpm --fpm-config <site>/php-fpm.conf`), and there
    is **no web-server → PHP-FPM connector** (no nginx/OpenLiteSpeed on the host yet). The web-server choice

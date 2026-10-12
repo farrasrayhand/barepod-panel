@@ -145,8 +145,8 @@ func (m *Manager) Provision(ctx context.Context, user string, opts Options, log 
 // setQuota applies a disk quota, or explains why it could not.
 func (m *Manager) setQuota(ctx context.Context, res *Result, opts Options, log func(string)) error {
 	if !m.caps.Quota {
-		res.Notes = append(res.Notes, "disk quota tools (setquota) are not available on this host — quota skipped")
-		log("disk quota skipped: setquota is not available")
+		res.Notes = append(res.Notes, "disk quotas are not enabled on this filesystem (or the quota tools are missing) — quota skipped")
+		log("disk quota skipped: quotas are not available on this host")
 		return nil
 	}
 	fs := opts.Filesystem
@@ -162,7 +162,11 @@ func (m *Manager) setQuota(ctx context.Context, res *Result, opts Options, log f
 		fs,
 	}
 	if err := m.run(ctx, res, argv); err != nil {
-		return fmt.Errorf("tenant: setquota: %w", err)
+		// A quota that cannot be applied must not fail the whole provision: the note
+		// says so, QuotaSet stays false, and the account is still usable.
+		res.Notes = append(res.Notes, "the disk quota could not be applied: "+err.Error())
+		log("disk quota could not be applied: " + err.Error())
+		return nil
 	}
 	// The command is recorded either way, but only a real run applied it.
 	res.QuotaSet = m.real()
@@ -173,6 +177,27 @@ func (m *Manager) setQuota(ctx context.Context, res *Result, opts Options, log f
 		log(fmt.Sprintf("dry-run: would apply a %d MiB disk quota on %s", opts.QuotaBytes/(1024*1024), fs))
 	}
 	return nil
+}
+
+// Remove deletes the tenant's Linux account and its home directory. It is the
+// counterpart of Provision: deleting a panel account should not leave an OS
+// account (or an orphan home) behind.
+func (m *Manager) Remove(ctx context.Context, user string) (*Result, error) {
+	if !validate.TenantUser(user) {
+		return nil, fmt.Errorf("tenant: %q is not a valid Linux account name", user)
+	}
+	res := &Result{User: user, Home: m.Home(user)}
+	if !m.caps.Useradd && m.real() {
+		res.Notes = append(res.Notes, "the account utilities are not available on this host — the account was not removed")
+		return res, nil
+	}
+	if err := m.run(ctx, res, []string{"userdel", "-r", user}); err != nil {
+		return res, fmt.Errorf("tenant: remove account: %w", err)
+	}
+	if !m.real() {
+		res.Notes = append(res.Notes, "dry-run: the Linux account was not removed")
+	}
+	return res, nil
 }
 
 // Account is the resolved OS identity of a tenant.

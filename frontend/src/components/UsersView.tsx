@@ -5,7 +5,6 @@ import {
   ShieldCheck,
   HardDrive,
   Layers,
-  Terminal,
   Trash2,
   Database,
   Crown,
@@ -14,12 +13,14 @@ import {
   Pencil,
   RefreshCw,
   UserPlus,
+  KeyRound,
   Loader2,
 } from 'lucide-react';
 import { useSubRoute } from '../hooks/useSubRoute';
 import { PERMISSION_MATRIX } from '../data/permissions';
 import { AddUserModal } from './AddUserModal';
 import { CreateGroupModal } from './CreateGroupModal';
+import { ResetPasswordModal } from './ResetPasswordModal';
 import { DangerConfirmModal } from './DangerConfirmModal';
 import {
   api,
@@ -34,7 +35,6 @@ import { describeError } from '../utils/format';
 
 interface UsersViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
-  onOpenTerminal?: () => void;
   /** The signed-in account — it may not change its own status or delete itself. */
   currentUsername?: string;
 }
@@ -86,9 +86,9 @@ const fmtMb = (mb: number): string => (mb <= 0 ? 'Unlimited' : mb >= 1024 ? `${m
 const fmtCpu = (pct: number): string => (pct <= 0 ? 'Unlimited' : `${pct}%`);
 const permCount = (p?: Record<string, boolean>): number => (p ? Object.values(p).filter(Boolean).length : 0);
 
-export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTerminal, currentUsername }) => {
+export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUsername }) => {
   const selfUsername = currentUsername ?? 'farras';
-  const [activeTab, setActiveTab] = useSubRoute<'users' | 'groups'>('users');
+  const [activeTab, setActiveTab] = useSubRoute<'accounts' | 'groups'>('accounts');
 
   const [live, setLive] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
@@ -103,6 +103,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<GroupRow | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ kind: 'user' | 'group'; id: string; name: string } | null>(null);
+  const [resetTarget, setResetTarget] = useState<ApiUser | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,6 +171,18 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
       onShowToast?.('Could not update the account', describeError(err), 'error');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const resetPassword = async (): Promise<string | null> => {
+    if (!resetTarget) return null;
+    try {
+      const result = await api.resetUserPassword(resetTarget.id);
+      reload();
+      return result.password ?? null;
+    } catch (err) {
+      onShowToast?.('Could not reset the password', describeError(err), 'error');
+      return null;
     }
   };
 
@@ -243,7 +256,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Tenants & User Groups</h1>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Users & Groups</h1>
             <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5" /> cgroups v2 Quotas
             </span>
@@ -269,13 +282,13 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
           >
             <RefreshCw className="w-4 h-4" />
           </button>
-          {activeTab === 'users' ? (
+          {activeTab === 'accounts' ? (
             <button
               onClick={() => { setEditingUser(null); setIsAddUserOpen(true); }}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25"
             >
               <Plus className="w-4 h-4" />
-              <span>Add Tenant User</span>
+              <span>Add User</span>
             </button>
           ) : (
             <button
@@ -292,9 +305,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
         <button
-          onClick={() => setActiveTab('users')}
+          onClick={() => setActiveTab('accounts')}
           className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            activeTab === 'users' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'accounts' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           User Accounts ({users.length})
@@ -305,12 +318,12 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
             activeTab === 'groups' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
-          Resource Groups / Packages ({groups.length})
+          Packages ({groups.length})
         </button>
       </div>
 
       {/* TAB 1: USER ACCOUNTS TABLE */}
-      {activeTab === 'users' && (
+      {activeTab === 'accounts' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
@@ -416,13 +429,15 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                             <UserPlus className="w-4 h-4" />
                           </button>
                         )}
-                        <button
-                          onClick={onOpenTerminal}
-                          className="p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-                          title="Open Terminal Session"
-                        >
-                          <Terminal className="w-4 h-4" />
-                        </button>
+                        {t.username !== selfUsername && (
+                          <button
+                            onClick={() => setResetTarget(t)}
+                            className="p-1.5 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50"
+                            title="Reset password"
+                          >
+                            <KeyRound className="w-4 h-4" />
+                          </button>
+                        )}
                         {t.username !== selfUsername && (
                           <button
                             onClick={() => setPendingDelete({ kind: 'user', id: t.id, name: t.username })}
@@ -470,9 +485,19 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                     </div>
                   </td>
 
-                  <td className="py-3.5 px-4 font-mono font-medium text-slate-700">{fmtCount(g.limits?.maxSites ?? 0)}</td>
+                  <td
+                    className="py-3.5 px-4 font-mono font-medium text-slate-700"
+                    title={g.permissions?.deployApps ? undefined : 'This package cannot deploy websites, so its site allowance does not apply'}
+                  >
+                    {g.permissions?.deployApps ? fmtCount(g.limits?.maxSites ?? 0) : '—'}
+                  </td>
                   <td className="py-3.5 px-4 font-mono font-medium text-slate-700">{fmtGb(g.limits?.diskQuotaGb ?? 0)}</td>
-                  <td className="py-3.5 px-4 font-mono font-medium text-slate-700">{fmtCount(g.limits?.maxDatabases ?? 0)}</td>
+                  <td
+                    className="py-3.5 px-4 font-mono font-medium text-slate-700"
+                    title={g.permissions?.databases ? undefined : 'This package cannot use databases, so its database allowance does not apply'}
+                  >
+                    {g.permissions?.databases ? fmtCount(g.limits?.maxDatabases ?? 0) : '—'}
+                  </td>
                   <td className="py-3.5 px-4 font-mono text-slate-700">{fmtMb(g.limits?.memoryMb ?? 0)} • {fmtCpu(g.limits?.cpuQuotaPercent ?? 0)}</td>
 
                   <td className="py-3.5 px-4">
@@ -541,6 +566,13 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
         busy={busy}
       />
 
+      <ResetPasswordModal
+        isOpen={resetTarget !== null}
+        user={resetTarget}
+        onClose={() => setResetTarget(null)}
+        onReset={resetPassword}
+      />
+
       <DangerConfirmModal
         isOpen={pendingDelete !== null}
         onClose={() => setPendingDelete(null)}
@@ -551,7 +583,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
         warningDescription={
           pendingDelete?.kind === 'group'
             ? 'The package is removed. A package that still has members, or a built-in package, is refused by the daemon.'
-            : 'The panel account is removed. An account that still owns websites or databases is refused until those are moved or deleted.'
+            : 'The panel account AND its Linux account and home (/home/<name>) are removed. An account that still owns websites or databases is refused until those are moved or deleted.'
         }
         confirmLabel={pendingDelete?.kind === 'group' ? 'Delete Package' : 'Delete Account'}
       />

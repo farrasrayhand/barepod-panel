@@ -16,6 +16,26 @@ func newManager(t *testing.T, caps sysinfo.Capabilities) (*Manager, *host.DryRun
 	return New(runner, dir, caps), runner, dir
 }
 
+func TestRemoveRecordsUserdelWithHome(t *testing.T) {
+	m, runner, _ := newManager(t, sysinfo.Capabilities{OS: "linux", Useradd: true})
+
+	res, err := m.Remove(context.Background(), "tenant_alex")
+	if err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	joined := strings.Join(runner.Commands(), " | ")
+	if !strings.Contains(joined, "userdel -r tenant_alex") {
+		t.Errorf("expected userdel -r tenant_alex, recorded: %s", joined)
+	}
+	if len(res.Notes) == 0 {
+		t.Error("dry-run must explain that nothing was removed")
+	}
+
+	if _, err := m.Remove(context.Background(), "not a user"); err == nil {
+		t.Error("an invalid account name must be refused before the OS is touched")
+	}
+}
+
 func TestProvisionDryRunRecordsCommandsAndCreatesLayout(t *testing.T) {
 	m, runner, home := newManager(t, sysinfo.Capabilities{OS: "linux", Useradd: true, Quota: true, RunAsUser: true})
 
@@ -74,8 +94,8 @@ func TestProvisionSkipsQuotaWhenUnavailable(t *testing.T) {
 	if res.QuotaSet {
 		t.Error("quota reported as set although setquota is unavailable")
 	}
-	if !strings.Contains(strings.Join(res.Notes, " "), "setquota") {
-		t.Errorf("notes = %v, want an explanation about setquota", res.Notes)
+	if !strings.Contains(strings.Join(res.Notes, " "), "quota") {
+		t.Errorf("notes = %v, want an explanation about the quota", res.Notes)
 	}
 	if strings.Contains(strings.Join(runner.Commands(), "\n"), "setquota") {
 		t.Error("setquota was run on a host without quota tools")

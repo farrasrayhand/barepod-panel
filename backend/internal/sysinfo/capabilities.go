@@ -21,7 +21,7 @@ type Capabilities struct {
 	Smart     bool   `json:"smart"`
 	Fstrim    bool   `json:"fstrim"`
 	Useradd   bool   `json:"useradd"`   // can create Linux tenant accounts
-	Quota     bool   `json:"quota"`     // setquota/quota tools available
+	Quota     bool   `json:"quota"`     // setquota exists AND user quotas are enabled on the root filesystem
 	RunAsUser bool   `json:"runAsUser"` // can drop to a tenant UID/GID (Linux)
 	DiskStats bool   `json:"diskStats"` // /proc/diskstats is readable
 	// PTYJail reports that a tenant shell can be confined to its own site with a
@@ -33,6 +33,29 @@ type Capabilities struct {
 func has(bin string) bool {
 	_, err := exec.LookPath(bin)
 	return err == nil
+}
+
+// quotaEnabled reports whether user quotas are actually switched on for the root
+// filesystem. The tools alone are not enough: setquota fails on a filesystem that
+// was never mounted with usrquota, so claiming the capability on LookPath alone
+// would be a lie the operator only discovers when a quota silently does not apply.
+func quotaEnabled() bool {
+	data, err := os.ReadFile("/proc/self/mounts")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[1] != "/" {
+			continue
+		}
+		for _, opt := range strings.Split(fields[3], ",") {
+			if opt == "usrquota" || opt == "quota" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func readTrim(path string) string {
@@ -90,7 +113,7 @@ func Detect() Capabilities {
 		Smart:        has("smartctl"),
 		Fstrim:       has("fstrim") && !lxc,
 		Useradd:      runtime.GOOS == "linux" && has("useradd"),
-		Quota:        runtime.GOOS == "linux" && has("setquota"),
+		Quota:        runtime.GOOS == "linux" && has("setquota") && quotaEnabled(),
 		RunAsUser:    runtime.GOOS == "linux",
 		DiskStats:    DetectDiskStats(),
 		SystemdState: state,
