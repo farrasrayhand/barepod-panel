@@ -178,6 +178,10 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     try {
       setStatus(await api.setStackWebServer(engine));
       onShowToast?.('Web server switched', `${engine} now owns :80 for every site.`, 'success');
+      // The engines take a moment to settle — the one that just started is not "running" in
+      // the same instant — so the table is asked again instead of showing a stale state
+      // beside the new ingress.
+      window.setTimeout(() => void load(), 2500);
     } catch (err) {
       onShowToast?.('Could not switch the web server', describeError(err), 'error');
     } finally {
