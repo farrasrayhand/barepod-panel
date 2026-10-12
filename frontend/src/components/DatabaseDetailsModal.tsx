@@ -521,7 +521,11 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
             <span>Connection & Credentials</span>
           </button>
 
-          {database.type !== 'sqlite' && (
+          {/* Not offered for a cache: the lockout's log sources are the SQL and document engines —
+              it never reads a cache's log, so there are no cache refusals to count — and the
+              exposure switch is not offered for a cache either. Showing these settings there would
+              promise a protection that does not exist. */}
+          {database.type !== 'sqlite' && database.type !== 'redis' && (
             <button
               type="button"
               onClick={() => setDataTabActive('security')}

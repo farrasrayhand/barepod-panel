@@ -99,6 +99,45 @@ func (s *Server) handleSetExposure(kind string) authedHandler {
 	}
 }
 
+// ReconcileExposure makes each record's stated state a kernel fact. Until it runs, "private" is
+// only a claim in the panel's database: measured on the test host, a containerised MongoDB whose
+// record said private was still reachable from the LAN at 172.19.1.26:27018, because a port is
+// only put into the private set when somebody moves the switch.
+func ReconcileExposure(ctx context.Context, st *store.Store, run func(context.Context, string, string, ...string) (string, error)) (int, error) {
+	count := 0
+	var firstErr error
+	for _, kind := range []string{store.KindDatabase, store.KindCache} {
+		records, err := st.DatabasesForTenant(kind, "", false)
+		if err != nil {
+			return count, err
+		}
+		for i := range records {
+			record := &records[i]
+			if record.FileBased || record.Port == 0 {
+				continue
+			}
+			argv := guard.PrivatePortArgv(record.Port)
+			// Only the message that means "already in the state we want" is tolerated. A missing
+			// table or set means the port is NOT protected, and counting that as success is how a
+			// containerised MongoDB stayed reachable from the LAN while the log said reconciled.
+			tolerated := "File exists"
+			if record.Exposure == store.ExposurePublic {
+				argv = guard.OpenPortArgv(record.Port)
+				tolerated = "No such file or directory"
+			}
+			out, err := run(ctx, "", argv[0], argv[1:]...)
+			if err != nil && !strings.Contains(out, tolerated) {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("port %d: %s", record.Port, strings.TrimSpace(out))
+				}
+				continue
+			}
+			count++
+		}
+	}
+	return count, firstErr
+}
+
 // applyExposure does the work and describes it. It returns an error only when nothing could be
 // done; a partial result is a note, because an operator has to know what is true rather than
 // what was intended.

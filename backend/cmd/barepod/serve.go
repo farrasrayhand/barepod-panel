@@ -334,9 +334,24 @@ func runServe(args []string) error {
 	guardCtx, stopGuard := context.WithCancel(context.Background())
 	defer stopGuard()
 	watchdog := api.NewGuard(api.GuardExecutor(h.Runner.Run), st, guardInterval, log.Printf)
+	// Adopt first and wait for it: the reconciliation below needs the table and its sets to
+	// exist, and racing the goroutine left ports out of the set while reporting success —
+	// measured, a containerised MongoDB stayed reachable from the LAN that way.
+	if err := watchdog.Adopt(context.Background()); err != nil {
+		log.Printf("guard: the panel's firewall table could not be prepared: %v", err)
+	}
 	go watchdog.Run(guardCtx)
 	log.Printf("guard: watching %d log source(s) every %s; table inet %s",
 		len(guard.Sources()), guardInterval, guard.Table)
+
+	// A record that says "private" has to be private in the kernel too, not only in the
+	// database: without this the port of a containerised engine stayed reachable from the LAN
+	// until somebody happened to move the switch.
+	if applied, err := api.ReconcileExposure(context.Background(), st, h.Runner.Run); err != nil {
+		log.Printf("guard: could only reconcile %d port(s) against the firewall set: %v", applied, err)
+	} else {
+		log.Printf("guard: %d record port(s) reconciled against the firewall set", applied)
+	}
 
 	log.Printf("host: %s/%s %q systemd=%v lxc=%v docker=%v smart=%v fstrim=%v",
 		caps.OS, caps.Arch, caps.Distro, caps.Systemd, caps.LXC, caps.Docker, caps.Smart, caps.Fstrim)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,6 +107,20 @@ func (g *Guard) Adopt(ctx context.Context) error {
 	for _, argv := range EnsureArgv() {
 		if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
 			return errf("prepare %s: %s (%v)", strings.Join(argv, " "), strings.TrimSpace(out), err)
+		}
+	}
+	// The addresses that may still reach a private port: loopback, and the docker bridge. The
+	// bridge is not optional — the panel hands its own containerised manager the bridge gateway
+	// to reach a containerised engine (DbGate to MongoDB), so dropping the bridge would take that
+	// away. It is discovered rather than assumed: a host's LAN can sit in the same private range
+	// as docker's default (this host: LAN 172.19.1.0/24, bridge 172.17.0.0/16).
+	for _, cidr := range append([]string{"127.0.0.0/8"}, g.bridgeSubnets(ctx)...) {
+		argv := ExemptArgv(cidr)
+		if out, err := g.exec(ctx, argv[0], argv[1:]...); err != nil {
+			// Already present is not a failure: Adopt runs on every start.
+			if !strings.Contains(out, "File exists") {
+				g.logf("guard: %s could not be exempted: %s (%v)", cidr, strings.TrimSpace(out), err)
+			}
 		}
 	}
 	bans, err := g.store.Bans()
@@ -245,6 +260,28 @@ func (g *Guard) Sweep(ctx context.Context) error {
 	}
 	g.mu.Unlock()
 	return firstErr
+}
+
+// bridgeSubnets asks the host which networks its docker bridges carry, so their addresses can be
+// exempt without exempting whatever else shares that private range.
+func (g *Guard) bridgeSubnets(ctx context.Context) []string {
+	out, err := g.exec(ctx, "ip", "-4", "-o", "addr", "show")
+	if err != nil {
+		return nil
+	}
+	subnets := []string{}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || !strings.HasPrefix(fields[1], "docker") {
+			continue
+		}
+		_, network, err := net.ParseCIDR(fields[3])
+		if err != nil {
+			continue
+		}
+		subnets = append(subnets, network.String())
+	}
+	return subnets
 }
 
 // Unban releases one address at once — the button in the panel — and also forgets its

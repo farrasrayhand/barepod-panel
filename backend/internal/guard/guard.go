@@ -247,11 +247,18 @@ const (
 	// port private, so opening one is removing a single element — instantly reversible, and
 	// visible in the same table as everything else the panel enforces.
 	PortsSet = "private_ports"
-	chainRun = "-10" // before the general filter chains: a banned address is dropped early
+	// ExemptSet holds the addresses that may still reach a private port: loopback, and the
+	// docker bridge. The bridge is there because the panel's own managers are containers and
+	// reach a containerised engine through the gateway (measured: 172.17.0.1 for a bridge of
+	// 172.17.0.0/16) — dropping it would take away the one way a manager has to open the
+	// engine the panel provisions. The LAN is not in this set: on the test host it is
+	// 172.19.0.0/16, next to but distinct from the bridge.
+	ExemptSet = "private_exempt"
+	chainRun  = "-10" // before the general filter chains: a banned address is dropped early
 )
 
-// EnsureArgv creates the table, the two sets and the rules that read them, and is safe to run
-// again and again (`nft add` on an existing object is a no-op).
+// EnsureArgv creates the table, its sets and the rules that read them, and is safe to run again
+// and again (`nft add` on an existing object is a no-op).
 func EnsureArgv() [][]string {
 	return [][]string{
 		{"nft", "add", "table", "inet", Table},
@@ -259,16 +266,28 @@ func EnsureArgv() [][]string {
 		// if the panel is down when its ban runs out.
 		{"nft", "add", "set", "inet", Table, Set, "{", "type", "ipv4_addr;", "flags", "timeout;", "}"},
 		{"nft", "add", "set", "inet", Table, PortsSet, "{", "type", "inet_service;", "}"},
+		// flags interval is not decoration: without it nft refuses a CIDR, so the exemption for
+		// loopback (127.0.0.0/8) and for the docker bridge silently failed to install — and the
+		// drop rule below then took away the panel's own access to every engine it manages.
+		// Measured: 127.0.0.1:27018 was blocked until the set carried this flag.
+		{"nft", "add", "set", "inet", Table, ExemptSet, "{", "type", "ipv4_addr;", "flags", "interval;", "}"},
 		{"nft", "add", "chain", "inet", Table, "input", "{", "type", "filter", "hook", "input", "priority", chainRun, ";", "policy", "accept", ";", "}"},
 		// `add rule` appends, unlike `add table`/`add set`, so this guard is prepared by
 		// flushing its own chain first. Measured: without it, every panel restart left another
 		// copy of the drop rules behind (seven restarts, seven identical rules).
 		{"nft", "flush", "chain", "inet", Table, "input"},
 		{"nft", "add", "rule", "inet", Table, "input", "ip", "saddr", "@" + Set, "drop"},
-		// Loopback is never dropped here either: that is how the panel and the site's own
-		// application reach the database.
-		{"nft", "add", "rule", "inet", Table, "input", "ip", "saddr", "!=", "127.0.0.1", "tcp", "dport", "@" + PortsSet, "drop"},
+		// Then the exempt addresses are let through (return hands the decision back to the
+		// policy, which accepts), and only what is left is dropped from a private port.
+		{"nft", "add", "rule", "inet", Table, "input", "ip", "saddr", "@" + ExemptSet, "return"},
+		{"nft", "add", "rule", "inet", Table, "input", "tcp", "dport", "@" + PortsSet, "drop"},
 	}
+}
+
+// ExemptArgv lets an address or network reach a private port. Loopback is put here at start, and
+// so is the docker bridge when the host has one.
+func ExemptArgv(cidr string) []string {
+	return []string{"nft", "add", "element", "inet", Table, ExemptSet, "{", cidr, "}"}
 }
 
 // PrivatePortArgv keeps an engine's port reachable from the host only. A database that has not
