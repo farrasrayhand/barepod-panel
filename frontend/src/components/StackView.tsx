@@ -13,6 +13,32 @@ const KINDS: Record<string, { label: string; icon: React.FC<{ className?: string
   database: { label: 'Databases', icon: Database },
 };
 
+// InstallButton is one installable version. The newest of a long list is drawn on its own
+// and marked, because it is the one an unopinionated install wants.
+const InstallButton: React.FC<{
+  component: string;
+  version: string;
+  latest?: boolean;
+  installed: boolean;
+  disabled: boolean;
+  onInstall: () => void;
+}> = ({ component, version, latest, installed, disabled, onInstall }) => (
+  <button
+    onClick={onInstall}
+    disabled={disabled || installed}
+    title={installed ? `${component} ${version} is already installed` : undefined}
+    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold disabled:cursor-not-allowed ${
+      installed
+        ? 'text-emerald-700 bg-emerald-50 border border-emerald-200'
+        : 'text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50'
+    }`}
+  >
+    {installed ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
+    {version ? `${component} ${version}` : component}
+    {installed ? ' · installed' : latest ? ' · latest' : ''}
+  </button>
+);
+
 export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
   const [activeTab, setActiveTab] = useSubRoute<'web' | 'runtime' | 'database'>('web');
   const [status, setStatus] = useState<StackStatus | null>(null);
@@ -23,6 +49,8 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobLines, setJobLines] = useState<StackJobLogLine[]>([]);
   const [jobStatus, setJobStatus] = useState<string>('');
+  // Which runtimes have their long version list open.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const sourceRef = useRef<EventSource | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
@@ -285,6 +313,9 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
             // component's own curated list is what can be installed.
             const offerable = available.length > 0 ? available : component.versions ?? [];
             const chosen = component.name === 'php' ? status?.php.default : status?.node.default;
+            // A short list is shown whole; a long one offers its newest and keeps the rest
+            // behind a click.
+            const short = offerable.length <= 6;
             return (
               <div key={component.name} className="bg-white rounded-xl border border-slate-200 p-4">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -301,31 +332,42 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 <div className="mt-3 flex flex-col gap-2">
                   <span className="text-[11px] text-slate-500">
                     {/* Not every list comes from an apt repository: Node and Go come from their
-                        vendor index, Ruby from ruby-build, Rust from rustup's channels. */}
+                        vendor index, Ruby from ruby-build, Rust from rustup's channels and
+                        its release feed. */}
                     {offerable.length > 0 ? `Available (${offerable.length}, newest first):` : 'Install:'}
                   </span>
-                  {/* Every version the host offers, not a hand-picked few. */}
-                  <div className="flex items-center gap-2 flex-wrap max-h-32 overflow-y-auto">
-                    {offerable.map((version) => {
-                      const already = version !== '' && installed.includes(version);
-                      return (
-                        <button
-                          key={version || 'any'}
-                          onClick={() => void install(component.name, version || undefined)}
-                          disabled={busy || live !== true || already}
-                          title={already ? `${component.label} ${version} is already installed` : undefined}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold disabled:cursor-not-allowed ${
-                            already
-                              ? 'text-emerald-700 bg-emerald-50 border border-emerald-200'
-                              : 'text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50'
-                          }`}
-                        >
-                          {already ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
-                          {version ? `${component.label} ${version}` : component.label}
-                          {already ? ' · installed' : ''}
-                        </button>
-                      );
-                    })}
+                  {/* The newest is the one to install unless a project pins an older one, so it
+                      is offered on its own and the rest stay one click away. */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {offerable.slice(0, short ? offerable.length : 1).map((version) => (
+                      <InstallButton
+                        key={version || 'any'}
+                        component={component.label}
+                        version={version}
+                        latest
+                        installed={installed.includes(version)}
+                        disabled={busy || live !== true}
+                        onInstall={() => void install(component.name, version || undefined)}
+                      />
+                    ))}
+                    {!short && expanded[component.name] && offerable.slice(1).map((version) => (
+                      <InstallButton
+                        key={version || 'any'}
+                        component={component.label}
+                        version={version}
+                        installed={installed.includes(version)}
+                        disabled={busy || live !== true}
+                        onInstall={() => void install(component.name, version || undefined)}
+                      />
+                    ))}
+                    {!short && (
+                      <button
+                        onClick={() => setExpanded((prev) => ({ ...prev, [component.name]: !prev[component.name] }))}
+                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 underline"
+                      >
+                        {expanded[component.name] ? 'Hide the other versions' : `Show ${offerable.length - 1} more versions`}
+                      </button>
+                    )}
                     {offerable.length === 0 && <span className="text-[11px] text-slate-400">nothing offered by this host's repositories yet</span>}
                   </div>
                 </div>

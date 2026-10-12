@@ -67,6 +67,25 @@ func Lookup(name string) (Component, bool) {
 	return Component{}, false
 }
 
+// dpkgRepairScript clears a half-finished dpkg transaction, and is a no-op when there is
+// nothing to clear. It matters because a restart of the daemon — a deploy, say — kills
+// whatever apt was running under it, and every later apt step then fails with "dpkg was
+// interrupted, you must manually run 'dpkg --configure -a'" until something runs it.
+const dpkgRepairScript = `dpkg --configure -a >/dev/null 2>&1 || true`
+
+func dpkgRepair() []string { return []string{"bash", "-c", dpkgRepairScript} }
+
+// aptWait makes an apt step wait for the dpkg lock instead of failing on it. The panel's
+// own installs are serialised, but the lock can be held by something this process cannot
+// see — a shell, an unattended upgrade — and failing there leaves a half-finished install
+// for no reason.
+var aptWait = []string{"-o", "DPkg::Lock::Timeout=600"}
+
+// aptGet builds an apt-get argv with that wait in place.
+func aptGet(args ...string) []string {
+	return append(append([]string{"apt-get"}, aptWait...), args...)
+}
+
 // Commands is the allowlisted command list for a component (and version, where the
 // distro provides one). An unknown component or version shape is refused. Whether a
 // particular version is *offered here* is a question for the host's repositories, so it
@@ -87,7 +106,7 @@ func Commands(component, version string) ([][]string, error) {
 	}
 
 	apt := func(pkgs ...string) [][]string {
-		return [][]string{append([]string{"apt-get", "install", "-y"}, pkgs...)}
+		return [][]string{aptGet(append([]string{"install", "-y"}, pkgs...)...)}
 	}
 	switch c.Name {
 	case "nginx":
@@ -112,15 +131,15 @@ func Commands(component, version string) ([][]string, error) {
 		//
 		// Only FPM and CLI are requirements. The extensions are installed one by one and a
 		// missing one is named in the log: repositories do not carry the same set for every
-		// version (Sury has no php8.0-sodium, for one), and `apt-get install` is atomic, so
+		// version (Sury has no php8.0-sodium, for one), and an apt install is atomic, so
 		// asking for them together failed the whole install over a single absent package.
 		extensions := []string{
 			"curl", "mbstring", "xml", "zip", "gd", "intl", "bcmath", "mysql", "pgsql",
 			"sqlite3", "opcache", "soap", "sodium", "exif", "bz2", "gmp",
 			"imagick", "redis", "mongodb", "ldap", "imap", "swoole", "pcntl",
 		}
-		script := "set -e\napt-get install -y php" + version + "-fpm php" + version + "-cli" +
-			"\nfor e in " + strings.Join(extensions, " ") + "; do apt-get install -y php" + version + "-$e || echo \"skipped php" + version + "-$e (not offered by this repository)\"; done"
+		script := "set -e\napt-get -o DPkg::Lock::Timeout=600 install -y php" + version + "-fpm php" + version + "-cli" +
+			"\nfor e in " + strings.Join(extensions, " ") + "; do apt-get -o DPkg::Lock::Timeout=600 install -y php" + version + "-$e || echo \"skipped php" + version + "-$e (not offered by this repository)\"; done"
 		// Ubuntu ships a single PHP, so the versions the panel offers come from the Sury
 		// repository; it is added first and the available versions are read back from apt.
 		return [][]string{{"bash", "-c", suryRepoScript}, {"bash", "-c", script}}, nil
@@ -160,10 +179,10 @@ func Commands(component, version string) ([][]string, error) {
 		return apt("redis-server"), nil
 	case "mongodb":
 		return [][]string{
-			{"bash", "-c", "apt-get install -y gnupg curl && curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor"},
+			{"bash", "-c", "apt-get -o DPkg::Lock::Timeout=600 install -y gnupg curl && curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor"},
 			{"bash", "-c", `echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/7.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-7.0.list`},
-			{"apt-get", "update"},
-			{"apt-get", "install", "-y", "mongodb-org"},
+			aptGet("update"),
+			aptGet("install", "-y", "mongodb-org"),
 		}, nil
 	}
 	return nil, fmt.Errorf("stack: %s has no install recipe", c.Name)
@@ -173,35 +192,36 @@ func Commands(component, version string) ([][]string, error) {
 // does not ship come from. The key is installed with a signed-by entry so apt does
 // not accept anything else from that host.
 const suryRepoScript = `set -e
-apt-get install -y -qq lsb-release ca-certificates curl gnupg >/dev/null
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq lsb-release ca-certificates curl gnupg >/dev/null
 curl -fsSL https://packages.sury.org/php/apt.gpg -o /usr/share/keyrings/sury-php.gpg
 echo "deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/sury-php.list
-apt-get update`
+apt-get -o DPkg::Lock::Timeout=600 update`
 
 // deadsnakesRepoScript adds the deadsnakes PPA, where the Python versions Ubuntu does
 // not ship come from.
 const deadsnakesRepoScript = `set -e
-apt-get install -y -qq software-properties-common >/dev/null
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq software-properties-common >/dev/null
 add-apt-repository -y ppa:deadsnakes/ppa
-apt-get update`
+apt-get -o DPkg::Lock::Timeout=600 update`
 
 // rbenvRepoScript installs rbenv and ruby-build into the panel's own directory, so Ruby
 // versions can be installed side by side (the distro ships exactly one).
 const rbenvRepoScript = `set -e
-apt-get install -y -qq git curl build-essential libssl-dev zlib1g-dev libreadline-dev libyaml-dev libffi-dev libgdbm-dev libncurses-dev >/dev/null
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq git curl build-essential libssl-dev zlib1g-dev libreadline-dev libyaml-dev libffi-dev libgdbm-dev libncurses-dev >/dev/null
 [ -d /opt/barepod/rbenv ] || git clone --depth 1 https://github.com/rbenv/rbenv.git /opt/barepod/rbenv
 [ -d /opt/barepod/ruby-build ] || git clone --depth 1 https://github.com/rbenv/ruby-build.git /opt/barepod/ruby-build
 ln -sf /opt/barepod/rbenv/bin/rbenv /usr/local/bin/rbenv
 ln -sf /opt/barepod/ruby-build/bin/ruby-build /usr/local/bin/ruby-build`
 
-// rustupRepoScript installs rustup, which is itself the multi-toolchain manager. It
-// installs under the panel's own directory and never relies on $HOME: the runner may
-// hand it a clean environment, and "$HOME/.cargo" expanded to "/.cargo" once, which left
-// a symlink pointing at nothing.
+// rustupRepoScript installs rustup, which is itself the multi-toolchain manager. It uses
+// rustup's own defaults (~/.cargo, ~/.rustup) so that `rustup`, `rustc` and `cargo` work
+// in any root shell with no variables set — but HOME is pinned first, because the runner
+// can hand this a clean environment, and "$HOME/.cargo" then expanded to "/.cargo" and
+// left a symlink pointing at nothing.
 const rustupRepoScript = `set -e
-apt-get install -y -qq curl >/dev/null
-export RUSTUP_HOME=/opt/barepod/rustup CARGO_HOME=/opt/barepod/cargo
-mkdir -p "$CARGO_HOME" "$RUSTUP_HOME"
+export HOME="${HOME:-/root}"
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl >/dev/null
+export CARGO_HOME="$HOME/.cargo" RUSTUP_HOME="$HOME/.rustup"
 if [ ! -x "$CARGO_HOME/bin/rustup" ]; then
   curl -fsSL https://sh.rustup.rs -o /tmp/rustup-init.sh
   sh /tmp/rustup-init.sh -y --no-modify-path --profile minimal
@@ -217,13 +237,36 @@ func containsString(list []string, v string) bool {
 	return false
 }
 
-// Installer runs an install as a job with a live log, reusing the deploy job store.
+// Installer runs an install as a job with a live log, reusing the deploy job store. One
+// install runs at a time: every apt step takes the same dpkg lock, so a second one would
+// only wait behind the first (or fail on it, which is what "Could not get lock
+// /var/lib/dpkg/lock-frontend" was).
 type Installer struct {
 	store *store.Store
 	host  *host.Host
+
+	mu      sync.Mutex
+	running string // the install in progress, empty when none is
 }
 
 func New(st *store.Store, h *host.Host) *Installer { return &Installer{store: st, host: h} }
+
+// claim marks an install as running, or reports which one is in the way.
+func (i *Installer) claim(label string) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.running != "" {
+		return fmt.Errorf("stack: %s is installing right now — wait for it to finish (two installs would share one package lock)", i.running)
+	}
+	i.running = label
+	return nil
+}
+
+func (i *Installer) release() {
+	i.mu.Lock()
+	i.running = ""
+	i.mu.Unlock()
+}
 
 // Start records the job and runs it in the background.
 func (i *Installer) Start(component, version string) (*store.DeployJob, error) {
@@ -238,6 +281,17 @@ func (i *Installer) Start(component, version string) (*store.DeployJob, error) {
 	}
 	commands, err := Commands(component, version)
 	if err != nil {
+		return nil, err
+	}
+	// Every install starts by clearing a half-finished dpkg transaction, so a restart of
+	// the daemon during an earlier install does not poison this one.
+	commands = append([][]string{dpkgRepair()}, commands...)
+	label := component
+	if version != "" {
+		label += " " + version
+	}
+	// Claimed after the request is known to be valid, so a bad one cannot block the queue.
+	if err := i.claim(label); err != nil {
 		return nil, err
 	}
 	job := &store.DeployJob{
@@ -277,6 +331,7 @@ func (i *Installer) offered(ctx context.Context, component string) []string {
 }
 
 func (i *Installer) run(job *store.DeployJob, component, version string, commands [][]string) {
+	defer i.release()
 	defer func() { _, _ = i.store.PruneDeployJobs(JobSlug, 5) }()
 
 	job.Status = "running"
@@ -425,6 +480,12 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 			status.Installed = out.PHP.Installed
 		case r.name == "node":
 			status.Installed = nodeInstalled(ctx, h, lookPath)
+		case r.name == "go":
+			// Several Go toolchains coexist as /usr/local/go<version>, so the answer is a
+			// list and not one probe.
+			status.Installed = goInstalled(ctx, h)
+		case r.name == "rust":
+			status.Installed = rustInstalled(ctx, h)
 		case len(r.binary) > 0:
 			status.Installed = probeVersions(ctx, h, lookPath, r.probe, r.binary)
 		}
@@ -545,14 +606,10 @@ func availableVersions(ctx context.Context, h *host.Host, r runtimeSource) []str
 		}
 		return sortedDescending(set)
 	case "rustup":
-		// rustup manages toolchains itself; these are the channels it publishes.
-		if !h.Materialises() {
-			return nil
-		}
-		if _, err := h.Run(ctx, []string{"rustup", "--version"}); err != nil {
-			return nil
-		}
-		return []string{"stable", "beta", "nightly"}
+		// rustup publishes three channels, and any released version besides them can be
+		// installed by name — the list below is what its toolchain index answers with.
+		versions := vendorVersions(ctx, h, "rust")
+		return append([]string{"stable", "beta", "nightly"}, versions...)
 	}
 	return nil
 }
@@ -585,6 +642,7 @@ func vendorVersions(ctx context.Context, h *host.Host, name string) []string {
 	fetched := map[string][]string{
 		"node": fetchNodeVersions(),
 		"go":   fetchGoVersions(),
+		"rust": fetchRustVersions(),
 	}
 	vendorCache.Lock()
 	vendorCache.at = time.Now()
@@ -659,6 +717,74 @@ func httpGet(url string) ([]byte, error) {
 		return nil, fmt.Errorf("stack: %s answered %d", url, resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+}
+
+// fetchRustVersions reads the Rust project's release feed: rustup installs any published
+// release by name, and the channel manifests themselves cannot be listed.
+func fetchRustVersions() []string {
+	var releases []struct {
+		TagName string `json:"tag_name"`
+	}
+	body, err := httpGet("https://api.github.com/repos/rust-lang/rust/releases?per_page=100")
+	if err != nil {
+		return nil
+	}
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, release := range releases {
+		if regexp.MustCompile(`^1\.\d+\.\d+$`).MatchString(release.TagName) {
+			set[release.TagName] = true
+		}
+	}
+	return sortedDescending(set)
+}
+
+// goInstalled lists the Go toolchains on this host: the ones unpacked per version under
+// /usr/local (which is how several coexist) plus whatever `go` is on PATH.
+func goInstalled(ctx context.Context, h *host.Host) []string {
+	set := map[string]bool{}
+	if entries, err := os.ReadDir("/usr/local"); err == nil {
+		for _, entry := range entries {
+			name := strings.TrimPrefix(entry.Name(), "go")
+			if entry.IsDir() && name != entry.Name() && runtimesVersionPattern.MatchString(name) {
+				set[name] = true
+			}
+		}
+	}
+	if out, err := h.Run(ctx, []string{"bash", "-c", "go version 2>/dev/null || /usr/local/go/bin/go version 2>/dev/null || true"}); err == nil {
+		if m := regexp.MustCompile(`go(\d+\.\d+(\.\d+)?)`).FindStringSubmatch(out); m != nil {
+			set[m[1]] = true
+		}
+	}
+	return sortedDescending(set)
+}
+
+// rustInstalled lists what rustup actually has installed. It names toolchains with a
+// target triple ("stable-x86_64-unknown-linux-gnu"), and the part a person chooses is
+// only the first field.
+func rustInstalled(ctx context.Context, h *host.Host) []string {
+	out, err := h.Run(ctx, []string{"rustup", "toolchain", "list"})
+	if err != nil {
+		return nil
+	}
+	channels := map[string]bool{}
+	set := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) == 0 {
+			continue
+		}
+		name := strings.SplitN(fields[0], "-", 2)[0]
+		if runtimesVersionPattern.MatchString(name) {
+			set[name] = true
+			continue
+		}
+		channels[name] = true
+	}
+	// Channels first (newest-first doesn't apply to a name), then the versions.
+	return append(sortedDescending(channels), sortedDescending(set)...)
 }
 
 // sortedDescending returns the version set newest-first by numeric component, so 1.9

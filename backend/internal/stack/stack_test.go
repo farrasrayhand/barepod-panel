@@ -84,6 +84,37 @@ func TestInstallRefusesAVersionTheHostDoesNotOffer(t *testing.T) {
 	}
 }
 
+func TestOnlyOneInstallRunsAtATime(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	h := &host.Host{Runner: &host.DryRunner{}, SitesRoot: filepath.Join(dir, "home"), VHostsDir: filepath.Join(dir, "vhosts")}
+	installer := New(st, h)
+
+	// Two installs at once share one package lock, so the second is refused with the name
+	// of the first rather than being left to fail on dpkg.
+	first, err := installer.Start("caddy", "")
+	if err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	if _, err := installer.Start("nginx", ""); err == nil {
+		t.Error("a second install was accepted while the first was running")
+	}
+	_ = first
+
+	deadline := time.Now().Add(5 * time.Second)
+	for installer.claim("probe") != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the first install never released its claim")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	installer.release()
+}
+
 func TestInstallerDryRunRecordsAndInstallsNothing(t *testing.T) {
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "panel.db"))
@@ -116,8 +147,11 @@ func TestInstallerDryRunRecordsAndInstallsNothing(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	joined := strings.Join(runner.Commands(), " | ")
-	if !strings.Contains(joined, "apt-get install -y caddy") {
-		t.Errorf("the install command was not recorded: %s", joined)
+	// The command carries the lock wait: an install must queue behind apt, not fail on it.
+	for _, want := range []string{"apt-get", "install", "-y", "caddy", "DPkg::Lock::Timeout=600"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the install command is missing %q: %s", want, joined)
+		}
 	}
 	logs, _ := st.DeployLogs(job.ID, 0)
 	var sawDryRun bool
