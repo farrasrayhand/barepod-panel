@@ -34,6 +34,7 @@ func runUninstall(args []string) error {
 	backupDir := fs.String("backup-dir", "/var/backups/barepod", "where the backup goes (never inside something this removes)")
 	backup := fs.String("backup", "db", "what to save first: db, full, or none")
 	yes := fs.Bool("yes", false, "non-interactive; only what the flags name is done")
+	backupOnly := fs.Bool("backup-only", false, "take the backup and stop: nothing is stopped or deleted")
 	purgeData := fs.Bool("purge-data", false, "also delete the data directory (database, bundle, certificate)")
 	removeTenants := fs.Bool("remove-tenants", false, "also delete the tenant accounts the panel created")
 	removeTenantData := fs.Bool("remove-tenant-data", false, "with --remove-tenants, delete their home directories too")
@@ -54,7 +55,7 @@ func runUninstall(args []string) error {
 		dbPath: *dbPath, dataDir: dataDir, confDir: *confDir, unitsDir: *unitsDir, backupDir: *backupDir,
 		backup: *backup, purgeData: *purgeData, removeTenants: *removeTenants,
 		removeTenantData: *removeTenantData, removeVolumes: *removeVolumes,
-		keepEngineConfig: *keepEngineConfig, interactive: !*yes,
+		keepEngineConfig: *keepEngineConfig, interactive: !*yes, backupOnly: *backupOnly,
 	}
 
 	// A backup written inside a directory this command deletes is not a backup. Refusing beats quietly
@@ -88,6 +89,23 @@ func runUninstall(args []string) error {
 	plan.containers = panelContainers(ctx)
 
 	printUninstallPlan(plan)
+
+	// --backup-only stops here: the backup path is the one part of this command that destroys nothing, and
+	// being able to run it on a live panel is what turns "the backup should work" into a measured fact.
+	if plan.backupOnly {
+		if plan.backup == "none" {
+			return fmt.Errorf("--backup-only needs a backup level: db or full")
+		}
+		archive, err := writeUninstallBackup(ctx, plan, dataDir, !panelStopped(ctx))
+		if err != nil {
+			return fmt.Errorf("the backup failed: %w", err)
+		}
+		fmt.Printf("\nBackup written and read back: %s\n", archive)
+		if !panelStopped(ctx) {
+			fmt.Printf("Nothing was stopped or removed. The panel is still running on its port.\n")
+		}
+		return nil
+	}
 
 	if plan.interactive {
 		if !stdinIsTerminal() {
@@ -137,7 +155,7 @@ func runUninstall(args []string) error {
 	// 2. the backup, with the panel already stopped — it writes SQLite in WAL mode, and a copy taken from a
 	//    running panel can miss the commits still in the write-ahead log
 	if plan.backup != "none" {
-		archive, err := writeUninstallBackup(ctx, plan, dataDir)
+		archive, err := writeUninstallBackup(ctx, plan, dataDir, false)
 		if err != nil {
 			return fmt.Errorf("nothing was removed: the backup failed (%w)", err)
 		}
@@ -229,6 +247,7 @@ type uninstallPlan struct {
 	backup                                        string
 	purgeData, removeTenants, removeTenantData    bool
 	removeVolumes, keepEngineConfig, interactive  bool
+	backupOnly                                    bool
 	hasNFTable                                    bool
 	sites                                         []store.Website
 	tenants                                       []string
@@ -260,7 +279,7 @@ func backupWhere(plan uninstallPlan) string {
 // writeUninstallBackup saves what the plan asked for and proves it can be read back. The caller stops
 // everything first, so the database copy is taken from a panel that is not writing; sqlite3's own copy is
 // preferred when it exists because it is consistent even under a writer.
-func writeUninstallBackup(ctx context.Context, plan uninstallPlan, dataDir string) (string, error) {
+func writeUninstallBackup(ctx context.Context, plan uninstallPlan, dataDir string, live bool) (string, error) {
 	if err := os.MkdirAll(plan.backupDir, 0o700); err != nil {
 		return "", err
 	}
@@ -285,6 +304,13 @@ func writeUninstallBackup(ctx context.Context, plan uninstallPlan, dataDir strin
 			}
 		}
 		if !copied {
+			// Without sqlite3 there is no consistent copy available, and a plain cp of a database a running
+			// panel is writing to can miss the commits still in its write-ahead log. Say so rather than
+			// hand back a file that looks whole.
+			if live {
+				fmt.Printf("  note: sqlite3 is not installed here and the panel is running, so this copy may be\n" +
+					"  missing recent writes (the -wal sidecar is included, which is the best that can be done)\n")
+			}
 			if err := copyFile(plan.dbPath, filepath.Join(dir, "barepod.db")); err != nil {
 				return "", err
 			}
@@ -587,4 +613,14 @@ func onOff(when bool, yes, no string) string {
 		return yes
 	}
 	return no
+}
+
+// panelStopped says whether the panel service is running, which is what decides if a plain database copy
+// is safe to describe as consistent.
+func panelStopped(ctx context.Context) bool {
+	out, err := output(ctx, "systemctl", "is-active", "barepod.service")
+	if err != nil {
+		return true
+	}
+	return strings.TrimSpace(out) != "active"
 }

@@ -39,7 +39,7 @@ for arg in "$@"; do
 done
 
 say()  { printf '  %s\n' "$*"; }
-head() { printf '\n%s\n' "$*"; }
+section() { printf '\n%s\n' "$*"; }
 act()  { printf '  [run]  %s\n' "$*"; if [ "$ASSUME_YES" -eq 1 ]; then eval "$*" >/dev/null 2>&1 || printf '  [warn] that step did not complete cleanly: %s\n' "$*"; fi; }
 
 [ "$(id -u)" -eq 0 ] || { echo "run this as root (it writes systemd units and the panel's data directory)." >&2; exit 1; }
@@ -50,7 +50,7 @@ if [ -z "$FROM" ]; then
 fi
 [ -f "$FROM" ] || { echo "no such backup: $FROM" >&2; exit 1; }
 
-head "Backup to restore"
+section "Backup to restore"
 say "file: $FROM"
 say "size: $(du -h "$FROM" | cut -f1)"
 manifest="$(tar -xzOf "$FROM" barepod/MANIFEST.txt 2>/dev/null || true)"
@@ -61,18 +61,18 @@ else
   say "but only files whose names this script knows will be put back"
 fi
 
-head "Plan"
+section "Plan"
 say "panel database:   -> $DATA_DIR/barepod.db$([ -f "$DATA_DIR/barepod.db" ] && echo "  (exists; $([ "$FORCE" -eq 1 ] && echo 'will be moved aside' || echo 'NOT overwritten without --force'))" || echo '')"
 say "certificate:      -> $DATA_DIR/panel-selfsigned.{crt,key}"
 say "unit files:       -> $UNITS_DIR (only if the backup is a full one)"
 [ -f "$DATA_DIR/barepod.db" ] && [ "$FORCE" -eq 0 ] && [ "$ASSUME_YES" -eq 1 ] && { echo; echo "refusing: a panel database is already there. Use --force to replace it (it will be moved aside)." >&2; exit 1; }
 
 if [ "$ASSUME_YES" -eq 0 ]; then
-  head "Dry run. Nothing was written. Re-run with --yes to restore."
+  section "Dry run. Nothing was written. Re-run with --yes to restore."
   exit 0
 fi
 
-head "Restoring"
+section "Restoring"
 work="$(mktemp -d)"
 tar -xzf "$FROM" -C "$work"
 src="$work/barepod"
@@ -105,7 +105,7 @@ if [ -d "$src/units" ]; then
 fi
 rm -rf "$work"
 
-head "Restored"
+section "Restored"
 say "Accounts, records and settings are back in $DATA_DIR/barepod.db — sign in with the accounts that were"
 say "in the backup, not with a newly created one."
 say "If the binary is not installed yet: scripts/install.sh, then 'barepod service install'."

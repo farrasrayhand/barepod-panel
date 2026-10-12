@@ -63,7 +63,7 @@ for arg in "$@"; do
 done
 
 say()  { printf '  %s\n' "$*"; }
-head() { printf '\n%s\n' "$*"; }
+section() { printf '\n%s\n' "$*"; }
 act()  { printf '  [run]  %s\n' "$*"; if [ "$ASSUME_YES" -eq 1 ]; then eval "$*" >/dev/null 2>&1 || printf '  [warn] that step did not complete cleanly: %s\n' "$*"; fi; }
 cmd()  { command -v "$1" >/dev/null 2>&1; }
 
@@ -95,7 +95,7 @@ for unit in "${SITE_UNITS[@]:-}"; do
 done
 mapfile -t CONTAINERS < <(cmd docker && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -E '^barepod-(mongo|dbgate)' || true)
 
-head "BarePod uninstall — plan"
+section "BarePod uninstall — plan"
 say "panel unit:        $UNITS_DIR/barepod.service$([ -f "$UNITS_DIR/barepod.service" ] && echo ' (present)' || echo ' (absent)')"
 say "site units:        ${#SITE_UNITS[@]} (${SITE_UNITS[*]:-none})"
 say "tenant accounts:   ${#TENANTS[@]} (${!TENANTS[*]:-none})"
@@ -109,12 +109,12 @@ say "tenant data:       $SITES_ROOT/<tenant>$([ "$REMOVE_TENANT_DATA" -eq 1 ] &&
 say "engine packages:   $([ "$REMOVE_PACKAGES" -eq 1 ] && echo 'apt purge (engines, php, docker, golang)' || echo 'kept')"
 
 if [ "$ASSUME_YES" -eq 0 ]; then
-  head "Dry run. Nothing above was changed. Re-run with --yes to carry it out."
+  section "Dry run. Nothing above was changed. Re-run with --yes to carry it out."
   exit 0
 fi
 
 # --- 1. stop the panel and the sites, and release anyone the lockout banned ---
-head "Stopping services"
+section "Stopping services"
 for unit in "${SITE_UNITS[@]:-}"; do
   [ -n "${unit:-}" ] || continue
   act "systemctl disable --now '$unit'"
@@ -128,7 +128,7 @@ fi
 
 # --- 2. the backup, taken with the panel stopped (see the note in the copy step) ---
 if [ "$BACKUP" != "none" ]; then
-  head "Backing up"
+  section "Backing up"
   stamp="$(date +%Y%m%d-%H%M%S)"
   host="$(hostname -s 2>/dev/null || echo host)"
   archive="$BACKUP_DIR/barepod-backup-$host-$stamp.tar.gz"
@@ -189,7 +189,7 @@ if [ "$BACKUP" != "none" ]; then
 fi
 
 # --- 3. the panel's own units and files ---
-head "Removing the panel"
+section "Removing the panel"
 act "rm -f '$UNITS_DIR/barepod.service' '$UNITS_DIR/barepod.service.barepod-backup'"
 act "rm -rf '$UNITS_DIR/barepod.service.d'"
 act "rm -f '$UNITS_DIR/barepod-app@.service'"
@@ -205,7 +205,7 @@ act "rm -rf '$DATA_DIR/dbtools'"
 
 # --- 4. give the engines back the way the installer found them ---
 if [ "$KEEP_ENGINE_CONFIG" -eq 0 ]; then
-  head "Restoring engine configuration the panel changed"
+  section "Restoring engine configuration the panel changed"
   # Redis: the panel's ACL file and the bind it set are both ours; leaving aclfile pointing at a file we
   # deleted would stop redis from starting, so the directive goes with it.
   if [ -f /etc/redis/redis.conf ]; then
@@ -233,7 +233,7 @@ fi
 
 # --- 5. the containers the panel ran ---
 if [ "$REMOVE_CONTAINERS" -eq 1 ] && cmd docker; then
-  head "Removing panel containers"
+  section "Removing panel containers"
   for name in "${CONTAINERS[@]:-}"; do
     [ -n "${name:-}" ] || continue
     act "docker rm -f '$name'"
@@ -248,7 +248,7 @@ fi
 
 # --- 6. tenant accounts, only when asked, and never their files unless asked twice ---
 if [ "$REMOVE_TENANTS" -eq 1 ]; then
-  head "Removing tenant accounts"
+  section "Removing tenant accounts"
   for user in "${!TENANTS[@]}"; do
     [ "$user" = "root" ] && { say "skipping root"; continue; }
     id "$user" >/dev/null 2>&1 || { say "$user does not exist any more"; continue; }
@@ -263,24 +263,24 @@ fi
 
 # --- 7. data, only with an explicit flag ---
 if [ "$PURGE_DATA" -eq 1 ]; then
-  head "Deleting panel data"
+  section "Deleting panel data"
   act "rm -rf '$DATA_DIR'"
   say "deleted $DATA_DIR (panel database, web bundle, self-signed certificate, tool logs)"
 else
-  head "Keeping panel data"
+  section "Keeping panel data"
   say "$DATA_DIR was left in place. Delete it yourself to finish the job:"
   say "  rm -rf '$DATA_DIR'"
 fi
 
 # --- 8. packages, only with an explicit flag ---
 if [ "$REMOVE_PACKAGES" -eq 1 ] && cmd apt-get; then
-  head "Purging packages"
+  section "Purging packages"
   say "this removes the engines themselves, including their data directories under /var/lib"
   act "apt-get purge -y postgresql* mariadb-server* mariadb-client* redis-server php-cli php-fpm php-mysql php-gd php-curl php-mbstring php-xml php-zip golang-go docker.io"
   act "apt-get autoremove -y"
 fi
 
-head "Done"
+section "Done"
 say "Removed: the panel unit, its drop-ins, every site unit, the binary, /etc/barepod, the lockout table,"
 say "and (when asked) the data directory, containers, tenant accounts and packages."
 say "Left alone on purpose: journald history (journalctl --vacuum-time=1s clears it), site files you did not"
