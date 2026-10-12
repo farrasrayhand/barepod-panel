@@ -339,6 +339,15 @@ const databaseFamily = (base: string) => ({
     }),
 
   /**
+   * One key's shape: the type and TTL a cache browser needs, and a preview of the value. Read
+   * through the panel's own connection and the record's prefix-scoped account.
+   */
+  key: (id: string, key: string) =>
+    request<{ key: string; type?: string; ttl?: number; value?: string; note?: string }>(
+      `${base}/${id}/key?key=${encodeURIComponent(key)}`,
+    ),
+
+  /**
    * The dump, as a blob.
    *
    * Fetched rather than navigated to on purpose: a download started by an `<a download>` is

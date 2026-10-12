@@ -210,3 +210,25 @@ func TestPreparingTheGuardDoesNotDuplicateItsRules(t *testing.T) {
 		t.Errorf("the flush comes after the first rule (%d > %d), so a restart still duplicates", flushAt, firstRuleAt)
 	}
 }
+
+// Redis aggregates identical failures into one entry carrying how many times it happened. Counting
+// that entry once let a real attempt through unpunished: measured on the host, six refused AUTHs
+// from one address arrived as a single entry with count=6 and produced no ban at all.
+func TestRedisAggregatedRefusalsCountAsMany(t *testing.T) {
+	entry := func(count string) string {
+		return strings.Join([]string{
+			"count", count, "reason", "auth", "context", "toplevel", "object", "AUTH",
+			"username", "default", "age-seconds", "1.5", "client-info",
+			"id=9 addr=172.17.0.3:41000 laddr=172.17.0.1:6379 fd=10",
+		}, "\n")
+	}
+	if got := Scan("redis", entry("6")); len(got) != 6 {
+		t.Errorf("six aggregated refusals counted as %d", len(got))
+	}
+	if got := Scan("redis", entry("999999")); len(got) != maxRefusalsPerEntry {
+		t.Errorf("a wild count produced %d refusals, want the cap", len(got))
+	}
+	if got := Scan("redis", entry("1")); len(got) != 1 {
+		t.Errorf("a single refusal counted as %d", len(got))
+	}
+}

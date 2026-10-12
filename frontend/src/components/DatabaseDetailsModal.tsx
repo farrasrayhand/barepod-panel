@@ -55,6 +55,29 @@ interface DatabaseDetailsModalProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+/**
+ * What an address actually is, rather than what a label would like it to be: 172.19.1.26 is a
+ * private address (RFC1918) and calling it an "External Public IP" tells the operator something
+ * false about who can reach it.
+ */
+function describeAddress(address: string): { label: string; tone: 'loopback' | 'private' | 'public' } {
+  const value = (address || '').trim();
+  if (/^(localhost|::1)$/i.test(value)) return { label: 'Loopback Only', tone: 'loopback' };
+  const octets = value.split('.').map((part) => Number(part));
+  if (octets.length !== 4 || octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return { label: 'Hostname', tone: 'public' };
+  }
+  const [first, second] = octets;
+  if (first === 127) return { label: 'Loopback Only', tone: 'loopback' };
+  const privateRange =
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 169 && second === 254) ||
+    (first === 100 && second >= 64 && second <= 127);
+  return privateRange ? { label: 'Private network', tone: 'private' } : { label: 'Public address', tone: 'public' };
+}
+
 export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   isOpen,
   onClose,
@@ -106,6 +129,10 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
 
   const [logs, setLogs] = useState<DatabaseLog | null>(null);
   const [logsLoading, setLogsLoading] = useState(false);
+  // One key's shape, for the cache browser below: the endpoint existed and nothing called it, so a
+  // key's type and TTL could not be seen anywhere in the panel.
+  const [keyDetail, setKeyDetail] = useState<{ key: string; type?: string; ttl?: number; value?: string; note?: string } | null>(null);
+  const [keyLoading, setKeyLoading] = useState('');
   const [exposure, setExposure] = useState<'public' | 'private'>(
     database?.exposure === 'public' ? 'public' : 'private',
   );
@@ -138,6 +165,18 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
       setLogs({ engine: database.type, source: '', note: failureMessage(err, 'the log could not be read'), lines: [], audit: [] });
     } finally {
       setLogsLoading(false);
+    }
+  };
+
+  const openKey = async (name: string) => {
+    if (!database || keyLoading) return;
+    setKeyLoading(name);
+    try {
+      setKeyDetail(await family.key(database.id, name));
+    } catch (err) {
+      setKeyDetail({ key: name, note: failureMessage(err, 'the key could not be read') });
+    } finally {
+      setKeyLoading('');
     }
   };
 
@@ -211,6 +250,8 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
       // SQLite database came to be shown a PostgreSQL log.
       setLogs(null);
       setLogsLoading(false);
+      setKeyDetail(null);
+      setKeyLoading('');
     }
   }, [database]);
 
@@ -331,6 +372,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     : (database.host || '127.0.0.1');
 
   const host = effectiveHost;
+  const addressKind = describeAddress(host);
   const port = database.port || (
     database.type === 'postgres' ? 5432 :
     database.type === 'mysql' || database.type === 'mariadb' ? 3306 :
@@ -691,7 +733,40 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
             </div>
           ) : dataTabActive === 'security' ? (
             <div className="space-y-5">
-              {/* Card 1: Network Exposure & Firewall Management */}
+              {/* Card 1 only where the switch can do something. For a cache it cannot: an installed
+                  Redis listens where its own configuration says, and the panel does not rewrite that
+                  file, so Public is not offered and the card would be a dead switch. What protects a
+                  cache is said instead — the parts that are true of it. */}
+              {database.type === 'redis' ? (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/60 flex items-center gap-3">
+                    <div className="p-2 rounded-xl border bg-slate-100 text-slate-700 border-slate-200">
+                      <Lock className="w-4 h-4 text-slate-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">How this cache is protected</h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Port {port}, and no switch to open it — there is nothing here that needs one.
+                      </p>
+                    </div>
+                  </div>
+                  <ul className="px-5 py-4 text-xs text-slate-600 space-y-1.5 list-disc list-inside">
+                    <li>
+                      It listens on <code>127.0.0.1</code> (and the container gateway, so a manager in a
+                      container can open it) — not on the network; the panel's firewall keeps every other
+                      interface out.
+                    </li>
+                    <li>
+                      <code>default</code> is off: nothing authenticates to it without credentials, and each
+                      record has its own account, scoped to its own key prefix.
+                    </li>
+                    <li>
+                      Refused logins are read from Redis's own ACL log by the lockout below, so an address
+                      that keeps failing is kept out of the host — verified by banning one.
+                    </li>
+                  </ul>
+                </div>
+              ) : (
               <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <div className="flex items-center gap-3">
@@ -781,7 +856,7 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                     {/* Option 2: Public */}
                     <div
                       onClick={() => {
-                        if (exposure !== 'public' && !exposureBusy && guard?.enforcing !== false && database.type !== 'redis') void changeExposure('public');
+                        if (exposure !== 'public' && !exposureBusy && guard?.enforcing !== false) void changeExposure('public');
                       }}
                       className={`p-4 rounded-xl border-2 transition-all relative ${
                         guard?.enforcing === false
@@ -803,22 +878,11 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                         )}
                       </div>
                       <p className="text-xs text-slate-600 leading-relaxed">
-                        {database.type === 'redis' ? (
-                          <>
-                            Not offered for a cache: an installed Redis is bound to <code>127.0.0.1</code> by
-                            its own configuration, which the panel does not rewrite — so this switch could
-                            only claim to have opened a port nothing listens on. A cache the panel provisions
-                            itself runs in its own container, where the firewall set is the control.
-                          </>
-                        ) : (
-                          <>
-                            Port <strong>{port}</strong> is opened to the host's other interfaces. Where the
-                            engine has its own authorisation — PostgreSQL's <code>pg_hba</code>, a MariaDB
-                            account that may connect from anywhere — the panel changes that with it; for a
-                            containerised engine the panel's firewall is the whole control, and the note above
-                            says which was done.
-                          </>
-                        )}
+                        Port <strong>{port}</strong> is opened to the host's other interfaces. Where the
+                        engine has its own authorisation — PostgreSQL's <code>pg_hba</code>, a MariaDB
+                        account that may connect from anywhere — the panel changes that with it; for a
+                        containerised engine the panel's firewall is the whole control, and the note above
+                        says which was done.
                       </p>
                       <ul className="text-[11px] text-slate-500 mt-2 space-y-1 list-disc list-inside">
                         <li>Reachable from machines that can route to this host</li>
@@ -827,14 +891,10 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                       {exposure !== 'public' && (
                         <button
                           type="button"
-                          disabled={exposureBusy || guard?.enforcing === false || database.type === 'redis'}
+                          disabled={exposureBusy || guard?.enforcing === false}
                           className="mt-3 w-full py-1.5 px-3 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 transition-colors cursor-pointer"
                         >
-                          {database.type === 'redis'
-                            ? 'Not offered for a cache'
-                            : exposureBusy
-                              ? 'Updating…'
-                              : 'Switch to Public'}
+                          {exposureBusy ? 'Updating…' : 'Switch to Public'}
                         </button>
                       )}
                     </div>
@@ -848,8 +908,8 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                   )}
                 </div>
               </div>
+              )}
 
-              {/* Card 2: Anti-Bruteforce Lockout Settings & Banned IPs */}
               <GuardCard onShowToast={onShowToast} />
             </div>
           ) : dataTabActive === 'overview' ? (
@@ -1017,15 +1077,24 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <span className="text-[10px] uppercase font-bold text-slate-400 block">Host / Server</span>
                     {database.type !== 'sqlite' && (
-                      isPublic ? (
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                          External Public IP
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                          Loopback Only
-                        </span>
-                      )
+                      <span
+                        title={
+                          addressKind.tone === 'private'
+                            ? 'A private address (RFC1918) — reachable only inside its own network, not from the internet.'
+                            : addressKind.tone === 'loopback'
+                              ? 'Reachable on this host only.'
+                              : 'A publicly routable address.'
+                        }
+                        className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${
+                          addressKind.tone === 'public'
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : addressKind.tone === 'private'
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
+                              : 'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}
+                      >
+                        {addressKind.label}
+                      </span>
                     )}
                   </div>
                   <span className="font-mono font-semibold text-slate-800 text-xs">{host}</span>
@@ -1558,14 +1627,30 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                       </span>
                       <div className="flex flex-wrap gap-1.5">
                         {redisKeys.keys.map((k, idx) => (
-                          <span
+                          <button
                             key={idx}
-                            className="px-2.5 py-1 bg-slate-100 border border-slate-200 text-slate-800 font-mono text-xs rounded-md"
+                            type="button"
+                            onClick={() => void openKey(k)}
+                            disabled={keyLoading === k}
+                            title="Read this key's type and TTL"
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 border border-slate-200 hover:border-blue-300 text-slate-800 font-mono text-xs rounded-md transition-colors cursor-pointer disabled:opacity-50"
                           >
-                            {k}
-                          </span>
+                            {keyLoading === k ? '…' : k}
+                          </button>
                         ))}
                       </div>
+                      {keyDetail && (
+                        <div className="p-2.5 rounded-lg bg-slate-900 text-slate-100 font-mono text-[11px] break-all">
+                          <span className="text-slate-400">{keyDetail.key}</span>
+                          {keyDetail.type ? <span className="text-amber-300"> · {keyDetail.type}</span> : null}
+                          {typeof keyDetail.ttl === 'number' ? (
+                            <span className="text-slate-400"> · TTL {keyDetail.ttl}s</span>
+                          ) : null}
+                          <div className="mt-1 whitespace-pre-wrap text-slate-200">
+                            {keyDetail.value ?? keyDetail.note ?? ''}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="p-6 bg-slate-50 border border-dashed border-slate-200 rounded-xl text-center text-xs text-slate-500">
