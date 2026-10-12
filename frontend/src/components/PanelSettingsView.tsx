@@ -245,6 +245,8 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   // 2. Security Settings
   const [forceHttps, setForceHttps] = useState(true);
   const [sessionTimeoutHours, setSessionTimeoutHours] = useState(24);
+  // A feature this panel does not have yet: kept as the plan it is, marked so nobody relies on it.
+  const [ipWhitelist, setIpWhitelist] = useState('');
   const [jwtSecretMasked, setJwtSecretMasked] = useState(true);
 
   // 3. Proxy & SSL
@@ -893,6 +895,25 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </div>
               </div>
 
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  IP Whitelist for Admin Panel Access (not implemented)
+                </label>
+                <textarea
+                  rows={3}
+                  value={ipWhitelist}
+                  onChange={(e) => setIpWhitelist(e.target.value)}
+                  placeholder="Example: 192.168.1.100&#10;103.45.12.0/24&#10;(Leave empty to allow all IPs)"
+                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
+                />
+                <p className="text-[10px] text-rose-600 font-semibold mt-1">
+                  Not enforced: nothing in the daemon reads this, so it does not restrict who may open the
+                  panel. Do not rely on it — the host's firewall and the panel's own lockout are the real
+                  controls. The never-ban list under the lockout is a different thing: it exempts from
+                  bans, it does not restrict access.
+                </p>
+              </div>
 
               <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
                 <div className="flex items-center justify-between">
