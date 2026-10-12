@@ -30,12 +30,14 @@ type Store interface {
 }
 
 // source is one place refusals are written. A host engine writes a file (PostgreSQL and
-// MariaDB); the panel's MongoDB is a container, whose log is not a file at all and is read
-// with `docker logs` — the case a file-reading tool cannot handle.
+// MariaDB); the panel's MongoDB is a container, whose log is not a file at all and is read with
+// `docker logs` — the case a file-reading tool cannot handle. Redis writes no refusals anywhere,
+// so its source is Redis's own ACL LOG, read through the client (`acl`).
 type source struct {
 	engine    string
 	glob      string
 	container string
+	acl       bool
 }
 
 // Sources lists where the guard looks. A source that is not there is reported rather than
@@ -45,6 +47,7 @@ func Sources() []source {
 		{engine: "postgresql", glob: "/var/log/postgresql/postgresql-*.log"},
 		{engine: "mariadb", glob: "/var/log/mysql/*.log"},
 		{engine: "mongodb", container: "barepod-mongo"},
+		{engine: "redis", acl: true},
 	}
 }
 
@@ -69,6 +72,18 @@ type Guard struct {
 	lastSweep  time.Time
 	lastError  string
 	sourceNote map[string]string
+	// redisURL is the panel's own Redis identity, needed because ACL LOG can only be read by
+	// someone authenticated. Empty means the cache's refusals cannot be read, and the status says so.
+	redisURL string
+}
+
+// UseRedisACL tells the guard how to read the cache's refusals. It is a setter rather than a
+// constructor argument because a panel without a cache is a normal case and its guard should still
+// work, unchanged.
+func (g *Guard) UseRedisACL(url string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.redisURL = url
 }
 
 // New builds a guard over the usual sources. interval is how often it looks; zero means
@@ -284,6 +299,33 @@ func (g *Guard) bridgeSubnets(ctx context.Context) []string {
 	return subnets
 }
 
+// readRedisACL asks Redis for its own record of recent ACL failures, and clears it afterwards.
+//
+// The reset is what makes this exact: entries stay in Redis until something removes them, so a
+// sweep that read without resetting would count the same refusal on every pass and ban an address
+// that had tried once. Clearing it after reading is the equivalent of the byte offset the file
+// sources keep.
+//
+// ACL LOG can only be read by an authenticated client, so the panel's own identity travels in the
+// argument list — the same way the panel creates a cache user.
+func (g *Guard) readRedisACL(ctx context.Context) (string, error) {
+	g.mu.Lock()
+	url := g.redisURL
+	g.mu.Unlock()
+	if url == "" {
+		return "", errf("no Redis admin connection is configured, so the cache's refusals cannot be read")
+	}
+	out, err := g.exec(ctx, "redis-cli", "-u", url, "--no-auth-warning", "ACL", "LOG", "128")
+	if err != nil {
+		return "", errf("ACL LOG could not be read: %s", strings.TrimSpace(out))
+	}
+	if _, err := g.exec(ctx, "redis-cli", "-u", url, "--no-auth-warning", "ACL", "LOG", "RESET"); err != nil {
+		// Not fatal — the refusals were read — but saying so explains a later double count.
+		g.logf("guard: the cache's ACL log could not be cleared, so an entry may be counted twice")
+	}
+	return out, nil
+}
+
 // Unban releases one address at once — the button in the panel — and also forgets its
 // failures, so it is not banned again the moment the operator lets it back in.
 func (g *Guard) Unban(ctx context.Context, ip string) error {
@@ -302,6 +344,14 @@ func (g *Guard) collect(ctx context.Context, now time.Time) []Failure {
 	out := []Failure{}
 	for _, src := range g.sources {
 		switch {
+		case src.acl:
+			text, err := g.readRedisACL(ctx)
+			if err != nil {
+				g.noteSource(src.engine, err.Error())
+				continue
+			}
+			g.noteSource(src.engine, "")
+			out = append(out, stampReadTime(Scan(src.engine, text), now)...)
 		case src.container != "":
 			text, err := g.containerLog(ctx, src, now)
 			if err != nil {

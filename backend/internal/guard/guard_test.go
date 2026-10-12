@@ -44,6 +44,37 @@ func TestMariaDBRefusalCarriesTheAddress(t *testing.T) {
 	}
 }
 
+// Measured on the host: Redis logs no refusals at all (zero lines, loglevel notice), and its ACL
+// LOG prints each entry field by field with the peer inside client-info. Only an `auth` refusal is
+// a refusal to keep somebody out — a `key` entry is a tenant reaching past the prefix the panel
+// itself scoped, and banning that address would punish the application it just constrained.
+func TestRedisRefusalsComeFromTheACLLogAndOnlyForAuthentication(t *testing.T) {
+	log := strings.Join([]string{
+		"count", "1", "reason", "auth", "context", "toplevel", "object", "AUTH",
+		"username", "nobody-here", "age-seconds", "0.008", "client-info",
+		"id=241 addr=203.0.113.7:51606 laddr=127.0.0.1:6379 fd=10 name= age=0 idle=0 flags=N",
+		"count", "4", "reason", "key", "context", "toplevel", "object", "admin_diag_cache:halo",
+		"username", "admin_diag_cache", "age-seconds", "408.101", "client-info",
+		"id=240 addr=198.51.100.9:51594 frag=0 capacity=64",
+	}, "\n")
+	got := Scan("redis", log)
+	if len(got) != 1 {
+		t.Fatalf("want the one authentication refusal and no key refusal, got %+v", got)
+	}
+	if got[0].IP != "203.0.113.7" || got[0].User != "nobody-here" || got[0].Engine != "redis" {
+		t.Errorf("the refusal was not read as written: %+v", got[0])
+	}
+}
+
+// The messages the engines write are read as they are; a probe that asks for credentials is a
+// server that answered.
+func TestRediRefusalsWithNoPeerAreSkipped(t *testing.T) {
+	log := strings.Join([]string{"count", "2", "reason", "auth", "object", "AUTH", "username", "evil", "client-info", "id=9 frag=0"}, "\n")
+	if got := Scan("redis", log); len(got) != 0 {
+		t.Errorf("a refusal naming no address was attributed anyway: %+v", got)
+	}
+}
+
 // Measured on the test host: a server with log_connections off writes the refusal with no
 // address anywhere (the "connection received" line does not exist at all). Such a refusal
 // cannot be attributed, and blaming it on the last connection seen would ban an innocent

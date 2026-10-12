@@ -49,7 +49,7 @@ func TestCreatingARecordMakesItsPortPrivateImmediately(t *testing.T) {
 // and the real store, so what the panel decides is what the tests can read back.
 func testGuard(st *store.Store) *guard.Guard {
 	return NewGuard(func(context.Context, string, ...string) (string, error) { return "", nil },
-		st, time.Minute, nil)
+		st, time.Minute, "", nil)
 }
 
 type guardStatus struct {

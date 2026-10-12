@@ -89,6 +89,92 @@ var (
 	mongoUserRegex   = regexp.MustCompile(`"principalName"\s*:\s*"([^"]+)"`)
 )
 
+// redis writes no log of failed authentications at all (measured: zero lines, loglevel notice), so
+// its refusals come from ACL LOG — Redis's own record of recent ACL failures, in memory, which
+// redis-cli prints field by field:
+//
+//	count
+//	1
+//	reason
+//	auth
+//	object
+//	AUTH
+//	username
+//	nobody-here
+//	age-seconds
+//	0.008
+//	client-info
+//	id=241 addr=127.0.0.1:51606 laddr=127.0.0.1:6379 …
+//
+// Only `reason: auth` is a refusal to keep someone out. A `key` or `command` entry is a *tenant*
+// reaching past its own prefix — banning that address would punish the application the panel
+// itself scoped, so those entries are read and deliberately ignored.
+var redisAddrRegex = regexp.MustCompile(`addr=([0-9a-fA-F.:]+):\d+`)
+
+// maxRefusalsPerEntry caps how many refusals one aggregated ACL log entry is allowed to stand for.
+// The decision only needs to reach the retry threshold, and the count is Redis's number, so there is
+// no reason to turn a large one into a large slice.
+const maxRefusalsPerEntry = 100
+
+// scanRedisACLLog reads the flattened ACL LOG entries and returns the authentication refusals.
+func scanRedisACLLog(text string) []Failure {
+	out := []Failure{}
+	lines := strings.Split(text, "\n")
+	var entry map[string]string
+	flush := func() {
+		if len(entry) == 0 {
+			return
+		}
+		if entry["reason"] == "auth" {
+			if addr := redisAddrRegex.FindStringSubmatch(entry["client-info"]); addr != nil {
+				// Redis aggregates identical failures into one entry carrying how many times it
+				// happened, so counting the entry as one would let a brute-forcer try a hundred
+				// times and be counted once — measured: six refusals from one address produced a
+				// single entry with count=6 and no ban. The repetition is capped because the count
+				// is Redis's number, not something to allocate memory for.
+				count, err := strconv.Atoi(entry["count"])
+				if err != nil || count < 1 {
+					count = 1
+				}
+				if count > maxRefusalsPerEntry {
+					count = maxRefusalsPerEntry
+				}
+				for i := 0; i < count; i++ {
+					out = append(out, Failure{
+						Engine: "redis",
+						IP:     normaliseIP(addr[1]),
+						User:   entry["username"],
+					})
+				}
+			}
+		}
+		entry = nil
+	}
+	for i := 0; i+1 < len(lines); i += 2 {
+		field := strings.TrimSpace(lines[i])
+		value := strings.TrimSpace(lines[i+1])
+		switch field {
+		case "count", "reason":
+			// A new entry starts at its count field.
+			if field == "count" {
+				flush()
+				entry = map[string]string{}
+			}
+			if entry == nil {
+				entry = map[string]string{}
+			}
+			entry[field] = value
+		case "username", "age-seconds", "client-info":
+			if entry == nil {
+				entry = map[string]string{}
+			}
+			entry[field] = value
+		}
+	}
+	flush()
+	return out
+}
+
 // Scan records *what* happened and from where; it deliberately records no time. Engines
 // stamp their own timezone into their own format — this host's PostgreSQL writes
 // "Asia/Makassar", eight hours from the panel's clock — and a stamp taken at face value can
@@ -107,6 +193,9 @@ func Scan(engine, log string) []Failure {
 		return scanLinewise(log, mariadbFailureRegex, 1, 2)
 	case "mongodb":
 		return scanMongo(log)
+	case "redis":
+		// Not a log: the caller read Redis's own ACL LOG, which is where its refusals live.
+		return scanRedisACLLog(log)
 	}
 	return nil
 }

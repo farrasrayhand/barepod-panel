@@ -333,7 +333,7 @@ func runServe(args []string) error {
 	// instead of forgetting it. It must run before any database port is opened to the world.
 	guardCtx, stopGuard := context.WithCancel(context.Background())
 	defer stopGuard()
-	watchdog := api.NewGuard(api.GuardExecutor(h.Runner.Run), st, guardInterval, log.Printf)
+	watchdog := api.NewGuard(api.GuardExecutor(h.Runner.Run), st, guardInterval, cfg.RedisURL, log.Printf)
 	// Adopt first and wait for it: the reconciliation below needs the table and its sets to
 	// exist, and racing the goroutine left ports out of the set while reporting success —
 	// measured, a containerised MongoDB stayed reachable from the LAN that way.

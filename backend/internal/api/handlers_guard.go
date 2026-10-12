@@ -175,9 +175,12 @@ func EnsureArgvForTest() [][]string { return guard.EnsureArgv() }
 
 // NewGuard builds the watchdog this server runs. Its logger is the panel's own: a security
 // loop nothing can observe is one nobody can diagnose, and a ban that failed to install must
-// not be silent.
-func NewGuard(exec guard.Executor, st *store.Store, interval time.Duration, logf func(string, ...any)) *guard.Guard {
-	return guard.New(exec, NewGuardStore(st), interval, logf)
+// not be silent. redisURL is the panel's Redis identity, so the cache's refusals can be read from
+// Redis's ACL log — the only place Redis records them.
+func NewGuard(exec guard.Executor, st *store.Store, interval time.Duration, redisURL string, logf func(string, ...any)) *guard.Guard {
+	watchdog := guard.New(exec, NewGuardStore(st), interval, logf)
+	watchdog.UseRedisACL(redisURL)
+	return watchdog
 }
 
 // GuardExecutor turns a host runner into the watchdog's way of reaching the host.
