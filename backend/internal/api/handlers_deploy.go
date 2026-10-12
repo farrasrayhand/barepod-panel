@@ -150,6 +150,14 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		writeError(w, http.StatusForbidden, "forbidden", "You can only deploy inside your own account")
 		return
 	}
+	// The owner must be a real panel account: an owner string that names nobody is how
+	// a website ends up belonging to no one.
+	if _, err := s.store.UserByUsername(req.TenantUser); err != nil {
+		writeJSON(w, http.StatusBadRequest, validationResponse(
+			map[string]string{"tenantUser": "no panel account is named " + req.TenantUser},
+			"The owner account does not exist"))
+		return
+	}
 	// Package guard: the tenant's group may cap how many websites it can own.
 	if limits := s.limitsForTenant(req.TenantUser); limits.MaxSites > 0 {
 		count, err := s.store.CountWebsitesByTenant(req.TenantUser)
@@ -158,9 +166,12 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 			return
 		}
 		if count >= limits.MaxSites {
-			writeJSON(w, http.StatusConflict, validationResponse(
-				map[string]string{"slug": fmt.Sprintf("this account may own at most %d websites", limits.MaxSites)},
-				"The package limit for this account has been reached"))
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": apiError{Code: "quota_exceeded", Message: fmt.Sprintf(
+					"this account may own at most %d websites and it already has %d — the package limit for this account has been reached",
+					limits.MaxSites, count)},
+				"quota": map[string]int{"maxSites": limits.MaxSites, "usedSites": count},
+			})
 			return
 		}
 	}
@@ -429,6 +440,12 @@ func (s *Server) handlePrepareDirectory(w http.ResponseWriter, r *http.Request, 
 	}
 	if user.Role != "admin" && user.Username != tenant {
 		writeError(w, http.StatusForbidden, "forbidden", "You can only create directories inside your own account")
+		return
+	}
+	if _, err := s.store.UserByUsername(tenant); err != nil {
+		writeJSON(w, http.StatusBadRequest, validationResponse(
+			map[string]string{"tenantUser": "no panel account is named " + tenant},
+			"The owner account does not exist"))
 		return
 	}
 	if _, err := s.store.WebsiteBySlug(slug); err == nil {

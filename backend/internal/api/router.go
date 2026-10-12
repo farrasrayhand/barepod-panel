@@ -133,9 +133,22 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/audit", s.requireAuth(s.handleListAudit))
 
 	// Permission groups / tenant packages (the only built-in data) — "users" capability
-	mux.HandleFunc("GET /api/v1/groups", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleListGroups)))
-	mux.HandleFunc("PATCH /api/v1/groups/{name}", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleUpdateGroup)))
-	mux.HandleFunc("GET /api/v1/system/capacity", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleCapacity)))
+	users := func(h authedHandler) http.HandlerFunc {
+		return s.requireAuth(s.requireCapability(rbac.CapUsers, h))
+	}
+	mux.HandleFunc("GET /api/v1/groups", users(s.handleListGroups))
+	mux.HandleFunc("POST /api/v1/groups", users(s.handleCreateGroup))
+	mux.HandleFunc("PATCH /api/v1/groups/{name}", users(s.handleUpdateGroup))
+	mux.HandleFunc("DELETE /api/v1/groups/{name}", users(s.handleDeleteGroup))
+	mux.HandleFunc("GET /api/v1/system/capacity", users(s.handleCapacity))
+
+	// Accounts. Creating one also creates the Linux account behind it and applies the
+	// package's disk/inode quota; deleting one that still owns resources is refused.
+	mux.HandleFunc("GET /api/v1/users", users(s.handleListUsers))
+	mux.HandleFunc("POST /api/v1/users", users(s.handleCreateUser))
+	mux.HandleFunc("PATCH /api/v1/users/{id}", users(s.handleUpdateUser))
+	mux.HandleFunc("DELETE /api/v1/users/{id}", users(s.handleDeleteUser))
+	mux.HandleFunc("POST /api/v1/users/{id}/password", users(s.handleResetUserPassword))
 
 	// Brute-force lockout. Reading it is for anyone signed in — knowing that the panel keeps
 	// brute-force out is not a secret, and a card nobody can see is a card nobody uses.

@@ -199,35 +199,6 @@ export interface GroupPermissions {
   apiTokens: boolean;
 }
 
-export interface UserGroup {
-  id: string;
-  name: string;
-  description: string;
-  maxSites: number | 'Unlimited';
-  diskLimit: string;
-  maxDatabases: number | 'Unlimited';
-  ramLimit: string;
-  cpuLimit: string;
-  allowTerminal: boolean;
-  permissions?: GroupPermissions;
-  userCount: number;
-}
-
-export interface TenantUser {
-  id: string;
-  username: string;
-  email: string;
-  role: 'admin' | 'user';
-  groupName: string;
-  sitesCount: number;
-  maxSites: number | 'Unlimited';
-  diskUsage: string;
-  diskLimit: string;
-  dbCount: number;
-  maxDatabases: number | 'Unlimited';
-  status: 'active' | 'suspended';
-}
-
 export interface IngressRoute {
   hostname: string;
   service: string;

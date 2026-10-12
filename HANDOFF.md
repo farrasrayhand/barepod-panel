@@ -6,7 +6,7 @@ new session can start working in minutes instead of re-reading the plan.
 
 **MASTER_PLAN.md was compacted** on 2026-10-12: its 137-line build log became 22 lines of decisions (kept: every measured claim that a later change must not undo; dropped: the narration, which is in the file's own git history). The remaining sections were **not** touched, deliberately — they are module specifications for things not built yet (domains, backups, telemetry) plus the repo map and the status table, and rewriting a spec nobody has read is how this session lost work twice. If it needs a second pass, read §3.x and §4.1 first, and check §4.1 against `HANDOFF.md`, which is newer.
 
-**Authoritative documents:** `MASTER_PLAN.md` = decisions *with the measurements behind them* (592 lines —
+**Authoritative documents:** `MASTER_PLAN.md` = decisions *with the measurements behind them* (481 lines —
 read the sections you need, not all of it). `API_CONTRACT.md` = what the daemon serves. Neither is a
 wish list: every claim in them was measured on the host.
 
@@ -27,7 +27,7 @@ wish list: every claim in them was measured on the host.
 
 ## The working loop
 
-Backend (Go, `backend/`): `go build ./...` then `go test -timeout 250s ./...` (221 tests, ~25s).
+Backend (Go, `backend/`): `go build ./...` then `go test -timeout 250s ./...` (233 tests, ~25s).
 Frontend (`frontend/`): `npx tsc -b` **and** `npx vite build` — the type-checker is not enough (see traps).
 Deploy: build `linux/amd64` binary + `vite build`, copy both to the host, move the binary into place,
 unpack the bundle to `/var/lib/barepod/dist`, `systemctl restart barepod`, then **verify by measurement on
@@ -61,11 +61,16 @@ never be; it comes from the session environment. Same for any token.
 
 ## Next, in the order the operator chose
 
-1. **Tenants & User Groups.** The backend primitives already exist — users, groups as capability packages,
-   the capacity/quota guard (`409 quota_exceeded`), audit, and Linux account provisioning (`barepod user
-   create`, `-no-os-user` to skip). What is missing is the **tenancy model**: ownership on every resource,
-   scoping of every list per tenant, OS-level isolation (cgroup/Linux user), plus the admin catalog for
-   installing extra engine/PHP versions. The UI page is a mock today.
+1. **Tenants & User Groups — the control plane shipped.** The users/groups HTTP API is live (`GET|POST
+   /users`, `PATCH|DELETE /users/{id}`, `POST /users/{id}/password`, `GET|POST /groups`, `PATCH|DELETE
+   /groups/{name}`), gated on the `users` capability. Creating an account also provisions its Linux account
+   and applies the package's disk/inode quota from the panel; suspending mirrors `usermod --lock` and
+   revokes that account's sessions; deleting one that still owns websites/databases is refused with `409
+   has_resources`. Hardened alongside it: an unknown owner is refused on every create path, `maxSites` now
+   answers `409 quota_exceeded` (matching databases), and a package edit re-applies the quota to its
+   members. The UI page is live. **Still open in this module:** the **admin catalog** for installing extra
+   engine/PHP versions, and re-rendering a site's cgroup limits when its package changes (today they land
+   on the next deploy).
 2. **Websites, one PHP site end to end.** Two core pieces do not exist: **nothing writes a site's
    `php-fpm.conf`** (the panel already shells out to `php-fpm --fpm-config <site>/php-fpm.conf`), and there
    is **no web-server → PHP-FPM connector** (no nginx/OpenLiteSpeed on the host yet). The web-server choice
@@ -91,7 +96,7 @@ before a single file is removed.
 **Still script-only:** `scripts/uninstall.sh` does not yet delegate to the CLI — it stands alone, which is
 what a host needs when the binary is gone (a broken install is exactly when someone reaches for it), but
 where both exist the script should hand over to `barepod uninstall` and keep only the package removal that
-the CLI deliberately does not do.eone reaches for it.
+the CLI deliberately does not do.
 
 ## How this operator works (worth following)
 

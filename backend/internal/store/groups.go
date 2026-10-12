@@ -135,3 +135,40 @@ func (s *Store) UpdateGroup(name, description string, permissions rbac.Permissio
 	}
 	return nil
 }
+
+// CreateGroup inserts a new permission group (a tenant package). It is never a
+// system group: those are the built-in three. The caller owns the uniqueness
+// decision (an insert on a taken name fails on the UNIQUE constraint).
+func (s *Store) CreateGroup(name, description string, permissions rbac.Permissions, limits resources.Limits) (*rbac.Group, error) {
+	_, err := s.DB.Exec(
+		`INSERT INTO groups (id, name, permissions, description, is_default, is_system, created_at,
+		                     cpu_quota_percent, memory_mb, tasks_max, disk_quota_gb, inode_quota, max_sites, max_databases)
+		 VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id.New(), name, encodePermissions(permissions), description, now(),
+		limits.CPUQuotaPercent, limits.MemoryMB, limits.TasksMax, limits.DiskQuotaGB,
+		limits.InodeQuota, limits.MaxSites, limits.MaxDatabases,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: insert group %q: %w", name, err)
+	}
+	return s.GroupByName(name)
+}
+
+// DeleteGroup removes a permission group by name.
+func (s *Store) DeleteGroup(name string) error {
+	res, err := s.DB.Exec(`DELETE FROM groups WHERE name = ?`, name)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// CountUsersByGroup counts the accounts that belong to a group.
+func (s *Store) CountUsersByGroup(name string) (int, error) {
+	var n int
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM users WHERE group_name = ?`, name).Scan(&n)
+	return n, err
+}

@@ -592,6 +592,33 @@ export const api = {
   groups: () =>
     request<{ items: GroupRow[]; capabilities: string[] }>('/groups'),
 
+  createGroup: (body: GroupPayload) =>
+    request<GroupRow>('/groups', { method: 'POST', body: JSON.stringify(body) }),
+
+  updateGroup: (name: string, body: Partial<GroupPayload>) =>
+    request<GroupRow>(`/groups/${encodeURIComponent(name)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  deleteGroup: (name: string) =>
+    request<{ name: string; deleted: boolean }>(`/groups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  /** Accounts: the package they belong to and the Linux account behind them. */
+  users: () => request<{ items: ApiUser[]; mode: string }>('/users'),
+
+  createUser: (body: CreateUserPayload) =>
+    request<ApiUser>('/users', { method: 'POST', body: JSON.stringify(body) }),
+
+  updateUser: (id: string, body: UpdateUserPayload) =>
+    request<ApiUser>(`/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  deleteUser: (id: string) =>
+    request<{ username: string; deleted: boolean }>(`/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  resetUserPassword: (id: string, password?: string) =>
+    request<{ username: string; password?: string; passwordShownOnce?: boolean; signedOutEverywhere: boolean }>(
+      `/users/${encodeURIComponent(id)}/password`,
+      { method: 'POST', body: JSON.stringify({ password }) },
+    ),
+
   deployStreamUrl: (slug: string, deployId?: string) =>
     `${API_BASE}/websites/${slug}/deploy/stream${deployId ? `?id=${deployId}` : ''}`,
 
@@ -886,6 +913,55 @@ export interface GroupRow {
   members: number;
   isDefault: boolean;
   isSystem: boolean;
+}
+
+/** A package's resource limits, as the API reports them (0 = unlimited). */
+export interface GroupLimits {
+  cpuQuotaPercent: number;
+  memoryMb: number;
+  tasksMax: number;
+  diskQuotaGb: number;
+  inodeQuota: number;
+  maxSites: number;
+  maxDatabases: number;
+}
+
+export interface GroupPayload {
+  name: string;
+  description?: string;
+  permissions?: Record<string, boolean>;
+  limits?: Partial<GroupLimits>;
+}
+
+/** One account, as the Tenants screen needs it. */
+export interface ApiUser {
+  id: string;
+  username: string;
+  email: string;
+  role: 'admin' | 'user';
+  groupName: string;
+  status: 'active' | 'suspended';
+  createdAt: string;
+  home: string;
+  osExists: boolean;
+  sites: { used: number; max: number };
+  databases: { used: number; max: number };
+  /** Present only on the create/reset response, and shown once. */
+  password?: string;
+  passwordShownOnce?: boolean;
+}
+
+export interface CreateUserPayload {
+  username: string;
+  email?: string;
+  password?: string;
+  groupName: string;
+}
+
+export interface UpdateUserPayload {
+  email?: string;
+  groupName?: string;
+  status?: 'active' | 'suspended';
 }
 
 /** True when the daemon answers — the prototype keeps working when it does not. */

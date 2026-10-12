@@ -1,174 +1,225 @@
-import React, { useState } from 'react';
-import { 
-  Users, 
-  Plus, 
-  ShieldCheck, 
-  HardDrive, 
-  Layers, 
-  Key, 
+import React, { useEffect, useState } from 'react';
+import {
+  Users,
+  Plus,
+  ShieldCheck,
+  HardDrive,
+  Layers,
   Terminal,
   Trash2,
-  Lock,
-  Cpu,
   Database,
   Crown,
   CheckCircle2,
   XCircle,
-  Pencil
+  Pencil,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
-import type { TenantUser, UserGroup } from '../types';
 import { useSubRoute } from '../hooks/useSubRoute';
-import { PERMISSION_MATRIX, countPermissions } from '../data/permissions';
+import { PERMISSION_MATRIX } from '../data/permissions';
 import { AddUserModal } from './AddUserModal';
 import { CreateGroupModal } from './CreateGroupModal';
+import { DangerConfirmModal } from './DangerConfirmModal';
+import {
+  api,
+  apiReachable,
+  type ApiUser,
+  type CreateUserPayload,
+  type GroupPayload,
+  type GroupRow,
+  type UpdateUserPayload,
+} from '../api/client';
+import { describeError } from '../utils/format';
 
 interface UsersViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   onOpenTerminal?: () => void;
-  /** The signed-in account — it may not change its own role or status. */
+  /** The signed-in account — it may not change its own status or delete itself. */
   currentUsername?: string;
 }
+
+// The prototype's rows, kept only for when no daemon answers. Same shape as the API
+// returns, so the tables render identically either way.
+const MOCK_GROUPS: GroupRow[] = [
+  {
+    id: 'g-1',
+    name: 'Starter Client',
+    description: 'Single website package for small business landing pages',
+    permissions: { deployApps: true, fileManager: true, terminal: false, databases: true, backups: false, domains: false, cloudflareTunnels: false, monitoring: false, users: false, apiTokens: false },
+    limits: { cpuQuotaPercent: 100, memoryMb: 512, tasksMax: 128, diskQuotaGb: 2, inodeQuota: 0, maxSites: 1, maxDatabases: 1 },
+    members: 1,
+    isDefault: false,
+    isSystem: false,
+  },
+  {
+    id: 'g-2',
+    name: 'Developer Pro',
+    description: 'Multi-site development package with CLI terminal access',
+    permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false, apiTokens: true },
+    limits: { cpuQuotaPercent: 200, memoryMb: 2048, tasksMax: 512, diskQuotaGb: 10, inodeQuota: 0, maxSites: 5, maxDatabases: 5 },
+    members: 1,
+    isDefault: false,
+    isSystem: false,
+  },
+  {
+    id: 'g-3',
+    name: 'Superadmin (Root)',
+    description: 'Built-in root package — unlimited resources',
+    permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: true, apiTokens: true },
+    limits: { cpuQuotaPercent: 0, memoryMb: 0, tasksMax: 0, diskQuotaGb: 0, inodeQuota: 0, maxSites: 0, maxDatabases: 0 },
+    members: 1,
+    isDefault: true,
+    isSystem: true,
+  },
+];
+
+const MOCK_USERS: ApiUser[] = [
+  { id: 'u-1', username: 'farras', email: 'farras@barepod.cloud', role: 'admin', groupName: 'Superadmin (Root)', status: 'active', createdAt: '', home: '/home/farras', osExists: true, sites: { used: 2, max: 0 }, databases: { used: 3, max: 0 } },
+  { id: 'u-2', username: 'tenant_alex', email: 'alex@clientdomain.com', role: 'user', groupName: 'Starter Client', status: 'active', createdAt: '', home: '/home/tenant_alex', osExists: true, sites: { used: 1, max: 1 }, databases: { used: 1, max: 1 } },
+  { id: 'u-3', username: 'tenant_clientB', email: 'team@agencypartner.id', role: 'user', groupName: 'Developer Pro', status: 'active', createdAt: '', home: '/home/tenant_clientB', osExists: true, sites: { used: 1, max: 5 }, databases: { used: 2, max: 5 } },
+];
+
+const fmtCount = (n: number): string => (n > 0 ? String(n) : 'Unlimited');
+const fmtGb = (gb: number): string => (gb > 0 ? `${gb} GB` : 'Unlimited');
+const fmtMb = (mb: number): string => (mb <= 0 ? 'Unlimited' : mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`);
+const fmtCpu = (pct: number): string => (pct <= 0 ? 'Unlimited' : `${pct}%`);
+const permCount = (p?: Record<string, boolean>): number => (p ? Object.values(p).filter(Boolean).length : 0);
 
 export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTerminal, currentUsername }) => {
   const selfUsername = currentUsername ?? 'farras';
   const [activeTab, setActiveTab] = useSubRoute<'users' | 'groups'>('users');
+
+  const [live, setLive] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const [users, setUsers] = useState<ApiUser[]>(MOCK_USERS);
+  const [groups, setGroups] = useState<GroupRow[]>(MOCK_GROUPS);
+
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<TenantUser | null>(null);
-  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<ApiUser | null>(null);
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<GroupRow | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ kind: 'user' | 'group'; id: string; name: string } | null>(null);
 
-  // Groups / Packages State
-  const [groups, setGroups] = useState<UserGroup[]>([
-    {
-      id: 'g-1',
-      name: 'Starter Client',
-      description: 'Single website package for small business landing pages',
-      maxSites: 1,
-      diskLimit: '2 GB',
-      maxDatabases: 1,
-      ramLimit: '512 MB',
-      cpuLimit: '1 vCPU',
-      allowTerminal: false,
-      permissions: { deployApps: true, fileManager: true, terminal: false, databases: true, backups: false, domains: false, cloudflareTunnels: false, monitoring: false, users: false, apiTokens: false },
-      userCount: 1,
-    },
-    {
-      id: 'g-2',
-      name: 'Developer Pro',
-      description: 'Multi-site development package with CLI terminal access',
-      maxSites: 5,
-      diskLimit: '10 GB',
-      maxDatabases: 5,
-      ramLimit: '2 GB',
-      cpuLimit: '2 vCPU',
-      allowTerminal: true,
-      permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false, apiTokens: true },
-      userCount: 1,
-    },
-    {
-      id: 'g-3',
-      name: 'Agency Reseller',
-      description: 'High capacity package for agencies managing multiple client web apps',
-      maxSites: 15,
-      diskLimit: '30 GB',
-      maxDatabases: 15,
-      ramLimit: '4 GB',
-      cpuLimit: '4 vCPU',
-      allowTerminal: true,
-      permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false, apiTokens: true },
-      userCount: 0,
-    },
-  ]);
-
-  // Users State
-  const [tenants, setTenants] = useState<TenantUser[]>([
-    {
-      id: 'u-1',
-      username: 'farras',
-      email: 'farras@barepod.cloud',
-      role: 'admin',
-      groupName: 'Superadmin (Root)',
-      sitesCount: 2,
-      maxSites: 'Unlimited',
-      diskUsage: '1.4 GB',
-      diskLimit: 'Unlimited',
-      dbCount: 3,
-      maxDatabases: 'Unlimited',
-      status: 'active',
-    },
-    {
-      id: 'u-2',
-      username: 'tenant_alex',
-      email: 'alex@clientdomain.com',
-      role: 'user',
-      groupName: 'Starter Client',
-      sitesCount: 1,
-      maxSites: 1,
-      diskUsage: '450 MB',
-      diskLimit: '2 GB',
-      dbCount: 1,
-      maxDatabases: 1,
-      status: 'active',
-    },
-    {
-      id: 'u-3',
-      username: 'tenant_clientB',
-      email: 'team@agencypartner.id',
-      role: 'user',
-      groupName: 'Developer Pro',
-      sitesCount: 1,
-      maxSites: 5,
-      diskUsage: '820 MB',
-      diskLimit: '10 GB',
-      dbCount: 2,
-      maxDatabases: 5,
-      status: 'active',
-    },
-  ]);
-
-  const handleAddUser = (user: TenantUser) => {
-    setTenants([...tenants, user]);
-    onShowToast?.('User Created', `User account ${user.username} created under group ${user.groupName}.`, 'success');
-  };
-
-  const handleCreateGroup = (group: UserGroup) => {
-    setGroups([...groups, group]);
-    onShowToast?.('Group Created', `Resource group ${group.name} successfully created.`, 'success');
-  };
-
-  const handleUpdateUser = (updated: TenantUser) => {
-    // An account may never grant itself a different role, package or status — that
-    // is the one edit that must not be available, prototype or not. Changing your
-    // own contact details is fine.
-    const existing = tenants.find(t => t.id === updated.id);
-    if (existing && updated.username === selfUsername) {
-      const escalates =
-        updated.role !== existing.role ||
-        updated.groupName !== existing.groupName ||
-        updated.status !== existing.status ||
-        updated.maxSites !== existing.maxSites ||
-        updated.diskLimit !== existing.diskLimit ||
-        updated.maxDatabases !== existing.maxDatabases;
-      if (escalates) {
-        onShowToast?.('Not allowed', 'You cannot change your own role, package or status. Ask another administrator.', 'error');
-        return;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const reachable = await apiReachable();
+      if (cancelled) return;
+      setLive(reachable);
+      if (!reachable) return;
+      setLoading(true);
+      try {
+        const [userList, groupList] = await Promise.all([api.users(), api.groups()]);
+        if (cancelled) return;
+        setUsers(userList.items ?? []);
+        setGroups(groupList.items ?? []);
+      } catch (err) {
+        if (!cancelled) onShowToast?.('Could not load the tenants', describeError(err), 'error');
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    }
-    setTenants(tenants.map(t => t.id === updated.id ? updated : t));
-    onShowToast?.('User Updated', `Account ${updated.username} updated (role: ${updated.role}, status: ${updated.status}).`, 'success');
-  };
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey, onShowToast]);
 
-  const handleDeleteUser = (userId: string, username: string) => {
-    if (username === selfUsername) {
-      onShowToast?.('Protected Account', 'You cannot delete the account you are signed in as.', 'error');
+  const reload = () => setReloadKey((k) => k + 1);
+  const groupByName = (name: string) => groups.find((g) => g.name === name);
+
+  const createUser = async (payload: CreateUserPayload) => {
+    if (!live) {
+      setUsers((prev) => [...prev, { id: `u-${Date.now()}`, username: payload.username, email: payload.email ?? '', role: payload.groupName === 'Superadmin (Root)' ? 'admin' : 'user', groupName: payload.groupName, status: 'active', createdAt: '', home: `/home/${payload.username}`, osExists: false, sites: { used: 0, max: groupByName(payload.groupName)?.limits?.maxSites ?? 0 }, databases: { used: 0, max: groupByName(payload.groupName)?.limits?.maxDatabases ?? 0 } }]);
+      onShowToast?.('User Created', `Account ${payload.username} created (simulation).`, 'success');
       return;
     }
-    setTenants(tenants.filter(t => t.id !== userId));
-    onShowToast?.('Tenant Removed', `User ${username} has been removed.`, 'info');
+    setBusy(true);
+    try {
+      const created = await api.createUser(payload);
+      onShowToast?.(
+        'Account created',
+        created.password
+          ? `Password for ${created.username}: ${created.password} — shown once, copy it now.`
+          : `Account ${created.username} created and its Linux account provisioned.`,
+        'success',
+      );
+      reload();
+    } catch (err) {
+      onShowToast?.('Could not create the account', describeError(err), 'error');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const handleDeleteGroup = (groupId: string, groupName: string) => {
-    setGroups(groups.filter(g => g.id !== groupId));
-    onShowToast?.('Group Deleted', `Group package ${groupName} was deleted.`, 'info');
+  const updateUser = async (id: string, payload: UpdateUserPayload) => {
+    if (!live) {
+      setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...payload } : u)));
+      onShowToast?.('User Updated', 'Account updated (simulation).', 'success');
+      return;
+    }
+    setBusy(true);
+    try {
+      const updated = await api.updateUser(id, payload);
+      onShowToast?.('Account updated', `${updated.username} updated.`, 'success');
+      reload();
+    } catch (err) {
+      onShowToast?.('Could not update the account', describeError(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitGroup = async (payload: GroupPayload) => {
+    if (!live) {
+      if (editingGroup) {
+        setGroups((prev) => prev.map((g) => (g.name === payload.name ? { ...g, description: payload.description ?? g.description, permissions: payload.permissions ?? g.permissions, limits: { ...g.limits, ...(payload.limits ?? {}) } } : g)));
+        onShowToast?.('Group Updated', `${payload.name} updated (simulation).`, 'success');
+      } else {
+        setGroups((prev) => [...prev, { id: `g-${Date.now()}`, name: payload.name, description: payload.description ?? '', permissions: payload.permissions ?? {}, limits: payload.limits ?? {}, members: 0, isDefault: false, isSystem: false }]);
+        onShowToast?.('Group Created', `Package ${payload.name} created (simulation).`, 'success');
+      }
+      return;
+    }
+    setBusy(true);
+    try {
+      if (editingGroup) {
+        await api.updateGroup(payload.name, { description: payload.description, permissions: payload.permissions, limits: payload.limits });
+        onShowToast?.('Package updated', `${payload.name} updated.`, 'success');
+      } else {
+        await api.createGroup(payload);
+        onShowToast?.('Package created', `${payload.name} created.`, 'success');
+      }
+      reload();
+    } catch (err) {
+      onShowToast?.('Could not save the package', describeError(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const performDelete = async () => {
+    if (!pendingDelete) return;
+    const { kind, id, name } = pendingDelete;
+    if (!live) {
+      if (kind === 'user') setUsers((prev) => prev.filter((u) => u.id !== id));
+      else setGroups((prev) => prev.filter((g) => g.id !== id));
+      onShowToast?.(kind === 'user' ? 'Tenant Removed' : 'Group Deleted', `${name} removed (simulation).`, 'info');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (kind === 'user') await api.deleteUser(id);
+      else await api.deleteGroup(name);
+      onShowToast?.(kind === 'user' ? 'Tenant Removed' : 'Group Deleted', `${name} removed.`, 'success');
+      reload();
+    } catch (err) {
+      onShowToast?.('Could not delete', describeError(err), 'error');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -181,11 +232,13 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
             <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5" /> cgroups v2 Quotas
             </span>
-            {/* The users & groups CRUD is not implemented in the daemon yet, so this
-                screen is mock data — say so rather than presenting it as real. */}
-            <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">
-              Simulation (mock data)
-            </span>
+            {live === true && (
+              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">Live</span>
+            )}
+            {live === false && (
+              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">Simulation (mock data)</span>
+            )}
+            {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
             Admin accounts have unlimited privileges, while regular users are governed by configurable resource limit packages
@@ -193,6 +246,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={reload}
+            disabled={live !== true}
+            className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 disabled:opacity-40"
+            title="Reload from the daemon"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
           {activeTab === 'users' ? (
             <button
               onClick={() => { setEditingUser(null); setIsAddUserOpen(true); }}
@@ -203,7 +264,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
             </button>
           ) : (
             <button
-              onClick={() => setIsCreateGroupOpen(true)}
+              onClick={() => { setEditingGroup(null); setIsGroupModalOpen(true); }}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25"
             >
               <Plus className="w-4 h-4" />
@@ -218,19 +279,15 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
         <button
           onClick={() => setActiveTab('users')}
           className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            activeTab === 'users'
-              ? 'bg-slate-900 text-white'
-              : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'users' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
-          User Accounts ({tenants.length})
+          User Accounts ({users.length})
         </button>
         <button
           onClick={() => setActiveTab('groups')}
           className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-            activeTab === 'groups'
-              ? 'bg-blue-600 text-white'
-              : 'text-slate-600 hover:bg-slate-100'
+            activeTab === 'groups' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
           Resource Groups / Packages ({groups.length})
@@ -253,8 +310,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {tenants.map((t) => {
+              {users.map((t) => {
                 const isAdmin = t.role === 'admin';
+                const group = groupByName(t.groupName);
                 return (
                   <tr key={t.id} className="hover:bg-slate-50/70 transition-colors">
                     <td className="py-3.5 px-4">
@@ -268,12 +326,13 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                           <div className="flex items-center gap-1.5">
                             <span className="font-semibold text-slate-900 text-sm">{t.username}</span>
                             {isAdmin && (
-                              <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.2 rounded">
-                                Root
-                              </span>
+                              <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.2 rounded">Root</span>
+                            )}
+                            {live === true && !t.osExists && (
+                              <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded" title="No Linux account exists yet">No OS user</span>
                             )}
                           </div>
-                          <span className="text-[10px] text-slate-400 font-mono">/home/{t.username}</span>
+                          <span className="text-[10px] text-slate-400 font-mono">{t.home || `/home/${t.username}`}</span>
                         </div>
                       </div>
                     </td>
@@ -289,21 +348,21 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-1.5 text-slate-700 font-medium">
                         <Layers className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{t.sitesCount} / <strong className={isAdmin ? 'text-purple-600' : ''}>{t.maxSites}</strong> Sites</span>
+                        <span>{t.sites.used} / <strong className={isAdmin ? 'text-purple-600' : ''}>{fmtCount(t.sites.max)}</strong> Sites</span>
                       </div>
                     </td>
 
                     <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-1.5 text-slate-700">
+                      <div className="flex items-center gap-1.5 text-slate-700" title="Usage is not measured here; the quota is what the package applies.">
                         <HardDrive className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{t.diskUsage} / <strong className={isAdmin ? 'text-purple-600' : ''}>{t.diskLimit}</strong></span>
+                        <span>— / <strong className={isAdmin ? 'text-purple-600' : ''}>{fmtGb(group?.limits?.diskQuotaGb ?? 0)}</strong></span>
                       </div>
                     </td>
 
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-1.5 text-slate-700">
                         <Database className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{t.dbCount} / <strong className={isAdmin ? 'text-purple-600' : ''}>{t.maxDatabases}</strong> DBs</span>
+                        <span>{t.databases.used} / <strong className={isAdmin ? 'text-purple-600' : ''}>{fmtCount(t.databases.max)}</strong> DBs</span>
                       </div>
                     </td>
 
@@ -337,9 +396,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                         >
                           <Terminal className="w-4 h-4" />
                         </button>
-                        {!isAdmin && (
+                        {t.username !== selfUsername && (
                           <button
-                            onClick={() => handleDeleteUser(t.id, t.username)}
+                            onClick={() => setPendingDelete({ kind: 'user', id: t.id, name: t.username })}
                             className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
                             title="Delete User"
                           >
@@ -376,32 +435,25 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                 <tr key={g.id} className="hover:bg-slate-50/70 transition-colors">
                   <td className="py-3.5 px-4">
                     <div>
-                      <span className="font-semibold text-slate-900 text-sm block">{g.name}</span>
+                      <span className="font-semibold text-slate-900 text-sm flex items-center gap-1.5">
+                        {g.name}
+                        {g.isSystem && <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-1.5 py-0.2 rounded">built-in</span>}
+                      </span>
                       <span className="text-[11px] text-slate-400">{g.description}</span>
                     </div>
                   </td>
 
-                  <td className="py-3.5 px-4 font-mono font-medium text-slate-700">
-                    {g.maxSites} Domains
-                  </td>
-
-                  <td className="py-3.5 px-4 font-mono font-medium text-slate-700">
-                    {g.diskLimit}
-                  </td>
-
-                  <td className="py-3.5 px-4 font-mono font-medium text-slate-700">
-                    {g.maxDatabases} Databases
-                  </td>
-
-                  <td className="py-3.5 px-4 font-mono text-slate-700">
-                    {g.ramLimit} • {g.cpuLimit}
-                  </td>
+                  <td className="py-3.5 px-4 font-mono font-medium text-slate-700">{fmtCount(g.limits?.maxSites ?? 0)}</td>
+                  <td className="py-3.5 px-4 font-mono font-medium text-slate-700">{fmtGb(g.limits?.diskQuotaGb ?? 0)}</td>
+                  <td className="py-3.5 px-4 font-mono font-medium text-slate-700">{fmtCount(g.limits?.maxDatabases ?? 0)}</td>
+                  <td className="py-3.5 px-4 font-mono text-slate-700">{fmtMb(g.limits?.memoryMb ?? 0)} • {fmtCpu(g.limits?.cpuQuotaPercent ?? 0)}</td>
 
                   <td className="py-3.5 px-4">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded font-mono">
-                        {countPermissions(g.permissions)}/{PERMISSION_MATRIX.length}
+                        {permCount(g.permissions)}/{PERMISSION_MATRIX.length}
                       </span>
+                      <span className="text-[10px] text-slate-400">{g.members} member(s)</span>
                       {g.permissions?.terminal ? (
                         <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium text-[10px]">
                           <CheckCircle2 className="w-3 h-3 text-emerald-600" /> terminal
@@ -415,13 +467,24 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                   </td>
 
                   <td className="py-3.5 px-4 text-right">
-                    <button
-                      onClick={() => handleDeleteGroup(g.id, g.name)}
-                      className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                      title="Delete Group Package"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        onClick={() => { setEditingGroup(g); setIsGroupModalOpen(true); }}
+                        className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                        title="Edit Group Package"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      {!g.isSystem && (
+                        <button
+                          onClick={() => setPendingDelete({ kind: 'group', id: g.id, name: g.name })}
+                          className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                          title="Delete Group Package"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -434,17 +497,36 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
       <AddUserModal
         isOpen={isAddUserOpen}
         onClose={() => { setIsAddUserOpen(false); setEditingUser(null); }}
-        onAddUser={handleAddUser}
-        onUpdateUser={handleUpdateUser}
+        onCreate={createUser}
+        onUpdate={updateUser}
         editUser={editingUser}
         groups={groups}
+        selfUsername={selfUsername}
+        busy={busy}
       />
 
-      {/* Create Group Modal */}
+      {/* Create / Edit Group Modal */}
       <CreateGroupModal
-        isOpen={isCreateGroupOpen}
-        onClose={() => setIsCreateGroupOpen(false)}
-        onCreateGroup={handleCreateGroup}
+        isOpen={isGroupModalOpen}
+        onClose={() => { setIsGroupModalOpen(false); setEditingGroup(null); }}
+        onSubmit={submitGroup}
+        editGroup={editingGroup}
+        busy={busy}
+      />
+
+      <DangerConfirmModal
+        isOpen={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
+        onConfirm={performDelete}
+        title={pendingDelete?.kind === 'group' ? 'Delete Group Package' : 'Delete Tenant Account'}
+        itemType={pendingDelete?.kind === 'group' ? 'Group' : 'Account'}
+        itemName={pendingDelete?.name ?? ''}
+        warningDescription={
+          pendingDelete?.kind === 'group'
+            ? 'The package is removed. A package that still has members, or a built-in package, is refused by the daemon.'
+            : 'The panel account is removed. An account that still owns websites or databases is refused until those are moved or deleted.'
+        }
+        confirmLabel={pendingDelete?.kind === 'group' ? 'Delete Package' : 'Delete Account'}
       />
     </div>
   );

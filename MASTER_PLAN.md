@@ -62,7 +62,7 @@ This document is the complete technical architecture blueprint, module specifica
 
 The detailed build log of every fix — with its measurements — is in this file's history (`git log -- MASTER_PLAN.md`). What follows is the durable part: what is real, and the decisions a later change must not undo. **Current state and the working loop live in `HANDOFF.md`; endpoints live in `API_CONTRACT.md`.**
 
-**Real, verified on a Linux host (LXC, Ubuntu 24.04):** the daemon and its API (`mode: real`), sign-in with Argon2id + session cookies + CSRF + audit, websites deployed end to end (unit, tenant ownership, cgroup limits, health check) with redeploy and delete, a jailed tenant terminal, host and per-site metrics, a host file manager whose system paths are read-only by policy, databases and caches (0.3) with a vault, and a web port that answers a status page instead of "connection refused". **Still mock, and badged as such:** Pods/Docker, Domains, API & MCP, Backup & Migration, Cloudflare Tunnels, Users & Groups, and most of Panel Settings.
+**Real, verified on a Linux host (LXC, Ubuntu 24.04):** the daemon and its API (`mode: real`), sign-in with Argon2id + session cookies + CSRF + audit, websites deployed end to end (unit, tenant ownership, cgroup limits, health check) with redeploy and delete, a jailed tenant terminal, host and per-site metrics, a host file manager whose system paths are read-only by policy, databases and caches (0.3) with a vault, and a web port that answers a status page instead of "connection refused". **Still mock, and badged as such:** Pods/Docker, Domains, API & MCP, Backup & Migration, Cloudflare Tunnels, and most of Panel Settings.
 
 **Decisions that must not be silently reversed**
 
@@ -89,7 +89,7 @@ The detailed build log of every fix — with its measurements — is in this fil
 3. **Smart CLI Automation (Auto-Switch Runtime)**: When a user opens a web terminal on a website, CLI commands such as `php -v`, `node -v`, or `python -v` automatically match the runtime version configured for that site without conflicting between tenants.
 4. **Flexibility of 4 Web Server Engines**: Supports OpenLiteSpeed (OLS + LSCache), Nginx, Caddy (Auto-HTTPS & HTTP/3), and Apache 2.4 according to the user's application architecture needs.
 5. **Complete Database & In-Memory Support**: PostgreSQL 16, MariaDB 11/MySQL 8, MongoDB 7.0, Redis 7.2, and file-based SQLite ready to use from a single panel, with databases and caches provisioned independently with a *Shared Daemon* or *Dedicated Pod* option.
-6. **Built-in Database Web GUI (SSO)**: the panel hosts **pgweb** (PostgreSQL) and **phpMyAdmin** (MySQL/MariaDB) behind its own gated path — one loopback process each, no Apache or extra port, credentials injected server-side, closed when idle — plus its own in-panel **Data Browser & SQL** for every engine. DbGate (SQLite/MongoDB/Redis) is planned; pgAdmin and Adminer were dropped.
+6. **Built-in Database Web GUI (SSO)**: the panel hosts **pgweb** (PostgreSQL) and **phpMyAdmin** (MySQL/MariaDB) behind its own gated path — one loopback process each, no Apache or extra port, credentials injected server-side, closed when idle — plus its own in-panel **Data Browser & SQL** for every engine. DbGate is hosted for every engine as an on-demand container; pgAdmin and Adminer were dropped.
 7. **Credential Password Protection**: Database passwords are encrypted and hidden. To display a password as plain text, the user must first enter their panel account password.
 8. **File Manager Pro (cPanel / VS Code Grade)**:
    - Checkbox on every file/folder with a master *Select All* checkbox.
@@ -149,11 +149,11 @@ graph TD
         BarePodCore --> DB_RD[Redis 7.2 Cache]
         
         BarePodCore --> SSOGateway[Internal SSO Proxy Gateway]
-        SSOGateway --> WebGUI[DbGate / phpMyAdmin / pgAdmin / MongoExpress]
+        SSOGateway --> WebGUI[DbGate / phpMyAdmin / pgweb]
     end
     
     subgraph "CI/CD & Live Migration Engine"
-        GitHub[GitHub Webhook Push] -->|POST /api/v1/webhook/:id| BarePodCore
+        GitHub[GitHub Webhook Push] -->|POST /api/v1/webhook/:slug/deploy?token=…| BarePodCore
         BarePodCore --> GitRunner[Git Pull + Dependencies Build + Zero-Downtime Reload]
         BarePodCore --> Migrator[Backup & Live Migration Hub - .bpod / rsync / S3 / R2]
     end
@@ -285,7 +285,7 @@ graph TD
 
 > [!IMPORTANT]
 > **Current Real Condition:**
-> **Phase 1 (frontend)**: complete as a **prototype**, and now **wired to the API where the daemon already covers it** — sign-in, the website list, per-website metrics and a real terminal are live. Monitoring charts, the file manager, databases, pods, backups, domains and tunnels still run on mock data.
+> **Phase 1 (frontend)**: complete as a **prototype**, and now **wired to the API where the daemon already covers it** — sign-in, the website list, per-website metrics, the file manager, databases & caches, monitoring and a real terminal are live. Pods, backups, domains, tunnels and the traffic-map telemetry still run on mock data.
 > **Phase 2 (Go daemon)**: SQLite/WAL + migrations · Argon2id + opaque session cookies with CSRF, instant revoke, elevated mode, audit log · per-account RBAC where a group is also the resource package, with a **live capacity guard** · the `barepod` CLI (+ the `fs-exec` privilege-drop helper) · an **8-step asynchronous deploy pipeline** with a persisted job log over SSE · a **file manager** with a separator-safe path jail and tenant-credential helper · **PTY terminals** with one-time tickets · **host and per-website metrics** (raw numbers) · **LXC-aware capability reporting** with reasons and advice.
 > **Execution modes are honest:** real work only on Linux with systemd; everywhere else **dry-run** — units and `.env` are written, nothing is started, and the API reports `mode: "dry-run"` instead of a fake success.
 > **Next:** start from `HANDOFF.md` — it carries the verified state, the working loop, and the order the operator chose. In short: **Tenants & User Groups** (the tenancy model: ownership, list scoping, OS isolation), then **one PHP website end to end** (the php-fpm pool writer and the web-server → FPM connector do not exist yet), then domains & TLS, backups, pods and tunnels, which are still mocks. Databases & caches and the anti-brute-force watchdog are live and measured.
@@ -296,7 +296,7 @@ graph TD
 |---|---|---|---|
 | **Design System & Panel Layout** | ✅ Complete (responsive) | N/A (frontend only) | **Complete (frontend)** |
 | **Auth, Session & Profile** | ✅ Complete (profile, sessions **wired** to the daemon, 2FA mock, permissions) | ✅ Login/logout/me, verify (elevated), session list + revoke, **`GET /audit`** (own entries, or all for an admin); API tokens not yet | **Live (tokens/2FA pending)** |
-| **RBAC, Groups & Packages** | ✅ Complete (10-capability matrix, package limits) | ✅ Capability middleware per account, built-in groups, package limits applied to systemd + quota, capacity guard | **Live** |
+| **RBAC, Groups & Packages** | ✅ Complete (Tenants screen wired live: users, packages, capability matrix, package limits) | ✅ Capability middleware per account, built-in groups, package limits applied to systemd + quota, capacity guard, **account CRUD** (`users` list/create/patch/delete + password reset) that provisions the Linux account and applies the disk quota from the panel, and group create/delete; the role follows the Root package | **Live** |
 | **Websites & Runtime Selector** | ✅ Complete (27 PHP/Node/Python templates) | 🟡 List/detail + deploy pipeline live; vhost writer & runtime installers pending | **Partially live** |
 | **Guided Deploy Wizard** | ✅ Complete (5 steps, source choice, presets) | ✅ `202` + job log + SSE, 8 steps incl. `.env`, DB/cache step, systemd unit render, health check — **verified end-to-end on a real Linux host** (see below) | **Live (verified on LXC)** |
 | **Real-host verification (LXC)** | — | ✅ Ubuntu 24.04 LXC on Proxmox: `mode: real`, unit active, service runs as the tenant, cgroup limits applied (memory.max 1 GiB / cpu.max 100000 / pids.max 256), health check green, app answers, files created through the API owned by the tenant, per-site metrics from the cgroup | **Verified** |
@@ -308,9 +308,9 @@ graph TD
 | **Metrics & Monitoring** | ✅ Complete (live when the daemon answers, clearly labelled simulation otherwise) | ✅ Host (`/proc`, statfs, `/proc/net/dev`) + per-website cgroup v2 sampler, ranges, honest "unavailable + reason" | **Live** |
 | **Hardware S.M.A.R.T. & Network** | ✅ Complete (visual diagnostics, mock self-test) | 🟡 Capability detection + disk/network counters live; `smartctl` runs and fstrim are gated by capability | **Partially live** |
 | **LXC / container support** | ✅ Complete (limits card) | ✅ Live detection (systemd/LXC/Docker/SMART/fstrim/quota) + `limitations[]` with reasons and advice | **Live** |
-| **Database Suite & SSO** | ✅ Complete (detail modal, vault, export) | ⏳ Not yet (provisioner, rotate, SSO proxy) | **UI Simulation** |
-| **Caches (Redis) & SQLite** | ✅ Complete (Caches tab, file-based SQLite) | ⏳ Not yet | **UI Simulation** |
-| **Recycle Bin (Databases)** | ✅ Complete (soft delete, restore, purge) | ⏳ Not yet | **UI Simulation** |
+| **Database Suite & SSO** | ✅ Complete (detail modal, vault, export, Data Browser & SQL) | ✅ Provisioner (SQLite file engine; PostgreSQL/MySQL/MariaDB plans with safe quoting; MongoDB through the panel's own driver), rotate, reveal, connection-string, logical export, and a gated reverse proxy hosting **pgweb**/**phpMyAdmin** under `/databases/:id/gui/…` | **Live** |
+| **Caches (Redis) & SQLite** | ✅ Complete (Caches tab, file-based SQLite) | ✅ Redis caches as multi-tenant ACL users scoped to their key prefix, SQLite file-based with live size reporting | **Live** |
+| **Recycle Bin (Databases)** | ✅ Complete (soft delete, restore, purge) | ✅ Suspend & restore (grants and route withdrawn, data retained), manual purge and empty-bin, 30-day retention | **Live** |
 | **Docker Pods & Containers** | ✅ Complete (PodsView, deploy/config modals) | ⏳ Not yet (Docker Engine SDK) | **UI Simulation** |
 | **Backup & Migration Hub** | ✅ Complete (wizard, token, `.bpod`) | ⏳ Not yet (rsync stream, S3/R2) | **UI Simulation** |
 | **World Traffic Map & Logs** | ✅ Complete (vector map, pins, log viewer) | ⏳ Not yet (daemon log streamer / WS) | **UI Simulation** |
@@ -348,7 +348,8 @@ graph TD
   - ✅ **Deploys own their files as the tenant** (fixed): `Runner.RunAs` runs a command with the tenant's UID/GID and HOME, `RunInSite` and the GitHub clone go through it, and the source step ends with a `chown -R <tenant>` on the site directory — so a scaffolded `.venv` or a cloned repo belongs to the tenant instead of root, and sites deployed before the fix are repaired by their next deploy. Verified on the LXC: the old `root:root` `.venv` came back as `bptest:bptest` after a redeploy, and a fresh Flask scaffold had zero root-owned files. Install scripts no longer run as root either (a supply-chain win, not just tidiness).
   - ✅ **Databases & Caches module (0.3 reached)**: SQLite file engine with live `os.Stat` size reporting & `.trash` Recycle Bin, Redis multi-tenant ACL users with key prefix restrictions and password rotation, AES-256-GCM vault with elevated sessions, and live UI Reveal/Rotate click-through.
   - ✅ **A database manager is hosted for PostgreSQL**: `internal/dbtools` (one `Spec` per tool + a single-flight `Supervisor`) and a reverse proxy serve **pgweb** under `/api/v1/databases/:id/gui/pgweb/…` — started on first access, credential injected server-side, session-gated (401 without one), audited as `database.gui_open`, stopped after the idle window (`database.gui_idle`) with leftovers reconciled at start. Verified on the LXC (page + assets 200, a `select` through the proxy, loopback-only `127.0.0.1:8790`, Reconcile and idle stop both seen). MySQL/MariaDB/MongoDB/Redis use the panel's own Data Browser until DbGate ships.
-  - ⏳ Next: **Tenants & User Groups**, then a **single PHP website end to end** (php-fpm pool + vhost + TLS), then the remaining mocked views. See `HANDOFF.md` for the verified state and the deploy loop.
+  - ✅ **Tenants & User Groups (control plane)**: a real users/groups HTTP API — `GET|POST /users`, `PATCH|DELETE /users/{id}`, `POST /users/{id}/password`, `GET|POST /groups`, `PATCH|DELETE /groups/{name}` — gated on the `users` capability. Creating an account also provisions its Linux account and applies the package's disk/inode quota (dry-run safe); suspending mirrors `usermod --lock` and revokes that account's sessions; deleting one that still owns websites/databases is refused with `409 has_resources`. Hardened alongside: an unknown owner is refused on every create path, `maxSites` now answers `409 quota_exceeded` (matching databases), and a package edit re-applies the quota to its members. The `UsersView` screen is wired live (raw numbers, live/mock badge). The capability matrix, package limits and capacity guard are unchanged.
+  - ⏳ Next: a **single PHP website end to end** (php-fpm pool writer + web-server → FPM connector + TLS), then the remaining mocked views. See `HANDOFF.md` for the verified state and the deploy loop.
 * **Phase 3: Host OS & Container Integration (SCHEDULED 📋)**:
   - Docker Engine SDK (`docker/moby`) integration for container pod management.
   - File Manager backend API (reading/writing real Linux directories with isolated tenant user privileges).

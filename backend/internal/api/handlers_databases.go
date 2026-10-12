@@ -387,6 +387,12 @@ func (s *Server) handleCreateDatabase(kind string) authedHandler {
 			writeError(w, http.StatusConflict, "already_exists", "That name is already in use")
 			return
 		}
+		// The owner must be a real panel account (a website could carry an owner
+		// string that no longer names anyone).
+		if _, err := s.store.UserByUsername(record.TenantUser); err != nil {
+			writeError(w, http.StatusBadRequest, "validation_error", "The owner account does not exist")
+			return
+		}
 		// Package guard, exactly as for websites: the account's group may cap how many
 		// databases it owns, and it is checked before anything is provisioned.
 		if !s.enforceDatabaseQuota(w, record.TenantUser) {

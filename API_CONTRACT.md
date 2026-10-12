@@ -8,7 +8,7 @@
 
 | Already served by the daemon | Contract only (planned) |
 |---|---|
-| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `groups` list + `PATCH` · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**), and a real logical **`export`** | Pods (Docker) · backups & migration · domains & SSL · Cloudflare tunnels · users/groups CRUD · webhooks · MCP server · per-app access control (503, basic auth, anti-brute-force) · vhost writing · hosting **DbGate** · the databases UI |
+| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `system/guard` (+ `unban`) · `system/settings` · `system/ports` (panel/ssh) · **accounts & packages**: `users` list/create/patch/delete + password reset, `groups` list/create/`PATCH`/delete · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**, plus **DbGate** as a per-database container), and a real logical **`export`** | Pods (Docker) · backups & migration · domains & SSL · Cloudflare tunnels · webhooks · MCP server · per-app access control (503, basic auth, anti-brute-force) · vhost writing |
 
 `mode: "real" | "dry-run"` appears on every response that depends on privileged work — off Linux+systemd the daemon is in dry-run and says so instead of faking success.
 
@@ -17,11 +17,11 @@
 ## 1. Conventions
 
 - **Base path:** `/api/v1`
-- **Known gaps, recorded rather than implied** (a reader should not assume these exist): the deploy wizard and the redeploy screen call the daemon, but **nothing in this session was verified through a real browser** — every claim is HTTP-level; the manager start has a **bounded retry, not a queue** (a cold open can still take the waiting page, and there is no ordered job queue with per-job status); **users & groups have no CRUD** (packages and their limits are real and enforced — `maxSites`, `maxDatabases` — but there is no user-management API, so the Tenants screen is mock); there is **no vhost/domain module**, so a website answers on its upstream port and not yet by domain; **database ports stay loopback** (per-database public/private exposure is deferred); and the status page's **503 maintenance variant is unused** until the web-server module owns the ports.
+- **Known gaps, recorded rather than implied** (a reader should not assume these exist): the deploy wizard and the redeploy screen call the daemon, but **nothing in this session was verified through a real browser** — every claim is HTTP-level; the manager start has a **bounded retry, not a queue** (a cold open can still take the waiting page, and there is no ordered job queue with per-job status); **users & groups have no CRUD** (packages and their limits are real and enforced — `maxSites`, `maxDatabases` — but there is no user-management API, so the Tenants screen is mock); there is **no vhost/domain module**, so a website answers on its upstream port and not yet by domain; **per-database exposure is applied per engine and gated behind the watchdog** (a `public` exposure answers `409 guard_required` while it is not enforcing); and the status page's **503 maintenance variant is unused** until the web-server module owns the ports.
 - **A milestone is a claim about the daemon, not about a screen.** The deploy and database flows are verified by driving these endpoints (curl on the LXC); a panel screen that does not call them is mock and is labelled as such in the UI (the Add-Website wizard was one until it was wired to `POST /websites`).
 - **Everything is behind one origin.** The panel and every manager it hosts are reached on the panel's own port and path, so a reverse proxy or tunnel (Cloudflare Tunnel, nginx) only has to point at the panel — there is no second hostname or port to expose, and nothing to configure per database. When one is in front, `X-Forwarded-Proto` decides the scheme the *visitor* is on: a manager's absolute URLs (phpMyAdmin's `PmaAbsoluteUri`) and the session cookie's `Secure` flag follow the visitor, not the plain-HTTP hop to the daemon.
 - **Format:** JSON (`application/json`), UTF-8.
-- **Auth:** `Authorization: Bearer <JWT>` (except `POST /auth/login` and GitHub webhooks).
+- **Auth:** an opaque **session cookie** (`HttpOnly`; `Secure` when the visitor is on HTTPS), set by `POST /auth/login` and restored by `GET /auth/me`, with an `X-CSRF-Token` on every state-changing request (except `POST /auth/login` and GitHub webhooks). **Not JWT** — see `MASTER_PLAN.md` decision #4.
 - **Tenant scope:** endpoints under `/websites/:slug/...` are automatically restricted to the owning tenant.
 - **Error shape:**
   ```json
@@ -92,9 +92,9 @@ This is the main rework risk — the UI currently stores some values as presenta
 
 ### 4.1 Auth, Profile & Session
 - **`POST /auth/password`** `{ currentPassword, newPassword }` (session + CSRF) → `200 { status: "changed", signedOutEverywhere: true }`. The current password is verified (`403` when it is not right, `400` when the new one is under 12 characters) and **every session for the account is invalidated**, the caller's included — the store's own rule, and what the CLI does. Both outcomes are audited (`auth.password_change`, `auth.password_change_refused`).
-- `POST /auth/login` → `{ token, user }`
+- `POST /auth/login` `{ username, password }` → sets the session cookie, `200 { user, csrfToken }`
 - `POST /auth/logout`
-- `GET /auth/me` → `{ user, role, group, permissions }`
+- `GET /auth/me` → `{ user, csrfToken, elevated, permissions }`
 - **CSRF:** every state-changing request carries `X-CSRF-Token`, and the token is returned by **`/auth/me`** as well as by login — a client must store it on *every* session read, because a reloaded page restores its session from `/auth/me` and would otherwise fail every write with `403 { code: "csrf" }`. A missing or stale token is rejected, never ignored.
 - `POST /auth/verify` (re-auth for revealing DB passwords / sensitive actions)
 - `POST /auth/2fa/enable` · `POST /auth/2fa/verify`
@@ -155,14 +155,19 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - A pod has no `/pty` endpoint yet: container shells arrive with the pods module (Phase 3). Until then a pod target is a UI-only concept.
 
 ### 4.2.2 Accounts, Groups & Permissions (per account)
-> Not part of this contract, because it is not an HTTP surface: `barepod uninstall` removes the panel from
-> the host (guided; backs up and verifies the backup before deleting anything; `--backup=db|full|none`),
-> `barepod service install|status|uninstall` manages its systemd unit, and `scripts/` carries the same
-> operations for a host whose binary is already gone.
+> **The accounts and packages are an HTTP surface now** — `GET|POST /users`, `PATCH|DELETE /users/{id}`,
+> `POST /users/{id}/password`, `GET|POST /groups`, `PATCH|DELETE /groups/{name}`. What stays CLI-only is
+> host lifecycle, not accounts: `barepod uninstall` removes the panel from the host (guided; backs up and
+> verifies the backup before deleting anything; `--backup=db|full|none`), `barepod service
+> install|status|uninstall` manages its systemd unit, and `scripts/` carries the same operations for a
+> host whose binary is already gone.
 
 - **No built-in account.** The operator creates the root admin during installation with the CLI: `barepod admin create` (generated password shown once). The daemon refuses to start while no account exists.
 - **The only built-in data is three permission groups**, created on first run: `Superadmin (Root)`, `Developer`, `Read Only`. `users.group_name` is the membership.
-- `GET /groups` → `{ items: [{ id, name, description, permissions{10 capabilities}, members, isDefault, isSystem }], capabilities: [...] }` (requires the `users` capability). `POST|PATCH|DELETE /groups` and member management land with the users module; system groups cannot be deleted.
+- `GET /groups` → `{ items: [{ id, name, description, permissions{10 capabilities}, limits{cpuQuotaPercent,memoryMb,tasksMax,diskQuotaGb,inodeQuota,maxSites,maxDatabases}, members, isDefault, isSystem }], capabilities: [...] }` (requires the `users` capability). `POST /groups` creates a package, `PATCH /groups/{name}` edits it, `DELETE /groups/{name}` removes it — a system group cannot be deleted (`403`), and one that still has members answers `409 has_members`.
+- **Accounts.** `GET /users` lists them with `{ id, username, email, role, groupName, status, createdAt, home, osExists, sites{used,max}, databases{used,max} }` and a top-level `mode`. `POST /users` `{ username, email?, password?, groupName }` creates the panel account **and** the Linux account, applying the package's disk/inode quota (dry-run safe off Linux) → `201`, with a generated `password`+`passwordShownOnce` when none was given. `PATCH /users/{id}` `{ email?, groupName?, status? }` changes the package (re-applies the quota) or the status (mirrors `usermod --lock/--unlock` and revokes that account's sessions). `DELETE /users/{id}` refuses with **`409 has_resources`** (naming the websites and databases) while the account still owns anything, and refuses `self_action` / `last_admin`. `POST /users/{id}/password` resets it and signs that account out everywhere.
+- **The role follows the package:** an account whose `groupName` is the Root package is `role: "admin"`; any other package is `role: "user"`. Cross-tenant visibility keys off `role` and capabilities off the group, so the two are kept in step — a Root member is an admin and nothing else is.
+- New error codes: `no_such_group`, `has_resources`, `has_members`, `last_admin`, `self_action`.
 - Capabilities: `deployApps`, `fileManager`, `terminal`, `databases`, `backups`, `domains`, `cloudflareTunnels`, `monitoring`, `users`, `apiTokens`. `GET /auth/me` returns the caller's **effective permissions**, resolved from the group.
 - **Enforcement is per account, never global:** a route whose capability is missing returns `403 { code: "capability_required" }`, and resource routes are scoped to the caller's own resources (another tenant's object returns `404`, even when the capability is granted). **Admins are the single exception** — they see and manage every tenant.
 - **Backup, migration and every future module follow the same rule:** capability from the group + ownership of the resource; `Read Only` may view dashboards/metrics/logs and start nothing.
@@ -259,10 +264,10 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `GET /domains` · `POST /domains/:id/renew-ssl` · `GET /domains/:id/ssl`
 
 ### 4.9 Users, Groups & RBAC
-- `GET|POST /users` · `PATCH|DELETE /users/:id`
-- `GET|POST /groups` · `PATCH|DELETE /groups/:id`
+- `GET|POST /users` · `PATCH|DELETE /users/:id` · `POST /users/:id/password`
+- `GET|POST /groups` · `PATCH|DELETE /groups/:name` (a package is addressed by name, not id)
 - `GroupPermissions` (10 capabilities): `deployApps`, `fileManager`, `terminal`, `databases`, `backups`, `domains`, `cloudflareTunnels`, `monitoring`, `users`, `apiTokens`.
-- `GET /permissions` → capability catalog (key, label, description) for UI rendering.
+- `GET /permissions` (capability catalog for UI rendering) is **not served yet** — the client renders the same matrix from static data.
 
 ### 4.10 System Monitoring
 - `GET /system/metrics?range=` + `WS: system-metrics`
@@ -317,7 +322,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 
 ## 6. Recommended Backend Implementation Order
 
-1. **Foundation:** SQLite (WAL) + schema migrations, HTTP + WS router, JWT/RBAC middleware, `/system/capabilities`.
+1. **Foundation:** SQLite (WAL) + schema migrations, HTTP + WS router, session-cookie + CSRF and RBAC middleware, `/system/capabilities`.
 2. **Pilot: Websites** — `GET/POST/PATCH/DELETE /websites`, start/stop/restart, metrics. Wire the UI to real data end-to-end.
 3. **Files + Deploy** (file manager API + git runner + `WS: deploy-log`).
 4. **Terminal** (`pty` bridge: tenant + host, host gated to admins).

@@ -60,6 +60,43 @@ func usages(groups []rbac.Group) []resources.Usage {
 	return out
 }
 
+// guardPlan validates a prospective package plan against the live host capacity.
+// override replaces that package's limits in the plan (a package being edited or
+// added); delta adjusts member counts for the package(s) named (a member being
+// added or moved). It returns the capacity and the resulting allocation so a
+// caller can report the numbers when the plan does not fit.
+func (s *Server) guardPlan(override *rbac.Group, delta map[string]int) (resources.Capacity, resources.Limits, error) {
+	groups, err := s.store.ListGroups()
+	if err != nil {
+		return resources.Capacity{}, resources.Limits{}, err
+	}
+	prospective := make([]resources.Usage, 0, len(groups)+1)
+	seen := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		usage := resources.Usage{Name: g.Name, Members: g.Members, Limits: g.Limits}
+		if override != nil && g.Name == override.Name {
+			usage.Limits = override.Limits
+		}
+		if d, ok := delta[g.Name]; ok {
+			usage.Members += d
+			if usage.Members < 0 {
+				usage.Members = 0
+			}
+		}
+		seen[g.Name] = true
+		prospective = append(prospective, usage)
+	}
+	if override != nil && !seen[override.Name] {
+		members := 0
+		if d, ok := delta[override.Name]; ok && d > 0 {
+			members = d
+		}
+		prospective = append(prospective, resources.Usage{Name: override.Name, Members: members, Limits: override.Limits})
+	}
+	capacity := resources.DetectCapacity(s.host.SitesRoot)
+	return capacity, resources.Allocation(prospective), resources.Validate(prospective, capacity)
+}
+
 // handleCapacity reports what the host has, what the packages claim, and whether
 // the plan fits — so the operator can see the ceiling before allocating.
 //
@@ -136,25 +173,12 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request, user 
 	}
 
 	// Guard: the whole plan (all packages × their members) must fit this server.
-	groups, err := s.store.ListGroups()
+	capacity, allocation, err := s.guardPlan(&rbac.Group{Name: name, Limits: limits}, nil)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", "Could not read the packages")
-		return
-	}
-	prospective := make([]resources.Usage, 0, len(groups))
-	for _, g := range groups {
-		if g.Name == name {
-			prospective = append(prospective, resources.Usage{Name: g.Name, Members: g.Members, Limits: limits})
-			continue
-		}
-		prospective = append(prospective, resources.Usage{Name: g.Name, Members: g.Members, Limits: g.Limits})
-	}
-	capacity := resources.DetectCapacity(s.host.SitesRoot)
-	if err := resources.Validate(prospective, capacity); err != nil {
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"error":    apiError{Code: "insufficient_capacity", Message: err.Error()},
 			"capacity": capacity,
-			"usage":    resources.Allocation(prospective),
+			"usage":    allocation,
 		})
 		return
 	}
@@ -170,5 +194,8 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request, user 
 		writeError(w, http.StatusInternalServerError, "internal", "Could not reload the package")
 		return
 	}
+	// The limits may have changed: re-apply the disk/inode quota to every member so
+	// a package edit is not merely a stored number.
+	s.reapplyGroupQuota(r.Context(), updated)
 	writeJSON(w, http.StatusOK, updated)
 }

@@ -41,7 +41,15 @@ func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request, user
 		writeError(w, http.StatusInternalServerError, "internal", "Could not list websites")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	response := map[string]any{"items": items}
+	// An account under a package limit is told what it is, so a create that will be
+	// refused can say "2 of 2 used" beforehand (the same hint the databases list gives).
+	if limits := s.limitsForTenant(user.Username); limits.MaxSites > 0 {
+		if used, err := s.store.CountWebsitesByTenant(user.Username); err == nil {
+			response["quota"] = map[string]int{"maxSites": limits.MaxSites, "usedSites": used}
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 // handleGetWebsite returns one website by slug, but never another tenant's.

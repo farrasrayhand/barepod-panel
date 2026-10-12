@@ -63,3 +63,15 @@ func (s *Store) SetUserStatus(username, status string) error {
 	}
 	return err
 }
+
+// DeleteUser removes a panel account. Its sessions go with it (foreign key cascade).
+func (s *Store) DeleteUser(username string) error {
+	res, err := s.DB.Exec(`DELETE FROM users WHERE username = ?`, username)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
