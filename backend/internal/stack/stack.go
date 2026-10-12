@@ -85,7 +85,14 @@ func dpkgRepair() []string { return []string{"bash", "-c", dpkgRepairScript} }
 // own installs are serialised, but the lock can be held by something this process cannot
 // see — a shell, an unattended upgrade — and failing there leaves a half-finished install
 // for no reason.
-var aptWait = []string{"-o", "DPkg::Lock::Timeout=600"}
+var aptWait = []string{
+	"-o", "DPkg::Lock::Timeout=600",
+	// A package whose configuration file the operator has edited asks what to do about it;
+	// with no terminal dpkg reads EOF and aborts *mid-install*, which is what left MariaDB
+	// unpacked and configured-by-nobody. Keeping the file that is on the host is both the
+	// answer the prompt defaults to and the safe one.
+	"-o", "Dpkg::Options::=--force-confold",
+}
 
 // aptGet builds an apt-get argv with that wait in place.
 func aptGet(args ...string) []string {
@@ -134,6 +141,8 @@ func Commands(component, version string) ([][]string, error) {
 			{"bash", "-c", redisRepoScript},
 			{"bash", "-c", nginxRepoScript},
 			{"bash", "-c", caddyRepoScript},
+			{"bash", "-c", apacheRepoScript},
+			{"bash", "-c", openlitespeedRepoScript},
 		}, nil
 	case "php":
 		// A PHP install is a full one: the extensions the panel's Settings screen toggles
@@ -204,7 +213,13 @@ func Commands(component, version string) ([][]string, error) {
 	case "postgresql":
 		return apt("postgresql-" + version), nil
 	case "mariadb":
-		return apt("mariadb-server"), nil
+		// MariaDB upgrades its own system tables after the packages move; skipping it leaves
+		// a server that starts and then refuses real work.
+		script := "set -e\n" +
+			"apt-get " + strings.Join(aptWait, " ") + " install -y mariadb-server\n" +
+			"systemctl start mariadb 2>/dev/null || true\n" +
+			"mariadb-upgrade -u root 2>&1 || mysql_upgrade -u root 2>&1 || echo 'mariadb-upgrade did not run — check the server log'"
+		return [][]string{{"bash", "-c", script}}, nil
 	case "redis":
 		return apt("redis-server"), nil
 	case "mongodb":
@@ -279,6 +294,33 @@ apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb
 curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt > /etc/apt/sources.list.d/caddy-stable.list
 apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+
+// Apache and OpenLiteSpeed carry more versions than Ubuntu's single package: the ondrej
+// PPA for Apache, and LiteSpeed's own repository for OpenLiteSpeed. Each one undoes itself
+// if apt cannot use it, because a source that fails leaves the whole system unable to
+// install anything — which is worse than a version list with one entry.
+const apacheRepoScript = `set -e
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq software-properties-common >/dev/null
+if ! add-apt-repository -y ppa:ondrej/apache2 >/dev/null 2>&1; then
+  echo "the Apache PPA is not available for this release — keeping the distribution's Apache"
+  add-apt-repository -y --remove ppa:ondrej/apache2 >/dev/null 2>&1 || true
+  exit 0
+fi
+if ! apt-get -o DPkg::Lock::Timeout=600 update >/dev/null 2>&1; then
+  add-apt-repository -y --remove ppa:ondrej/apache2 >/dev/null 2>&1 || true
+  echo "the Apache PPA could not be updated — removed it again rather than leaving apt broken"
+fi`
+
+const openlitespeedRepoScript = `set -e
+apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+curl -fsSL https://rpms.litespeedtech.com/debian/lst_repo.gpg -o /usr/share/keyrings/lst_repo.gpg || true
+echo "deb [signed-by=/usr/share/keyrings/lst_repo.gpg] http://rpms.litespeedtech.com/debian/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/openlitespeed.list
+if ! apt-get -o DPkg::Lock::Timeout=600 update >/dev/null 2>&1; then
+  rm -f /etc/apt/sources.list.d/openlitespeed.list
+  echo "OpenLiteSpeed's repository is not published for this release — removed it again rather than leaving apt broken"
+fi`
+
+// rbenvRoot is where the panel keeps rbenv.
 
 // rustupRepoScript installs rustup, which is itself the multi-toolchain manager. It uses
 // rustup's own defaults (~/.cargo, ~/.rustup) so that `rustup`, `rustc` and `cargo` work
@@ -521,6 +563,20 @@ func (i *Installer) offered(ctx context.Context, component string) []string {
 	c, ok := Lookup(component)
 	if !ok {
 		return nil
+	}
+	// A database engine's versions come from its repositories, exactly as a runtime's do.
+	// Falling through to the catalogue is what refused PostgreSQL 18 with "(available: 16,
+	// 15)" while the screen, which reads the repositories, offered it.
+	if DatabaseEngine(component) {
+		if versions := databaseVersions(ctx, i.host, component); len(versions) > 0 {
+			return versions
+		}
+	}
+	// A web server's versions come from its own repository too.
+	if _, managed := webServerPkg[component]; managed {
+		if versions := webServerVersions(ctx, i.host, component); len(versions) > 0 {
+			return versions
+		}
 	}
 	for _, r := range runtimeSources() {
 		if r.name != component {
@@ -1040,6 +1096,13 @@ func Repositories() []RepositoryStatus {
 	nginx := "/etc/apt/sources.list.d/nginx.list"
 	caddy, _ := filepath.Glob("/etc/apt/sources.list.d/caddy-stable.list")
 
+	apachePath, olsPath := "", ""
+	if matches, _ := filepath.Glob("/etc/apt/sources.list.d/*apache2*"); len(matches) > 0 {
+		apachePath = matches[0]
+	}
+	if matches, _ := filepath.Glob("/etc/apt/sources.list.d/openlitespeed.list"); len(matches) > 0 {
+		olsPath = matches[0]
+	}
 	deadPath, mongoPath, caddyPath := "", "", ""
 	if len(deadsnakes) > 0 {
 		deadPath = deadsnakes[0]
@@ -1060,6 +1123,8 @@ func Repositories() []RepositoryStatus {
 		{Name: "redis", Label: "Redis (version lines)", Present: exists(redis), Group: "database", Path: redis},
 		{Name: "nginx", Label: "nginx.org (nginx versions)", Present: exists(nginx), Group: "web", Path: nginx},
 		{Name: "caddy", Label: "Cloudsmith (caddy versions)", Present: caddyPath != "", Group: "web", Path: caddyPath},
+		{Name: "apache", Label: "ondrej PPA (Apache versions)", Present: apachePath != "", Group: "web", Path: apachePath},
+		{Name: "openlitespeed", Label: "LiteSpeed (OpenLiteSpeed versions)", Present: olsPath != "", Group: "web", Path: olsPath},
 	}
 }
 

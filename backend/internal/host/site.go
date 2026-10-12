@@ -259,6 +259,9 @@ func (h *Host) RunDetached(ctx context.Context, unit string, argv []string) (str
 		"--wait",
 		"--pipe",
 		"--property=Type=oneshot",
+		// Nothing here has a terminal: a package that asks a question would otherwise read
+		// EOF and abort the install half-way.
+		"--setenv=DEBIAN_FRONTEND=noninteractive",
 		"--",
 	}, argv...)
 	return h.Run(ctx, args)
