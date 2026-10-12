@@ -47,6 +47,22 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The host can change without this screen asking: an install started on another tab, a
+  // version added to a repository, a service restarted from a shell. So the screen asks
+  // again on its own rather than needing a manual refresh.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    const timer = window.setInterval(tick, 15000);
+    window.addEventListener('focus', tick);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', tick);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [jobLines]);
@@ -282,36 +298,36 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   )}
                   {status_?.source && <span className="text-[10px] text-slate-400 font-mono">{status_.source}</span>}
                 </div>
-                <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <div className="mt-3 flex flex-col gap-2">
                   <span className="text-[11px] text-slate-500">
                     {/* Not every list comes from an apt repository: Node and Go come from their
                         vendor index, Ruby from ruby-build, Rust from rustup's channels. */}
-                    {offerable.length > 0 ? 'Available:' : 'Install:'}
+                    {offerable.length > 0 ? `Available (${offerable.length}, newest first):` : 'Install:'}
                   </span>
-                  {offerable.slice(0, 12).map((version) => {
-                    const already = version !== '' && installed.includes(version);
-                    return (
-                      <button
-                        key={version || 'any'}
-                        onClick={() => void install(component.name, version || undefined)}
-                        disabled={busy || live !== true || already}
-                        title={already ? `${component.label} ${version} is already installed` : undefined}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold disabled:cursor-not-allowed ${
-                          already
-                            ? 'text-emerald-700 bg-emerald-50 border border-emerald-200'
-                            : 'text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50'
-                        }`}
-                      >
-                        {already ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
-                        {version ? `${component.label} ${version}` : component.label}
-                        {already ? ' · installed' : ''}
-                      </button>
-                    );
-                  })}
-                  {offerable.length === 0 && <span className="text-[11px] text-slate-400">nothing offered by this host's repositories yet</span>}
-                  {offerable.length > 12 && (
-                    <span className="text-[10px] text-slate-400">+{offerable.length - 12} more (newest first)</span>
-                  )}
+                  {/* Every version the host offers, not a hand-picked few. */}
+                  <div className="flex items-center gap-2 flex-wrap max-h-32 overflow-y-auto">
+                    {offerable.map((version) => {
+                      const already = version !== '' && installed.includes(version);
+                      return (
+                        <button
+                          key={version || 'any'}
+                          onClick={() => void install(component.name, version || undefined)}
+                          disabled={busy || live !== true || already}
+                          title={already ? `${component.label} ${version} is already installed` : undefined}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold disabled:cursor-not-allowed ${
+                            already
+                              ? 'text-emerald-700 bg-emerald-50 border border-emerald-200'
+                              : 'text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50'
+                          }`}
+                        >
+                          {already ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
+                          {version ? `${component.label} ${version}` : component.label}
+                          {already ? ' · installed' : ''}
+                        </button>
+                      );
+                    })}
+                    {offerable.length === 0 && <span className="text-[11px] text-slate-400">nothing offered by this host's repositories yet</span>}
+                  </div>
                 </div>
                 {(installed.length > 0 || chosen) && (
                   <p className="mt-2 text-[11px] text-slate-500">

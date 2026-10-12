@@ -670,6 +670,16 @@ export const api = {
 
   stackJobStreamUrl: (id: string) => `${API_BASE}/system/stack/jobs/stream?id=${encodeURIComponent(id)}`,
 
+  /** The PHP extensions this host really has for a version, and the switch that runs phpenmod/phpdismod. */
+  phpExtensions: (version?: string) =>
+    request<PhpExtensionReport>(`/system/php/extensions${version ? `?version=${encodeURIComponent(version)}` : ''}`),
+
+  setPhpExtension: (version: string, name: string, enabled: boolean) =>
+    request<PhpExtensionReport>('/system/php/extensions', {
+      method: 'POST',
+      body: JSON.stringify({ version, name, enabled }),
+    }),
+
   deployStreamUrl: (slug: string, deployId?: string) =>
     `${API_BASE}/websites/${slug}/deploy/stream${deployId ? `?id=${deployId}` : ''}`,
 
@@ -1057,6 +1067,14 @@ export interface RuntimeStatus {
   /** True when the version matters per site (interpreted), false for a build toolchain. */
   perSite: boolean;
   source?: string;
+}
+
+/** What a PHP version really has on this host: the mods it can toggle and what its
+ *  repositories still offer. */
+export interface PhpExtensionReport {
+  version: string;
+  extensions: { name: string; enabled: boolean }[];
+  installable: string[];
 }
 
 export interface StackStatus {

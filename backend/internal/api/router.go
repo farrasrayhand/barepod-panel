@@ -164,6 +164,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/system/stack/jobs/stream", users(s.handleStackJobStream))
 	mux.HandleFunc("GET /api/v1/system/stack/jobs/{id}", users(s.handleStackJob))
 
+	// PHP extensions: what this host really has for a version, and the switch that turns
+	// one on or off (phpenmod / phpdismod). Reading is for anyone signed in; changing is
+	// administrative and audited.
+	mux.HandleFunc("GET /api/v1/system/php/extensions", s.requireAuth(s.handlePhpExtensions))
+	mux.HandleFunc("POST /api/v1/system/php/extensions", users(s.handleSetPhpExtension))
+
 	// Brute-force lockout. Reading it is for anyone signed in — knowing that the panel keeps
 	// brute-force out is not a secret, and a card nobody can see is a card nobody uses.
 	// Changing the numbers, and letting an address back in, are administrative acts and are

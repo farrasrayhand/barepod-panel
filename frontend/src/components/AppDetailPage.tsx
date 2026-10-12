@@ -60,7 +60,7 @@ import {
   Archive
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
-import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
+import { PhpExtensionsPanel } from './PhpExtensionsPanel';
 import { WORLD_MAP_PATH } from '../data/worldMapPath';
 import { runtimeIcon, frameworkIcon } from '../utils/brandIcons';
 import { FileManagerModal } from './FileManagerModal';
@@ -210,14 +210,8 @@ npm run build`;
     if (app.buildScript) setBuildScript(app.buildScript);
   }, [app]);
 
-  // PHP Extensions & Configuration Studio State (Pre-loaded with Master Extensions Catalog)
-  const [phpExtensions, setPhpExtensions] = useState<PhpExtensionItem[]>(MASTER_PHP_EXTENSIONS);
-
-  const [extensionSearch, setExtensionSearch] = useState('');
-  const [extensionFilterCat, setExtensionFilterCat] = useState<string>('all');
-  const [customExtensionInput, setCustomExtensionInput] = useState('');
-  const [isInstallingExtension, setIsInstallingExtension] = useState(false);
-  const [showCustomPeclForm, setShowCustomPeclForm] = useState(false);
+  // Extension counts come from the panel below, which reads them from the host.
+  const [extensionCounts, setExtensionCounts] = useState({ enabled: 0, total: 0 });
 
   // Core php.ini directives
   const [memoryLimit, setMemoryLimit] = useState('512M');
@@ -709,40 +703,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 }`;
   };
 
-  const handleToggleExtension = (extName: string) => {
-    setPhpExtensions(prev => prev.map(ext => {
-      if (ext.name === extName) {
-        const nextState = !ext.enabled;
-        onShowToast?.(
-          nextState ? 'Extension Activated' : 'Extension Deactivated',
-          `Executed: ${nextState ? 'phpenmod' : 'phpdismod'} ${ext.name}. Reloading PHP-FPM pool...`,
-          'success'
-        );
-        return { ...ext, enabled: nextState };
-      }
-      return ext;
-    }));
-  };
-
-  const handleInstallCustomExtension = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customExtensionInput.trim()) return;
-    const name = customExtensionInput.trim().toLowerCase();
-    setIsInstallingExtension(true);
-    onShowToast?.('PECL Compile Started', `Running: pecl install ${name} && phpenmod ${name}...`, 'info');
-    setTimeout(() => {
-      setIsInstallingExtension(false);
-      setPhpExtensions(prev => [
-        { name, category: 'core', description: `Custom PECL extension (${name}) installed & enabled in /etc/php/conf.d`, enabled: true, version: '1.0.0' },
-        ...prev
-      ]);
-      setCustomExtensionInput('');
-      onShowToast?.('Extension Installed', `Extension ${name} compiled and enabled in PHP ${app.version}.`, 'success');
-    }, 900);
-  };
-
   const handleResetToAdminDefault = () => {
-    setPhpExtensions(MASTER_PHP_EXTENSIONS);
     onShowToast?.(
       'Reset to Admin Blueprint',
       "This app's extension configuration was restored to the global admin default. PHP-FPM pool reloaded.",
@@ -2616,7 +2577,7 @@ QUEUE_CONNECTION=redis`}
               <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Loaded Extensions</span>
                 <div className="text-xl font-bold text-purple-700">
-                  {phpExtensions.filter(e => e.enabled).length} <span className="text-xs font-normal text-slate-500">/ {phpExtensions.length} Available</span>
+                  {extensionCounts.enabled} <span className="text-xs font-normal text-slate-500">/ {extensionCounts.total} on this host</span>
                 </div>
                 <span className="text-[10px] text-slate-500">Managed via phpenmod/phpdismod</span>
               </div>
@@ -2646,172 +2607,15 @@ QUEUE_CONNECTION=redis`}
               </div>
             </div>
 
-            {/* Extensions Filter, Tenant Isolation Banner & Catalog */}
-            <div className="space-y-4 pt-2">
-              {/* Tenant Isolation Banner with Reset to Admin Default */}
-              <div className="p-3.5 rounded-xl border border-purple-200/80 bg-gradient-to-r from-purple-50/80 to-indigo-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                <div className="flex items-start gap-2.5">
-                  <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold text-purple-950 block">
-                      Per-App Isolated Configuration ({app.tenantUser})
-                    </span>
-                    <p className="text-[11px] text-purple-800 leading-relaxed">
-                      All 28+ built-in and popular PECL extensions are indexed below. Toggling here applies only to this app (jail-isolated). It will not change admin defaults or break other users' apps.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleResetToAdminDefault}
-                  className="px-3 py-1.5 rounded-lg border border-purple-300 bg-white hover:bg-purple-50 text-purple-700 text-xs font-semibold whitespace-nowrap shadow-2xs transition-colors shrink-0 flex items-center gap-1.5"
-                >
-                  <RotateCw className="w-3.5 h-3.5" />
-                  <span>Reset ke Default Admin</span>
-                </button>
-              </div>
-
-              {/* Toolbar: Search, Categories & Toggle Custom PECL Form */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Search extensions (e.g. redis, swoole, grpc, imagick)..."
-                      value={extensionSearch}
-                      onChange={(e) => setExtensionSearch(e.target.value)}
-                      className="pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg w-64 focus:outline-hidden focus:ring-2 focus:ring-purple-500/20"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1 text-xs">
-                    {['all', 'database', 'cache', 'core', 'media', 'rpc', 'security'].map((cat) => (
-                      <button
-                        key={cat}
-                        onClick={() => setExtensionFilterCat(cat)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-colors ${
-                          extensionFilterCat === cat
-                            ? 'bg-purple-600 text-white shadow-2xs'
-                            : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
-                        }`}
-                      >
-                        {cat}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Button to toggle custom unlisted PECL package compilation */}
-                <button
-                  type="button"
-                  onClick={() => setShowCustomPeclForm(!showCustomPeclForm)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1.5 whitespace-nowrap ${
-                    showCustomPeclForm 
-                      ? 'bg-purple-100 text-purple-900 border-purple-300' 
-                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <Plus className="w-3.5 h-3.5 text-purple-600" />
-                  <span>{showCustomPeclForm ? 'Close Custom PECL Form' : '+ Install Other PECL'}</span>
-                </button>
-              </div>
-
-              {/* Collapsible Custom PECL Compiler Form */}
-              {showCustomPeclForm && (
-                <div className="p-4 rounded-xl border border-purple-200 bg-purple-50/50 space-y-2 animate-in fade-in duration-150">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-purple-950">
-                      Compile Custom / Unlisted PECL Package
-                    </span>
-                    <span className="text-[10px] text-purple-700 font-medium">
-                      Use this only if the extension you need is not listed below
-                    </span>
-                  </div>
-                  <form onSubmit={handleInstallCustomExtension} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="Type the PECL package name (e.g. excimer, uopz, v8js)..."
-                      value={customExtensionInput}
-                      onChange={(e) => setCustomExtensionInput(e.target.value)}
-                      className="flex-1 px-3 py-2 text-xs bg-white border border-purple-300 rounded-lg font-mono focus:outline-hidden focus:ring-2 focus:ring-purple-500/20"
-                    />
-                    <button
-                      type="submit"
-                      disabled={isInstallingExtension || !customExtensionInput.trim()}
-                      className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors disabled:opacity-50 whitespace-nowrap"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>{isInstallingExtension ? 'Compiling PECL...' : 'Compile & Install'}</span>
-                    </button>
-                  </form>
-                </div>
-              )}
-
-              {/* Master Extensions Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {phpExtensions
-                  .filter(ext => {
-                    const matchesCat = extensionFilterCat === 'all' || ext.category === extensionFilterCat;
-                    const matchesSearch = ext.name.toLowerCase().includes(extensionSearch.toLowerCase()) || 
-                                          ext.description.toLowerCase().includes(extensionSearch.toLowerCase());
-                    return matchesCat && matchesSearch;
-                  })
-                  .map((ext) => (
-                    <div 
-                      key={ext.name}
-                      className={`p-3.5 rounded-xl border transition-all ${
-                        ext.enabled 
-                          ? 'border-purple-200 bg-white shadow-2xs' 
-                          : 'border-slate-200 bg-slate-50/60 opacity-80'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-xs text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">
-                              {ext.name}
-                            </span>
-                            {ext.isPecl && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-purple-100 text-purple-700 border border-purple-200">
-                                PECL
-                              </span>
-                            )}
-                            <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200">
-                              {ext.category}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-slate-500 mt-1 leading-snug line-clamp-2">
-                            {ext.description}
-                          </p>
-                        </div>
-
-                        {/* Interactive Toggle Button */}
-                        <button
-                          type="button"
-                          onClick={() => handleToggleExtension(ext.name)}
-                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                            ext.enabled ? 'bg-purple-600' : 'bg-slate-300'
-                          }`}
-                        >
-                          <span
-                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                              ext.enabled ? 'translate-x-4' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-                      </div>
-
-                      <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-mono">
-                        <span>Config: 20-{ext.name}.ini</span>
-                        <span className={`font-bold ${ext.enabled ? 'text-emerald-600' : 'text-slate-400'}`}>
-                          {ext.enabled ? 'LOADED' : 'DISABLED'}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </div>
+            {/* The extensions this host really has for the app's PHP version. */}
+            <PhpExtensionsPanel
+              version={app.version}
+              title={`PHP ${app.version} Extensions`}
+              onShowToast={onShowToast}
+              onCountChange={(enabled, total) => {
+                setExtensionCounts({ enabled, total });
+              }}
+            />
 
             {/* Core php.ini Directives Form */}
             <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">

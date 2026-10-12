@@ -1,5 +1,5 @@
 import { api } from '../api/client';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { GuardCard } from './GuardCard';
 import { 
   Settings, 
@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import type { WebServerType } from '../types';
 import { useSubRoute } from '../hooks/useSubRoute';
-import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
+import { PhpExtensionsPanel } from './PhpExtensionsPanel';
 
 interface PanelSettingsViewProps {
   /** False hides controls a signed-in user may look at but not change — the daemon refuses them
@@ -230,13 +230,23 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   };
 
   // Global PHP Extensions Blueprint Settings
-  const [globalPhpExtensions, setGlobalPhpExtensions] = useState<PhpExtensionItem[]>(MASTER_PHP_EXTENSIONS);
+  const [hostPhpVersion, setHostPhpVersion] = useState('');
   const [defaultPhpVersion, setDefaultPhpVersion] = useState('8.4');
   const [defaultMemoryLimit, setDefaultMemoryLimit] = useState('512M');
   const [defaultUploadMaxSize, setDefaultUploadMaxSize] = useState('100M');
   const [defaultMaxExecutionTime, setDefaultMaxExecutionTime] = useState('300');
-  const [extSearchAdmin, setExtSearchAdmin] = useState('');
-  const [extCatAdmin, setExtCatAdmin] = useState('all');
+
+  useEffect(() => {
+    // The extension list is read from the host, so first ask which PHP version it has.
+    void (async () => {
+      try {
+        const status = await api.stack();
+        setHostPhpVersion(status.php?.default || status.php?.installed?.[0] || '');
+      } catch {
+        // the panel then says there is no version to read
+      }
+    })();
+  }, []);
 
   // Monitoring & Telemetry Retention Settings
   const [serverMetricsRetentionDays, setServerMetricsRetentionDays] = useState(90);
@@ -1582,88 +1592,8 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </div>
               </div>
 
-              {/* Master PHP & PECL Extensions Checklist */}
-              <div className="space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                      Master Extension Catalog ({globalPhpExtensions.filter(e => e.enabled).length} Enabled by Default / {globalPhpExtensions.length} Available)
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      Toggle extensions to activate automatically when a user deploys a new PHP app.
-                    </p>
-                  </div>
-
-                  {/* Filter & Search */}
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="Search extensions..."
-                      value={extSearchAdmin}
-                      onChange={(e) => setExtSearchAdmin(e.target.value)}
-                      className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg w-40"
-                    />
-                    <select
-                      value={extCatAdmin}
-                      onChange={(e) => setExtCatAdmin(e.target.value)}
-                      className="px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg capitalize"
-                    >
-                      {['all', 'database', 'cache', 'core', 'media', 'rpc', 'security'].map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Extensions Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                  {globalPhpExtensions
-                    .filter(ext => {
-                      const matchCat = extCatAdmin === 'all' || ext.category === extCatAdmin;
-                      const matchSearch = ext.name.toLowerCase().includes(extSearchAdmin.toLowerCase()) ||
-                                          ext.description.toLowerCase().includes(extSearchAdmin.toLowerCase());
-                      return matchCat && matchSearch;
-                    })
-                    .map((ext) => (
-                      <div
-                        key={ext.name}
-                        onClick={() => {
-                          setGlobalPhpExtensions(prev => prev.map(e => e.name === ext.name ? { ...e, enabled: !e.enabled } : e));
-                        }}
-                        className={`p-3 rounded-xl border text-xs cursor-pointer transition-all select-none ${
-                          ext.enabled
-                            ? 'bg-white border-purple-300 ring-1 ring-purple-400/20 shadow-2xs'
-                            : 'bg-slate-50 border-slate-200 opacity-60 hover:opacity-100'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-mono font-bold text-slate-900">{ext.name}</span>
-                              {ext.isPecl && (
-                                <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-purple-100 text-purple-700">
-                                  PECL
-                                </span>
-                              )}
-                              <span className="text-[9px] uppercase font-semibold px-1 py-0.2 rounded bg-slate-100 text-slate-500">
-                                {ext.category}
-                              </span>
-                            </div>
-                            <p className="text-[10px] text-slate-500 mt-1 line-clamp-2">
-                              {ext.description}
-                            </p>
-                          </div>
-
-                          <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${
-                            ext.enabled ? 'bg-purple-600 border-purple-600 text-white' : 'border-slate-300 bg-white'
-                          }`}>
-                            {ext.enabled && <Check className="w-3 h-3 stroke-[3]" />}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </div>
+              {/* The extensions this host really has, read from the daemon. */}
+              <PhpExtensionsPanel version={hostPhpVersion} onShowToast={onShowToast} />
             </div>
           )}
 

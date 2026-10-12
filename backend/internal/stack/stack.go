@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -21,6 +20,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/phpext"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
 )
@@ -522,14 +522,6 @@ func availableVersions(ctx context.Context, h *host.Host, r runtimeSource) []str
 			}
 		}
 		return sortedDescending(set)
-	case "apt-single":
-		// The distro ships one version of this runtime; its own candidate is the answer.
-		if version, ok := aptCandidate(ctx, h, r.pkg); ok {
-			if m := runtimesVersionPattern.FindStringSubmatch(version); m != nil {
-				return []string{m[1] + "." + m[2]}
-			}
-			return []string{version}
-		}
 	case "vendor-index":
 		// No repository owns these versions; the vendor's own index does.
 		return vendorVersions(ctx, h, r.name)
@@ -769,33 +761,9 @@ func engineVersion(ctx context.Context, h *host.Host, engine string) string {
 	return strings.TrimPrefix(line, "nginx version: ")
 }
 
-// phpVersions lists the PHP-FPM versions installed on the host (its own filesystem).
-func phpVersions() []string {
-	found := map[string]bool{}
-	for _, pattern := range []string{"/usr/sbin/php-fpm*", "/usr/bin/php-fpm*"} {
-		matches, _ := filepath.Glob(pattern)
-		for _, m := range matches {
-			name := strings.TrimPrefix(filepath.Base(m), "php-fpm")
-			if name != "" {
-				found[name] = true
-			}
-		}
-	}
-	// /etc/php/<version> is the config directory a distro package creates.
-	if dirs, err := os.ReadDir("/etc/php"); err == nil {
-		for _, d := range dirs {
-			if d.IsDir() {
-				found[d.Name()] = true
-			}
-		}
-	}
-	out := make([]string, 0, len(found))
-	for v := range found {
-		out = append(out, v)
-	}
-	sort.Strings(out)
-	return out
-}
+// phpVersions lists the PHP versions this host has. The scan lives with the extensions,
+// which is the other thing the host answers per version.
+func phpVersions() []string { return phpext.InstalledVersions() }
 
 // nodeVersions reports the Node.js version on the host.
 func nodeVersions(ctx context.Context, h *host.Host, lookPath func(string) (string, error)) []string {
