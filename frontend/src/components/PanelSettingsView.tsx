@@ -108,7 +108,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       }
       onShowToast?.('SSH port changed', note, 'success');
       setPorts(await api.systemPorts());
-      setSshPortDraft(String(port));
+      setSshPortDraft('');
     } catch (err) {
       onShowToast?.('Could not change the SSH port', err instanceof Error ? err.message : 'unknown error', 'error');
     } finally {
@@ -130,11 +130,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       }
       try {
         const measured = await api.systemPorts();
-        // Shown once, so both fields read as "this is the port now" and can be changed directly. Doing
-        // this on every refresh instead was a bug: saving an SSH port re-filled the panel's field.
-        setPanelPortDraft(String(measured.panel ?? ''));
-        setSshPortDraft(String(measured.sshPorts?.[0] ?? measured.ssh ?? '')); // Panel port shown
-
         if (alive) setPorts(measured);
       } catch {
         // No numbers are better than numbers that are not true of this host.
@@ -559,7 +554,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this choice yet.</p>
 
               </div>
-              <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Panel (HTTPS) port</label>
                   <div className="flex gap-2">
@@ -580,7 +575,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     </button>
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Digits only, 1024-65535. The panel moves to the new port and you open it there.
+                    Now {ports?.panel || '-'}. Type a port to change it: digits only, 1024-65535, and you open the panel there.
                   </p>
                 </div>
 
