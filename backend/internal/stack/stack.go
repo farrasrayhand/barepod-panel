@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -636,6 +637,10 @@ type Status struct {
 		// Available is what each engine's repositories carry; Latest is the newest of them.
 		Available map[string][]string `json:"available"`
 		Latest    map[string]string   `json:"latest"`
+		// Managed is every web server the panel keeps versions for (the ingress is only
+		// nginx and caddy), and ManagedInstalled is their real state.
+		Managed          []string          `json:"managed"`
+		ManagedInstalled []WebServerStatus `json:"managedInstalled"`
 	} `json:"webServer"`
 	Components []Component       `json:"components"`
 	Databases  []dbengine.Engine `json:"databases"`
@@ -682,20 +687,28 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 		active = strings.ToLower(strings.TrimSpace(v))
 	}
 	out.WebServer.Active = active
+	// Supported is who can own :80 — the ingress. Managed is every web server the panel
+	// keeps versions for, because OpenLiteSpeed and Apache are perfectly good engines that
+	// simply cannot be the ingress today.
 	out.WebServer.Supported = []string{webserver.Nginx, webserver.Caddy}
+	out.WebServer.Managed = []string{webserver.Nginx, webserver.Caddy, "openlitespeed", "apache"}
 	out.WebServer.WebUser = webserver.WebUser(active)
 	out.WebServer.VhostsPath = h.VhostsFor(active)
 	out.WebServer.Available = map[string][]string{}
 	out.WebServer.Latest = map[string]string{}
-	for _, engine := range out.WebServer.Supported {
-		status := WebServerStatus{Engine: engine, Installed: webserver.Available(engine, lookPath)}
+	out.WebServer.ManagedInstalled = []WebServerStatus{}
+	for _, engine := range out.WebServer.Managed {
+		status := WebServerStatus{Engine: engine, Installed: webServerInstalled(engine, lookPath)}
 		if status.Installed {
 			status.Running = serviceActive(ctx, h, engine)
 			status.Version = engineVersion(ctx, h, engine)
 		}
 		out.WebServer.Available[engine] = webServerVersions(ctx, h, engine)
 		out.WebServer.Latest[engine] = newestOf(out.WebServer.Available[engine])
-		out.WebServer.Installed = append(out.WebServer.Installed, status)
+		out.WebServer.ManagedInstalled = append(out.WebServer.ManagedInstalled, status)
+		if slices.Contains(out.WebServer.Supported, engine) {
+			out.WebServer.Installed = append(out.WebServer.Installed, status)
+		}
 	}
 
 	out.Databases = dbengine.Detect(ctx, h.Runner)
@@ -883,13 +896,42 @@ func pinnedApt(pkg, version string) [][]string {
 	return [][]string{{"bash", "-c", script}}
 }
 
+// webServerPkg is the package or binary name each engine is known by.
+var webServerPkg = map[string]string{
+	"nginx": "nginx", "caddy": "caddy", "apache": "apache2", "openlitespeed": "openlitespeed",
+}
+
+// webServerInstalled reports whether an engine is on this host, for the two the webserver
+// package does not know about as well.
+func webServerInstalled(engine string, lookPath func(string) (string, error)) bool {
+	if webserver.Supported(engine) {
+		return webserver.Available(engine, lookPath)
+	}
+	if lookPath == nil {
+		return false
+	}
+	if engine == "apache" {
+		if _, err := lookPath("apache2"); err == nil {
+			return true
+		}
+		_, err := lookPath("httpd")
+		return err == nil
+	}
+	_, err := lookPath(engine)
+	return err == nil
+}
+
 // webServerVersions lists what an engine's repositories carry, so the screen can offer a
 // specific version instead of whatever the distribution pinned.
 func webServerVersions(ctx context.Context, h *host.Host, engine string) []string {
 	if !h.Materialises() {
 		return nil
 	}
-	out, err := h.Run(ctx, []string{"bash", "-c", "apt-cache madison " + engine + " 2>/dev/null | awk '{print $3}'"})
+	pkg := webServerPkg[engine]
+	if pkg == "" {
+		return nil
+	}
+	out, err := h.Run(ctx, []string{"bash", "-c", "apt-cache madison " + pkg + " 2>/dev/null | awk '{print $3}'"})
 	if err != nil {
 		return nil
 	}
@@ -1708,8 +1750,13 @@ func serviceActive(ctx context.Context, h *host.Host, engine string) bool {
 // is picked out by shape either way.
 func engineVersion(ctx context.Context, h *host.Host, engine string) string {
 	command := "HOME=${HOME:-/root} nginx -v"
-	if engine == webserver.Caddy {
+	switch engine {
+	case webserver.Caddy:
 		command = "HOME=${HOME:-/root} caddy version"
+	case "apache":
+		command = "HOME=${HOME:-/root} apache2 -v 2>&1 | head -1"
+	case "openlitespeed":
+		command = "HOME=${HOME:-/root} /usr/local/lsws/bin/lshttpd -v 2>&1 | head -1 || openlitespeed -v"
 	}
 	out, err := h.Run(ctx, []string{"bash", "-c", command + " 2>&1"})
 	if err != nil {

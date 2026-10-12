@@ -1107,6 +1107,9 @@ export interface StackStatus {
     /** What each engine's own repository carries, and the newest of them. */
     available?: Record<string, string[]>;
     latest?: Record<string, string>;
+    /** Every web server the panel keeps versions for (the ingress is only nginx/caddy). */
+    managed?: string[];
+    managedInstalled?: StackWebServerStatus[];
     webUser: string;
     vhostsPath: string;
   };
