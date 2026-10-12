@@ -597,78 +597,69 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   </p>
                 </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Panel (HTTPS) port</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={panelPortDraft}
+                      onChange={(e) => setPanelPortDraft(e.target.value.replace(/[^0-9]/g, '').slice(0, 5))}
+                      inputMode="numeric"
+                      placeholder={ports?.panel ? String(ports.panel) : '8443'}
+                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void changePanelPort()}
+                      disabled={portBusy || !isPortNumber(panelPortDraft)}
+                      className="px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg shrink-0"
+                    >
+                      Move panel
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Digits only, 1024-65535. The panel moves to the new port and you open it there.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">SSH port</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={sshPortDraft}
+                      onChange={(e) => setSshPortDraft(e.target.value.replace(/[^0-9]/g, '').slice(0, 5))}
+                      inputMode="numeric"
+                      placeholder="2222"
+                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500 disabled:opacity-60"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void changeSSHPort(Number(sshPortDraft), false)}
+                      disabled={portBusy || !isPortNumber(sshPortDraft)}
+                      className="px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg shrink-0"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void changeSSHPort(Number(sshPortDraft), true)}
+                      disabled={portBusy || !isPortNumber(sshPortDraft)}
+                      className="px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Now {(ports?.sshPorts?.length ? ports.sshPorts : ports?.ssh ? [ports.ssh] : []).join(', ') || '-'}. Add the new
+                    port and keep this one until it answers; the engine ports are not moved from here.
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 
           {/* MONITORING & TELEMETRY RETENTION SETTINGS */}
-              <div>
-                <span className="text-xs font-bold text-slate-800">Panel &amp; SSH ports</span>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  The two ways in, and the two you can move from here. The engines' ports are not here
-                  because the panel cannot move them: they are read on the Ports page instead.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <div className="p-3 rounded-xl border border-slate-200 bg-white space-y-1.5">
-                  <span className="block text-xs font-bold text-slate-700">SSH</span>
-                  <span className="block font-mono text-sm text-slate-900">
-                    {(ports?.sshPorts?.length ? ports.sshPorts : ports?.ssh ? [ports.ssh] : []).join(', ') || '—'}
-                  </span>
-                  <span className="block text-[10px] text-slate-400">a way in, so it is shown</span>
-                  {isAdmin && (
-                    <div className="flex gap-1.5 pt-1">
-                      <input
-                        value={sshPortDraft}
-                        onChange={(e) => setSshPortDraft(e.target.value.replace(/[^0-9]/g, '').slice(0, 5))}
-                        inputMode="numeric"
-                        placeholder="2222"
-                        className="w-20 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void changeSSHPort(Number(sshPortDraft), false)}
-                        disabled={portBusy || !isPortNumber(sshPortDraft)}
-                        className="px-2 py-1 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg"
-                      >
-                        Add
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void changeSSHPort(Number(sshPortDraft), true)}
-                        disabled={portBusy || !sshPortDraft}
-                        className="px-2 py-1 text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div className="p-3 rounded-xl border border-slate-200 bg-white space-y-1.5">
-                  <span className="block text-xs font-bold text-slate-700">Panel (HTTPS)</span>
-                  <span className="block font-mono text-sm text-slate-900">{ports?.panel || '—'}</span>
-                  <span className="block text-[10px] text-slate-400">as the daemon was started</span>
-                  {isAdmin && (
-                    <div className="flex gap-1.5 pt-1">
-                      <input
-                        value={panelPortDraft}
-                        onChange={(e) => setPanelPortDraft(e.target.value.replace(/[^0-9]/g, '').slice(0, 5))}
-                        inputMode="numeric"
-                        placeholder={ports?.panel ? String(ports.panel) : '8443'}
-                        className="w-20 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void changePanelPort()}
-                        disabled={portBusy || !isPortNumber(panelPortDraft)}
-                        className="px-2 py-1 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg"
-                      >
-                        Move panel
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
 
           {activeTab === 'monitoring' && (
             <div className="space-y-6 max-w-3xl">
