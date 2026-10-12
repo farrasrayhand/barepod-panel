@@ -905,12 +905,16 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                     </div>
                   </div>
 
-                  {exposureNote && (
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-600">
-                      <span className="text-slate-400 font-sans font-semibold uppercase text-[10px] block mb-1">Daemon Execution Note:</span>
-                      {exposureNote}
-                    </div>
-                  )}
+                  {/* The daemon writes a note only when the switch is used, so a record nobody has
+                      touched has none — and silence there read as "is this one protected at all?".
+                      The default describes what is true of it instead. */}
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600">
+                    <span className="text-slate-400 font-sans font-semibold uppercase text-[10px] block mb-1">
+                      {exposureNote ? 'Daemon Execution Note:' : 'Current state:'}
+                    </span>
+                    {exposureNote ||
+                      `Nothing outside this host can reach port ${port}, and the daemon has not had to change anything for this record: that is the engine's own configuration plus the panel's firewall. Use the switch above, and it reports exactly what it did.`}
+                  </div>
                 </div>
               </div>
               )}
