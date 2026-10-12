@@ -17,3 +17,8 @@ bin/
 .idea/
 .commandcode/
 *.log
+
+# Go build outputs when a command is built without -o (a 10 MB artifact was committed this way).
+backend/barepod
+backend/barepod-linux
+backend/tmp*
