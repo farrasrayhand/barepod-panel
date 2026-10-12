@@ -22,6 +22,7 @@ wish list: every claim in them was measured on the host.
   service already holds is refused with that service named** (`ss -ltnp`).
 - **On-demand managers (pgweb/phpMyAdmin/DbGate):** verified end to end — adopted at startup, stopped by
   the sweeper, failures now logged. An adopted container older than the idle window is due immediately.
+- **The Stack is live, and the web server is a host-level choice.** One engine owns `:80`: **nginx or Caddy** (both vhost generators exist), switched from the new admin **Stack** screen — every site's vhost is rewritten, validated once, then the old engine is stopped and the new one started (a reload alone cannot work: the new engine is not running while the old holds the port), and a failure restores files, ownership and the previous engine. Installs (`nginx`, `caddy`, `php`+version, `node`+major, the DB engines) run **on this host from an allowlist** as a job with a live log over SSE. Measured on the LXC: `php-demo.test` answered "Hello from PHP 8.3.6 as bptest" through **both** engines after switching each way.
 - **Mocks stay, marked.** The operator's rule: a mock is a plan, so it is labelled `Not applied: …`, not
   deleted and not silently kept. An unmarked mock is treated as a bug.
 - **Tenants & User Groups: live and measured on the host.** The users/groups API answers (`401` without a
@@ -33,7 +34,7 @@ wish list: every claim in them was measured on the host.
 
 ## The working loop
 
-Backend (Go, `backend/`): `go build ./...` then `go test -timeout 250s ./...` (236 tests, ~25s).
+Backend (Go, `backend/`): `go build ./...` then `go test -timeout 250s ./...` (251 tests, ~25s).
 Frontend (`frontend/`): `npx tsc -b` **and** `npx vite build` — the type-checker is not enough (see traps).
 Deploy: build `linux/amd64` binary + `vite build`, copy both to the host, move the binary into place,
 unpack the bundle to `/var/lib/barepod/dist`, `systemctl restart barepod`, then **verify by measurement on
@@ -95,7 +96,11 @@ never be; it comes from the session environment. Same for any token.
    `GET|PUT /websites/:slug/runtime`, `vhost/preview` and `php-fpm/reload` are live; the wizard only
    offers nginx (the other engines answer `501 not_supported_yet`), and the operator installs nginx +
    php-fpm. Next in this module: OpenLiteSpeed/Caddy/Apache, TLS, then logs/traffic/access control.
-3. Then: domains & TLS, backups/migration, pods/Docker, tunnels — all still mocks.
+3. **The Stack — databases, then PHP, then Node (the menu exists).** The screen is built and its install
+   machinery works; what is left is the *choosing*: installing a database engine version and pointing the
+   panel at it (today one version per engine, chosen at install), then per-site PHP/Node version selection.
+   The plan and its phases are in `~/.commandcode/plans/stack-menu.md` (P1 shipped). Then: domains & TLS,
+   backups/migration, pods/Docker, tunnels — still mocks.
 
 **`barepod uninstall` is built and guided.** The menus are `whiptail` (present on any base Ubuntu/Debian),
 driven through `sh -c … 3>&1 1>&2 2>&3` — the fd swap has to happen in a shell, and passing it as argv to

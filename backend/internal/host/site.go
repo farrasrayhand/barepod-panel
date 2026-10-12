@@ -17,6 +17,12 @@ var ErrSiteMissing = errors.New("host: site directory does not exist")
 // panel vhost needs no edit to nginx.conf itself.
 const DefaultVhostsDir = "/etc/nginx/sites-enabled"
 
+// DefaultCaddySitesDir is the panel-owned directory the Caddyfile imports.
+const DefaultCaddySitesDir = "/etc/caddy/sites"
+
+// DefaultCaddyDir is where Caddy's configuration lives.
+const DefaultCaddyDir = "/etc/caddy"
+
 // DefaultWebUser is the user nginx runs as on Debian/Ubuntu.
 const DefaultWebUser = "www-data"
 
@@ -25,19 +31,33 @@ type Host struct {
 	Runner    Runner
 	SitesRoot string // e.g. /home
 	UnitsDir  string // e.g. /etc/systemd/system
-	// VHostsDir is where the web server includes its vhosts; empty means the default.
+	// VHostsDir is where the web server includes its vhosts; empty means the engine's
+	// own default.
 	VHostsDir string
 	// WebUser is the user the web server runs as; empty means the default. A site is
 	// granted read access to this user so the web server can serve it.
 	WebUser string
+	// CaddyConfigDir is where Caddy's Caddyfile lives (default /etc/caddy).
+	CaddyConfigDir string
 }
 
-// Vhosts returns the configured vhost directory, or the engine default.
-func (h *Host) Vhosts() string {
+// VhostsFor returns the configured vhost directory, or the engine's default.
+func (h *Host) VhostsFor(engine string) string {
 	if h.VHostsDir != "" {
 		return h.VHostsDir
 	}
+	if strings.EqualFold(engine, "caddy") {
+		return DefaultCaddySitesDir
+	}
 	return DefaultVhostsDir
+}
+
+// CaddyDir is where Caddy's Caddyfile lives.
+func (h *Host) CaddyDir() string {
+	if h.CaddyConfigDir != "" {
+		return h.CaddyConfigDir
+	}
+	return DefaultCaddyDir
 }
 
 // EffectiveWebUser returns the configured web-server user, or the default.

@@ -551,7 +551,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   <option value="caddy">Caddy (Automatic HTTPS & modern HTTP/3)</option>
                   <option value="apache">Apache 2.4 (Best .htaccess compatibility)</option>
                 </select>
-                  <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this choice yet.</p>
+                  <p className="text-[10px] text-slate-400 mt-1">The web server is a host-level choice now — set it on the <strong>Stack</strong> page (nginx or Caddy).</p>
 
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

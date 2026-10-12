@@ -19,6 +19,7 @@ import { Footer } from './components/Footer';
 import { ProfileView } from './components/ProfileView';
 import { DomainsView } from './components/DomainsView';
 import { HostFilesView } from './components/HostFilesView';
+import { StackView } from './components/StackView';
 import { BackupMigrationView } from './components/BackupMigrationView';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
@@ -41,6 +42,7 @@ const TAB_PATHS: Record<NavItem, string> = {
   tunnels: '/tunnels',
   terminal: '/terminal',
   users: '/users',
+  stack: '/stack',
   settings: '/settings',
   api: '/api',
   profile: '/profile',
@@ -612,6 +614,7 @@ export function App() {
           )}
 
           {currentTab === 'files' && isAdmin && <HostFilesView onShowToast={showToast} />}
+          {currentTab === 'stack' && isAdmin && <StackView onShowToast={showToast} />}
 
           {currentTab === 'files' && !isAdmin && (
             <div className="p-8 max-w-3xl mx-auto">

@@ -8,10 +8,13 @@ import (
 )
 
 func TestNginxPhpVhostSendsToFpm(t *testing.T) {
-	cfg := Nginx(Spec{
+	cfg, err := Render(Nginx, Spec{
 		Slug: "shop", Domain: "shop.example.com", Kind: "php",
 		DocRoot: "/home/alex/apps/shop", Socket: "/home/alex/apps/shop/fpm.sock",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{
 		"server_name shop.example.com;",
 		"root /home/alex/apps/shop;",
@@ -20,13 +23,13 @@ func TestNginxPhpVhostSendsToFpm(t *testing.T) {
 		"barepod-shop.access.log",
 	} {
 		if !strings.Contains(cfg, want) {
-			t.Errorf("php vhost is missing %q:\n%s", want, cfg)
+			t.Errorf("nginx php vhost is missing %q:\n%s", want, cfg)
 		}
 	}
 }
 
 func TestNginxRuntimeVhostProxiesToItsPort(t *testing.T) {
-	cfg := Nginx(Spec{Slug: "api", Domain: "api.example.com", Kind: "nodejs", Port: 4010})
+	cfg, _ := Render(Nginx, Spec{Slug: "api", Domain: "api.example.com", Kind: "nodejs", Port: 4010})
 	if !strings.Contains(cfg, "proxy_pass http://127.0.0.1:4010;") {
 		t.Errorf("runtime vhost does not proxy to its port:\n%s", cfg)
 	}
@@ -35,55 +38,72 @@ func TestNginxRuntimeVhostProxiesToItsPort(t *testing.T) {
 	}
 }
 
-func TestDefaultVhostIsTheCatchAll(t *testing.T) {
-	if !strings.Contains(Default(), "listen 80 default_server;") {
-		t.Errorf("default vhost is not the catch-all:\n%s", Default())
+func TestCaddyVhosts(t *testing.T) {
+	php, err := Render(Caddy, Spec{
+		Slug: "shop", Domain: "shop.example.com", Kind: "php",
+		DocRoot: "/home/alex/apps/shop", Socket: "/home/alex/apps/shop/fpm.sock",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"shop.example.com:80 {",
+		"root * /home/alex/apps/shop",
+		"php_fastcgi unix//home/alex/apps/shop/fpm.sock",
+		"file_server",
+	} {
+		if !strings.Contains(php, want) {
+			t.Errorf("caddy php vhost is missing %q:\n%s", want, php)
+		}
+	}
+
+	proxy, _ := Render(Caddy, Spec{Slug: "api", Domain: "api.example.com", Kind: "python", Port: 8000})
+	if !strings.Contains(proxy, "reverse_proxy 127.0.0.1:8000") {
+		t.Errorf("caddy runtime vhost does not proxy:\n%s", proxy)
 	}
 }
 
-func TestWriteAndRemove(t *testing.T) {
+func TestSupportedEngines(t *testing.T) {
+	for _, engine := range []string{"nginx", "caddy", "NGINX", " Caddy "} {
+		if !Supported(engine) {
+			t.Errorf("Supported(%q) = false, want true", engine)
+		}
+	}
+	for _, engine := range []string{"openlitespeed", "apache", "", "caddy2"} {
+		if Supported(engine) {
+			t.Errorf("Supported(%q) = true, want false", engine)
+		}
+	}
+}
+
+func TestWriteAndRemovePerEngine(t *testing.T) {
 	dir := t.TempDir()
-	spec := Spec{Slug: "shop", Domain: "shop.example.com", Kind: "static", DocRoot: "/srv/shop"}
-	path, err := Write(dir, spec)
+	path, err := Write(Nginx, dir, Spec{Slug: "shop", Domain: "shop.example.com", Kind: "static", DocRoot: "/srv/shop"})
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if path != filepath.Join(dir, "barepod-shop.conf") {
-		t.Errorf("path = %q, want the panel-owned name", path)
+		t.Errorf("nginx path = %q", path)
 	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("the vhost was not written: %v", err)
-	}
-	// A php vhost without a socket is refused rather than written half-formed.
-	if _, err := Write(dir, Spec{Slug: "bad", Domain: "bad.example.com", Kind: "php"}); err == nil {
-		t.Error("a php vhost with no socket was accepted")
-	}
-	if err := Remove(dir, "shop"); err != nil {
-		t.Fatalf("Remove: %v", err)
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Errorf("the vhost still exists after Remove")
-	}
-	if err := Remove(dir, "shop"); err != nil {
-		t.Errorf("removing a missing vhost must be harmless: %v", err)
-	}
-}
-
-func TestWriteDefaultDoesNotOverwrite(t *testing.T) {
-	dir := t.TempDir()
-	path, err := WriteDefault(dir)
+	caddyPath, err := Write(Caddy, dir, Spec{Slug: "shop", Domain: "shop.example.com", Kind: "static", DocRoot: "/srv/shop"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("# operator edit\n"), 0o644); err != nil {
-		t.Fatal(err)
+	if caddyPath != filepath.Join(dir, "barepod-shop.caddy") {
+		t.Errorf("caddy path = %q", caddyPath)
 	}
-	if _, err := WriteDefault(dir); err != nil {
-		t.Fatal(err)
+	// A php vhost without a socket is refused rather than written half-formed.
+	if _, err := Write(Nginx, dir, Spec{Slug: "bad", Domain: "bad.example.com", Kind: "php"}); err == nil {
+		t.Error("a php vhost with no socket was accepted")
 	}
-	body, _ := os.ReadFile(path)
-	if strings.TrimSpace(string(body)) != "# operator edit" {
-		t.Errorf("WriteDefault overwrote the operator's file: %q", body)
+	if err := Remove(Nginx, dir, "shop"); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("the nginx vhost still exists after Remove")
+	}
+	if err := Remove(Nginx, dir, "shop"); err != nil {
+		t.Errorf("removing a missing vhost must be harmless: %v", err)
 	}
 }
 
@@ -95,23 +115,55 @@ func TestWriteDefaultMovesTheStockVhostAside(t *testing.T) {
 	if err := os.WriteFile(stock, []byte("server { listen 80 default_server; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := WriteDefault(dir); err != nil {
+	if _, err := WriteDefault(Nginx, dir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(stock); !os.IsNotExist(err) {
 		t.Error("the stock default vhost is still in place")
 	}
-	// Renamed out of the include glob (a leading dot), not deleted.
 	if _, err := os.Stat(filepath.Join(dir, ".default.barepod-disabled")); err != nil {
 		t.Errorf("the stock vhost was not kept aside: %v", err)
 	}
 }
 
-func TestAvailableUsesTheInjectedLookPath(t *testing.T) {
-	if !Available(func(string) (string, error) { return "/usr/sbin/nginx", nil }) {
-		t.Error("nginx reported missing though LookPath found it")
+func TestCaddyConfigTakesOverTheStockFile(t *testing.T) {
+	root := t.TempDir()
+	sites := filepath.Join(root, "sites")
+	// The Caddyfile sits beside the sites directory, as on a real host (/etc/caddy).
+	caddyfile := filepath.Join(root, "Caddyfile")
+	if err := os.WriteFile(caddyfile, []byte(":80 {\n\trespond \"welcome\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if Available(func(string) (string, error) { return "", os.ErrNotExist }) {
+	if _, err := WriteDefault(Caddy, sites); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(caddyfile)
+	if !strings.Contains(string(body), "import "+filepath.Join(sites, "*.caddy")) {
+		t.Errorf("the Caddyfile does not import the sites dir:\n%s", body)
+	}
+	if strings.Contains(string(body), "welcome") {
+		t.Error("the stock :80 site is still in the panel Caddyfile (that is what made it ambiguous)")
+	}
+	// The operator's file is kept, not deleted.
+	backup, err := os.ReadFile(caddyfile + ".barepod-bak")
+	if err != nil || !strings.Contains(string(backup), "welcome") {
+		t.Errorf("the stock Caddyfile was not kept: %v", err)
+	}
+	// Idempotent.
+	if _, err := WriteDefault(Caddy, sites); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := os.ReadFile(caddyfile)
+	if strings.Count(string(again), "import ") != 1 {
+		t.Errorf("the import line was added twice:\n%s", again)
+	}
+}
+
+func TestAvailableUsesTheInjectedLookPath(t *testing.T) {
+	if !Available(Caddy, func(name string) (string, error) { return "/usr/bin/" + name, nil }) {
+		t.Error("caddy reported missing though LookPath found it")
+	}
+	if Available(Nginx, func(string) (string, error) { return "", os.ErrNotExist }) {
 		t.Error("nginx reported present though LookPath failed")
 	}
 }

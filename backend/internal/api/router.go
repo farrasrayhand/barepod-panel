@@ -20,6 +20,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/metrics"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/rbac"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/stack"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/tenant"
 )
@@ -67,6 +68,8 @@ type Server struct {
 	// is offered at all.
 	tools    *dbtools.Supervisor
 	lookPath func(string) (string, error)
+	// installs runs the Stack's allowlisted host installs (web server, PHP, Node…).
+	installs *stack.Installer
 	// guard is the brute-force lockout watching the engines' logs.
 	guard *guard.Guard
 	// guiMu serialises switching a manager between databases; guiServed records
@@ -115,6 +118,7 @@ func New(d Deps) http.Handler {
 		tools:          d.Tools,
 		lookPath:       lookPath,
 		guard:          d.Guard,
+		installs:       stack.New(d.Store, d.Host),
 	}
 
 	mux := http.NewServeMux()
@@ -150,6 +154,15 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/users/{id}", users(s.handleDeleteUser))
 	mux.HandleFunc("POST /api/v1/users/{id}/password", users(s.handleResetUserPassword))
 	mux.HandleFunc("POST /api/v1/users/{id}/provision", users(s.handleProvisionUser))
+
+	// The Stack: host-level platform choices (the web server ingress, database/PHP/Node
+	// versions). Reading it is for anyone signed in; changing and installing are
+	// administrative and audited.
+	mux.HandleFunc("GET /api/v1/system/stack", s.requireAuth(s.handleStackStatus))
+	mux.HandleFunc("PUT /api/v1/system/stack/web-server", users(s.handleSetWebServer))
+	mux.HandleFunc("POST /api/v1/system/stack/install", users(s.handleStackInstall))
+	mux.HandleFunc("GET /api/v1/system/stack/jobs/stream", users(s.handleStackJobStream))
+	mux.HandleFunc("GET /api/v1/system/stack/jobs/{id}", users(s.handleStackJob))
 
 	// Brute-force lockout. Reading it is for anyone signed in — knowing that the panel keeps
 	// brute-force out is not a secret, and a card nobody can see is a card nobody uses.

@@ -8,6 +8,7 @@ export type NavItem =
   | 'tunnels'
   | 'terminal'
   | 'users'
+  | 'stack'
   | 'settings'
   | 'api'
   | 'profile'

@@ -159,17 +159,24 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 			"The owner account does not exist"))
 		return
 	}
-	// The engine has to exist and be one this panel can configure: a site whose vhost
-	// cannot be written is not a site, so it is refused before anything is created.
-	if !webserver.Supported(req.WebServer) {
+	// The web server is the host's active engine (one engine owns :80), and it has to be
+	// installed: a site whose vhost cannot be written is not a site.
+	engine := s.deploy.ActiveEngine()
+	if req.WebServer != "" && !webserver.Supported(req.WebServer) {
 		writeError(w, http.StatusNotImplemented, "not_supported_yet",
-			req.WebServer+" is not supported yet — choose nginx")
+			req.WebServer+" is not supported yet — this host's engine is "+engine)
 		return
 	}
-	if !webserver.Available(s.lookPath) {
-		writeError(w, http.StatusConflict, "engine_not_installed", "nginx is not installed — "+webserver.InstallHint)
+	if req.WebServer != "" && !strings.EqualFold(req.WebServer, engine) {
+		writeError(w, http.StatusConflict, "engine_is_host_level",
+			"the web server is a host-level choice ("+engine+"); change it in Stack")
 		return
 	}
+	if !webserver.Available(engine, s.lookPath) {
+		writeError(w, http.StatusConflict, "engine_not_installed", engine+" is not installed — "+webserver.InstallHint(engine))
+		return
+	}
+	req.WebServer = engine
 	// Package guard: the tenant's group may cap how many websites it can own.
 	if limits := s.limitsForTenant(req.TenantUser); limits.MaxSites > 0 {
 		count, err := s.store.CountWebsitesByTenant(req.TenantUser)

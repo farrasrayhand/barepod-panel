@@ -67,6 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
   const devItems: NavGroupItem[] = [
     { id: 'terminal', label: 'Isolated Web Terminal', icon: Terminal },
     ...(isAdmin ? [{ id: 'files' as NavItem, label: 'Host Files', icon: FolderTree }] : []),
+    ...(isAdmin ? [{ id: 'stack' as NavItem, label: 'Stack', icon: Server }] : []),
     { id: 'api', label: 'API & MCP', icon: Webhook },
     { id: 'users', label: 'Users & Packages', icon: Users },
     { id: 'settings', label: 'Panel Settings', icon: Settings },

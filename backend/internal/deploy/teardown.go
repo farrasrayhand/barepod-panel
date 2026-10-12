@@ -51,9 +51,10 @@ func (m *Manager) Teardown(ctx context.Context, slug string) ([]string, error) {
 	}
 
 	// 3. Remove the vhost, so the web server stops answering for the domain.
-	if err := webserver.Remove(m.host.Vhosts(), slug); err != nil {
+	engine := m.ActiveEngine()
+	if err := webserver.Remove(engine, m.host.VhostsFor(engine), slug); err != nil {
 		logf("vhost removal failed (continuing): %v", err)
-	} else if err := webserver.Reload(ctx, m.host); err != nil && m.host.Materialises() {
+	} else if err := webserver.Reload(ctx, engine, m.host); err != nil && m.host.Materialises() {
 		logf("the web server was not reloaded (continuing): %v", err)
 	} else {
 		logf("removed the vhost and reloaded the web server")

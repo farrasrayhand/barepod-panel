@@ -647,6 +647,25 @@ export const api = {
       { method: 'POST' },
     ),
 
+  /** The Stack: host-level choices (web server, database/PHP/Node versions). */
+  stack: () => request<StackStatus>('/system/stack'),
+
+  setStackWebServer: (engine: string) =>
+    request<StackStatus>('/system/stack/web-server', { method: 'PUT', body: JSON.stringify({ engine }) }),
+
+  installStackComponent: (component: string, version?: string) =>
+    request<{ jobId: string; component: string; version: string; status: string; totalSteps: number; mode: string; stream: string }>(
+      '/system/stack/install',
+      { method: 'POST', body: JSON.stringify({ component, version }) },
+    ),
+
+  stackJob: (id: string, after?: number) =>
+    request<{ job: StackJob; log: StackJobLogLine[] }>(
+      `/system/stack/jobs/${encodeURIComponent(id)}${after ? `?after=${after}` : ''}`,
+    ),
+
+  stackJobStreamUrl: (id: string) => `${API_BASE}/system/stack/jobs/stream?id=${encodeURIComponent(id)}`,
+
   deployStreamUrl: (slug: string, deployId?: string) =>
     `${API_BASE}/websites/${slug}/deploy/stream${deployId ? `?id=${deployId}` : ''}`,
 
@@ -999,6 +1018,7 @@ export interface SiteRuntime {
   runtime: string;
   version: string;
   webServer: string;
+  siteEngine?: string;
   engine: string;
   engineSupported: boolean;
   engineInstalled: boolean;
@@ -1006,6 +1026,56 @@ export interface SiteRuntime {
   port: number;
   vhostPath: string;
   socket?: string;
+  mode: string;
+}
+
+/** One web server's real state (the Stack screen). */
+export interface StackWebServerStatus {
+  engine: string;
+  installed: boolean;
+  version?: string;
+  running: boolean;
+}
+
+/** One installable component the daemon offers. */
+export interface StackComponent {
+  name: string;
+  label: string;
+  kind: 'web' | 'runtime' | 'database';
+  versions?: string[];
+  description: string;
+}
+
+export interface StackStatus {
+  webServer: {
+    active: string;
+    supported: string[];
+    installed: StackWebServerStatus[];
+    webUser: string;
+    vhostsPath: string;
+  };
+  components: StackComponent[];
+  databases: DbEngineRow[];
+  php: { installed: string[]; default: string };
+  node: { installed: string[]; default: string };
+  mode: string;
+}
+
+/** One line of an install job's log. */
+export interface StackJobLogLine {
+  id: number;
+  jobId: string;
+  ts: string;
+  stream: string;
+  line: string;
+}
+
+export interface StackJob {
+  id: string;
+  status: string;
+  error?: string;
+  currentStep?: string;
+  totalSteps: number;
   mode: string;
 }
 

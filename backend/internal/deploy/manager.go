@@ -546,29 +546,38 @@ func stepWritePhpPool(ctx context.Context, s *state) error {
 	return nil
 }
 
+// ActiveEngine is the host-level web server the panel writes vhosts for: one engine
+// owns :80 at a time, so a site's engine is the host's, not its own choice.
+func (m *Manager) ActiveEngine() string {
+	if v, err := m.store.PanelSetting("active_web_server"); err == nil && webserver.Supported(v) {
+		return strings.ToLower(strings.TrimSpace(v))
+	}
+	return webserver.DefaultEngine
+}
+
 // stepWriteVhost writes the site's vhost and reloads the web server, so the site is
-// reachable by its domain. Only nginx is implemented; any other engine is refused by
-// name rather than silently ignored.
+// reachable by its domain.
 func stepWriteVhost(ctx context.Context, s *state) error {
-	engine := strings.TrimSpace(s.req.WebServer)
+	engine := s.m.ActiveEngine()
 	if !webserver.Supported(engine) {
-		return fmt.Errorf("%s is not supported yet — only nginx is implemented", engine)
+		return fmt.Errorf("%s is not supported yet — only nginx and caddy are implemented", engine)
 	}
 
 	// Laravel and Symfony serve from public/; everything else from the site root.
 	home := filepath.Join(s.m.host.SitesRoot, s.req.Tenant)
-	if err := webserver.GrantRead(ctx, s.m.host, home, s.siteDir, s.m.host.EffectiveWebUser()); err != nil {
+	if err := webserver.GrantRead(ctx, s.m.host, home, s.siteDir, webserver.WebUser(engine)); err != nil {
 		return err
 	}
-	if _, err := webserver.WriteDefault(s.m.host.Vhosts()); err != nil {
+	dir := s.m.host.VhostsFor(engine)
+	if _, err := webserver.WriteDefault(engine, dir); err != nil {
 		s.log("stdout", "note: the catch-all vhost was not written: "+err.Error())
 	}
 	spec := webserver.SpecFor(s.req.Slug, s.req.Domain, s.req.Runtime, s.siteDir, s.req.Port)
-	path, err := webserver.Apply(ctx, s.m.host, s.m.host.Vhosts(), spec)
+	path, err := webserver.Apply(ctx, engine, dir, s.m.host, spec)
 	if err != nil {
 		return err
 	}
-	s.log("stdout", "vhost written and the web server reloaded: "+path)
+	s.log("stdout", "vhost written and "+engine+" reloaded: "+path)
 	s.log("stdout", fmt.Sprintf("the site is served on %s (docroot %s)", s.req.Domain, spec.DocRoot))
 	return nil
 }
@@ -633,7 +642,7 @@ func stepHealthCheck(ctx context.Context, s *state) error {
 	}
 	// A site with a vhost is asked for by name through the web server: that is the
 	// real proof it is served (a PHP site's FPM listens on a socket, not a port).
-	if webserver.Supported(s.req.WebServer) && strings.TrimSpace(s.req.Domain) != "" {
+	if webserver.Supported(s.m.ActiveEngine()) && strings.TrimSpace(s.req.Domain) != "" {
 		return checkVhost(ctx, s)
 	}
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(s.req.Port))
