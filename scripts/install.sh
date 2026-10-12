@@ -102,6 +102,20 @@ else
 fi
 [ "$DAEMON_BUILT" -eq 1 ] || warn "You can still finish the steps below once a 'barepod' binary is on PATH."
 
+# A backup left by a previous uninstall holds the accounts, the records and their settings of a panel that
+# used to run here. Saying so before the operator creates a fresh admin is the difference between "restore
+# it" and "wonder why the old databases are gone".
+BACKUP_DIR="${BAREPOD_BACKUP_DIR:-/var/backups/barepod}"
+if ls "$BACKUP_DIR"/barepod-backup-*.tar.gz >/dev/null 2>&1; then
+  NEWEST_BACKUP="$(ls -1t "$BACKUP_DIR"/barepod-backup-*.tar.gz | head -n1)"
+  warn "Found a backup from a previous uninstall: $NEWEST_BACKUP"
+  warn "Restore it after this install instead of creating a new admin:"
+  warn "  $(dirname "$0")/restore.sh --from '$NEWEST_BACKUP'"
+  warn "  (then: barepod service install — sign in with the accounts from that backup)"
+else
+  log "No backup from a previous uninstall found (checked $BACKUP_DIR)."
+fi
+
 log "Environment OK: linux/${ARCH}$([ "$IS_LXC" -eq 1 ] && echo ' (LXC)')"
 log "Next steps:"
 log "  1. barepod admin create --username <you> --db $DB_PATH"
