@@ -543,60 +543,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   <option value="apache">Apache 2.4 (Best .htaccess compatibility)</option>
                 </select>
                   <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this choice yet.</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Server Timezone
-                  </label>
-                  <select
-                    value={timezone}
-                    onChange={(e) => setTimezone(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
-                  >
-                    <option value="Asia/Jakarta">Asia/Jakarta (WIB - UTC+7)</option>
-                    <option value="Asia/Makassar">Asia/Makassar (WITA - UTC+8)</option>
-                    <option value="Asia/Jayapura">Asia/Jayapura (WIT - UTC+9)</option>
-                    <option value="UTC">UTC (Universal Time)</option>
-                    <option value="Asia/Singapore">Asia/Singapore (SGT - UTC+8)</option>
-                  </select>
-                    <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this yet — this host runs WITA (UTC+8), not WIB.</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Interface Language
-                  </label>
-                  <select
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
-                  >
-                    <option value="id">Indonesian</option>
-                    <option value="en">English (US)</option>
-                  </select>
-                    <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this yet.</p>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-slate-100 flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  id="autoUpdateCheck"
-                  checked={autoUpdate}
-                  onChange={(e) => setAutoUpdate(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 text-blue-600 rounded border-slate-300"
-                />
-                <div>
-                  <label htmlFor="autoUpdateCheck" className="text-xs font-bold text-slate-900 cursor-pointer block">
-                    Automatic Core & Security Patches
-                  </label>
-                  <p className="text-[11px] text-slate-500">
-                    Not applied: the panel schedules no patches yet.
-                  </p>
-                </div>
-              </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -656,6 +602,61 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   </p>
                 </div>
               </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Server Timezone
+                  </label>
+                  <select
+                    value={timezone}
+                    onChange={(e) => setTimezone(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                  >
+                    <option value="Asia/Jakarta">Asia/Jakarta (WIB - UTC+7)</option>
+                    <option value="Asia/Makassar">Asia/Makassar (WITA - UTC+8)</option>
+                    <option value="Asia/Jayapura">Asia/Jayapura (WIT - UTC+9)</option>
+                    <option value="UTC">UTC (Universal Time)</option>
+                    <option value="Asia/Singapore">Asia/Singapore (SGT - UTC+8)</option>
+                  </select>
+                    <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this yet — this host runs WITA (UTC+8), not WIB.</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Interface Language
+                  </label>
+                  <select
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                  >
+                    <option value="id">Indonesian</option>
+                    <option value="en">English (US)</option>
+                  </select>
+                    <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this yet.</p>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="autoUpdateCheck"
+                  checked={autoUpdate}
+                  onChange={(e) => setAutoUpdate(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 text-blue-600 rounded border-slate-300"
+                />
+                <div>
+                  <label htmlFor="autoUpdateCheck" className="text-xs font-bold text-slate-900 cursor-pointer block">
+                    Automatic Core & Security Patches
+                  </label>
+                  <p className="text-[11px] text-slate-500">
+                    Not applied: the panel schedules no patches yet.
+                  </p>
+                </div>
+              </div>
+
             </div>
           )}
 
