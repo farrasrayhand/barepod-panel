@@ -168,7 +168,9 @@ func Commands(component, version string) ([][]string, error) {
 		return [][]string{{"bash", "-c", script}}, nil
 	case "rust":
 		if version == "" {
-			version = "stable"
+			// No version means "move the channels to what they point at now", which is how
+			// Rust is upgraded: stable is a moving channel, not a fixed number.
+			return [][]string{{"bash", "-c", rustupRepoScript}, {"bash", "-c", "set -e; rustup update"}}, nil
 		}
 		return [][]string{{"bash", "-c", rustupRepoScript}, {"bash", "-c", "set -e; rustup toolchain install " + version}}, nil
 	case "postgresql":
@@ -227,6 +229,80 @@ if [ ! -x "$CARGO_HOME/bin/rustup" ]; then
   sh /tmp/rustup-init.sh -y --no-modify-path --profile minimal
 fi
 for b in rustup rustc cargo; do ln -sf "$CARGO_HOME/bin/$b" /usr/local/bin/$b; done`
+
+// SiteRuntime maps a Stack component to the runtime name a website records, so the panel
+// can ask "does any site use this version?" before removing it.
+func SiteRuntime(component string) string {
+	switch component {
+	case "node":
+		return "nodejs"
+	case "php", "python", "ruby", "go", "rust":
+		return component
+	}
+	return ""
+}
+
+// DatabaseEngine reports whether a component is a database engine.
+func DatabaseEngine(component string) bool {
+	switch component {
+	case "postgresql", "mariadb", "mongodb", "redis":
+		return true
+	}
+	return false
+}
+
+// Removable reports whether a component has an uninstall path at all. A database engine
+// does not: its packages are the storage, and removing them by a button would take the
+// data with them, so that stays an administrator's decision at a shell.
+func Removable(component string) error {
+	switch component {
+	case "php", "python", "node", "ruby", "go", "rust":
+		return nil
+	case "nginx", "caddy":
+		return fmt.Errorf("stack: the web server is host-level — switch the ingress in Stack rather than removing it")
+	}
+	if DatabaseEngine(component) {
+		return fmt.Errorf("stack: a database engine holds data — removing its packages would take the data with them, so do it at a shell")
+	}
+	return fmt.Errorf("stack: %q has no uninstall path", component)
+}
+
+// UninstallCommands is the allowlisted removal for an installed runtime version.
+func UninstallCommands(component, version string) ([][]string, error) {
+	if err := Removable(component); err != nil {
+		return nil, err
+	}
+	version = strings.TrimSpace(version)
+	if version == "" || !versionShape.MatchString(version) {
+		return nil, fmt.Errorf("stack: %q is not a version this panel installs", version)
+	}
+	// The version is already limited to digits and dots, so it is safe inside the quotes.
+	apt := func(script string) [][]string {
+		return [][]string{{"bash", "-c", "set -e; " + script + "; apt-get " + strings.Join(aptWait, " ") + " autoremove -y"}}
+	}
+	switch component {
+	case "php":
+		return apt("apt-get " + strings.Join(aptWait, " ") + " purge -y 'php" + version + "-*'"), nil
+	case "python":
+		return apt("apt-get " + strings.Join(aptWait, " ") + " purge -y 'python" + version + "' 'python" + version + "-venv' 'python" + version + "-dev'"), nil
+	case "node":
+		return [][]string{{"bash", "-c", "rm -rf /opt/barepod/node/" + version}}, nil
+	case "go":
+		return [][]string{{"bash", "-c", "rm -rf /usr/local/go" + version}}, nil
+	case "ruby":
+		return [][]string{{"bash", "-c", "rbenv uninstall -f " + version}}, nil
+	case "rust":
+		return [][]string{{"bash", "-c", "rustup toolchain uninstall " + version}}, nil
+	}
+	return nil, fmt.Errorf("stack: %q has no uninstall path", component)
+}
+
+// VersionMatches reports whether a recorded version refers to an offered one: a site
+// records the major it chose (node 22) while the host may offer a patch list.
+func VersionMatches(recorded, version string) bool {
+	recorded, version = strings.TrimSpace(recorded), strings.TrimSpace(version)
+	return recorded == version || strings.HasPrefix(recorded, version+".")
+}
 
 func containsString(list []string, v string) bool {
 	for _, item := range list {
@@ -306,7 +382,7 @@ func (i *Installer) Start(component, version string) (*store.DeployJob, error) {
 		return nil, err
 	}
 	snapshot := *job
-	go i.run(job, component, version, commands)
+	go i.run(job, "installing", "installed", component, version, commands)
 	return &snapshot, nil
 }
 
@@ -330,7 +406,36 @@ func (i *Installer) offered(ctx context.Context, component string) []string {
 	return c.Versions
 }
 
-func (i *Installer) run(job *store.DeployJob, component, version string, commands [][]string) {
+// StartRemoval uninstalls an installed version; the caller must have established that
+// nothing uses it. It takes the same one-at-a-time claim an install does, because npm,
+// rustup and apt steps all touch the same files and locks.
+func (i *Installer) StartRemoval(component, version string) (*store.DeployJob, error) {
+	commands, err := UninstallCommands(component, version)
+	if err != nil {
+		return nil, err
+	}
+	label := component + " " + strings.TrimSpace(version)
+	if err := i.claim("removing " + label); err != nil {
+		return nil, err
+	}
+	job := &store.DeployJob{
+		ID:         id.New(),
+		Slug:       JobSlug,
+		Mode:       i.host.Mode(),
+		Status:     "pending",
+		TotalSteps: len(commands) + 1, // +1 for the dpkg repair both paths start with
+		CreatedAt:  now(),
+	}
+	if err := i.store.CreateDeployJob(job); err != nil {
+		i.release()
+		return nil, err
+	}
+	snapshot := *job
+	go i.run(job, "removing", "removed", component, version, append([][]string{dpkgRepair()}, commands...))
+	return &snapshot, nil
+}
+
+func (i *Installer) run(job *store.DeployJob, action, done, component, version string, commands [][]string) {
 	defer i.release()
 	defer func() { _, _ = i.store.PruneDeployJobs(JobSlug, 5) }()
 
@@ -342,7 +447,7 @@ func (i *Installer) run(job *store.DeployJob, component, version string, command
 	if version != "" {
 		label += " " + version
 	}
-	log("stdout", fmt.Sprintf("installing %s (mode=%s)", label, job.Mode))
+	log("stdout", fmt.Sprintf("%s %s (mode=%s)", action, label, job.Mode))
 	if !i.host.Materialises() {
 		log("stdout", "[dry-run] nothing is installed on this host — the commands below are recorded only")
 	}
@@ -374,27 +479,56 @@ func (i *Installer) run(job *store.DeployJob, component, version string, command
 	job.Status = "success"
 	job.FinishedAt = now()
 	_ = i.store.UpdateDeployJob(job)
-	log("stdout", "installed: "+label)
+	log("stdout", done+": "+label)
 	log("status", "success")
-	i.recordChoice(component, version)
+	if done == "installed" {
+		// Only an install decides a version; a removal leaves the choice alone.
+		i.recordChoice(component, version)
+	}
 }
 
-// recordChoice remembers what an install decided, so the rest of the panel uses the
-// version that was actually installed: a runtime's default, or an engine's version.
+// recordChoice remembers a version only when nothing has been chosen yet: installing 7.4
+// to try it must not silently make every new site a 7.4 site. Choosing is an explicit
+// action (Installer.SetDefault).
 func (i *Installer) recordChoice(component, version string) {
 	if strings.TrimSpace(version) == "" {
 		return // nothing was chosen (the distro decided); detection reports the truth
 	}
 	switch {
 	case component == "php":
-		_ = i.store.SavePanelSetting("default_php_version", version)
+		i.setDefaultIfUnset("default_php_version", version)
 	case component == "node":
-		_ = i.store.SavePanelSetting("default_node_version", version)
+		i.setDefaultIfUnset("default_node_version", version)
 	default:
 		if c, ok := Lookup(component); ok && c.Kind == "database" {
-			_ = i.store.SavePanelSetting("db_version_"+c.Name, version)
+			i.setDefaultIfUnset("db_version_"+c.Name, version)
 		}
 	}
+}
+
+// SetDefault is the explicit choice: the version new sites (or a new database) should get.
+func (i *Installer) SetDefault(component, version string) error {
+	version = strings.TrimSpace(version)
+	if version == "" || !versionShape.MatchString(version) {
+		return fmt.Errorf("stack: %q is not a version this panel installs", version)
+	}
+	switch {
+	case component == "php":
+		return i.store.SavePanelSetting("default_php_version", version)
+	case component == "node":
+		return i.store.SavePanelSetting("default_node_version", version)
+	}
+	if c, ok := Lookup(component); ok && c.Kind == "database" {
+		return i.store.SavePanelSetting("db_version_"+c.Name, version)
+	}
+	return fmt.Errorf("stack: %s has no default version to set", component)
+}
+
+func (i *Installer) setDefaultIfUnset(key, version string) {
+	if current, err := i.store.PanelSetting(key); err == nil && strings.TrimSpace(current) != "" {
+		return
+	}
+	_ = i.store.SavePanelSetting(key, version)
 }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
@@ -490,6 +624,12 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 			status.Installed = probeVersions(ctx, h, lookPath, r.probe, r.binary)
 		}
 		status.Available = availableVersions(ctx, h, r)
+		status.Latest = newestOf(status.Available)
+		status.Supported = primaryVersions(r.name, status.Available)
+		if r.name == "node" && h.Materialises() {
+			// Node's versions mean nothing without their line: which is Current, which LTS.
+			status.Labels = nodeOfferingCached().Labels
+		}
 		out.Runtimes[r.name] = status
 	}
 	return out
@@ -518,8 +658,16 @@ type RuntimeStatus struct {
 	Available []string `json:"available"`
 	// PerSite says the version matters for each site (interpreted at runtime) rather than
 	// being a build-time toolchain, where one version is enough.
-	PerSite bool   `json:"perSite"`
-	Source  string `json:"source,omitempty"`
+	PerSite bool `json:"perSite"`
+	// Supported is the short list the screen draws first; Available is everything, kept so
+	// a project that pins an older version can still reach it.
+	Supported []string `json:"supported"`
+	// Latest is the newest version this host can install, or empty when it cannot say.
+	Latest string `json:"latest,omitempty"`
+	// Labels names a version when the number alone does not: for Node, "current" or the
+	// LTS codename.
+	Labels map[string]string `json:"labels,omitempty"`
+	Source string            `json:"source,omitempty"`
 }
 
 // runtimeSources describes where each language's versions come from, so the screen can
@@ -584,7 +732,12 @@ func availableVersions(ctx context.Context, h *host.Host, r runtimeSource) []str
 		}
 		return sortedDescending(set)
 	case "vendor-index":
-		// No repository owns these versions; the vendor's own index does.
+		// No repository owns these versions; the vendor's own index does. Node's index is
+		// read together with the schedule, so its list is Current plus the supported LTS
+		// lines rather than twenty years of majors.
+		if r.name == "node" {
+			return nodeOfferingCached().Versions
+		}
 		return vendorVersions(ctx, h, r.name)
 	case "rbenv":
 		// ruby-build ships the definitions rbenv installs from — the real list, not a
@@ -640,7 +793,6 @@ func vendorVersions(ctx context.Context, h *host.Host, name string) []string {
 	vendorCache.Unlock()
 
 	fetched := map[string][]string{
-		"node": fetchNodeVersions(),
 		"go":   fetchGoVersions(),
 		"rust": fetchRustVersions(),
 	}
@@ -653,9 +805,131 @@ func vendorVersions(ctx context.Context, h *host.Host, name string) []string {
 
 type nodeRelease struct {
 	Version string `json:"version"`
+	LTS     any    `json:"lts"` // false, or the codename ("Jod") the project gave the line
 }
 
-func fetchNodeVersions() []string {
+type nodeReleaseLine struct {
+	Start string `json:"start"`
+	End   string `json:"end"`
+}
+
+// nodeOffering is what the panel offers for Node, and what each line is called.
+type nodeOffering struct {
+	Versions []string
+	Labels   map[string]string
+}
+
+var nodeOfferingCache struct {
+	sync.Mutex
+	at    time.Time
+	value nodeOffering
+}
+
+// nodeOfferingCached answers with nodejs.org's own view — the Current release and the LTS
+// lines still in support — and names each one, because "which of these is LTS?" is the
+// question the version number does not answer.
+func nodeOfferingCached() nodeOffering {
+	nodeOfferingCache.Lock()
+	if time.Since(nodeOfferingCache.at) < vendorCacheTTL && nodeOfferingCache.value.Versions != nil {
+		value := nodeOfferingCache.value
+		nodeOfferingCache.Unlock()
+		return value
+	}
+	nodeOfferingCache.Unlock()
+
+	offering := buildNodeOffering()
+
+	nodeOfferingCache.Lock()
+	nodeOfferingCache.at = time.Now()
+	nodeOfferingCache.value = offering
+	nodeOfferingCache.Unlock()
+	return offering
+}
+
+func buildNodeOffering() nodeOffering {
+	offering := nodeOffering{Labels: map[string]string{}}
+	body, err := httpGet("https://nodejs.org/dist/index.json")
+	if err != nil {
+		return offering
+	}
+	var releases []nodeRelease
+	if err := json.Unmarshal(body, &releases); err != nil {
+		return offering
+	}
+	// The newest release per major, which also carries the line's codename.
+	newest := map[string]nodeRelease{}
+	for _, release := range releases {
+		fields := strings.Split(strings.TrimPrefix(release.Version, "v"), ".")
+		if len(fields) < 1 || fields[0] == "" {
+			continue
+		}
+		major := fields[0]
+		if _, seen := newest[major]; !seen {
+			newest[major] = release // the index is newest-first
+		}
+	}
+
+	majors := map[string]bool{}
+	newestMajor := ""
+	for major := range newest {
+		majors[major] = true
+		if newestMajor == "" || compareVersions(major, newestMajor) > 0 {
+			newestMajor = major
+		}
+	}
+	if schedule, err := nodeSchedule(); err == nil && len(schedule) > 0 {
+		// Only the lines the project still supports (its schedule says when each ends) —
+		// but the Current release stays whatever the schedule says, because it is what the
+		// project publishes today and it is often not on the schedule yet.
+		now := time.Now()
+		supported := map[string]bool{}
+		for line, entry := range schedule {
+			if entry.End != "" {
+				if end, err := time.Parse("2006-01-02", entry.End); err == nil && end.Before(now) {
+					continue
+				}
+			}
+			fields := strings.Split(strings.TrimPrefix(line, "v"), ".")
+			if len(fields) > 0 && fields[0] != "" {
+				supported[fields[0]] = true
+			}
+		}
+		for major := range majors {
+			if major != newestMajor && !supported[major] {
+				delete(majors, major)
+			}
+		}
+	}
+	offering.Versions = sortedDescending(majors)
+	for i, major := range offering.Versions {
+		if i == 0 {
+			offering.Labels[major] = "current"
+			continue
+		}
+		if codename, ok := newest[major].LTS.(string); ok && codename != "" {
+			offering.Labels[major] = "LTS " + codename
+			continue
+		}
+		offering.Labels[major] = "supported"
+	}
+	return offering
+}
+
+func nodeSchedule() (map[string]nodeReleaseLine, error) {
+	body, err := httpGet("https://raw.githubusercontent.com/nodejs/Release/main/schedule.json")
+	if err != nil {
+		return nil, err
+	}
+	var schedule map[string]nodeReleaseLine
+	if err := json.Unmarshal(body, &schedule); err != nil {
+		return nil, err
+	}
+	return schedule, nil
+}
+
+// fetchNodeMajorReleases is the fallback when the schedule cannot be read: every major the
+// project ever published, newest first.
+func fetchNodeMajorReleases() []string {
 	body, err := httpGet("https://nodejs.org/dist/index.json")
 	if err != nil {
 		return nil
@@ -785,6 +1059,93 @@ func rustInstalled(ctx context.Context, h *host.Host) []string {
 	}
 	// Channels first (newest-first doesn't apply to a name), then the versions.
 	return append(sortedDescending(channels), sortedDescending(set)...)
+}
+
+// primaryVersions is the short list the screen draws first: what a host would sensibly
+// install today. Available still carries everything, so nothing is hidden — PHP in
+// particular keeps its whole list, because its sites pick a version most often and every
+// Sury line is a real choice.
+func primaryVersions(name string, available []string) []string {
+	switch name {
+	case "php":
+		return available
+	case "node":
+		// The vendor's schedule already answers with Current plus the LTS lines still in
+		// support, so that list is short by construction.
+		return available
+	case "rust":
+		// Rust is chosen by channel; the numbered releases stay behind the disclosure.
+		var channels []string
+		for _, version := range available {
+			if !runtimesVersionPattern.MatchString(version) {
+				channels = append(channels, version)
+			}
+		}
+		return channels
+	}
+	keep := 0
+	switch name {
+	case "go":
+		keep = 3 // Go supports the two older majors beside the current one
+	case "python":
+		keep = 4 // the lines still receiving fixes, newest first
+	case "ruby":
+		// ruby-build lists every patch of every line, so four entries would all be 4.0.x.
+		// A person chooses a line; the newest patch of each of the four newest lines is
+		// what to offer.
+		return newestPerLine(available, 4)
+	}
+	if keep == 0 || len(available) <= keep {
+		return available
+	}
+	return available[:keep]
+}
+
+// newestPerLine keeps the newest patch (or minor) of each of the newest lines, so a list
+// of patch releases does not bury the choice between lines.
+func newestPerLine(available []string, keep int) []string {
+	out := make([]string, 0, keep)
+	seen := map[string]bool{}
+	for _, version := range available {
+		fields := strings.Split(version, ".")
+		line := version
+		if len(fields) >= 2 {
+			line = fields[0] + "." + fields[1]
+		}
+		if seen[line] {
+			continue
+		}
+		seen[line] = true
+		out = append(out, version)
+		if len(out) == keep {
+			break
+		}
+	}
+	return out
+}
+
+// newestOf picks the newest version from a list that may mix channels with versions:
+// rustup publishes stable/beta/nightly beside release numbers, and the number is what a
+// person means by "the latest". A channel is the answer only when there is no number.
+func newestOf(list []string) string {
+	newest := ""
+	for _, version := range list {
+		if !runtimesVersionPattern.MatchString(version) {
+			continue
+		}
+		if newest == "" || compareVersions(version, newest) > 0 {
+			newest = version
+		}
+	}
+	if newest != "" {
+		return newest
+	}
+	for _, version := range list {
+		if version != "" {
+			return version
+		}
+	}
+	return ""
 }
 
 // sortedDescending returns the version set newest-first by numeric component, so 1.9

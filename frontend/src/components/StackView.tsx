@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play } from 'lucide-react';
+import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2 } from 'lucide-react';
 import { api, apiReachable, type StackStatus, type StackComponent, type StackJobLogLine } from '../api/client';
 import { describeError } from '../utils/format';
 import { useSubRoute } from '../hooks/useSubRoute';
@@ -19,10 +19,11 @@ const InstallButton: React.FC<{
   component: string;
   version: string;
   latest?: boolean;
+  hint?: string;
   installed: boolean;
   disabled: boolean;
   onInstall: () => void;
-}> = ({ component, version, latest, installed, disabled, onInstall }) => (
+}> = ({ component, version, latest, hint, installed, disabled, onInstall }) => (
   <button
     onClick={onInstall}
     disabled={disabled || installed}
@@ -35,7 +36,7 @@ const InstallButton: React.FC<{
   >
     {installed ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
     {version ? `${component} ${version}` : component}
-    {installed ? ' · installed' : latest ? ' · latest' : ''}
+    {installed ? ' · installed' : latest ? ' · latest' : hint ? ` · ${hint}` : ''}
   </button>
 );
 
@@ -143,6 +144,38 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       watchJob(job.jobId);
     } catch (err) {
       onShowToast?.('Could not start the install', describeError(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uninstall = async (component: string, version: string) => {
+    if (!live) {
+      onShowToast?.('Simulation', 'The daemon is not reachable, so nothing can be removed.', 'info');
+      return;
+    }
+    if (!window.confirm(`Remove ${component} ${version} from this host? Versions a site or database uses are refused.`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const job = await api.uninstallStackComponent(component, version);
+      onShowToast?.('Removing', `${component} ${version} — watching the log.`, 'info');
+      watchJob(job.jobId);
+    } catch (err) {
+      onShowToast?.('Could not remove it', describeError(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setDefault = async (component: string, version: string) => {
+    setBusy(true);
+    try {
+      setStatus(await api.setStackDefault(component, version));
+      onShowToast?.('Default version set', `New ${component} projects will use ${version}.`, 'success');
+    } catch (err) {
+      onShowToast?.('Could not set the default', describeError(err), 'error');
     } finally {
       setBusy(false);
     }
@@ -313,9 +346,14 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
             // component's own curated list is what can be installed.
             const offerable = available.length > 0 ? available : component.versions ?? [];
             const chosen = component.name === 'php' ? status?.php.default : status?.node.default;
-            // A short list is shown whole; a long one offers its newest and keeps the rest
-            // behind a click.
-            const short = offerable.length <= 6;
+            const latest = status_?.latest ?? '';
+            const hasLatest = latest !== '' && installed.some((v) => v === latest || v.startsWith(latest + '.'));
+            // The screen draws the short list first and keeps the rest — the whole repository
+            // history — behind a click. PHP is the exception: every version is a real choice
+            // per site, so its list is shown whole.
+            const primary = (status_?.supported?.length ? status_.supported : offerable).filter((v) => offerable.includes(v));
+            const rest = offerable.filter((v) => !primary.includes(v));
+            const others = rest.length > 0;
             return (
               <div key={component.name} className="bg-white rounded-xl border border-slate-200 p-4">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -336,46 +374,88 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         its release feed. */}
                     {offerable.length > 0 ? `Available (${offerable.length}, newest first):` : 'Install:'}
                   </span>
-                  {/* The newest is the one to install unless a project pins an older one, so it
-                      is offered on its own and the rest stay one click away. */}
+                  {/* The newest is offered on its own only when the short list does not
+                      already carry it — otherwise the list is the answer, and drawing both
+                      showed the same version twice. */}
                   <div className="flex items-center gap-2 flex-wrap">
-                    {offerable.slice(0, short ? offerable.length : 1).map((version) => (
+                    {latest && !hasLatest && !primary.includes(latest) && (
+                      <InstallButton
+                        component={component.label}
+                        version={latest}
+                        hint={installed.length > 0 ? 'upgrade to' : 'latest'}
+                        installed={false}
+                        disabled={busy || live !== true}
+                        onInstall={() => void install(component.name, latest)}
+                      />
+                    )}
+                    {primary.map((version) => (
                       <InstallButton
                         key={version || 'any'}
                         component={component.label}
                         version={version}
-                        latest
+                        latest={version === latest}
+                        hint={status_?.labels?.[version]}
                         installed={installed.includes(version)}
                         disabled={busy || live !== true}
                         onInstall={() => void install(component.name, version || undefined)}
                       />
                     ))}
-                    {!short && expanded[component.name] && offerable.slice(1).map((version) => (
-                      <InstallButton
-                        key={version || 'any'}
-                        component={component.label}
-                        version={version}
-                        installed={installed.includes(version)}
-                        disabled={busy || live !== true}
-                        onInstall={() => void install(component.name, version || undefined)}
-                      />
-                    ))}
-                    {!short && (
+                    {others && (
                       <button
                         onClick={() => setExpanded((prev) => ({ ...prev, [component.name]: !prev[component.name] }))}
                         className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 underline"
                       >
-                        {expanded[component.name] ? 'Hide the other versions' : `Show ${offerable.length - 1} more versions`}
+                        {expanded[component.name] ? 'Hide the older versions' : `Show ${rest.length} older versions`}
                       </button>
                     )}
                     {offerable.length === 0 && <span className="text-[11px] text-slate-400">nothing offered by this host's repositories yet</span>}
                   </div>
+                  {others && expanded[component.name] && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {rest.map((version) => (
+                        <InstallButton
+                          key={version || 'any'}
+                          component={component.label}
+                          version={version}
+                          installed={installed.includes(version)}
+                          disabled={busy || live !== true}
+                          onInstall={() => void install(component.name, version || undefined)}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {(installed.length > 0 || chosen) && (
-                  <p className="mt-2 text-[11px] text-slate-500">
-                    installed: <span className="font-mono">{installed.join(', ') || '—'}</span>
-                    {chosen ? <> · chosen: <span className="font-mono">{chosen}</span></> : null}
-                  </p>
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] text-slate-500">Installed:</span>
+                    {installed.map((version) => (
+                      <span
+                        key={version}
+                        className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200"
+                      >
+                        <span className="font-mono">{version}</span>
+                        {chosen !== version && (component.name === 'php' || component.name === 'node') && (
+                          <button
+                            onClick={() => void setDefault(component.name, version)}
+                            disabled={busy || live !== true}
+                            title={`Use ${version} for new projects`}
+                            className="px-1 rounded hover:bg-emerald-100 disabled:opacity-40 text-[10px] font-bold"
+                          >
+                            default
+                          </button>
+                        )}
+                        <button
+                          onClick={() => void uninstall(component.name, version)}
+                          disabled={busy || live !== true}
+                          title={`Uninstall ${component.label} ${version} — refused while a site or database uses it, and for the last one`}
+                          className="p-0.5 rounded hover:bg-emerald-100 disabled:opacity-40"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                    {chosen ? <span className="text-[11px] text-slate-500">chosen: <span className="font-mono">{chosen}</span></span> : null}
+                  </div>
                 )}
               </div>
             );

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
@@ -160,8 +161,31 @@ func InstalledVersions() []string {
 	for v := range found {
 		out = append(out, v)
 	}
-	sort.Strings(out)
+	// Newest first: this list is what an unset default falls back to, and the newest is
+	// the version a new site should get — not the oldest, which is what ascending gave.
+	sort.Slice(out, func(i, j int) bool { return compare(out[i], out[j]) > 0 })
 	return out
+}
+
+// compare orders two dotted versions as numbers, so 8.9 sits above 8.10.
+func compare(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		var ai, bi int
+		if i < len(as) {
+			ai, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			bi, _ = strconv.Atoi(bs[i])
+		}
+		if ai != bi {
+			if ai > bi {
+				return 1
+			}
+			return -1
+		}
+	}
+	return 0
 }
 
 // iniName turns "/etc/php/8.3/mods-available/curl.ini" or "20-curl.ini" into "curl".

@@ -670,6 +670,17 @@ export const api = {
 
   stackJobStreamUrl: (id: string) => `${API_BASE}/system/stack/jobs/stream?id=${encodeURIComponent(id)}`,
 
+  /** Uninstalls an installed version. The daemon refuses when a site or database uses it. */
+  uninstallStackComponent: (component: string, version: string) =>
+    request<{ jobId: string; component: string; version: string; status: string; totalSteps: number; mode: string; stream: string }>(
+      '/system/stack/uninstall',
+      { method: 'POST', body: JSON.stringify({ component, version }) },
+    ),
+
+  /** The explicit choice of version for new sites (an install only fills an empty one). */
+  setStackDefault: (component: string, version: string) =>
+    request<StackStatus>('/system/stack/default', { method: 'POST', body: JSON.stringify({ component, version }) }),
+
   /** The PHP extensions this host really has for a version, and the switch that runs phpenmod/phpdismod. */
   phpExtensions: (version?: string) =>
     request<PhpExtensionReport>(`/system/php/extensions${version ? `?version=${encodeURIComponent(version)}` : ''}`),
@@ -1064,6 +1075,12 @@ export interface StackComponent {
 export interface RuntimeStatus {
   installed: string[];
   available: string[];
+  /** The short list to draw first; available keeps everything for a project that pins one. */
+  supported: string[];
+  /** The newest version the host can install. */
+  latest?: string;
+  /** Names a version the number alone does not describe: for Node, "current" or "LTS Jod". */
+  labels?: Record<string, string>;
   /** True when the version matters per site (interpreted), false for a build toolchain. */
   perSite: boolean;
   source?: string;
