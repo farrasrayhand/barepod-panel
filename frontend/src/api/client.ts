@@ -217,6 +217,9 @@ export interface DatabaseRow {
   fileBased: boolean;
   detected?: boolean;
   sizeBytes?: number;
+  exposure?: string;
+  exposureNote?: string;
+  exposedAt?: string;
 }
 
 /** One engine, with what this host can really do (availability is detected). */

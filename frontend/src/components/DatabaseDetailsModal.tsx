@@ -30,6 +30,7 @@ import {
 import type { DatabaseItem } from '../types';
 import { api } from '../api/client';
 import { saveBlob, failureMessage } from '../api/download';
+import { GuardCard } from './GuardCard';
 
 // The names the daemon hosts (see GET /databases/:id/gui): its own browser,
 // pgweb for PostgreSQL, phpMyAdmin for MySQL/MariaDB, and dbgate as the plan.
@@ -51,6 +52,7 @@ interface DatabaseDetailsModalProps {
   onDelete?: (db: DatabaseItem) => void;
   onUpdateDatabase?: (updated: DatabaseItem) => void;
   onUnlock?: (panelPassword: string) => Promise<{ password: string }>;
+  onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
@@ -61,6 +63,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   onDelete,
   onUpdateDatabase,
   onUnlock,
+  onShowToast,
 }) => {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [revealedPassword, setRevealedPassword] = useState<string | null>(null);
@@ -92,8 +95,8 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     }
   };
 
-  // Data Browser & SQL Tab States
-  const [dataTabActive, setDataTabActive] = useState<'overview' | 'data' | 'logs'>('overview');
+  // Data Browser & Navigation Tab States
+  const [dataTabActive, setDataTabActive] = useState<'overview' | 'security' | 'data' | 'logs'>('overview');
 
   // The engine's own log, and the exposure switch. Both are the daemon's answer rather than a
   // local guess: opening a port is refused while the lockout cannot keep brute-force out.
@@ -148,8 +151,22 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
       const result = await api.setDatabaseExposure(database.id, next);
       setExposure(next);
       setExposureNote(result.note);
+      if (onUpdateDatabase) {
+        onUpdateDatabase({
+          ...database,
+          exposure: next,
+          exposureNote: result.note,
+        });
+      }
+      onShowToast?.(
+        next === 'public' ? 'Public Access Enabled' : 'Private Access Restored',
+        result.note || (next === 'public' ? 'Port opened to external clients.' : 'Port restricted to loopback.'),
+        'success'
+      );
     } catch (err) {
-      setErrorMsg(failureMessage(err, 'the exposure could not be changed'));
+      const msg = failureMessage(err, 'the exposure could not be changed');
+      setErrorMsg(msg);
+      onShowToast?.('Failed to change exposure', msg, 'error');
     } finally {
       setExposureBusy(false);
     }
@@ -189,6 +206,8 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
       setQueryError(null);
       setTablesError(null);
       setShowSqlEditor(false);
+      setExposure(database.exposure === 'public' ? 'public' : 'private');
+      setExposureNote(database.exposureNote || '');
     }
   }, [database]);
 
@@ -296,7 +315,12 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   const plainPassword = revealedPassword ?? mockPasswords[database.id] ?? 'barepod_secret_key_889#';
   const effectivePassword = isUnlocked ? plainPassword : '••••••••••••';
 
-  const host = database.host || '127.0.0.1';
+  const isPublic = exposure === 'public';
+  const effectiveHost = isPublic
+    ? (typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : (database.host || '127.0.0.1'))
+    : (database.host || '127.0.0.1');
+
+  const host = effectiveHost;
   const port = database.port || (
     database.type === 'postgres' ? 5432 :
     database.type === 'mysql' || database.type === 'mariadb' ? 3306 :
@@ -309,14 +333,14 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     const pwd = includePlainPassword && isUnlocked ? plainPassword : (isUnlocked ? plainPassword : '<password>');
     switch (database.type) {
       case 'postgres':
-        return `postgresql://${database.username}:${pwd}@${host}:${port}/${database.name}?sslmode=prefer`;
+        return `postgresql://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}?sslmode=prefer`;
       case 'mysql':
       case 'mariadb':
-        return `mysql://${database.username}:${pwd}@${host}:${port}/${database.name}`;
+        return `mysql://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}`;
       case 'mongodb':
-        return `mongodb://${database.username}:${pwd}@${host}:${port}/${database.name}?authSource=admin`;
+        return `mongodb://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}?authSource=admin`;
       case 'redis':
-        return `redis://:${pwd}@${host}:${port}/0`;
+        return `redis://:${pwd}@${effectiveHost}:${port}/0`;
       case 'sqlite':
         return `sqlite:///home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`;
     }
@@ -328,9 +352,9 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     switch (database.type) {
       case 'postgres':
         return `# PostgreSQL Configuration
-DATABASE_URL="postgresql://${database.username}:${pwd}@${host}:${port}/${database.name}?schema=public"
+DATABASE_URL="postgresql://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}?schema=public"
 DB_CONNECTION=pgsql
-DB_HOST=${host}
+DB_HOST=${effectiveHost}
 DB_PORT=${port}
 DB_DATABASE=${database.name}
 DB_USERNAME=${database.username}
@@ -338,16 +362,16 @@ DB_PASSWORD=${pwd}`;
       case 'mysql':
       case 'mariadb':
         return `# MySQL / MariaDB Configuration
-DATABASE_URL="mysql://${database.username}:${pwd}@${host}:${port}/${database.name}"
+DATABASE_URL="mysql://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}"
 DB_CONNECTION=mysql
-DB_HOST=${host}
+DB_HOST=${effectiveHost}
 DB_PORT=${port}
 DB_DATABASE=${database.name}
 DB_USERNAME=${database.username}
 DB_PASSWORD=${pwd}`;
       case 'mongodb':
         return `# MongoDB Connection
-MONGODB_URI="mongodb://${database.username}:${pwd}@${host}:${port}/${database.name}?authSource=admin"
+MONGODB_URI="mongodb://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}?authSource=admin"
 MONGO_INITDB_DATABASE=${database.name}`;
       case 'redis':
         return `# Redis In-Memory Store
@@ -415,7 +439,7 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className={`bg-white rounded-2xl border border-slate-200 shadow-2xl ${dataTabActive === 'data' ? 'max-w-4xl' : 'max-w-2xl'} w-full overflow-hidden flex flex-col max-h-[92vh] transition-all duration-200`}>
+      <div className={`bg-white rounded-2xl border border-slate-200 shadow-2xl ${dataTabActive === 'data' || dataTabActive === 'security' ? 'max-w-4xl' : 'max-w-3xl'} w-full overflow-hidden flex flex-col max-h-[92vh] transition-all duration-200`}>
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
           <div className="flex items-center gap-3">
@@ -423,12 +447,33 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
               <Database className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base font-bold text-slate-900">{database.name}</h2>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   Active
                 </span>
+                {database.type !== 'sqlite' && (
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 ${
+                      exposure === 'public'
+                        ? 'bg-amber-50 text-amber-800 border-amber-300'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {exposure === 'public' ? (
+                      <>
+                        <Globe className="w-3 h-3 text-amber-600" />
+                        <span>Public Access</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3 h-3 text-slate-500" />
+                        <span>Private (Loopback)</span>
+                      </>
+                    )}
+                  </span>
+                )}
                 {database.detected ? (
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                     Detected (app-managed)
@@ -465,6 +510,25 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
             <Server className="w-3.5 h-3.5" />
             <span>Connection & Credentials</span>
           </button>
+
+          {database.type !== 'sqlite' && (
+            <button
+              type="button"
+              onClick={() => setDataTabActive('security')}
+              className={`px-3 py-2 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+                dataTabActive === 'security'
+                  ? 'border-blue-600 text-blue-600 bg-white'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Security & Anti-Bruteforce</span>
+              {exposure === 'public' && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Public access active" />
+              )}
+            </button>
+          )}
+
           {showsDataTab && (
             <button
               type="button"
@@ -484,11 +548,12 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
               <span>{database.type === 'redis' ? 'Keys' : database.type === 'mongodb' ? 'Data' : 'Browse Data'}</span>
             </button>
           )}
+
           <button
             type="button"
             onClick={() => {
               setDataTabActive('logs');
-              if (!logs) void loadLogs();
+              void loadLogs();
             }}
             className={`px-3 py-2 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
               dataTabActive === 'logs'
@@ -505,73 +570,273 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
         <div className="p-6 space-y-5 overflow-y-auto flex-1">
           {dataTabActive === 'logs' ? (
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">The engine's own log</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {logsLoading ? 'Reading…' : logs?.source || 'no source yet'}
-                    {logs?.note ? ` · ${logs.note}` : ''}
-                  </p>
+              {/* Engine Log Card */}
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+                <div className="px-4 py-3 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="w-4 h-4 text-slate-600" />
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-800">
+                        {database.type === 'sqlite' ? 'SQLite Engine Information' : 'Engine Service Output (Live Tail)'}
+                      </h3>
+                      <p className="text-[11px] text-slate-500 font-mono truncate max-w-md">
+                        {logsLoading ? 'Reading…' : logs?.source || 'no source'}
+                        {logs?.note ? ` · ${logs.note}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadLogs()}
+                    disabled={logsLoading}
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${logsLoading ? 'animate-spin text-blue-600' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void loadLogs()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors self-start"
-                >
-                  {logsLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                  <span>Refresh</span>
-                </button>
+
+                <div className="p-3">
+                  {database.type === 'sqlite' ? (
+                    <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600 space-y-1.5">
+                      <div className="flex items-center gap-2 font-semibold text-slate-800">
+                        <Lock className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Embedded In-Process Database</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        SQLite operates directly inside your application process via filesystem I/O without a background service daemon, network port, or central log file.
+                      </p>
+                      <p className="text-[11px] font-mono text-slate-600">
+                        File path: {database.path || `/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`}
+                      </p>
+                    </div>
+                  ) : (
+                    <pre className="text-[11px] leading-relaxed bg-slate-900 text-slate-100 rounded-lg p-3 overflow-auto max-h-56 whitespace-pre-wrap font-mono selection:bg-blue-600">
+                      {logs?.lines && logs.lines.length > 0 ? logs.lines.join('\n') : logs?.note || 'No log lines found.'}
+                    </pre>
+                  )}
+                </div>
               </div>
-              <pre className="text-[11px] leading-relaxed bg-slate-900 text-slate-100 rounded-xl p-3 overflow-auto max-h-72 whitespace-pre-wrap font-mono">
-{logs?.lines && logs.lines.length > 0 ? logs.lines.join('\n') : logs?.note || 'Nothing to show yet — open the tab to read it.'}
-              </pre>
-              <div>
-                <h4 className="text-xs font-bold text-slate-700 mb-1.5">What the panel did with this database</h4>
-                {logs?.audit && logs.audit.length > 0 ? (
-                  <ul className="text-xs text-slate-600 space-y-1">
-                    {logs.audit.slice(0, 20).map((entry, index) => {
-                      const timeStr = (entry.at || entry.ts || '').replace('T', ' ').slice(0, 19);
-                      return (
-                        <li key={`${entry.id ?? index}-${timeStr}`} className="flex gap-2">
-                          <span className="text-slate-400 shrink-0">{timeStr}</span>
-                          <span className="font-semibold text-slate-700 shrink-0">{entry.action}</span>
-                          <span className="truncate">{entry.detail}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <p className="text-xs text-slate-500">Nothing recorded about this database yet.</p>
-                )}
+
+              {/* Panel Action Audit Trail */}
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+                <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800">Panel Audit Trail</h4>
+                      <p className="text-[10px] text-slate-400">Security and administrative actions performed on this database</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {logs?.audit ? `${logs.audit.length} event(s)` : '0 events'}
+                  </span>
+                </div>
+
+                <div className="max-h-56 overflow-y-auto">
+                  {logs?.audit && logs.audit.length > 0 ? (
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-400 border-b border-slate-100 sticky top-0">
+                        <tr>
+                          <th className="py-2 px-3">Timestamp</th>
+                          <th className="py-2 px-3">Action</th>
+                          <th className="py-2 px-3">Details</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                        {logs.audit.map((entry, index) => {
+                          const timeStr = (entry.at || entry.ts || '').replace('T', ' ').slice(0, 19);
+                          return (
+                            <tr key={`${entry.id ?? index}-${timeStr}`} className="hover:bg-slate-50/60">
+                              <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{timeStr}</td>
+                              <td className="py-2 px-3 whitespace-nowrap">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-bold ${
+                                  entry.action.includes('exposure')
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : entry.action.includes('export')
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}>
+                                  {entry.action}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-slate-600 truncate max-w-xs" title={entry.detail}>
+                                {entry.detail}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="p-4 text-center text-xs text-slate-400">
+                      Nothing recorded about this database yet.
+                    </div>
+                  )}
+                </div>
               </div>
+            </div>
+          ) : dataTabActive === 'security' ? (
+            <div className="space-y-5">
+              {/* Card 1: Network Exposure & Firewall Management */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-xl border ${exposure === 'public' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                      {exposure === 'public' ? <Globe className="w-4 h-4 text-amber-600" /> : <Lock className="w-4 h-4 text-slate-600" />}
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">Network Exposure & Firewall Access</h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Controls whether port {port} answers on external interfaces or is locked to loopback.
+                      </p>
+                    </div>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5 self-start sm:self-auto ${
+                    exposure === 'public'
+                      ? 'bg-amber-50 text-amber-800 border-amber-300'
+                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  }`}>
+                    {exposure === 'public' ? <Globe className="w-3.5 h-3.5 text-amber-600" /> : <Lock className="w-3.5 h-3.5 text-emerald-600" />}
+                    <span>Currently {exposure === 'public' ? 'Public' : 'Private'}</span>
+                  </span>
+                </div>
+
+                <div className="p-5 space-y-4">
+                  {guard && !guard.enforcing && (
+                    <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold">Public exposure requires Anti-Bruteforce Guard:</span>
+                        <p className="mt-0.5 text-amber-800">
+                          {guard.reason || 'The brute-force lockout must be actively enforcing in the kernel before external access can be granted.'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Option 1: Private */}
+                    <div
+                      onClick={() => {
+                        if (exposure !== 'private' && !exposureBusy) void changeExposure('private');
+                      }}
+                      className={`p-4 rounded-xl border-2 transition-all cursor-pointer relative ${
+                        exposure === 'private'
+                          ? 'border-emerald-600 bg-emerald-50/30 shadow-xs'
+                          : 'border-slate-200 hover:border-slate-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Lock className={`w-4 h-4 ${exposure === 'private' ? 'text-emerald-700' : 'text-slate-500'}`} />
+                          <span className="font-bold text-sm text-slate-900">Private (Loopback Only)</span>
+                        </div>
+                        {exposure === 'private' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                            <Check className="w-3 h-3 text-emerald-700" /> Active
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        Port <strong>{port}</strong> answers on loopback (<code>127.0.0.1</code>) only. External packets are dropped by Linux kernel <code>nftables</code> firewall rules.
+                      </p>
+                      <ul className="text-[11px] text-slate-500 mt-2 space-y-1 list-disc list-inside">
+                        <li>Immune to external port scans and automated internet attacks</li>
+                        <li>Accessible by local applications and SSH port forwarding tunnels</li>
+                      </ul>
+                      {exposure !== 'private' && (
+                        <button
+                          type="button"
+                          disabled={exposureBusy}
+                          className="mt-3 w-full py-1.5 px-3 rounded-lg text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
+                        >
+                          {exposureBusy ? 'Updating…' : 'Switch to Private'}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Option 2: Public */}
+                    <div
+                      onClick={() => {
+                        if (exposure !== 'public' && !exposureBusy && guard?.enforcing !== false) void changeExposure('public');
+                      }}
+                      className={`p-4 rounded-xl border-2 transition-all relative ${
+                        guard?.enforcing === false
+                          ? 'opacity-60 cursor-not-allowed border-slate-200 bg-slate-50'
+                          : exposure === 'public'
+                            ? 'border-amber-500 bg-amber-50/30 shadow-xs cursor-pointer'
+                            : 'border-slate-200 hover:border-slate-300 bg-white cursor-pointer'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Globe className={`w-4 h-4 ${exposure === 'public' ? 'text-amber-600' : 'text-slate-500'}`} />
+                          <span className="font-bold text-sm text-slate-900">Public (Open to Outside)</span>
+                        </div>
+                        {exposure === 'public' && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 flex items-center gap-1">
+                            <Check className="w-3 h-3 text-amber-700" /> Active
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        Port <strong>{port}</strong> is opened to external network interfaces. Engine authorization (e.g. <code>pg_hba.conf</code> or MariaDB grant) is configured for remote client connections.
+                      </p>
+                      <ul className="text-[11px] text-slate-500 mt-2 space-y-1 list-disc list-inside">
+                        <li>Reachable directly via <code>{effectiveHost}:{port}</code></li>
+                        <li>Protected by active kernel-level brute-force watchdog</li>
+                      </ul>
+                      {exposure !== 'public' && (
+                        <button
+                          type="button"
+                          disabled={exposureBusy || guard?.enforcing === false}
+                          className="mt-3 w-full py-1.5 px-3 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 transition-colors cursor-pointer"
+                        >
+                          {exposureBusy ? 'Updating…' : 'Switch to Public'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {exposureNote && (
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-600">
+                      <span className="text-slate-400 font-sans font-semibold uppercase text-[10px] block mb-1">Daemon Execution Note:</span>
+                      {exposureNote}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Card 2: Anti-Bruteforce Lockout Settings & Banned IPs */}
+              <GuardCard onShowToast={onShowToast} />
             </div>
           ) : dataTabActive === 'overview' ? (
             <>
           {/* Direct SSO Web GUI Launcher Section */}
-          <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 to-indigo-950 text-white shadow-md">
+          <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white shadow-md border border-indigo-900/40">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-1.5 text-blue-300 text-xs font-semibold uppercase tracking-wider">
                   <Zap className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Direct Web GUI Access (Zero Re-Login SSO)</span>
+                  <span>Database Web Studio (Zero Re-Login SSO)</span>
                 </div>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  Open the visual database manager without entering the user & password again:
+                  Open the visual database manager without entering user & password again:
                 </p>
               </div>
 
-              {/* GUI Action Buttons tailored to DB type. The daemon decides what is
-                  really hosted: pgweb for PostgreSQL, the panel's own browser, and
-                  DbGate as the universal plan. */}
-              <div className="flex items-center gap-2 shrink-0">
+              {/* GUI Action Buttons */}
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
                 {database.type === 'postgres' && (
                   <button
                     onClick={() => {
                       onClose();
                       onOpenGui(database, 'pgweb');
                     }}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
                   >
+                    <ExternalLink className="w-3.5 h-3.5" />
                     <span>Open pgweb</span>
                   </button>
                 )}
@@ -582,77 +847,78 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                       onClose();
                       onOpenGui(database, 'phpmyadmin');
                     }}
-                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                    className="px-3.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
                   >
+                    <ExternalLink className="w-3.5 h-3.5" />
                     <span>Open phpMyAdmin</span>
                   </button>
                 )}
 
-                {/* Universal DbGate Studio (planned: covers the other engines) */}
+                {/* Universal DbGate Studio */}
                 <button
                   onClick={() => {
                     onClose();
                     onOpenGui(database, 'dbgate');
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white border border-white/20 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                   <span>Open DbGate</span>
                 </button>
-
-                {/* Export: the daemon runs the engine's own dumper and streams it
-                    back on this same-origin GET (the session cookie rides along). */}
-                {canExport && (
-                  <button
-                    type="button"
-                    onClick={() => void handleExport()}
-                    disabled={exporting}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-100 border border-emerald-400/30 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
-                    title="Download a logical dump (pg_dump / mysqldump, or the .sqlite file)"
-                  >
-                    {exporting ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-300" />
-                    ) : (
-                      <Download className="w-3.5 h-3.5 text-emerald-300" />
-                    )}
-                    <span>{exporting ? 'Dumping…' : `Export ${database.type === 'sqlite' ? '.sqlite' : '.sql'}`}</span>
-                  </button>
-                )}
-
-                {/* Exposure: whether this database's port answers from outside. Private is the
-                    default everywhere, and the daemon refuses to open it while the brute-force
-                    lockout is not enforcing — so the button disables itself rather than letting
-                    the request fail. */}
-                {database.type !== 'sqlite' && (database.port || 0) > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => void changeExposure(exposure === 'public' ? 'private' : 'public')}
-                    disabled={exposureBusy || (exposure === 'private' && guard?.enforcing === false)}
-                    title={
-                      exposure === 'public'
-                        ? `Open to the outside. ${exposureNote || ''}`
-                        : guard?.enforcing === false
-                          ? `Cannot be opened: ${guard.reason || 'the lockout is not enforcing'}`
-                          : 'Reachable from the panel and the host only. Click to open it to the outside.'
-                    }
-                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                      exposure === 'public'
-                        ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 border-amber-400/30'
-                        : 'bg-white/10 hover:bg-white/20 text-slate-100 border-white/20'
-                    }`}
-                  >
-                    {exposureBusy ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : exposure === 'public' ? (
-                      <Globe className="w-3.5 h-3.5" />
-                    ) : (
-                      <Lock className="w-3.5 h-3.5" />
-                    )}
-                    <span>{exposure === 'public' ? 'Public' : 'Private'}</span>
-                  </button>
-                )}
               </div>
             </div>
+          </div>
+
+          {/* Quick Tools & Network Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200">
+            {/* Export tool */}
+            <div className="flex items-center gap-2">
+              {canExport ? (
+                <button
+                  type="button"
+                  onClick={() => void handleExport()}
+                  disabled={exporting}
+                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+                  title="Download a logical dump (pg_dump / mysqldump, or the .sqlite file)"
+                >
+                  {exporting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5 text-blue-600" />
+                  )}
+                  <span>{exporting ? 'Exporting…' : `Export ${database.type === 'sqlite' ? '.sqlite' : '.sql'}`}</span>
+                </button>
+              ) : null}
+            </div>
+
+            {/* Network Access & Firewall status indicator */}
+            {database.type !== 'sqlite' && (
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <span className="text-[11px] text-slate-500 font-medium">Network Access:</span>
+                <button
+                  type="button"
+                  onClick={() => setDataTabActive('security')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer ${
+                    exposure === 'public'
+                      ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                      : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                >
+                  {exposure === 'public' ? (
+                    <>
+                      <Globe className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Public (Port Open)</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Private (Loopback Only)</span>
+                    </>
+                  )}
+                  <span className="text-[10px] text-blue-600 font-bold underline ml-1">Settings</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Quick Connection URL Banner */}
@@ -700,12 +966,25 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
               {/* Host */}
               <div className="p-3 bg-white border border-slate-200 rounded-xl flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Host / Server</span>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block">Host / Server</span>
+                    {database.type !== 'sqlite' && (
+                      isPublic ? (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                          External Public IP
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                          Loopback Only
+                        </span>
+                      )
+                    )}
+                  </div>
                   <span className="font-mono font-semibold text-slate-800 text-xs">{host}</span>
                 </div>
                 <button
                   onClick={() => handleCopy(host, 'host')}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
                   title="Copy host"
                 >
                   {copiedKey === 'host' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}

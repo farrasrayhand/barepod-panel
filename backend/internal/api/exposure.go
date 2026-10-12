@@ -378,6 +378,8 @@ func (s *Server) engineLog(ctx context.Context, record *store.Database) ([]strin
 			return nil, "", "the container's output could not be read (" + message + "); it may not be running", nil
 		}
 		return splitLines(out), "docker logs " + container, "", nil
+	case "sqlite":
+		return []string{}, record.FilePath, "SQLite is a file-based embedded database — it operates directly in-process without a separate server daemon or service log file.", nil
 	}
 	return nil, "", "this engine keeps no log the panel can read", nil
 }

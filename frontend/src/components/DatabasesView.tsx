@@ -86,6 +86,9 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
   fileBased: row.fileBased,
   detected: row.detected,
   path: row.path,
+  exposure: row.exposure,
+  exposureNote: row.exposureNote,
+  exposedAt: row.exposedAt,
 });
 
 // The names the panel hosts (see GET /databases/:id/gui) rather than brand names.
@@ -851,6 +854,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
           setDbToDelete(db);
         }}
         onUpdateDatabase={handleUpdateDatabase}
+        onShowToast={onShowToast}
         onUnlock={
           live && selectedDbForDetails
             ? async (panelPassword) => {
