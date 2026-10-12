@@ -40,9 +40,11 @@ func runUninstall(args []string) error {
 	removeTenantData := fs.Bool("remove-tenant-data", false, "with --remove-tenants, delete their home directories too")
 	removeVolumes := fs.Bool("remove-volumes", false, "delete the container volumes too (they hold database data)")
 	keepEngineConfig := fs.Bool("keep-engine-config", false, "leave the engine configuration the panel changed")
+	named := map[string]bool{}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	fs.Visit(func(f *flag.Flag) { named[f.Name] = true })
 	switch *backup {
 	case "db", "full", "none":
 	default:
@@ -114,27 +116,51 @@ func runUninstall(args []string) error {
 			fmt.Printf("\nDry run: nothing was changed (no terminal to ask in). Re-run with --yes, and name what\nyou want removed: --purge-data, --remove-tenants, --remove-tenant-data, --remove-volumes.\n")
 			return nil
 		}
-		answer, err := ask("Type uninstall to remove the panel from this host")
+		// Choices first, then the plan they produce, and only then the one answer that is final. Asking for
+		// a typed "uninstall" before showing what could be chosen read as a demand, not a choice — the
+		// operator said so after running it.
+		if !named["backup"] {
+			answer, _ := ask("Back it up first?\n    1) the panel database and the certificate (default)\n    2) those plus /etc/barepod and the systemd unit files\n    3) nothing at all\n  Choose [1]")
+			switch strings.TrimSpace(answer) {
+			case "2":
+				plan.backup = "full"
+			case "3":
+				plan.backup = "none"
+			default:
+				plan.backup = "db"
+			}
+		}
+		if !named["purge-data"] {
+			if answer, _ := ask("Delete the data directory %s as well (records, accounts, audit log, certificate)? [y/N]", dataDir); isYes(answer) {
+				plan.purgeData = true
+			}
+		}
+		if len(plan.tenants) > 0 {
+			if !named["remove-tenants"] {
+				if answer, _ := ask("Delete the tenant accounts %s? [y/N]", strings.Join(plan.tenants, ", ")); isYes(answer) {
+					plan.removeTenants = true
+				}
+			}
+			if plan.removeTenants && !named["remove-tenant-data"] {
+				if answer, _ := ask("Delete their files under %s too? [y/N]", config.DefaultSitesRoot()); isYes(answer) {
+					plan.removeTenantData = true
+				}
+			}
+		}
+		if !named["remove-volumes"] {
+			if answer, _ := ask("Delete the container volumes as well (they hold containerised database data)? [y/N]"); isYes(answer) {
+				plan.removeVolumes = true
+			}
+		}
+
+		fmt.Printf("\nThat is the plan:\n")
+		printUninstallPlan(plan)
+		answer, err := ask("Type uninstall to go ahead")
 		if err != nil {
 			return err
 		}
 		if strings.TrimSpace(answer) != "uninstall" {
 			return fmt.Errorf("nothing was changed")
-		}
-		if !plan.purgeData {
-			if yes, _ := ask("Also delete the data directory %s (records, accounts, audit log, certificate)? [y/N]", dataDir); isYes(yes) {
-				plan.purgeData = true
-			}
-		}
-		if !plan.removeTenants && len(plan.tenants) > 0 {
-			if yes, _ := ask("Also delete the tenant accounts %s? [y/N]", strings.Join(plan.tenants, ", ")); isYes(yes) {
-				plan.removeTenants = true
-			}
-		}
-		if plan.removeTenants && !plan.removeTenantData {
-			if yes, _ := ask("Also delete their files under %s? [y/N]", config.DefaultSitesRoot()); isYes(yes) {
-				plan.removeTenantData = true
-			}
 		}
 	}
 
