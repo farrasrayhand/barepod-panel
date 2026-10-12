@@ -43,6 +43,8 @@ interface PanelSettingsViewProps {
   onOpenTerminal?: () => void;
 }
 
+const isPortNumber = (value: string) => /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 65535;
+
 export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   isAdmin = false,
   onShowToast,
@@ -96,6 +98,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       onShowToast?.(remove ? 'SSH port removed' : 'SSH port added', answer.note, 'success');
       const measured = await api.systemPorts();
       setPorts(measured);
+      setPanelPortDraft(String(measured.panel ?? ''));
       setSshPortDraft('');
     } catch (err) {
       onShowToast?.('Could not change the SSH port', err instanceof Error ? err.message : 'unknown error', 'error');
@@ -509,21 +512,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Panel Port
-                  </label>
-                  <input
-                    type="number"
-                    value={ports?.panel ?? ''}
-                    readOnly
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Measured: the port the daemon is listening on. Move it under Panel & SSH ports, below.
-                  </p>
-                </div>
+              <div className="space-y-4">
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -613,11 +602,10 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
           {/* MONITORING & TELEMETRY RETENTION SETTINGS */}
               <div>
-                <h2 className="text-base font-bold text-slate-900">Panel &amp; SSH ports</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <span className="text-xs font-bold text-slate-800">Panel &amp; SSH ports</span>
+                <p className="text-[11px] text-slate-500 mt-0.5">
                   The two ways in, and the two you can move from here. The engines' ports are not here
-                  because the panel cannot move them: the engines are read on the Ports page instead,
-                  measured, so an engine on another port shows where it really is.
+                  because the panel cannot move them: they are read on the Ports page instead.
                 </p>
               </div>
 
@@ -632,14 +620,15 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     <div className="flex gap-1.5 pt-1">
                       <input
                         value={sshPortDraft}
-                        onChange={(e) => setSshPortDraft(e.target.value)}
+                        onChange={(e) => setSshPortDraft(e.target.value.replace(/[^0-9]/g, '').slice(0, 5))}
+                        inputMode="numeric"
                         placeholder="2222"
                         className="w-20 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
                       />
                       <button
                         type="button"
                         onClick={() => void changeSSHPort(Number(sshPortDraft), false)}
-                        disabled={portBusy || !sshPortDraft}
+                        disabled={portBusy || !isPortNumber(sshPortDraft)}
                         className="px-2 py-1 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg"
                       >
                         Add
@@ -663,14 +652,15 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     <div className="flex gap-1.5 pt-1">
                       <input
                         value={panelPortDraft}
-                        onChange={(e) => setPanelPortDraft(e.target.value)}
+                        onChange={(e) => setPanelPortDraft(e.target.value.replace(/[^0-9]/g, '').slice(0, 5))}
+                        inputMode="numeric"
                         placeholder={ports?.panel ? String(ports.panel) : '8443'}
                         className="w-20 px-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
                       />
                       <button
                         type="button"
                         onClick={() => void changePanelPort()}
-                        disabled={portBusy || !panelPortDraft}
+                        disabled={portBusy || !isPortNumber(panelPortDraft)}
                         className="px-2 py-1 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg"
                       >
                         Move panel
