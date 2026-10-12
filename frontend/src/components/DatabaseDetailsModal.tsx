@@ -102,7 +102,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     source: string;
     note: string;
     lines: string[];
-    audit: { id?: number; ts: string; action: string; target: string; detail: string }[];
+    audit: { id?: number; at?: string; ts?: string; action: string; target: string; detail: string }[];
   } | null>(null);
   const [logsLoading, setLogsLoading] = useState(false);
   const [exposure, setExposure] = useState<'public' | 'private'>(
@@ -523,19 +523,22 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                 </button>
               </div>
               <pre className="text-[11px] leading-relaxed bg-slate-900 text-slate-100 rounded-xl p-3 overflow-auto max-h-72 whitespace-pre-wrap font-mono">
-{logs && logs.lines.length > 0 ? logs.lines.join('\n') : logs?.note || 'Nothing to show yet — open the tab to read it.'}
+{logs?.lines && logs.lines.length > 0 ? logs.lines.join('\n') : logs?.note || 'Nothing to show yet — open the tab to read it.'}
               </pre>
               <div>
                 <h4 className="text-xs font-bold text-slate-700 mb-1.5">What the panel did with this database</h4>
-                {logs && logs.audit.length > 0 ? (
+                {logs?.audit && logs.audit.length > 0 ? (
                   <ul className="text-xs text-slate-600 space-y-1">
-                    {logs.audit.slice(0, 20).map((entry, index) => (
-                      <li key={`${entry.ts}-${index}`} className="flex gap-2">
-                        <span className="text-slate-400 shrink-0">{entry.ts.replace('T', ' ').slice(0, 19)}</span>
-                        <span className="font-semibold text-slate-700 shrink-0">{entry.action}</span>
-                        <span className="truncate">{entry.detail}</span>
-                      </li>
-                    ))}
+                    {logs.audit.slice(0, 20).map((entry, index) => {
+                      const timeStr = (entry.at || entry.ts || '').replace('T', ' ').slice(0, 19);
+                      return (
+                        <li key={`${entry.id ?? index}-${timeStr}`} className="flex gap-2">
+                          <span className="text-slate-400 shrink-0">{timeStr}</span>
+                          <span className="font-semibold text-slate-700 shrink-0">{entry.action}</span>
+                          <span className="truncate">{entry.detail}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : (
                   <p className="text-xs text-slate-500">Nothing recorded about this database yet.</p>

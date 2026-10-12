@@ -310,11 +310,29 @@ func (s *Server) handleDatabaseLog(w http.ResponseWriter, r *http.Request, user 
 		writeError(w, http.StatusBadGateway, "log_unavailable", err.Error())
 		return
 	}
-	audit := []store.AuditEntry{}
+	if lines == nil {
+		lines = []string{}
+	}
+	type auditItem struct {
+		ID     int64  `json:"id"`
+		At     string `json:"at"`
+		TS     string `json:"ts"`
+		Action string `json:"action"`
+		Target string `json:"target,omitempty"`
+		Detail string `json:"detail,omitempty"`
+	}
+	audit := []auditItem{}
 	if entries, err := s.store.ListAudit("", 500); err == nil {
 		for _, entry := range entries {
 			if entry.Target == record.Name || entry.Target == record.Alias || entry.Target == record.ID {
-				audit = append(audit, entry)
+				audit = append(audit, auditItem{
+					ID:     entry.ID,
+					At:     entry.At,
+					TS:     entry.At,
+					Action: entry.Action,
+					Target: entry.Target,
+					Detail: entry.Detail,
+				})
 			}
 		}
 	}

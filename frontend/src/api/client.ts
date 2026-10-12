@@ -423,7 +423,7 @@ export const api = {
       source: string;
       note: string;
       lines: string[];
-      audit: { id?: number; ts: string; action: string; target: string; detail: string }[];
+      audit: { id?: number; at?: string; ts?: string; action: string; target: string; detail: string }[];
     }>(`/databases/${id}/log`),
 
   login: async (username: string, password: string) => {
