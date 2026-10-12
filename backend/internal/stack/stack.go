@@ -975,21 +975,32 @@ var webServerPkg = map[string]string{
 
 // webServerInstalled reports whether an engine is on this host, for the two the webserver
 // package does not know about as well.
-func webServerInstalled(engine string, lookPath func(string) (string, error)) bool {
+func webServerInstalled(engine string, lookup func(string) (string, error)) bool {
 	if webserver.Supported(engine) {
-		return webserver.Available(engine, lookPath)
+		return webserver.Available(engine, lookup)
 	}
-	if lookPath == nil {
-		return false
+	if lookup == nil {
+		lookup = func(string) (string, error) { return "", fmt.Errorf("no PATH lookup in dry-run") }
 	}
 	if engine == "apache" {
-		if _, err := lookPath("apache2"); err == nil {
+		if _, err := lookup("apache2"); err == nil {
 			return true
 		}
-		_, err := lookPath("httpd")
+		_, err := lookup("httpd")
 		return err == nil
 	}
-	_, err := lookPath(engine)
+	if engine == "openlitespeed" {
+		// The package puts its binary in /usr/local/lsws/bin, which is not on PATH — so a
+		// host with OpenLiteSpeed installed read as "not installed" while apt said
+		// "already the newest version".
+		for _, path := range []string{"/usr/local/lsws/bin/lshttpd", "/usr/local/lsws/bin/openlitespeed", "/usr/bin/openlitespeed"} {
+			if isExecutable(path) {
+				return true
+			}
+		}
+		return false
+	}
+	_, err := lookup(engine)
 	return err == nil
 }
 
@@ -1820,7 +1831,12 @@ func setting(st *store.Store, key string) string {
 }
 
 func serviceActive(ctx context.Context, h *host.Host, engine string) bool {
-	out, err := h.Run(ctx, []string{"systemctl", "is-active", engine})
+	// Not every engine's unit carries its own name: OpenLiteSpeed's is "lshttpd".
+	unit := map[string]string{"openlitespeed": "lshttpd"}[engine]
+	if unit == "" {
+		unit = engine
+	}
+	out, err := h.Run(ctx, []string{"systemctl", "is-active", unit})
 	return err == nil && strings.TrimSpace(out) == "active"
 }
 
