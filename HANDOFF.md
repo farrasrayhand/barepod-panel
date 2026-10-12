@@ -33,7 +33,7 @@ wish list: every claim in them was measured on the host.
 
 ## The working loop
 
-Backend (Go, `backend/`): `go build ./...` then `go test -timeout 250s ./...` (234 tests, ~25s).
+Backend (Go, `backend/`): `go build ./...` then `go test -timeout 250s ./...` (235 tests, ~25s).
 Frontend (`frontend/`): `npx tsc -b` **and** `npx vite build` — the type-checker is not enough (see traps).
 Deploy: build `linux/amd64` binary + `vite build`, copy both to the host, move the binary into place,
 unpack the bundle to `/var/lib/barepod/dist`, `systemctl restart barepod`, then **verify by measurement on
@@ -76,7 +76,10 @@ never be; it comes from the session environment. Same for any token.
    answers `409 quota_exceeded` (matching databases), and a package edit re-applies the quota to its
    members. The UI page is live. **Still open in this module:** the **admin catalog** for installing extra
    engine/PHP versions, and re-rendering a site's cgroup limits when its package changes (today they land
-   on the next deploy).
+   on the next deploy). The Linux account is now **mandatory at creation** (the CLI `barepod admin create`
+   provisions too, and a real host that cannot make one refuses rather than recording the account);
+   `POST /users/{id}/provision` reconciles an older account and the screen offers it whenever `osExists`
+   is false.
 2. **Websites, one PHP site end to end.** Two core pieces do not exist: **nothing writes a site's
    `php-fpm.conf`** (the panel already shells out to `php-fpm --fpm-config <site>/php-fpm.conf`), and there
    is **no web-server → PHP-FPM connector** (no nginx/OpenLiteSpeed on the host yet). The web-server choice

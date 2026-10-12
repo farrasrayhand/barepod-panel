@@ -64,8 +64,17 @@ func TestDecryptRejectsTampering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := sealed[:len(sealed)-2] + "AA"
-	if _, err := Decrypt(key, tampered); err == nil {
+	tampered := []byte(sealed)
+	// Flip one base64 character in the middle, so the change is guaranteed to differ:
+	// replacing the tail with a fixed suffix was a no-op whenever the ciphertext
+	// already ended that way, which made this test flaky.
+	mid := len(tampered) / 2
+	if tampered[mid] == 'A' {
+		tampered[mid] = 'B'
+	} else {
+		tampered[mid] = 'A'
+	}
+	if _, err := Decrypt(key, string(tampered)); err == nil {
 		t.Fatal("Decrypt accepted tampered ciphertext")
 	}
 }

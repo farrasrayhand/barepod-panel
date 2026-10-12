@@ -149,6 +149,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/users/{id}", users(s.handleUpdateUser))
 	mux.HandleFunc("DELETE /api/v1/users/{id}", users(s.handleDeleteUser))
 	mux.HandleFunc("POST /api/v1/users/{id}/password", users(s.handleResetUserPassword))
+	mux.HandleFunc("POST /api/v1/users/{id}/provision", users(s.handleProvisionUser))
 
 	// Brute-force lockout. Reading it is for anyone signed in — knowing that the panel keeps
 	// brute-force out is not a secret, and a card nobody can see is a card nobody uses.

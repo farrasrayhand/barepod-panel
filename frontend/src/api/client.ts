@@ -619,6 +619,13 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ password }) },
     ),
 
+  /** Create (or reconcile) the Linux account behind a panel account. */
+  provisionUser: (id: string) =>
+    request<{ user: ApiUser; linux: { mode: string; created?: boolean; home?: string; notes?: string[] } }>(
+      `/users/${encodeURIComponent(id)}/provision`,
+      { method: 'POST' },
+    ),
+
   deployStreamUrl: (slug: string, deployId?: string) =>
     `${API_BASE}/websites/${slug}/deploy/stream${deployId ? `?id=${deployId}` : ''}`,
 

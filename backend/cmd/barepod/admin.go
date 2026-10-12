@@ -172,6 +172,9 @@ func adminCreate(args []string) error {
 	password := fs.String("password", "", "password (defaults to a generated one; BAREPOD_ADMIN_PASSWORD)")
 	dbPath := fs.String("db", config.DefaultDBPath(), "path to the panel database")
 	force := fs.Bool("force", false, "reset the password if the account already exists")
+	noOSUser := fs.Bool("no-os-user", false, "skip the Linux account (only for a host that cannot create one)")
+	quota := fs.String("quota", "", "override the disk quota, e.g. 10GB (the Root package is unlimited by default)")
+	dryRun := fs.Bool("dry-run", false, "record the account commands without running them")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -224,6 +227,21 @@ func adminCreate(args []string) error {
 			return err
 		}
 		fmt.Printf("Password reset for root admin %q (its sessions were revoked).\n\n", *username)
+	}
+
+	// The admin gets a Linux account too, exactly as a regular account does: no panel
+	// account should exist without an OS identity, and an admin's websites must run as
+	// an unprivileged tenant rather than as root.
+	if !*noOSUser {
+		group, err := st.GroupByName(rbac.RootGroup)
+		if err != nil {
+			group = &rbac.Group{Name: rbac.RootGroup}
+		}
+		fmt.Println()
+		if err := provisionOSUser(st, *username, group, *quota, *dryRun); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: the Linux account was not created: %v\n", err)
+			fmt.Printf("Retry it with: barepod tenant provision --username %s\n", *username)
+		}
 	}
 
 	printCredentials(*username, pw, generated, *dbPath)

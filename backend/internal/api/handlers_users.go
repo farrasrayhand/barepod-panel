@@ -28,16 +28,29 @@ func roleForGroup(groupName string) string {
 // provisionTenantAccount creates (or reconciles) the Linux account behind a panel
 // account and applies the package's disk/inode quota. It is safe to call again:
 // Provision skips useradd for an existing account and still sets the quota.
-func (s *Server) provisionTenantAccount(ctx context.Context, username string, group *rbac.Group) {
+func (s *Server) provisionTenantAccount(ctx context.Context, username string, group *rbac.Group) (*tenant.Result, error) {
 	if s.tenants == nil || group == nil {
-		return
+		return nil, nil
 	}
-	_, _ = s.tenants.Provision(ctx, username, tenant.Options{
+	return s.tenants.Provision(ctx, username, tenant.Options{
 		Shell:       "/bin/bash",
 		QuotaBytes:  group.Limits.DiskQuotaBytes(),
 		QuotaInodes: int64(group.Limits.InodeQuota),
 		Filesystem:  "/",
 	}, nil)
+}
+
+// provisionView reports what the provisioning step actually did, so a caller (and
+// the screen) is never told an account exists when the host could not make one.
+func provisionView(mode string, r *tenant.Result) map[string]any {
+	out := map[string]any{"mode": mode}
+	if r != nil {
+		out["home"] = r.Home
+		out["created"] = r.Created
+		out["quotaSet"] = r.QuotaSet
+		out["notes"] = r.Notes
+	}
+	return out
 }
 
 // reapplyGroupQuota re-provisions every member of a package after its limits
@@ -54,7 +67,7 @@ func (s *Server) reapplyGroupQuota(ctx context.Context, group *rbac.Group) {
 	}
 	for _, u := range users {
 		if u.GroupName == group.Name {
-			s.provisionTenantAccount(ctx, u.Username, group)
+			_, _ = s.provisionTenantAccount(ctx, u.Username, group)
 		}
 	}
 }
@@ -213,20 +226,64 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request, actor 
 		writeError(w, http.StatusInternalServerError, "internal", "Could not hash the password")
 		return
 	}
+
+	// The Linux identity is mandatory where it can be made: create it first and only
+	// record the panel account once it exists, so no account is ever left without one.
+	// Off Linux (dry-run) nothing can be created — the account is recorded and both
+	// the response and the screen say the OS account is still missing.
+	linux, provErr := s.provisionTenantAccount(r.Context(), username, group)
+	if provErr != nil {
+		writeError(w, http.StatusBadGateway, "provisioning_failed", "Could not create the Linux account: "+provErr.Error())
+		return
+	}
+	if s.host.Materialises() && s.tenants != nil {
+		if _, ok := s.tenants.Lookup(r.Context(), username); !ok {
+			writeError(w, http.StatusBadGateway, "linux_account_missing",
+				"The Linux account could not be created on this host; the account was not added")
+			return
+		}
+	}
+
 	created, err := s.store.CreateUser(username, strings.TrimSpace(req.Email), hash, roleForGroup(group.Name), group.Name)
 	if err != nil {
 		writeError(w, http.StatusConflict, "already_exists", "Could not create the account")
 		return
 	}
-	s.provisionTenantAccount(r.Context(), created.Username, group)
 	_ = s.store.Audit(actor.ID, "user.create", created.Username, clientIP(r), "group="+group.Name)
 
 	view := s.tenantUserView(created)
+	view["linux"] = provisionView(s.host.Mode(), linux)
 	if generated {
 		view["password"] = password
 		view["passwordShownOnce"] = true
 	}
 	writeJSON(w, http.StatusCreated, view)
+}
+
+// handleProvisionUser creates (or reconciles) the Linux account behind a panel
+// account. It is the repair for an account that predates the mandatory rule, so no
+// account has to stay without an OS identity.
+func (s *Server) handleProvisionUser(w http.ResponseWriter, r *http.Request, actor *store.User, _ *store.Session) {
+	account, err := s.store.UserByID(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", "Account not found")
+		return
+	}
+	group, err := s.store.GroupByName(account.GroupName)
+	if err != nil {
+		writeError(w, http.StatusConflict, "no_such_group", "No such package: "+account.GroupName)
+		return
+	}
+	result, err := s.provisionTenantAccount(r.Context(), account.Username, group)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "provisioning_failed", "Could not create the Linux account: "+err.Error())
+		return
+	}
+	_ = s.store.Audit(actor.ID, "user.provision", account.Username, clientIP(r), s.host.Mode())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user":  s.tenantUserView(account),
+		"linux": provisionView(s.host.Mode(), result),
+	})
 }
 
 type updateUserRequest struct {
@@ -285,7 +342,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request, actor 
 			return
 		}
 		// The package changed: reconcile the Linux account and its disk/inode quota.
-		s.provisionTenantAccount(r.Context(), account.Username, group)
+		_, _ = s.provisionTenantAccount(r.Context(), account.Username, group)
 	}
 
 	if req.Status != nil {

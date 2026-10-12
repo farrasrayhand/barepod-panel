@@ -13,6 +13,7 @@ import {
   XCircle,
   Pencil,
   RefreshCw,
+  UserPlus,
   Loader2,
 } from 'lucide-react';
 import { useSubRoute } from '../hooks/useSubRoute';
@@ -167,6 +168,20 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
       reload();
     } catch (err) {
       onShowToast?.('Could not update the account', describeError(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const provisionUser = async (id: string) => {
+    if (!live) return;
+    setBusy(true);
+    try {
+      await api.provisionUser(id);
+      onShowToast?.('Linux account provisioned', 'The OS account and its home now exist.', 'success');
+      reload();
+    } catch (err) {
+      onShowToast?.('Could not provision the Linux account', describeError(err), 'error');
     } finally {
       setBusy(false);
     }
@@ -332,7 +347,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                               <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded" title="No Linux account exists yet">No OS user</span>
                             )}
                           </div>
-                          <span className="text-[10px] text-slate-400 font-mono">{t.home || `/home/${t.username}`}</span>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {t.osExists ? t.home || `/home/${t.username}` : 'no Linux account yet'}
+                          </span>
                         </div>
                       </div>
                     </td>
@@ -389,6 +406,16 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, onOpenTermina
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
+                        {live === true && !t.osExists && (
+                          <button
+                            onClick={() => provisionUser(t.id)}
+                            disabled={busy}
+                            className="p-1.5 rounded text-amber-500 hover:text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                            title="Create the missing Linux account (provision)"
+                          >
+                            <UserPlus className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={onOpenTerminal}
                           className="p-1.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"

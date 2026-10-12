@@ -311,6 +311,33 @@ func TestSuspendingAnAccountStopsAndMarksItsWebsites(t *testing.T) {
 	}
 }
 
+func TestCreateUserReportsTheLinuxStepAndCanReconcile(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	_, body := panel.do(t, http.MethodPost, "/api/v1/users", map[string]any{"username": "carol", "groupName": "Developer"})
+	var created struct {
+		ID    string `json:"id"`
+		Linux struct {
+			Mode string `json:"mode"`
+		} `json:"linux"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Linux.Mode != "dry-run" {
+		t.Fatalf("linux mode = %q, want dry-run on this host", created.Linux.Mode)
+	}
+
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/users/"+created.ID+"/provision", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("provision status = %d (%s)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"linux"`) {
+		t.Errorf("provision response has no linux block: %s", body)
+	}
+}
+
 func TestMaxSitesRefusalUsesQuotaExceeded(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")
