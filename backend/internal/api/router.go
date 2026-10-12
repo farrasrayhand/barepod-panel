@@ -137,9 +137,11 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PATCH /api/v1/groups/{name}", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleUpdateGroup)))
 	mux.HandleFunc("GET /api/v1/system/capacity", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleCapacity)))
 
-	// Brute-force lockout. Reading it is monitoring; changing it, and letting somebody back
-	// in, is an administrative act and is audited.
-	mux.HandleFunc("GET /api/v1/system/guard", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleGuardStatus)))
+	// Brute-force lockout. Reading it is for anyone signed in — knowing that the panel keeps
+	// brute-force out is not a secret, and a card nobody can see is a card nobody uses.
+	// Changing the numbers, and letting an address back in, are administrative acts and are
+	// audited.
+	mux.HandleFunc("GET /api/v1/system/guard", s.requireAuth(s.handleGuardStatus))
 	mux.HandleFunc("PATCH /api/v1/system/guard", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleGuardSettings)))
 	mux.HandleFunc("POST /api/v1/system/guard/unban", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleGuardUnban)))
 

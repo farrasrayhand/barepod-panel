@@ -391,6 +391,18 @@ export const api = {
   unban: (ip: string) =>
     request<GuardStatus>('/system/guard/unban', { method: 'POST', body: JSON.stringify({ ip }) }),
 
+  /**
+   * A database's dump, as a blob.
+   *
+   * Fetched rather than navigated to on purpose. A download started by an `<a download>` or a
+   * redirect is handled by the browser's own network stack, and that stack refuses to run at
+   * all on an origin whose certificate the user had to click past — the download fails
+   * ("Failed - Network error") while the page itself works, which is exactly what happened on
+   * this panel's self-signed certificate. This request goes through the page's own stack, so
+   * it works wherever the page does.
+   */
+  databaseExport: (id: string) => request<Blob>(`/databases/${id}/export`, { raw: true }),
+
   login: async (username: string, password: string) => {
     const session = await request<{ user: PanelUser; csrfToken: string }>('/auth/login', {
       method: 'POST',

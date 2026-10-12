@@ -19,6 +19,7 @@ import {
   Layers,
   Trash2,
   Download,
+  Loader2,
   Table,
   Play,
   RefreshCw,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react';
 import type { DatabaseItem } from '../types';
 import { api } from '../api/client';
+import { saveBlob, failureMessage } from '../api/download';
 
 // The names the daemon hosts (see GET /databases/:id/gui): its own browser,
 // pgweb for PostgreSQL, phpMyAdmin for MySQL/MariaDB, and dbgate as the plan.
@@ -69,6 +71,24 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   const [isEditingMaxConn, setIsEditingMaxConn] = useState(false);
   const [selectedMaxConn, setSelectedMaxConn] = useState<number>(database?.maxConnections || 25);
   const [autoLockSeconds, setAutoLockSeconds] = useState(60);
+  const [exporting, setExporting] = useState(false);
+
+  // Export goes through the panel's own request rather than an <a download>: the browser's
+  // download stack refuses to run on an origin whose certificate was clicked past, which is
+  // why the old link failed with "Failed - Network error" while the rest of the page worked.
+  const handleExport = async () => {
+    if (!database || exporting) return;
+    setExporting(true);
+    setErrorMsg('');
+    try {
+      const blob = await api.databaseExport(database.id);
+      saveBlob(blob, `${database.name}.${database.type === 'sqlite' ? 'sqlite' : 'sql'}`);
+    } catch (err) {
+      setErrorMsg(failureMessage(err, 'The dump could not be produced.'));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Data Browser & SQL Tab States
   const [dataTabActive, setDataTabActive] = useState<'overview' | 'data'>('overview');
@@ -464,15 +484,20 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                 {/* Export: the daemon runs the engine's own dumper and streams it
                     back on this same-origin GET (the session cookie rides along). */}
                 {canExport && (
-                  <a
-                    href={`/api/v1/databases/${database.id}/export`}
-                    download={`${database.name}.${database.type === 'sqlite' ? 'sqlite' : 'sql'}`}
-                    className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-100 border border-emerald-400/30 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  <button
+                    type="button"
+                    onClick={() => void handleExport()}
+                    disabled={exporting}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-100 border border-emerald-400/30 text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
                     title="Download a logical dump (pg_dump / mysqldump, or the .sqlite file)"
                   >
-                    <Download className="w-3.5 h-3.5 text-emerald-300" />
-                    <span>Export {database.type === 'sqlite' ? '.sqlite' : '.sql'}</span>
-                  </a>
+                    {exporting ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-300" />
+                    ) : (
+                      <Download className="w-3.5 h-3.5 text-emerald-300" />
+                    )}
+                    <span>{exporting ? 'Dumping…' : `Export ${database.type === 'sqlite' ? '.sqlite' : '.sql'}`}</span>
+                  </button>
                 )}
               </div>
             </div>

@@ -17,7 +17,18 @@ var migrations = []migration{
 	{version: 7, statements: schemaV7},
 	{version: 8, statements: schemaV8},
 	{version: 9, statements: schemaV9},
+	{version: 10, statements: schemaV10},
 }
+
+// schemaV10 is per-database exposure: a database is private unless an operator says
+// otherwise, and "public" is a decision the panel records because it is the one that opened
+// the port — with the address it was opened from, so the panel can close it again and say
+// when it did.
+const schemaV10 = `
+ALTER TABLE databases ADD COLUMN exposure TEXT NOT NULL DEFAULT '';
+ALTER TABLE databases ADD COLUMN exposure_note TEXT NOT NULL DEFAULT '';
+ALTER TABLE databases ADD COLUMN exposed_at TEXT NOT NULL DEFAULT '';
+`
 
 // schemaV9 is the brute-force lockout: the addresses the panel keeps out of the engines,
 // and the numbers it decides with. The bans live here rather than only in the kernel

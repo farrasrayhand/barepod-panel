@@ -42,7 +42,14 @@ type Database struct {
 	// the file moves into the tenant's home and the record outlives the site, so the panel
 	// can list it as its own thing rather than as a nameless leftover.
 	DetachedAt string `json:"detachedAt,omitempty"`
-	CreatedAt  string `json:"createdAt"`
+	// Exposure is "" or "private" for a database only the panel and the host may reach, and
+	// "public" once an operator has opened its port to the outside. ExposureNote carries what
+	// the panel actually did — or could not do — about it, so the screen never claims a port
+	// is open when the engine still refuses to listen on one.
+	Exposure     string `json:"exposure,omitempty"`
+	ExposureNote string `json:"exposureNote,omitempty"`
+	ExposedAt    string `json:"exposedAt,omitempty"`
+	CreatedAt    string `json:"createdAt"`
 	FileBased  bool   `json:"fileBased"`
 	// Detected marks a file the panel found inside a website: the application made
 	// it, so the panel reports and browses it but never deletes it.
@@ -54,6 +61,14 @@ type Database struct {
 	// API only ever exposes it through a reveal that re-authenticates first.
 	PasswordCipher string `json:"-"`
 }
+
+// Exposure values for a database's port. A database is private unless an operator has opened
+// it, and the panel is the thing that opens it, so the decision is recorded rather than
+// inferred from whatever the firewall happens to say.
+const (
+	ExposurePrivate = "private"
+	ExposurePublic  = "public"
+)
 
 // CreateDatabase inserts a database or cache row.
 func (s *Store) CreateDatabase(db *Database) error {
@@ -69,24 +84,25 @@ func (s *Store) CreateDatabase(db *Database) error {
 	_, err := s.DB.Exec(
 		`INSERT INTO databases (id, kind, website_slug, tenant_user, engine, version, alias, db_name,
 		                        db_user, password_cipher, host, port, file_path, max_connections,
-		                        max_memory_mb, status, note, deleted_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                        max_memory_mb, status, note, deleted_at, exposure, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		db.ID, db.Kind, db.WebsiteSlug, db.TenantUser, db.Engine, db.Version, db.Alias, db.Name,
 		db.User, db.PasswordCipher, db.Host, db.Port, db.FilePath, db.MaxConns,
-		db.MaxMemoryMB, db.Status, db.Note, db.DeletedAt, db.CreatedAt,
+		db.MaxMemoryMB, db.Status, db.Note, db.DeletedAt, db.Exposure, db.CreatedAt,
 	)
 	return err
 }
 
 const databaseColumns = `id, kind, website_slug, tenant_user, engine, version, alias, db_name,
 	db_user, password_cipher, host, port, file_path, max_connections, max_memory_mb,
-	status, note, deleted_at, detached_at, created_at`
+	status, note, deleted_at, detached_at, exposure, exposure_note, exposed_at, created_at`
 
 func scanDatabase(row interface{ Scan(...any) error }) (*Database, error) {
 	var db Database
 	err := row.Scan(&db.ID, &db.Kind, &db.WebsiteSlug, &db.TenantUser, &db.Engine, &db.Version,
 		&db.Alias, &db.Name, &db.User, &db.PasswordCipher, &db.Host, &db.Port, &db.FilePath,
-		&db.MaxConns, &db.MaxMemoryMB, &db.Status, &db.Note, &db.DeletedAt, &db.DetachedAt, &db.CreatedAt)
+		&db.MaxConns, &db.MaxMemoryMB, &db.Status, &db.Note, &db.DeletedAt, &db.DetachedAt,
+		&db.Exposure, &db.ExposureNote, &db.ExposedAt, &db.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -95,6 +111,23 @@ func scanDatabase(row interface{ Scan(...any) error }) (*Database, error) {
 	}
 	db.FileBased = db.FilePath != ""
 	return &db, nil
+}
+
+// SetDatabaseExposure records what an operator decided about a database's port, and what the
+// panel managed to do about it. It is deliberately one call: the decision and its outcome are
+// never stored apart, so a record cannot claim to be public while nothing was opened.
+func (s *Store) SetDatabaseExposure(databaseID, exposure, note string) error {
+	exposedAt := ""
+	if exposure == ExposurePublic {
+		exposedAt = now()
+	}
+	if _, err := s.DB.Exec(
+		`UPDATE databases SET exposure = ?, exposure_note = ?, exposed_at = ? WHERE id = ?`,
+		exposure, note, exposedAt, databaseID,
+	); err != nil {
+		return err
+	}
+	return nil
 }
 
 // DatabaseByID loads one database or cache by its id.

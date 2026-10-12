@@ -27,6 +27,8 @@ import { CreateDatabaseModal } from './CreateDatabaseModal';
 import { DatabaseDetailsModal } from './DatabaseDetailsModal';
 import { DangerConfirmModal } from './DangerConfirmModal';
 import { api, apiReachable, type DatabaseRow, type DbEngineRow } from '../api/client';
+import { saveBlob, failureMessage } from '../api/download';
+import { Loader2 } from 'lucide-react';
 import { describeError } from '../utils/format';
 import { formatBytes } from '../api/adapters';
 
@@ -100,6 +102,23 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
 
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+  // The .sqlite row button used to only raise a toast: it now really saves the file, through
+  // the panel's own request rather than a navigation download (which the browser blocks
+  // outright on an origin whose certificate was clicked past).
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const handleSqliteDownload = async (db: DatabaseItem) => {
+    setDownloadingId(db.id);
+    try {
+      const blob = await api.databaseExport(db.id);
+      saveBlob(blob, `${db.name}.sqlite`);
+      onShowToast?.('Download ready', `${db.name}.sqlite was saved.`, 'success');
+    } catch (err) {
+      onShowToast?.('Download failed', failureMessage(err, 'The file could not be produced.'), 'error');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
   const [selectedDbForDetails, setSelectedDbForDetails] = useState<DatabaseItem | null>(null);
   const [selectedDbForCredentials, setSelectedDbForCredentials] = useState<DatabaseItem | null>(null);
   const [selectedDbForRotate, setSelectedDbForRotate] = useState<DatabaseItem | null>(null);
@@ -780,11 +799,16 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
 
                       {isSqliteDb && (
                         <button
-                          onClick={() => onShowToast?.('Download started', `${db.name} is exported as a .sqlite file (snapshot copy).`, 'info')}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                          onClick={() => void handleSqliteDownload(db)}
+                          disabled={downloadingId === db.id}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer disabled:opacity-50"
                           title="Download .sqlite file"
                         >
-                          <Download className="w-3.5 h-3.5" />
+                          {downloadingId === db.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Download className="w-3.5 h-3.5" />
+                          )}
                         </button>
                       )}
 
