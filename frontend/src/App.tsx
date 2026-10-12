@@ -729,6 +729,7 @@ export function App() {
 
           {currentTab === 'settings' && (
             <PanelSettingsView
+              isAdmin={isAdmin}
               onShowToast={showToast}
               onOpenTerminal={() => navigate('terminal')}
             />

@@ -249,8 +249,11 @@ func (s *Server) exposePostgres(ctx context.Context, record *store.Database, pub
 	if err != nil {
 		return note, err
 	}
-	return note + " was removed; " + closed +
-		" (PostgreSQL keeps listening on every interface, which is harmless while nothing may connect)", nil
+	// Plainly, because this note is the only place the operator learns what closing a database
+	// actually did: the way in was removed, the port went back to loopback, and one thing was NOT
+	// undone — the listener — with the reason it does not matter.
+	return "Closed again: " + note + " was removed, and " + closed +
+		". PostgreSQL still listens on every interface, which is harmless: nothing allows a connection from outside any more, and the firewall drops what asks anyway.", nil
 }
 
 // exposeMariaDB moves the account between the two places MariaDB allows it to live: localhost

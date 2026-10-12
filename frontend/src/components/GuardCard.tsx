@@ -48,8 +48,15 @@ export function GuardCard({
   onShowToast,
   variant = 'full',
   engine,
+  canEdit = true,
 }: {
   onShowToast?: Toast;
+  /**
+   * False for a signed-in user who is not an administrator: the daemon refuses these changes for
+   * them, so the screen shows the numbers and says who may change them rather than offering a form
+   * that cannot be saved.
+   */
+  canEdit?: boolean;
   /**
    * 'full' is the settings screen, where the numbers live. 'bans' is for a record's own Security
    * tab: the same global settings repeated per database and per cache was duplication, and the
@@ -208,7 +215,7 @@ export function GuardCard({
       {/* The numbers the lockout decides with — only where they can be changed. In a record's own
           tab they were the same global settings repeated per database and per cache, which is why
           they live in one place now, and this says where that is rather than showing dead inputs. */}
-      {variant === 'full' ? (
+      {variant === 'full' && canEdit ? (
         <>
           <div className="px-5 pt-4">
             <label className="block">
@@ -291,7 +298,10 @@ export function GuardCard({
       ) : (
         <p className="px-5 py-3 text-[11px] text-slate-500 border-b border-slate-200 bg-slate-50/50">
           {status
-            ? `This engine allows ${status.maxRetry} failed logins within ${status.findTime} and keeps an address out for ${status.banTime}. Every engine has its own limits — change them in Panel Settings → Security.`
+            ? `This engine allows ${status.maxRetry} failed logins within ${status.findTime} and keeps an address out for ${status.banTime}. ` +
+              (canEdit
+                ? 'Every engine has its own limits — change them in Panel Settings → Security.'
+                : 'Only an administrator can change them.')
             : 'Reading the lockout…'}
         </p>
       )}
@@ -354,7 +364,7 @@ export function GuardCard({
                             No
                           </button>
                         </span>
-                      ) : (
+                      ) : canEdit ? (
                         <button
                           type="button"
                           onClick={() => setConfirming(ban.ip)}
@@ -362,6 +372,10 @@ export function GuardCard({
                         >
                           Unban
                         </button>
+                      ) : (
+                        <span className="text-slate-400" title="Only an administrator can release an address">
+                          —
+                        </span>
                       )}
                     </td>
                   </tr>

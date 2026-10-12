@@ -35,11 +35,15 @@ import { useSubRoute } from '../hooks/useSubRoute';
 import { MASTER_PHP_EXTENSIONS, type PhpExtensionItem } from '../data/defaultPhpExtensions';
 
 interface PanelSettingsViewProps {
+  /** False hides controls a signed-in user may look at but not change — the daemon refuses them
+   * anyway, and a form that cannot be saved is worse than no form. */
+  isAdmin?: boolean;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   onOpenTerminal?: () => void;
 }
 
 export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
+  isAdmin = false,
   onShowToast,
   onOpenTerminal,
 }) => {
@@ -650,7 +654,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               {/* Real, unlike the rest of this screen: the daemon's brute-force lockout, which the
                   panel already enforces in the host's firewall. It lives here, in the Security tab,
                   and not above the tab container — mounted there it appeared in every tab. */}
-              <GuardCard onShowToast={onShowToast} />
+              <GuardCard onShowToast={onShowToast} canEdit={isAdmin} />
 
               {/* Everything from here to the end of this tab is the prototype's, and none of it is
                   applied by the daemon. Saying so once, above the group, is what keeps a screen from
