@@ -544,7 +544,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </select>
                   <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this choice yet.</p>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Panel (HTTPS) port</label>
                   <div className="flex gap-2">
