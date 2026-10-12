@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -39,6 +40,10 @@ func Catalog() []Component {
 		{Name: "caddy", Label: "Caddy", Kind: "web", Description: "Automatic HTTPS and HTTP/3 in one binary"},
 		{Name: "php", Label: "PHP-FPM", Kind: "runtime", Versions: []string{"8.3", "8.2", "8.1"}, Description: "PHP runtime (one pool per site)"},
 		{Name: "node", Label: "Node.js", Kind: "runtime", Versions: []string{"22", "20", "18"}, Description: "Node.js runtime for JavaScript sites"},
+		{Name: "python", Label: "Python", Kind: "runtime", Versions: []string{"3.12", "3.11", "3.10"}, Description: "Python runtime (Flask, FastAPI, Django)"},
+		{Name: "ruby", Label: "Ruby", Kind: "runtime", Description: "Ruby runtime (Rails, Sinatra)"},
+		{Name: "go", Label: "Go", Kind: "runtime", Description: "Go toolchain"},
+		{Name: "rust", Label: "Rust", Kind: "runtime", Description: "Rust toolchain (cargo)"},
 		{Name: "postgresql", Label: "PostgreSQL", Kind: "database", Versions: []string{"16", "15"}, Description: "Relational database"},
 		{Name: "mariadb", Label: "MariaDB", Kind: "database", Description: "MySQL-compatible relational database"},
 		{Name: "mongodb", Label: "MongoDB", Kind: "database", Description: "Document database"},
@@ -93,6 +98,14 @@ func Commands(component, version string) ([][]string, error) {
 			{"bash", "-c", "curl -fsSL https://deb.nodesource.com/setup_" + version + ".x | bash -"},
 			{"apt-get", "install", "-y", "nodejs"},
 		}, nil
+	case "python":
+		return apt("python"+version, "python"+version+"-venv", "python3-pip"), nil
+	case "ruby":
+		return apt("ruby", "ruby-dev", "build-essential"), nil
+	case "go":
+		return apt("golang-go"), nil
+	case "rust":
+		return apt("rustc", "cargo"), nil
 	case "postgresql":
 		return apt("postgresql-" + version), nil
 	case "mariadb":
@@ -194,6 +207,25 @@ func (i *Installer) run(job *store.DeployJob, component, version string, command
 	_ = i.store.UpdateDeployJob(job)
 	log("stdout", "installed: "+label)
 	log("status", "success")
+	i.recordChoice(component, version)
+}
+
+// recordChoice remembers what an install decided, so the rest of the panel uses the
+// version that was actually installed: a runtime's default, or an engine's version.
+func (i *Installer) recordChoice(component, version string) {
+	if strings.TrimSpace(version) == "" {
+		return // nothing was chosen (the distro decided); detection reports the truth
+	}
+	switch {
+	case component == "php":
+		_ = i.store.SavePanelSetting("default_php_version", version)
+	case component == "node":
+		_ = i.store.SavePanelSetting("default_node_version", version)
+	default:
+		if c, ok := Lookup(component); ok && c.Kind == "database" {
+			_ = i.store.SavePanelSetting("db_version_"+c.Name, version)
+		}
+	}
 }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
@@ -219,7 +251,13 @@ type Status struct {
 	} `json:"webServer"`
 	Components []Component       `json:"components"`
 	Databases  []dbengine.Engine `json:"databases"`
-	PHP        struct {
+	// DatabaseVersions is the version chosen for each engine (what an install recorded),
+	// so the screen can show both that and the version really installed.
+	DatabaseVersions map[string]string `json:"databaseVersions"`
+	// Runtimes is each language's detected versions, keyed by component name (php and
+	// node appear here too; their *chosen* version is in php/node).
+	Runtimes map[string][]string `json:"runtimes"`
+	PHP      struct {
 		Installed []string `json:"installed"`
 		Default   string   `json:"default"`
 	} `json:"php"`
@@ -254,11 +292,46 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 	}
 
 	out.Databases = dbengine.Detect(ctx, h.Runner)
+	out.DatabaseVersions = map[string]string{}
+	for _, engine := range out.Databases {
+		if v := setting(st, "db_version_"+engine.Name); v != "" {
+			out.DatabaseVersions[engine.Name] = v
+		}
+	}
 	out.PHP.Installed = phpVersions()
 	out.PHP.Default = setting(st, "default_php_version")
 	out.Node.Installed = nodeVersions(ctx, h, lookPath)
 	out.Node.Default = setting(st, "default_node_version")
+	out.Runtimes = map[string][]string{
+		"php":    out.PHP.Installed,
+		"node":   out.Node.Installed,
+		"python": probeVersions(ctx, h, lookPath, "python3", []string{"python3", "--version"}),
+		"ruby":   probeVersions(ctx, h, lookPath, "ruby", []string{"ruby", "--version"}),
+		"go":     probeVersions(ctx, h, lookPath, "go", []string{"go", "version"}),
+		"rust":   probeVersions(ctx, h, lookPath, "rustc", []string{"rustc", "--version"}),
+	}
 	return out
+}
+
+// runtimesVersionPattern picks the leading major.minor out of a version banner.
+var runtimesVersionPattern = regexp.MustCompile(`(\d+)\.(\d+)`)
+
+// probeVersions reports a tool's version when it is installed, or nil when it is not
+// — the absence is the answer, not a guess.
+func probeVersions(ctx context.Context, h *host.Host, lookPath func(string) (string, error), binary string, argv []string) []string {
+	if lookPath != nil {
+		if _, err := lookPath(binary); err != nil {
+			return nil
+		}
+	}
+	out, err := h.Run(ctx, argv)
+	if err != nil {
+		return nil
+	}
+	if m := runtimesVersionPattern.FindStringSubmatch(out); m != nil {
+		return []string{m[1] + "." + m[2]}
+	}
+	return []string{strings.TrimSpace(out)}
 }
 
 func setting(st *store.Store, key string) string {

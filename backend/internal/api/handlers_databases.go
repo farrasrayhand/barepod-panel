@@ -359,10 +359,21 @@ func (s *Server) handleCreateDatabase(kind string) authedHandler {
 		}
 
 		tenant := user.Username
+		// The version is the one the Stack recorded for this engine (or the one really
+		// installed), so the record stops carrying an inert string.
+		version := strings.TrimSpace(req.Version)
+		if version == "" {
+			if chosen, err := s.store.PanelSetting("db_version_" + engine.Name); err == nil {
+				version = strings.TrimSpace(chosen)
+			}
+		}
+		if version == "" {
+			version = engine.Installed
+		}
 		record := &store.Database{
 			Kind:        kind,
 			Engine:      engine.Name,
-			Version:     req.Version,
+			Version:     version,
 			Alias:       alias,
 			TenantUser:  tenant,
 			Host:        "",

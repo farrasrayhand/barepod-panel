@@ -235,17 +235,13 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
         </div>
       )}
 
-      {/* Runtimes + Databases */}
-      {(activeTab === 'runtime' || activeTab === 'database') && (
+      {/* Runtimes */}
+      {activeTab === 'runtime' && (
         <div className="space-y-4">
-          {componentsOf(activeTab === 'runtime' ? 'runtime' : 'database').map((component) => {
+          {componentsOf('runtime').map((component) => {
             const Icon = KINDS[component.kind]?.icon ?? Hexagon;
-            const installed =
-              component.name === 'php'
-                ? status?.php.installed ?? []
-                : component.name === 'node'
-                  ? status?.node.installed ?? []
-                  : component.versions ?? [];
+            const installed = status?.runtimes?.[component.name] ?? [];
+            const chosen = component.name === 'php' ? status?.php.default : status?.node.default;
             return (
               <div key={component.name} className="bg-white rounded-xl border border-slate-200 p-4">
                 <div className="flex items-center gap-2">
@@ -255,29 +251,108 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 </div>
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
                   <span className="text-[11px] text-slate-500">Install:</span>
-                  {(component.versions && component.versions.length > 0 ? component.versions : ['']).map((version) => (
-                    <button
-                      key={version || 'any'}
-                      onClick={() => void install(component.name, version || undefined)}
-                      disabled={busy || live !== true}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      {version ? `${component.label} ${version}` : component.label}
-                    </button>
-                  ))}
-                  {installed.length > 0 && (
-                    <span className="ml-2 text-[11px] text-slate-500">
-                      installed: <span className="font-mono">{installed.join(', ')}</span>
-                    </span>
-                  )}
+                  {(component.versions ?? ['']).map((version) => {
+                    const already = version !== '' && installed.includes(version);
+                    return (
+                      <button
+                        key={version || 'any'}
+                        onClick={() => void install(component.name, version || undefined)}
+                        disabled={busy || live !== true || already}
+                        title={already ? `${component.label} ${version} is already installed` : undefined}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold disabled:cursor-not-allowed ${
+                          already
+                            ? 'text-emerald-700 bg-emerald-50 border border-emerald-200'
+                            : 'text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50'
+                        }`}
+                      >
+                        {already ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
+                        {version ? `${component.label} ${version}` : component.label}
+                        {already ? ' · installed' : ''}
+                      </button>
+                    );
+                  })}
                 </div>
+                {(installed.length > 0 || chosen) && (
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    installed: <span className="font-mono">{installed.join(', ') || '—'}</span>
+                    {chosen ? <> · chosen: <span className="font-mono">{chosen}</span></> : null}
+                  </p>
+                )}
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Databases */}
+      {activeTab === 'database' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
+                <tr>
+                  <th className="py-3 px-4">Engine</th>
+                  <th className="py-3 px-4">Installed</th>
+                  <th className="py-3 px-4">Chosen</th>
+                  <th className="py-3 px-4">State</th>
+                  <th className="py-3 px-4 text-right">Install</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {componentsOf('database').map((component) => {
+                  const detected = status?.databases?.find((d) => d.engine === component.name);
+                  const chosen = status?.databaseVersions?.[component.name];
+                  return (
+                    <tr key={component.name} className="hover:bg-slate-50/70">
+                      <td className="py-3 px-4 font-semibold text-slate-900">
+                        {component.label}
+                        <span className="block text-[10px] font-normal text-slate-400">{component.description}</span>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-700">
+                        {detected?.installedVersion || (detected?.available ? '—' : 'not installed')}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-700">{chosen ?? '—'}</td>
+                      <td className="py-3 px-4">
+                        <span className="flex items-center gap-1.5 text-[11px]">
+                          <span className={`w-1.5 h-1.5 rounded-full ${detected?.running ? 'bg-emerald-500' : detected?.available ? 'bg-amber-500' : 'bg-slate-300'}`} />
+                          {detected ? `${detected.mode}${detected.running ? ' · running' : ''}` : 'unknown'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {(component.versions ?? ['']).map((version) => {
+                            const already =
+                              version !== '' &&
+                              (Boolean(detected?.installedVersion?.startsWith(version)) || chosen === version);
+                            return (
+                              <button
+                                key={version || 'any'}
+                                onClick={() => void install(component.name, version || undefined)}
+                                disabled={busy || live !== true || already}
+                                title={already ? `${component.label} ${version} is already installed` : undefined}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold disabled:cursor-not-allowed ${
+                                  already
+                                    ? 'text-emerald-700 bg-emerald-50 border border-emerald-200'
+                                    : 'text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50'
+                                }`}
+                              >
+                                {already ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
+                                {version ? `${component.label} ${version}` : component.label}
+                                {already ? ' · installed' : ''}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           <p className="text-[11px] text-slate-500">
-            Installing a database engine or runtime prepares it on the host. Choosing which version a site or database uses
-            (and switching it) is the next step for this screen.
+            One version per engine: installing records the version the panel will use (a port is one slot).
+            The panel installs it on this host; the "Installed" column is probed from the engine's own binary.
           </p>
         </div>
       )}

@@ -95,12 +95,17 @@ never be; it comes from the session environment. Same for any token.
    vhost, then unit/start/health) and the health check asks for the site **by domain through nginx**.
    `GET|PUT /websites/:slug/runtime`, `vhost/preview` and `php-fpm/reload` are live; the wizard only
    offers nginx (the other engines answer `501 not_supported_yet`), and the operator installs nginx +
-   php-fpm. Next in this module: OpenLiteSpeed/Caddy/Apache, TLS, then logs/traffic/access control.
+   php-fpm. Next in this module: TLS, then logs/traffic/access control. Both web servers exist now (see the Stack).
 3. **The Stack — databases, then PHP, then Node (the menu exists).** The screen is built and its install
    machinery works; what is left is the *choosing*: installing a database engine version and pointing the
    panel at it (today one version per engine, chosen at install), then per-site PHP/Node version selection.
-   The plan and its phases are in `~/.commandcode/plans/stack-menu.md` (P1 shipped). Then: domains & TLS,
-   backups/migration, pods/Docker, tunnels — still mocks.
+   **P2 started:** the Stack probes the **installed** version of every engine and language (so the screen
+   shows reality — `python 3.12`, `postgresql 16.15`, MariaDB's `Distrib` version rather than its protocol
+   number), records the version an install chose (`db_version_<engine>`, `default_php_version`,
+   `default_node_version`), and a database record carries that version instead of an inert string. The
+   components now include `python`, `ruby`, `go`, `rust` alongside `php`/`node`, matching the wizard. The
+   plan and its phases are in `~/.commandcode/plans/stack-menu.md` (P1 shipped, P2 in progress). Then:
+   domains & TLS, backups/migration, pods/Docker, tunnels — still mocks.
 
 **`barepod uninstall` is built and guided.** The menus are `whiptail` (present on any base Ubuntu/Debian),
 driven through `sh -c … 3>&1 1>&2 2>&3` — the fd swap has to happen in a shell, and passing it as argv to

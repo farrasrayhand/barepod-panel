@@ -232,11 +232,15 @@ export interface DbEngineRow {
   port?: number;
   fileBased: boolean;
   client?: string;
+  clientPath?: string;
   daemon?: string;
   available: boolean;
   running: boolean;
   automated: boolean;
+  mode: 'host' | 'docker' | 'none';
   note?: string;
+  /** The version probed from the engine's own binary, when installed. */
+  installedVersion?: string;
 }
 
 /** What the deploy wizard sends; the daemon validates every part of it. */
@@ -1056,6 +1060,10 @@ export interface StackStatus {
   };
   components: StackComponent[];
   databases: DbEngineRow[];
+  /** The version chosen for each engine (what an install recorded). */
+  databaseVersions: Record<string, string>;
+  /** Each language's detected versions, keyed by component name. */
+  runtimes: Record<string, string[]>;
   php: { installed: string[]; default: string };
   node: { installed: string[]; default: string };
   mode: string;

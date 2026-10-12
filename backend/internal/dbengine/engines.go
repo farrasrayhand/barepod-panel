@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -40,6 +41,56 @@ type Engine struct {
 	// nowhere yet. The panel never leaves that implicit.
 	Mode EngineMode `json:"mode"`
 	Note string     `json:"note,omitempty"`
+	// Installed is the version actually on this host, probed from the engine's own
+	// binary — empty when nothing is installed or the probe cannot answer. It is the
+	// truth the Stack screen shows, not the catalog's wish list.
+	Installed string `json:"installedVersion,omitempty"`
+}
+
+// versionProbe is the command that reports an engine's installed version.
+func versionProbe(engine Engine) []string {
+	switch engine.Name {
+	case "postgresql":
+		return []string{"psql", "--version"}
+	case "mysql":
+		return []string{"mysql", "--version"}
+	case "mariadb":
+		return []string{"mariadb", "--version"}
+	case "mongodb":
+		return []string{"mongod", "--version"}
+	case "redis":
+		return []string{"redis-server", "--version"}
+	}
+	return nil
+}
+
+// versionPattern picks the leading major.minor out of a version banner
+// ("psql (PostgreSQL) 16.4" → "16.4", "Redis server v=7.0.15" → "7.0").
+var versionPattern = regexp.MustCompile(`(\d+)\.(\d+)`)
+
+// distribPattern is preferred when present: MariaDB's client banner starts with the
+// *protocol* version ("Ver 15.1 Distrib 10.11.6-MariaDB"), so the leading number is
+// not the server's.
+var distribPattern = regexp.MustCompile(`Distrib (\d+)\.(\d+)`)
+
+func probeVersion(ctx context.Context, runner host.Runner, engine Engine) string {
+	argv := versionProbe(engine)
+	if argv == nil || runner == nil || runner.Mode() != "real" {
+		return ""
+	}
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := runner.Run(cctx, "", argv[0], argv[1:]...)
+	if err != nil {
+		return ""
+	}
+	if m := distribPattern.FindStringSubmatch(out); m != nil {
+		return m[1] + "." + m[2]
+	}
+	if m := versionPattern.FindStringSubmatch(out); m != nil {
+		return m[1] + "." + m[2]
+	}
+	return ""
 }
 
 // catalog is the list of engines, with the versions the panel offers.
@@ -144,6 +195,7 @@ func Detect(ctx context.Context, runner host.Runner) []Engine {
 		}
 		engine.Mode = ModeHost
 		engine.Running, engine.Note = probeServer(ctx, runner, *engine)
+		engine.Installed = probeVersion(ctx, runner, *engine)
 		if containers && containerised && !engine.Running {
 			engine.Note = fmt.Sprintf("%s is installed but its server did not answer; this host can also run it as a container (%s).",
 				engine.Client, recipe.Image)
