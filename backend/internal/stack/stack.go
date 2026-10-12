@@ -336,13 +336,24 @@ func purged(packages []string, dataDirs ...string) [][]string {
 	return [][]string{aptGet(args...), {"bash", "-c", note}, aptGet("autoremove", "-y")}
 }
 
-// UninstallCommands is the allowlisted removal for an installed runtime version.
+// UninstallCommands is the allowlisted removal for an installed version. A database engine
+// is removed one version at a time too, which is what its own packaging allows
+// (postgresql-16 is a package, and a container engine's version is an image tag).
 func UninstallCommands(component, version string) ([][]string, error) {
 	if err := Removable(component); err != nil {
 		return nil, err
 	}
 	version = strings.TrimSpace(version)
+	if DatabaseEngine(component) && version == "" {
+		return nil, fmt.Errorf("stack: %s needs the version to remove — the engines are removed one version at a time", component)
+	}
 	if version == "" || !versionShape.MatchString(version) {
+		if DatabaseEngine(component) {
+			return nil, fmt.Errorf("stack: %q is not a version this panel installs", version)
+		}
+		if version == "" {
+			return UninstallWhole(component)
+		}
 		return nil, fmt.Errorf("stack: %q is not a version this panel installs", version)
 	}
 	// The version is already limited to digits and dots, so it is safe inside the quotes.
@@ -363,20 +374,35 @@ func UninstallCommands(component, version string) ([][]string, error) {
 	case "rust":
 		return [][]string{{"bash", "-c", "rustup toolchain uninstall " + version}}, nil
 	case "nginx", "caddy":
-		if version != "" {
-			return nil, fmt.Errorf("stack: the web server's version is switched by installing one, not by removing %s %s", component, version)
-		}
-		return purged([]string{component}, "/etc/"+component), nil
+		// A web server carries one version at a time — installing another replaces it — so
+		// removing the installed version is removing the package, and the version is named
+		// for the record.
+		return [][]string{
+			{"bash", "-c", "echo 'removing " + component + " " + version + " (a web server carries one version; installing another replaces this one)'"},
+			append(purged([]string{component}, "/etc/"+component), nil...)[0],
+		}, nil
 	case "postgresql":
-		return purged([]string{"postgresql-*", "postgresql"}, "/var/lib/postgresql"), nil
-	case "mariadb":
+		// One package per major, so one version can go on its own.
+		return purged([]string{"postgresql-" + version}, "/var/lib/postgresql/"+version), nil
+	case "mariadb", "mysql":
 		return purged([]string{"mariadb-server*"}, "/var/lib/mysql"), nil
 	case "mongodb":
-		return purged([]string{"mongodb-org*"}, "/var/lib/mongodb", "/var/log/mongodb"), nil
+		// The container engine's versions are image tags, so removing one is untagging it.
+		return [][]string{{"bash", "-c", "set -e; docker rmi " + mongodbImage + ":" + version + " 2>/dev/null || echo 'that image was not here'; echo 'the volume barepod-mongo-data holds the data and was left alone'"}}, nil
 	case "redis":
 		return purged([]string{"redis-server", "redis-tools"}, "/var/lib/redis"), nil
 	}
 	return nil, fmt.Errorf("stack: %q has no uninstall path", component)
+}
+
+// UninstallWhole removes something that has no per-version idea: a web server, whose
+// version is switched by installing one rather than by removing an old one.
+func UninstallWhole(component string) ([][]string, error) {
+	switch component {
+	case "nginx", "caddy":
+		return purged([]string{component}, "/etc/"+component), nil
+	}
+	return nil, fmt.Errorf("stack: %s is removed one version at a time", component)
 }
 
 // VersionMatches reports whether a recorded version refers to an offered one: a site
@@ -676,7 +702,16 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 	out.DatabaseVersions = map[string]string{}
 	out.DatabaseAvailable = map[string][]string{}
 	out.DatabaseLatest = map[string]string{}
-	for _, engine := range out.Databases {
+	for i := range out.Databases {
+		engine := &out.Databases[i]
+		// An engine running in a container has no binary on this host to probe, so its
+		// version is the image tag Docker is running — which is what "installed" means for
+		// it. Without this the screen said "—" for a MongoDB that was up.
+		if engine.Mode == dbengine.ModeDocker {
+			if tag := dockerRunningTag(ctx, h, engine.Name); tag != "" {
+				engine.Installed = tag
+			}
+		}
 		// The probe, not the catalogue: Versions is what the engine *could* run, and using
 		// it here made the screen show an installed version nobody had installed (MariaDB
 		// 11.4 beside an installed 10.11).
@@ -751,6 +786,27 @@ func nodeInstalled(ctx context.Context, h *host.Host, _ func(string) (string, er
 }
 
 var nodeMajorPattern = regexp.MustCompile(`^\d+`)
+
+// dockerRunningTag is the tag of the image the panel's container for an engine is running,
+// which is that engine's version on a host whose engines live in containers.
+func dockerRunningTag(ctx context.Context, h *host.Host, engine string) string {
+	out, err := h.Run(ctx, []string{"bash", "-c",
+		"docker ps --filter name=barepod-" + engine + " --format '{{.Image}}' 2>/dev/null | head -1"})
+	if err != nil {
+		return ""
+	}
+	image := strings.TrimSpace(out)
+	if image == "" {
+		return ""
+	}
+	if _, tag, found := strings.Cut(image, ":"); found {
+		// "mongo:7.0" → 7.0; a bare repository has no tag to report.
+		if tag != "latest" {
+			return tag
+		}
+	}
+	return ""
+}
 
 // dockerImageTags lists the version tags a Docker Hub image publishes (8.0, 7.0, 6.0 …).
 // A tag is what can be pulled, which is what "available" means for a container engine.

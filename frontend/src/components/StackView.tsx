@@ -310,29 +310,39 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                       <div className="flex items-center justify-end gap-2 flex-wrap">
                         {/* Every version the engine's own repository carries. Choosing one
                             installs it, which is the switch. */}
-                        {/* The version installed here comes first, even when the engine's
-                            own repository no longer carries it (the distribution's nginx),
-                            so what is running is always in the list. */}
-                        {Array.from(new Set([
-                          (found?.version ?? '').replace(/^v/, ''),
-                          ...(status?.webServer.available?.[engine] ?? []),
-                        ].filter(Boolean))).slice(0, 7).map((version) => {
-                          const current = (found?.version ?? '').replace(/^v/, '') === version;
-                          return (
-                            <button
-                              key={version}
-                              onClick={() => void install(engine, version)}
-                              disabled={busy || live !== true || current}
-                              title={current ? `${engine} ${version} is the one installed` : `Install ${engine} ${version} — this is the version switch`}
-                              className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold disabled:cursor-not-allowed ${
-                                current ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : 'text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50'
-                              }`}
-                            >
-                              {current ? <CheckCircle2 className="w-3 h-3" /> : <Download className="w-3 h-3" />}
-                              {version}
-                            </button>
-                          );
-                        })}
+                        {/* The version installed here is the current choice, and the list is
+                            what the engine's own repository carries. Switching installs the
+                            picked one. */}
+                        {found?.installed && (
+                          <select
+                            value={pickedVersion[engine] ?? (found?.version ?? '').replace(/^v/, '')}
+                            onChange={(e) => setPickedVersion((prev) => ({ ...prev, [engine]: e.target.value }))}
+                            className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
+                          >
+                            {Array.from(new Set([
+                              (found?.version ?? '').replace(/^v/, ''),
+                              ...(status?.webServer.available?.[engine] ?? []),
+                            ].filter(Boolean))).map((version) => (
+                              <option key={version} value={version}>
+                                {version}
+                                {(found?.version ?? '').replace(/^v/, '') === version ? ' (installed)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        {found?.installed && (
+                          <button
+                            onClick={() => {
+                              const version = pickedVersion[engine] ?? (found?.version ?? '').replace(/^v/, '');
+                              if (version && version !== (found?.version ?? '').replace(/^v/, '')) void install(engine, version);
+                            }}
+                            disabled={busy || live !== true}
+                            title="Install the picked version — this is the version switch"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            <Download className="w-3 h-3" /> Switch
+                          </button>
+                        )}
                         {!found?.installed && (
                           <button
                             onClick={() => void install(engine)}
@@ -356,7 +366,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                             ingress — allowed for the standby one. */}
                         {found?.installed && (
                           <button
-                            onClick={() => void uninstall(engine, '')}
+                            onClick={() => void uninstall(engine, (found?.version ?? '').replace(/^v/, ''))}
                             disabled={busy || live !== true}
                             title={active ? `${engine} is the active ingress — switch the ingress first` : `Uninstall ${engine}`}
                             className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40"
@@ -549,7 +559,12 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                             onChange={(e) => setPickedVersion((prev) => ({ ...prev, [component.name]: e.target.value }))}
                             className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
                           >
-                            {(status?.databaseAvailable?.[component.name] ?? component.versions ?? []).map((version) => (
+                            {/* The installed version is always in the list, even when the
+                                repository no longer carries it. */}
+                            {Array.from(new Set([
+                              detected?.installedVersion ?? '',
+                              ...(status?.databaseAvailable?.[component.name] ?? component.versions ?? []),
+                            ].filter(Boolean))).map((version) => (
                               <option key={version} value={version}>
                                 {version}
                                 {detected?.installedVersion?.startsWith(version) ? ' (installed)' : ''}
@@ -567,15 +582,18 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                           >
                             <Download className="w-3 h-3" /> Switch
                           </button>
-                          {(detected?.installedVersion || detected?.available) && (
-                            <button
-                              onClick={() => void uninstall(component.name, '')}
-                              disabled={busy || live !== true}
-                              title={`Uninstall ${component.label} — refused while a database on it exists`}
-                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                          {detected?.installedVersion && (
+                            <span className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
+                              <span className="font-mono">{detected.installedVersion}</span>
+                              <button
+                                onClick={() => void uninstall(component.name, detected.installedVersion!)}
+                                disabled={busy || live !== true}
+                                title={`Uninstall ${component.label} ${detected.installedVersion} — refused while a database on it exists`}
+                                className="p-0.5 rounded hover:bg-emerald-100 disabled:opacity-40"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </span>
                           )}
                         </div>
                       </td>
