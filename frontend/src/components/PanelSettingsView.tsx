@@ -521,13 +521,13 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Measured: the port the daemon was started with, not a number this screen can change.
+                    Measured: the port the daemon is listening on. Move it under Panel & SSH ports, below.
                   </p>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Panel FQDN Domain
+                    Panel FQDN Domain — not applied yet
                   </label>
                   <input
                     type="text"
@@ -535,13 +535,13 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     onChange={(e) => setPanelDomain(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">Domain used to access the dashboard</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Domain used to access the dashboard — not applied: nothing reads this yet.</p>
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Default Web Server Engine for New Apps
+                  Default Web Server Engine for New Apps — not applied yet
                 </label>
                 <select
                   value={defaultWebServer}
@@ -558,7 +558,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Server Timezone
+                    Server Timezone — not applied yet
                   </label>
                   <select
                     value={timezone}
@@ -575,7 +575,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Interface Language
+                    Interface Language — not applied yet
                   </label>
                   <select
                     value={language}
@@ -601,7 +601,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     Automatic Core & Security Patches
                   </label>
                   <p className="text-[11px] text-slate-500">
-                    Automatically downloads security patches and cgroup kernel updates at 03:00 WIB.
+                    Not applied: the panel does not schedule patches today, and this host's clock is not WIB — it runs WITA (UTC+8). It is here as the plan it is.
                   </p>
                 </div>
               </div>
