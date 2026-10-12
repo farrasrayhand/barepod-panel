@@ -14,6 +14,19 @@ import { api, type GuardStatus, type GuardBan } from '../api/client';
 
 type Toast = (title: string, message: string, kind?: 'success' | 'error' | 'info') => void;
 
+/**
+ * The sources as a person reads them. On the panel's own Security page a bare list of engine names
+ * read as if it belonged to the database screen — and the panel's own door belongs in that list too,
+ * because it is watched the same way.
+ */
+const engineLabel: Record<string, string> = {
+  postgresql: 'PostgreSQL',
+  mariadb: 'MariaDB',
+  mongodb: 'MongoDB',
+  redis: 'Redis',
+  panel: "the panel's own login",
+};
+
 /** The ban time left, as something a person can read at a glance. */
 function remaining(expiresAt: string): string {
   const left = new Date(expiresAt).getTime() - Date.now();
@@ -177,10 +190,14 @@ export function GuardCard({
           <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 bg-slate-50/50">
             <p className="text-[11px] text-slate-500">
               {Object.entries(status?.sources || {}).length === 0
-                ? 'No log has been read yet.'
-                : Object.entries(status?.sources || {})
-                    .map(([engine, note]) => (note ? `${engine}: ${note}` : `${engine}: reading`))
-                    .join(' · ')}
+                ? 'No login has been read yet.'
+                : `Reading refused logins from ${Object.keys(status?.sources || {})
+                    .map((engine) => engineLabel[engine] ?? engine)
+                    .join(', ')}.` +
+                  Object.entries(status?.sources || {})
+                    .filter(([, note]) => note)
+                    .map(([engine, note]) => ` ${engineLabel[engine] ?? engine}: ${note}.`)
+                    .join('')}
             </p>
             <button
               type="button"

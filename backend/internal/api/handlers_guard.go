@@ -169,6 +169,35 @@ func (s *Server) handleGuardUnban(w http.ResponseWriter, r *http.Request, user *
 	writeJSON(w, http.StatusOK, s.guard.Snapshot(r.Context()))
 }
 
+// LoginRefusals reads the panel's own refused logins from its audit trail. The address there
+// carries the client's port, which is stripped: a ban is about an address, not a connection.
+func (a guardStoreAdapter) LoginRefusals(afterID int64) ([]guard.LoginRefusal, error) {
+	rows, err := a.st.RefusedLogins(afterID, 200)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]guard.LoginRefusal, 0, len(rows))
+	for _, row := range rows {
+		at, _ := time.Parse(time.RFC3339, row.At)
+		out = append(out, guard.LoginRefusal{
+			ID: row.ID, At: at, IP: stripPort(row.IP), User: row.Target, Detail: row.Detail,
+		})
+	}
+	return out, nil
+}
+
+// LatestLoginRefusalID is where the guard starts counting the panel's own refusals.
+func (a guardStoreAdapter) LatestLoginRefusalID() (int64, error) { return a.st.LatestRefusedLoginID() }
+
+// stripPort turns "127.0.0.1:34016" into "127.0.0.1": the audit trail records the connection, and a
+// firewall bans an address.
+func stripPort(address string) string {
+	if host, _, err := net.SplitHostPort(address); err == nil {
+		return host
+	}
+	return strings.TrimSpace(address)
+}
+
 // EnsureArgvForTest exposes what the panel asks the kernel to set up, so a test can assert
 // the table it owns is the one it names.
 func EnsureArgvForTest() [][]string { return guard.EnsureArgv() }

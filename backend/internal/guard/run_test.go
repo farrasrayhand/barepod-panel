@@ -13,6 +13,7 @@ import (
 type fakeStore struct {
 	settings Settings
 	bans     map[string]Ban
+	refusals []LoginRefusal
 }
 
 func newFakeStore(settings Settings) *fakeStore {
@@ -308,4 +309,25 @@ func TestAnAbsentLogIsReported(t *testing.T) {
 	if status.Sources["mariadb"] == "" {
 		t.Errorf("a source with no log said nothing: %+v", status.Sources)
 	}
+}
+
+// The panel's own refused logins, as the persistence side would hand them over.
+func (f *fakeStore) LoginRefusals(afterID int64) ([]LoginRefusal, error) {
+	out := []LoginRefusal{}
+	for _, refusal := range f.refusals {
+		if refusal.ID > afterID {
+			out = append(out, refusal)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) LatestLoginRefusalID() (int64, error) {
+	var highest int64
+	for _, refusal := range f.refusals {
+		if refusal.ID > highest {
+			highest = refusal.ID
+		}
+	}
+	return highest, nil
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
@@ -317,4 +318,39 @@ func (s *Store) ListAudit(userID string, limit int) ([]AuditEntry, error) {
 		out = append(out, entry)
 	}
 	return out, rows.Err()
+}
+
+// RefusedLogins returns the panel's own refused logins newer than an audit id, oldest first. The
+// caller remembers the last id it saw, so they are counted exactly once — the same idea as a log
+// file's byte offset.
+func (s *Store) RefusedLogins(afterID int64, limit int) ([]AuditEntry, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	rows, err := s.DB.Query(`
+SELECT id, ts, user_id, action, target, ip, detail FROM audit_log
+WHERE action = 'auth.login_refused' AND id > ? ORDER BY id ASC LIMIT ?`, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: read refused logins: %w", err)
+	}
+	defer rows.Close()
+	out := []AuditEntry{}
+	for rows.Next() {
+		var entry AuditEntry
+		if err := rows.Scan(&entry.ID, &entry.At, &entry.UserID, &entry.Action, &entry.Target, &entry.IP, &entry.Detail); err != nil {
+			return nil, fmt.Errorf("store: scan refused login: %w", err)
+		}
+		out = append(out, entry)
+	}
+	return out, rows.Err()
+}
+
+// LatestRefusedLoginID is where a reader starts: everything at or before it is history, and replaying
+// history would ban addresses that stopped long ago.
+func (s *Store) LatestRefusedLoginID() (int64, error) {
+	var id int64
+	if err := s.DB.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM audit_log`).Scan(&id); err != nil {
+		return 0, fmt.Errorf("store: read audit high-water mark: %w", err)
+	}
+	return id, nil
 }

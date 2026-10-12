@@ -27,6 +27,20 @@ type Store interface {
 	SaveBan(Ban) error
 	DropBan(ip string) error
 	DropExpired(now time.Time) (int, error)
+	// LoginRefusals are the panel's *own* refused logins, newer than an audit id. They are a source
+	// like any log: the panel had none, so an attempt against the panel itself was invisible.
+	LoginRefusals(afterID int64) ([]LoginRefusal, error)
+	// LatestLoginRefusalID is where to start counting from.
+	LatestLoginRefusalID() (int64, error)
+}
+
+// LoginRefusal is one refused login to the panel, as the audit trail records it.
+type LoginRefusal struct {
+	ID     int64
+	At     time.Time
+	IP     string
+	User   string
+	Detail string
 }
 
 // source is one place refusals are written. A host engine writes a file (PostgreSQL and
@@ -38,6 +52,7 @@ type source struct {
 	glob      string
 	container string
 	acl       bool
+	panel     bool
 }
 
 // Sources lists where the guard looks. A source that is not there is reported rather than
@@ -48,6 +63,9 @@ func Sources() []source {
 		{engine: "mariadb", glob: "/var/log/mysql/*.log"},
 		{engine: "mongodb", container: "barepod-mongo"},
 		{engine: "redis", acl: true},
+		// The panel's own door. It is not a file and not a container: the daemon already records
+		// every refused login, with the address it came from, and this reads those records.
+		{engine: "panel", panel: true},
 	}
 }
 
@@ -75,6 +93,10 @@ type Guard struct {
 	// redisURL is the panel's own Redis identity, needed because ACL LOG can only be read by
 	// someone authenticated. Empty means the cache's refusals cannot be read, and the status says so.
 	redisURL string
+	// refusalMark is the last panel login refusal counted, and refusalStarted says whether the
+	// high-water mark has been taken yet — the first read takes it rather than the history.
+	refusalMark    int64
+	refusalStarted bool
 }
 
 // UseRedisACL tells the guard how to read the cache's refusals. It is a setter rather than a
@@ -326,6 +348,35 @@ func (g *Guard) readRedisACL(ctx context.Context) (string, error) {
 	return out, nil
 }
 
+// panelRefusals reads the panel's own refused logins since the last one counted. The first read
+// takes the high-water mark instead of the history: replaying a long audit trail would ban addresses
+// that stopped long ago, which is the same reason the file sources start at the end of their file.
+func (g *Guard) panelRefusals() ([]LoginRefusal, error) {
+	g.mu.Lock()
+	after, started := g.refusalMark, g.refusalStarted
+	g.mu.Unlock()
+	if !started {
+		mark, err := g.store.LatestLoginRefusalID()
+		if err != nil {
+			return nil, err
+		}
+		g.mu.Lock()
+		g.refusalMark, g.refusalStarted = mark, true
+		g.mu.Unlock()
+		return nil, nil
+	}
+	refusals, err := g.store.LoginRefusals(after)
+	if err != nil {
+		return nil, err
+	}
+	if len(refusals) > 0 {
+		g.mu.Lock()
+		g.refusalMark = refusals[len(refusals)-1].ID
+		g.mu.Unlock()
+	}
+	return refusals, nil
+}
+
 // Unban releases one address at once — the button in the panel — and also forgets its
 // failures, so it is not banned again the moment the operator lets it back in.
 func (g *Guard) Unban(ctx context.Context, ip string) error {
@@ -352,6 +403,19 @@ func (g *Guard) collect(ctx context.Context, now time.Time) []Failure {
 			}
 			g.noteSource(src.engine, "")
 			out = append(out, stampReadTime(Scan(src.engine, text), now)...)
+		case src.panel:
+			refusals, err := g.panelRefusals()
+			if err != nil {
+				g.noteSource(src.engine, err.Error())
+				continue
+			}
+			g.noteSource(src.engine, "")
+			for _, refusal := range refusals {
+				if refusal.IP == "" {
+					continue
+				}
+				out = append(out, Failure{Engine: "panel", IP: refusal.IP, User: refusal.User, At: now})
+			}
 		case src.container != "":
 			text, err := g.containerLog(ctx, src, now)
 			if err != nil {
