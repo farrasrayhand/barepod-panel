@@ -120,9 +120,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
   // 2. Security Settings
   const [forceHttps, setForceHttps] = useState(true);
-  const [enable2FA, setEnable2FA] = useState(false);
   const [ipWhitelist, setIpWhitelist] = useState('');
-  const [maxLoginAttempts, setMaxLoginAttempts] = useState(5);
   const [sessionTimeoutHours, setSessionTimeoutHours] = useState(24);
   const [jwtSecretMasked, setJwtSecretMasked] = useState(true);
 
@@ -654,6 +652,18 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   and not above the tab container — mounted there it appeared in every tab. */}
               <GuardCard onShowToast={onShowToast} />
 
+              {/* Everything from here to the end of this tab is the prototype's, and none of it is
+                  applied by the daemon. Saying so once, above the group, is what keeps a screen from
+                  promising protections nobody has. The Brute-Force Guard above is the part that is
+                  real — and it is enforced in the host's firewall. */}
+              <div className="p-3 rounded-xl border border-amber-200 bg-amber-50">
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  <strong>Prototype controls.</strong> The settings below are not applied by the daemon:
+                  they neither restrict access nor change its behaviour. The panel's real protections on
+                  this screen are the Brute-Force Guard above and the host's firewall.
+                </p>
+              </div>
+
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -662,40 +672,29 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setEnable2FA(!enable2FA);
-                      onShowToast?.(
-                        !enable2FA ? '2FA Enabled' : '2FA Disabled',
-                        !enable2FA ? 'Scan the QR code with Google Authenticator.' : 'Two-factor authentication is now off.',
-                        'info'
-                      );
-                    }}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
-                      enable2FA ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                    }`}
+                    disabled
+                    title="Two-factor authentication is not implemented — this control does nothing yet."
+                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-200 text-slate-500 cursor-not-allowed"
                   >
-                    {enable2FA ? '2FA Active' : 'Enable 2FA'}
+                    Not available yet
                   </button>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Login Attempt Limit (Fail2ban)
-                  </label>
-                  <input
-                    type="number"
-                    value={maxLoginAttempts}
-                    onChange={(e) => setMaxLoginAttempts(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Block the IP for 30 minutes after 5 failed attempts.</p>
+                  <span className="block text-xs font-bold text-slate-700 mb-1">Failed-login lockout</span>
+                  <p className="text-[11px] text-slate-500">
+                    Handled by the Brute-Force Guard above, whose settings are the attempts, the window
+                    and the ban time — and whose bans land in the host's firewall. There is no second
+                    limit here, and no fail2ban: that daemon was removed from this host because it does
+                    not run on it at all.
+                  </p>
                 </div>
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Admin Session Lifetime
+                    Admin Session Lifetime (not applied)
                   </label>
                   <select
                     value={sessionTimeoutHours}
@@ -712,7 +711,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  IP Whitelist for Admin Panel Access
+                  IP Whitelist for Admin Panel Access (not implemented)
                 </label>
                 <textarea
                   rows={3}
@@ -721,14 +720,16 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   placeholder="Example: 192.168.1.100&#10;103.45.12.0/24&#10;(Leave empty to allow all IPs)"
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Only the IPs listed above may open the admin panel port.
+                <p className="text-[10px] text-rose-600 font-semibold mt-1">
+                  Not enforced: nothing in the daemon reads this, so it does not restrict who may open the
+                  panel. Do not rely on it — the host's firewall and the panel's own lockout are the real
+                  controls.
                 </p>
               </div>
 
               <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800">JWT Secret Signature Key</span>
+                  <span className="text-xs font-bold text-slate-800">Panel secret key (sessions — this panel does not use JWTs)</span>
                   <button
                     type="button"
                     onClick={() => setJwtSecretMasked(!jwtSecretMasked)}
