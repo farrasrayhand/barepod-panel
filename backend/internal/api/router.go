@@ -162,6 +162,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/v1/system/stack/web-server", users(s.handleSetWebServer))
 	mux.HandleFunc("POST /api/v1/system/stack/install", users(s.handleStackInstall))
 	mux.HandleFunc("POST /api/v1/system/stack/uninstall", users(s.handleStackUninstall))
+	// The dry run: what a switch or removal would do, without doing any of it.
+	mux.HandleFunc("GET /api/v1/system/stack/plan", s.requireAuth(s.handleStackPlan))
 	mux.HandleFunc("GET /api/v1/system/stack/jobs/stream", users(s.handleStackJobStream))
 	mux.HandleFunc("GET /api/v1/system/stack/jobs/{id}", users(s.handleStackJob))
 

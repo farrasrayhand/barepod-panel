@@ -27,6 +27,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/metrics"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/stack"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/sysinfo"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/tenant"
@@ -238,6 +239,15 @@ func runServe(args []string) error {
 		return fmt.Errorf("open store: %w", err)
 	}
 	defer func() { _ = st.Close() }()
+
+	// An install job cannot survive its own daemon: the goroutine that would write the final
+	// status dies with the process, while the steps themselves (run under systemd) carry on
+	// and usually finish. So a job left unfinished is marked as such rather than reading
+	// "running" forever.
+	if n, err := st.InterruptRunningStackJobs(stack.JobSlug,
+		"the daemon restarted while this ran — its steps were run by systemd and may have finished; check the host"); err == nil && n > 0 {
+		log.Printf("marked %d interrupted install job(s)", n)
+	}
 
 	key, err := secrets.LoadOrCreateKey(cfg.KeyPath)
 	if err != nil {

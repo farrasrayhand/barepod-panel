@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"time"
 )
 
 // DeployJob is one deployment attempt for a website.
@@ -41,6 +42,22 @@ func (s *Store) CreateDeployJob(j *DeployJob) error {
 }
 
 // UpdateDeployJob persists progress and outcome of a job.
+// InterruptRunningStackJobs marks jobs that never reached a terminal state, which is what a
+// daemon restart leaves behind. Their steps ran under systemd and may well have finished,
+// so the reason says that instead of the row reading "running" forever.
+func (s *Store) InterruptRunningStackJobs(slug, reason string) (int, error) {
+	res, err := s.DB.Exec(
+		`UPDATE deploy_jobs SET status = 'failed', error = ?, finished_at = ?
+		 WHERE slug = ? AND status IN ('pending', 'running')`,
+		reason, time.Now().UTC().Format(time.RFC3339), slug,
+	)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 func (s *Store) UpdateDeployJob(j *DeployJob) error {
 	_, err := s.DB.Exec(
 		`UPDATE deploy_jobs SET status = ?, step = ?, total_steps = ?, current_step = ?, error = ?, finished_at = ?

@@ -115,9 +115,9 @@ func Commands(component, version string) ([][]string, error) {
 	}
 	switch c.Name {
 	case "nginx":
-		return append([][]string{{"bash", "-c", nginxRepoScript}}, append(apt("nginx"), pinnedApt("nginx", version)...)...), nil
+		return append([][]string{{"bash", "-c", nginxRepoScript}}, installEngine("nginx", version)...), nil
 	case "caddy":
-		return append([][]string{{"bash", "-c", caddyRepoScript}}, append(apt("caddy"), pinnedApt("caddy", version)...)...), nil
+		return append([][]string{{"bash", "-c", caddyRepoScript}}, installEngine("caddy", version)...), nil
 	case "repositories":
 		// Every source that can hold several versions at once, added in one step: the two
 		// apt repositories, the version managers for Ruby and Rust, and the database
@@ -677,10 +677,10 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 	out.DatabaseAvailable = map[string][]string{}
 	out.DatabaseLatest = map[string]string{}
 	for _, engine := range out.Databases {
-		// Detected, not remembered: this is the version the host actually runs.
-		if len(engine.Versions) > 0 {
-			out.DatabaseVersions[engine.Name] = engine.Versions[0]
-		}
+		// The probe, not the catalogue: Versions is what the engine *could* run, and using
+		// it here made the screen show an installed version nobody had installed (MariaDB
+		// 11.4 beside an installed 10.11).
+		out.DatabaseVersions[engine.Name] = strings.TrimSpace(engine.Installed)
 		out.DatabaseAvailable[engine.Name] = databaseVersions(ctx, h, engine.Name)
 		out.DatabaseLatest[engine.Name] = newestOf(out.DatabaseAvailable[engine.Name])
 	}
@@ -777,6 +777,17 @@ func dockerImageTags(ctx context.Context, h *host.Host, image string) []string {
 		}
 	}
 	return sortedDescending(set)
+}
+
+// installEngine installs a web server: the newest its repository carries when no version
+// was asked for, and exactly that version when one was. It is one or the other — asking
+// for 2.11.0 and also installing the newest was upgrading caddy to 2.11.7 first and then
+// failing on the pin.
+func installEngine(pkg, version string) [][]string {
+	if strings.TrimSpace(version) != "" {
+		return pinnedApt(pkg, version)
+	}
+	return [][]string{aptGet("install", "-y", pkg)}
 }
 
 // pinnedApt installs one exact version of a package, resolved from what the repositories

@@ -85,3 +85,64 @@ func (s *Server) stackUsage(component, version string) ([]string, error) {
 	}
 	return out, nil
 }
+
+// handleStackPlan is the dry run: what a switch or removal would do, and what it would
+// touch, without changing anything. An operator can look before they leap — which matters
+// most for a database, where the answer may be "this needs a dump first".
+func (s *Server) handleStackPlan(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
+	component := strings.TrimSpace(r.URL.Query().Get("component"))
+	version := strings.TrimSpace(r.URL.Query().Get("version"))
+
+	inUse, err := s.stackUsage(component, version)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Could not read what uses this component")
+		return
+	}
+	status := stack.Detect(r.Context(), s.store, s.host, s.lookPath)
+	installed := ""
+	if runtime, ok := status.Runtimes[component]; ok && len(runtime.Installed) > 0 {
+		installed = strings.Join(runtime.Installed, ", ")
+	}
+	if db, ok := status.DatabaseVersions[component]; ok {
+		installed = db
+	}
+
+	steps := []string{}
+	warnings := []string{}
+	if version != "" && version != installed {
+		steps = append(steps, "install "+component+" "+version)
+	}
+	switch {
+	case stack.DatabaseEngine(component):
+		steps = append(steps, "stop the "+component+" service")
+		steps = append(steps, "migrate the existing data to "+version)
+		steps = append(steps, "start "+component+" "+version, "verify it answers")
+		warnings = append(warnings,
+			"a database holds data: the migration copies it, it does not reinstall it")
+		if len(inUse) > 0 {
+			warnings = append(warnings,
+				"take a dump first — "+strings.Join(inUse, ", ")+" would otherwise be at risk")
+		}
+		if stack.DatabaseEngine(component) && component == "mongodb" {
+			steps = append(steps[:0], "pull the image mongo:"+version, "start a container on it", "copy the data across", "point the panel at the new port")
+		}
+	case component == "nginx" || component == "caddy":
+		if component == status.WebServer.Active {
+			warnings = append(warnings, "this is the active ingress: every site is served by it during the switch")
+		}
+	default:
+		steps = append(steps, "leave the installed version in place")
+	}
+
+	_ = s.store.Audit("", "stack.plan", component+" "+version, clientIP(r), "")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"component": component,
+		"version":   version,
+		"installed": installed,
+		"steps":     steps,
+		"uses":      inUse,
+		"warnings":  warnings,
+		"safeToRun": len(inUse) == 0 && !(component == status.WebServer.Active && version == ""),
+		"mode":      s.host.Mode(),
+	})
+}

@@ -1097,10 +1097,16 @@ export interface StackStatus {
   installRunning?: string;
   /** The sources the panel adds (Sury, deadsnakes, rbenv, rustup) and whether they are here. */
   repositories?: { name: string; label: string; present: boolean; group: string; path?: string }[];
+  /** What each engine's repositories carry, and the newest of them. */
+  databaseAvailable?: Record<string, string[]>;
+  databaseLatest?: Record<string, string>;
   webServer: {
     active: string;
     supported: string[];
     installed: StackWebServerStatus[];
+    /** What each engine's own repository carries, and the newest of them. */
+    available?: Record<string, string[]>;
+    latest?: Record<string, string>;
     webUser: string;
     vhostsPath: string;
   };
