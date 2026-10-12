@@ -937,8 +937,12 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
               ) : null}
             </div>
 
-            {/* Network Access & Firewall status indicator */}
-            {database.type !== 'sqlite' && (
+            {/* Network Access & Firewall status indicator. Not shown for a cache: the panel has no
+                exposure switch for one (an installed Redis binds 127.0.0.1 by its own config, which
+                the panel does not rewrite), so a "Private (Loopback Only)" badge with a Settings
+                link would lead to a screen that offers nothing. Hiding the tab alone was not
+                enough — this badge was the way back into it. */}
+            {database.type !== 'sqlite' && database.type !== 'redis' && (
               <div className="flex items-center gap-2 self-end sm:self-auto">
                 <span className="text-[11px] text-slate-500 font-medium">Network Access:</span>
                 <button
