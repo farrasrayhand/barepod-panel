@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,37 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/guard"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
+
+// A record that says private must be private from the second it exists: its port enters the
+// panel's firewall set as part of the create, not at the next restart. Measured before this: a
+// containerised engine's port stayed reachable from the network until somebody moved the switch.
+func TestCreatingARecordMakesItsPortPrivateImmediately(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/databases", map[string]any{
+		"engine": "postgresql", "alias": "Reports DB", "name": "admin_reports_db",
+		"user": "admin_reports_db",
+	})
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d (%s)", resp.StatusCode, body)
+	}
+	var created struct {
+		Database struct {
+			Port int `json:"port"`
+		} `json:"database"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Database.Port == 0 {
+		t.Skip("this engine's record carries no port, so there is nothing to make private")
+	}
+	joined := strings.Join(panel.runner.Commands(), " | ")
+	if !strings.Contains(joined, "private_ports") || !strings.Contains(joined, fmt.Sprint(created.Database.Port)) {
+		t.Errorf("the new record's port %d was not made private: %s", created.Database.Port, joined)
+	}
+}
 
 // testGuard is the watchdog as these tests need it: no host underneath, an nft that answers,
 // and the real store, so what the panel decides is what the tests can read back.

@@ -41,6 +41,9 @@ type testPanel struct {
 	csrf    string
 	adminID string
 	alexID  string
+	// runner records what the daemon asked the host to do, so a test can assert a side effect that
+	// has no other trace (the firewall element a new record must put in place, for instance).
+	runner *host.DryRunner
 }
 
 func newTestPanel(t *testing.T) *testPanel {
@@ -115,6 +118,7 @@ func newTestPanel(t *testing.T) *testPanel {
 		store:   st,
 		home:    h.SitesRoot,
 		client:  &http.Client{Jar: jar},
+		runner:  runner,
 		adminID: admin.ID,
 		alexID:  alex.ID,
 	}

@@ -99,6 +99,24 @@ func (s *Server) handleSetExposure(kind string) authedHandler {
 	}
 }
 
+// holdPortPrivate puts a record's port into the private set. It is what a freshly created record
+// needs (a record that says private should be private immediately, not after the next restart) and
+// is deliberately the same element the reconciliation writes.
+func (s *Server) holdPortPrivate(ctx context.Context, record *store.Database) error {
+	if record == nil || record.FileBased || record.Port == 0 {
+		return nil
+	}
+	if record.Exposure == store.ExposurePublic {
+		return nil // an opened record stays open; reconciliation decides again at start
+	}
+	argv := guard.PrivatePortArgv(record.Port)
+	out, err := s.host.Run(ctx, argv)
+	if err != nil && !strings.Contains(out, "File exists") {
+		return fmt.Errorf("%s", strings.TrimSpace(out))
+	}
+	return nil
+}
+
 // ReconcileExposure makes each record's stated state a kernel fact. Until it runs, "private" is
 // only a claim in the panel's database: measured on the test host, a containerised MongoDB whose
 // record said private was still reachable from the LAN at 172.19.1.26:27018, because a port is
@@ -281,7 +299,8 @@ func (s *Server) exposeMariaDB(ctx context.Context, record *store.Database, publ
 		return "", err
 	}
 	return "an account that may connect from any address, granted on this database only, now exists; " + note +
-		"; MariaDB's own bind-address decides whether it can be reached at all and the panel does not change it (a restart would be needed)", nil
+		"; MariaDB's own bind-address decides whether it can be reached at all and the panel does not change it — " +
+		"run `systemctl restart mariadb` after setting `bind-address = 0.0.0.0` in its configuration to make it reachable", nil
 }
 
 // openPort and closePort are the kernel half: the engine's port leaves or enters the set the

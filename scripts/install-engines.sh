@@ -224,6 +224,25 @@ if have redis-cli; then
   else
     note "Redis did not answer without credentials and no admin identity is stored — left untouched rather than half-configured"
   fi
+
+  # These are enforced on every run, not only when the identity is created: a host that already has
+  # an identity would otherwise keep a Redis without an ACL file (so its users die on the next
+  # restart) and reachable only on loopback (so no container manager could open it).
+  if [[ -f /etc/redis/redis.conf ]]; then
+    if ! grep -qE '^[[:space:]]*aclfile' /etc/redis/redis.conf; then
+      install -d -m 0750 -o redis -g redis /etc/redis 2>/dev/null || mkdir -p /etc/redis
+      [[ -f /etc/redis/users.acl ]] || printf 'user default off\n' > /etc/redis/users.acl
+      chown redis:redis /etc/redis/users.acl 2>/dev/null || true
+      chmod 0640 /etc/redis/users.acl
+      printf '\n# Added by BarePod: ACL users live here, because ones created at runtime are lost on\n# a restart. Do not also put `user` lines in this file — Redis refuses to start then.\naclfile /etc/redis/users.acl\n' >> /etc/redis/redis.conf
+      note "Redis ACL users moved to /etc/redis/users.acl (a restart is needed to apply it)"
+    fi
+    REDIS_GATEWAY="$(ip -4 -o addr show docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)"
+    if [[ -n "$REDIS_GATEWAY" ]] && ! grep -qE "^[[:space:]]*bind .*${REDIS_GATEWAY}" /etc/redis/redis.conf 2>/dev/null; then
+      sed -i "s|^[[:space:]]*bind .*|bind 127.0.0.1 -::1 ${REDIS_GATEWAY}|" /etc/redis/redis.conf
+      note "Redis will also listen on the container gateway ${REDIS_GATEWAY}, so a container manager can reach it (takes effect on its next restart)"
+    fi
+  fi
 fi
 
 # ---------------------------------------------------------------- brute-force lockout

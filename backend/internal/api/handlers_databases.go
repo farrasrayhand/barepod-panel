@@ -421,6 +421,17 @@ func (s *Server) handleCreateDatabase(kind string) authedHandler {
 		_ = s.store.Audit(user.ID, "database.create", record.Name, clientIP(r),
 			fmt.Sprintf("engine=%s status=%s", record.Engine, record.Status))
 
+		// A new record is private, and that has to be true in the kernel from the first second —
+		// not only after the next restart. Reconciliation at start covers what already exists;
+		// this covers what is created while the panel runs, and for a containerised engine it is
+		// the difference between a promise and a fact (measured: its port was otherwise open from
+		// the network until somebody moved the switch or the panel restarted).
+		if err := s.holdPortPrivate(r.Context(), record); err != nil {
+			writeError(w, http.StatusBadGateway, "firewall_error",
+				"the record was created, but its port could not be made private: "+err.Error())
+			return
+		}
+
 		// The generated password is shown exactly once, here.
 		response := map[string]any{"database": record}
 		if record.PasswordCipher != "" {
