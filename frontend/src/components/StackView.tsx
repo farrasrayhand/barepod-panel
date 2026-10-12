@@ -140,7 +140,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
             {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            The host-level choices: which web server serves the sites, and which PHP / Node / database versions are installed.
+            The host-level choices: which web server serves the sites, and which runtime and database versions are installed.
             Installs run on this host and are logged below.
           </p>
         </div>
@@ -157,7 +157,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
         {([
           ['web', 'Web server'],
-          ['runtime', 'Runtimes (PHP / Node)'],
+          ['runtime', 'Runtimes'],
           ['database', 'Databases'],
         ] as const).map(([id, label]) => (
           <button

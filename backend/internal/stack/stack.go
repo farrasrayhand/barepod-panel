@@ -68,7 +68,9 @@ func Lookup(name string) (Component, bool) {
 }
 
 // Commands is the allowlisted command list for a component (and version, where the
-// distro provides one). An unknown component or version is refused.
+// distro provides one). An unknown component or version shape is refused. Whether a
+// particular version is *offered here* is a question for the host's repositories, so it
+// is answered in Installer.Start, where the host is known.
 func Commands(component, version string) ([][]string, error) {
 	c, ok := Lookup(component)
 	if !ok {
@@ -76,10 +78,12 @@ func Commands(component, version string) ([][]string, error) {
 	}
 	version = strings.TrimSpace(version)
 	if len(c.Versions) > 0 && version == "" {
-		return nil, fmt.Errorf("stack: %s needs a version (%s)", c.Name, strings.Join(c.Versions, ", "))
+		return nil, fmt.Errorf("stack: %s needs a version (see its repository's list)", c.Name)
 	}
-	if version != "" && len(c.Versions) > 0 && !containsString(c.Versions, version) {
-		return nil, fmt.Errorf("stack: %s %s is not offered (choose %s)", c.Name, version, strings.Join(c.Versions, ", "))
+	// The version reaches a shell, so only the shapes the panel installs are allowed:
+	// 8.3, 1.22, 3.12.1, or rustup's channels.
+	if version != "" && !versionShape.MatchString(version) {
+		return nil, fmt.Errorf("stack: %q is not a version this panel installs", version)
 	}
 
 	apt := func(pkgs ...string) [][]string {
@@ -104,19 +108,19 @@ func Commands(component, version string) ([][]string, error) {
 	case "php":
 		// A PHP install is a full one: the extensions the panel's Settings screen toggles
 		// (phpenmod/phpdismod) are installed here, so enabling one later is a switch rather
-		// than another install. Anything the repository does not offer is named in the log
-		// instead of failing the whole install.
-		core := []string{
-			"php" + version + "-fpm", "php" + version + "-cli", "php" + version + "-curl",
-			"php" + version + "-mbstring", "php" + version + "-xml", "php" + version + "-zip",
-			"php" + version + "-gd", "php" + version + "-intl", "php" + version + "-bcmath",
-			"php" + version + "-mysql", "php" + version + "-pgsql", "php" + version + "-sqlite3",
-			"php" + version + "-opcache", "php" + version + "-soap", "php" + version + "-sodium",
-			"php" + version + "-exif", "php" + version + "-bz2", "php" + version + "-gmp",
+		// than another install.
+		//
+		// Only FPM and CLI are requirements. The extensions are installed one by one and a
+		// missing one is named in the log: repositories do not carry the same set for every
+		// version (Sury has no php8.0-sodium, for one), and `apt-get install` is atomic, so
+		// asking for them together failed the whole install over a single absent package.
+		extensions := []string{
+			"curl", "mbstring", "xml", "zip", "gd", "intl", "bcmath", "mysql", "pgsql",
+			"sqlite3", "opcache", "soap", "sodium", "exif", "bz2", "gmp",
+			"imagick", "redis", "mongodb", "ldap", "imap", "swoole", "pcntl",
 		}
-		optional := []string{"imagick", "redis", "mongodb", "ldap", "imap", "swoole", "pcntl"}
-		script := "set -e\napt-get install -y " + strings.Join(core, " ") +
-			"\nfor e in " + strings.Join(optional, " ") + "; do apt-get install -y php" + version + "-$e || echo \"skipped php" + version + "-$e (not offered by this repository)\"; done"
+		script := "set -e\napt-get install -y php" + version + "-fpm php" + version + "-cli" +
+			"\nfor e in " + strings.Join(extensions, " ") + "; do apt-get install -y php" + version + "-$e || echo \"skipped php" + version + "-$e (not offered by this repository)\"; done"
 		// Ubuntu ships a single PHP, so the versions the panel offers come from the Sury
 		// repository; it is added first and the available versions are read back from apt.
 		return [][]string{{"bash", "-c", suryRepoScript}, {"bash", "-c", script}}, nil
@@ -223,6 +227,15 @@ func New(st *store.Store, h *host.Host) *Installer { return &Installer{store: st
 
 // Start records the job and runs it in the background.
 func (i *Installer) Start(component, version string) (*store.DeployJob, error) {
+	if version != "" {
+		// The screen draws a button per version the host offers, so a version it did not
+		// draw must not be installable — and one it did draw must be (that mismatch is
+		// exactly what "php 8.0 is not offered (choose 8.3, 8.2, 8.1)" was: the check used
+		// a hand-kept catalog list while the screen showed the repository's).
+		if offered := i.offered(context.Background(), component); len(offered) > 0 && !containsString(offered, version) {
+			return nil, fmt.Errorf("stack: %s %s is not offered here (available: %s)", component, version, strings.Join(offered, ", "))
+		}
+	}
 	commands, err := Commands(component, version)
 	if err != nil {
 		return nil, err
@@ -241,6 +254,26 @@ func (i *Installer) Start(component, version string) (*store.DeployJob, error) {
 	snapshot := *job
 	go i.run(job, component, version, commands)
 	return &snapshot, nil
+}
+
+// offered is what this host's repositories can install right now — the same list the
+// screen shows, so a drawn button is a working button. The catalog's list is the
+// fallback when a source answers nothing (a dry-run host, or repositories not added yet).
+func (i *Installer) offered(ctx context.Context, component string) []string {
+	c, ok := Lookup(component)
+	if !ok {
+		return nil
+	}
+	for _, r := range runtimeSources() {
+		if r.name != component {
+			continue
+		}
+		if versions := availableVersions(ctx, i.host, r); len(versions) > 0 {
+			return versions
+		}
+		break
+	}
+	return c.Versions
 }
 
 func (i *Installer) run(job *store.DeployJob, component, version string, commands [][]string) {
@@ -431,25 +464,24 @@ type RuntimeStatus struct {
 // runtimeSources describes where each language's versions come from, so the screen can
 // say it and the available list can be read back from the repository rather than guessed.
 type runtimeSource struct {
-	name       string
-	perSite    bool
-	source     string
-	kind       string // apt-suffixed (php8.3-fpm) | apt-single (ruby) | tarball
-	pkgPrefix  string // apt-suffixed: package = pkgPrefix + version + pkgSuffix
-	pkgSuffix  string
-	pkg        string // apt-single: one package, its candidate version is the version
-	candidates []string
-	binary     []string
-	probe      string // binary to look up before asking its version
+	name      string
+	perSite   bool
+	source    string
+	kind      string // apt-suffixed (php8.3-fpm) | apt-single (ruby) | vendor-index | rbenv | rustup
+	pkgPrefix string // apt-suffixed: package = pkgPrefix + version + pkgSuffix
+	pkgSuffix string
+	pkg       string // apt-single: one package, its candidate version is the version
+	binary    []string
+	probe     string // binary to look up before asking its version
 }
 
 func runtimeSources() []runtimeSource {
 	return []runtimeSource{
 		{name: "php", perSite: true, source: "apt — packages.sury.org/php", kind: "apt-suffixed",
-			pkgPrefix: "php", pkgSuffix: "-fpm", candidates: []string{"7.4", "8.0", "8.1", "8.2", "8.3", "8.4"}},
+			pkgPrefix: "php", pkgSuffix: "-fpm"},
 		{name: "python", perSite: true, source: "apt — deadsnakes PPA", kind: "apt-suffixed",
-			pkgPrefix: "python", candidates: []string{"3.9", "3.10", "3.11", "3.12", "3.13"},
-			probe: "python3", binary: []string{"python3", "--version"}},
+			pkgPrefix: "python",
+			probe:     "python3", binary: []string{"python3", "--version"}},
 		{name: "node", perSite: true, source: "tarball — nodejs.org/dist (per site)", kind: "vendor-index",
 			probe: "node", binary: []string{"node", "--version"}},
 		{name: "ruby", perSite: true, source: "rbenv + ruby-build", kind: "rbenv",
@@ -470,13 +502,26 @@ func availableVersions(ctx context.Context, h *host.Host, r runtimeSource) []str
 	}
 	switch r.kind {
 	case "apt-suffixed":
-		var out []string
-		for _, version := range r.candidates {
-			if _, ok := aptCandidate(ctx, h, r.pkgPrefix+version+r.pkgSuffix); ok {
-				out = append(out, version)
+		// The repository's own package list is the version list. Nothing here is kept in
+		// code, so a version Sury or deadsnakes adds later appears without a release of the
+		// panel — and a version it drops disappears.
+		pattern := "^" + r.pkgPrefix + "[0-9]+\\.[0-9]+" + r.pkgSuffix + "$"
+		res, err := h.Run(ctx, []string{"apt-cache", "search", "--names-only", pattern})
+		if err != nil {
+			return nil
+		}
+		set := map[string]bool{}
+		for _, line := range strings.Split(res, "\n") {
+			name := strings.TrimSpace(strings.SplitN(line, " ", 2)[0])
+			if !strings.HasPrefix(name, r.pkgPrefix) {
+				continue
+			}
+			version := strings.TrimSuffix(strings.TrimPrefix(name, r.pkgPrefix), r.pkgSuffix)
+			if runtimesVersionPattern.MatchString(version) {
+				set[version] = true
 			}
 		}
-		return out
+		return sortedDescending(set)
 	case "apt-single":
 		// The distro ships one version of this runtime; its own candidate is the answer.
 		if version, ok := aptCandidate(ctx, h, r.pkg); ok {
@@ -677,6 +722,11 @@ func aptCandidate(ctx context.Context, h *host.Host, pkg string) (string, bool) 
 }
 
 var runtimesVersionPattern = regexp.MustCompile(`(\d+)\.(\d+)`)
+
+// versionShape is the only thing that may be pasted into an install command: a dotted
+// number, or one of rustup's channels. Which of those the host actually offers is
+// decided against the repositories, not here.
+var versionShape = regexp.MustCompile(`^(\d+(\.\d+)*|stable|beta|nightly)$`)
 
 // probeVersions reports a tool's version when it is installed, or nil when it is not
 // — the absence is the answer, not a guess.

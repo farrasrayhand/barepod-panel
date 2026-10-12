@@ -19,8 +19,8 @@ func TestCommandsAreAllowlisted(t *testing.T) {
 	if _, err := Commands("php", ""); err == nil {
 		t.Error("php without a version was accepted")
 	}
-	if _, err := Commands("php", "9.9"); err == nil {
-		t.Error("a version the panel does not offer was accepted")
+	if _, err := Commands("php", "8.3; rm -rf /"); err == nil {
+		t.Error("a version that is not a version was accepted")
 	}
 	if _, err := Commands("nginx", "1.2"); err != nil {
 		t.Errorf("nginx takes no version but was refused: %v", err)
@@ -36,9 +36,16 @@ func TestCommandsAreAllowlisted(t *testing.T) {
 		t.Errorf("php commands do not install the fpm package: %v", php)
 	}
 	// A PHP install is full: the extensions Settings toggles later must already be there.
-	for _, want := range []string{"php8.3-gd", "php8.3-intl", "php8.3-mysql", "php8.3-opcache", "sury.org"} {
+	// They are installed in a loop, one per attempt, because a repository does not carry
+	// the same set for every version and apt-get install is atomic.
+	for _, want := range []string{"sury.org", "php8.3-cli", "for e in", "php8.3-$e", "skipped"} {
 		if !strings.Contains(joinedPHP, want) {
 			t.Errorf("php commands are missing %q", want)
+		}
+	}
+	for _, extension := range []string{"gd", "intl", "mysql", "opcache", "sodium"} {
+		if !strings.Contains(joinedPHP, extension) {
+			t.Errorf("php commands do not mention the %s extension", extension)
 		}
 	}
 	node, _ := Commands("node", "22")
@@ -54,6 +61,27 @@ func flatten(cmds [][]string) []string {
 		out = append(out, strings.Join(c, " "))
 	}
 	return out
+}
+
+func TestInstallRefusesAVersionTheHostDoesNotOffer(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	runner := &host.DryRunner{}
+	h := &host.Host{Runner: runner, SitesRoot: filepath.Join(dir, "home"), VHostsDir: filepath.Join(dir, "vhosts")}
+	installer := New(st, h)
+
+	// A dry-run host's repositories answer nothing, so the catalog's list stands in for
+	// them: what it names works, what it does not is refused.
+	if _, err := installer.Start("php", "8.0"); err == nil {
+		t.Error("a PHP version the host does not offer was accepted")
+	}
+	if _, err := installer.Start("php", "8.3"); err != nil {
+		t.Errorf("a PHP version the host offers was refused: %v", err)
+	}
 }
 
 func TestInstallerDryRunRecordsAndInstallsNothing(t *testing.T) {
