@@ -208,6 +208,11 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
       setShowSqlEditor(false);
       setExposure(database.exposure === 'public' ? 'public' : 'private');
       setExposureNote(database.exposureNote || '');
+      // Another database's log must not survive the switch: without this the panel renders the
+      // previous engine's lines while the new ones are still being fetched, which is how a
+      // SQLite database came to be shown a PostgreSQL log.
+      setLogs(null);
+      setLogsLoading(false);
     }
   }, [database]);
 
@@ -277,16 +282,15 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
 
   if (!isOpen || !database) return null;
 
-  // The in-panel tab stays only where no manager can open the record. PostgreSQL,
-  // MySQL and MariaDB open pgweb / phpMyAdmin; SQLite (a file DbGate mounts) and
-  // MongoDB (a document store it speaks) open DbGate — so those two no longer get a
-  // "Browse Data" tab, and MongoDB's was a note rather than a browser. The key inspector
-  // was then removed too: DbGate browses a cache, so the panel does not keep a second
-  // browser of its own. (The container reaches a cache the panel provisions — it is the
-  // panel's own container, on the same docker network. A *host* cache bound to 127.0.0.1 is
-  // the case this used to cover, and DbGate can only reach that if it is run with host
-  // networking; if a cache turns out unreachable there, this is the line to bring back.)
-  const showsDataTab = false;
+  // The in-panel tab stays only where no manager can open the record. PostgreSQL, MySQL and
+  // MariaDB open pgweb / phpMyAdmin (host binaries, so loopback is reachable); SQLite (a file
+  // DbGate mounts) and MongoDB (a document store it speaks) open DbGate. Redis keeps the key
+  // inspector, and the daemon's own refusal is why: asking for DbGate on a cache answers
+  // "dbgate is not hosted here yet (DbGate runs as a container and cannot reach Redis, which
+  // listens on the host's loopback only … use the panel's own browser)". Being started on
+  // demand does not change that — what decides reachability is the container's network, not
+  // when it starts. So this tab is the only way to see inside a cache, not a duplicate of one.
+  const showsDataTab = database.type === 'redis';
   // A logical dump exists for the SQL engines (SQLite's is a copy of its file).
   const canExport =
     database.type === 'sqlite' ||
@@ -529,6 +533,26 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
               {exposure === 'public' && (
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Public access active" />
               )}
+            </button>
+          )}
+
+          {showsDataTab && (
+            <button
+              type="button"
+              onClick={() => {
+                setDataTabActive('data');
+                if (tableList.length === 0 && !redisKeys && !tablesError) {
+                  loadTables();
+                }
+              }}
+              className={`px-3 py-2 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+                dataTabActive === 'data'
+                  ? 'border-blue-600 text-blue-600 bg-white'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Table className="w-3.5 h-3.5" />
+              <span>Keys</span>
             </button>
           )}
 
