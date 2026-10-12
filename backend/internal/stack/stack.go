@@ -481,56 +481,9 @@ func (i *Installer) run(job *store.DeployJob, action, done, component, version s
 	_ = i.store.UpdateDeployJob(job)
 	log("stdout", done+": "+label)
 	log("status", "success")
-	if done == "installed" {
-		// Only an install decides a version; a removal leaves the choice alone.
-		i.recordChoice(component, version)
-	}
 }
 
-// recordChoice remembers a version only when nothing has been chosen yet: installing 7.4
-// to try it must not silently make every new site a 7.4 site. Choosing is an explicit
-// action (Installer.SetDefault).
-func (i *Installer) recordChoice(component, version string) {
-	if strings.TrimSpace(version) == "" {
-		return // nothing was chosen (the distro decided); detection reports the truth
-	}
-	switch {
-	case component == "php":
-		i.setDefaultIfUnset("default_php_version", version)
-	case component == "node":
-		i.setDefaultIfUnset("default_node_version", version)
-	default:
-		if c, ok := Lookup(component); ok && c.Kind == "database" {
-			i.setDefaultIfUnset("db_version_"+c.Name, version)
-		}
-	}
-}
-
-// SetDefault is the explicit choice: the version new sites (or a new database) should get.
-func (i *Installer) SetDefault(component, version string) error {
-	version = strings.TrimSpace(version)
-	if version == "" || !versionShape.MatchString(version) {
-		return fmt.Errorf("stack: %q is not a version this panel installs", version)
-	}
-	switch {
-	case component == "php":
-		return i.store.SavePanelSetting("default_php_version", version)
-	case component == "node":
-		return i.store.SavePanelSetting("default_node_version", version)
-	}
-	if c, ok := Lookup(component); ok && c.Kind == "database" {
-		return i.store.SavePanelSetting("db_version_"+c.Name, version)
-	}
-	return fmt.Errorf("stack: %s has no default version to set", component)
-}
-
-func (i *Installer) setDefaultIfUnset(key, version string) {
-	if current, err := i.store.PanelSetting(key); err == nil && strings.TrimSpace(current) != "" {
-		return
-	}
-	_ = i.store.SavePanelSetting(key, version)
-}
-
+// now returns the current UTC time as a stored timestamp.
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
 
 // --- detection ---
@@ -598,14 +551,18 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 	out.Databases = dbengine.Detect(ctx, h.Runner)
 	out.DatabaseVersions = map[string]string{}
 	for _, engine := range out.Databases {
-		if v := setting(st, "db_version_"+engine.Name); v != "" {
-			out.DatabaseVersions[engine.Name] = v
+		// Detected, not remembered: this is the version the host actually runs.
+		if len(engine.Versions) > 0 {
+			out.DatabaseVersions[engine.Name] = engine.Versions[0]
 		}
 	}
 	out.PHP.Installed = phpVersions()
-	out.PHP.Default = setting(st, "default_php_version")
-	out.Node.Installed = nodeVersions(ctx, h, lookPath)
-	out.Node.Default = setting(st, "default_node_version")
+	// There is no stored "default" version: a site's version is chosen when the site is
+	// created, and the wizard always asks. What the screen shows as the default is simply
+	// the newest one installed, which is what the extensions screen falls back to.
+	out.PHP.Default = newestOf(out.PHP.Installed)
+	out.Node.Installed = nodeInstalled(ctx, h, lookPath)
+	out.Node.Default = newestOf(out.Node.Installed)
 	out.Runtimes = map[string]RuntimeStatus{}
 	for _, r := range runtimeSources() {
 		status := RuntimeStatus{PerSite: r.perSite, Source: r.source}
@@ -1085,12 +1042,19 @@ func rustInstalled(ctx context.Context, h *host.Host) []string {
 		if len(fields) == 0 {
 			continue
 		}
-		name := strings.SplitN(fields[0], "-", 2)[0]
-		if runtimesVersionPattern.MatchString(name) {
-			set[name] = true
+		name := fields[0]
+		// rustup says "no installed toolchains" when there are none, and that message is
+		// not a toolchain: a real one carries a target triple (stable-x86_64-…) or is a
+		// plain version.
+		if !strings.Contains(name, "-") && !runtimesVersionPattern.MatchString(name) {
 			continue
 		}
-		channels[name] = true
+		base := strings.SplitN(name, "-", 2)[0]
+		if runtimesVersionPattern.MatchString(base) {
+			set[base] = true
+			continue
+		}
+		channels[base] = true
 	}
 	// Channels first (newest-first doesn't apply to a name), then the versions.
 	return append(sortedDescending(channels), sortedDescending(set)...)

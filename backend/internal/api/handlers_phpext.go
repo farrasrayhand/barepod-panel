@@ -56,11 +56,9 @@ func (s *Server) handleSetPhpExtension(w http.ResponseWriter, r *http.Request, u
 	writeJSON(w, http.StatusOK, report)
 }
 
-// defaultPhpVersion is the version a new site gets, or the first one installed.
+// defaultPhpVersion is the newest PHP the host has: a site chooses its own version, so
+// this is only the fallback for a caller that names none.
 func (s *Server) defaultPhpVersion() string {
-	if v, err := s.store.PanelSetting("default_php_version"); err == nil && v != "" {
-		return v
-	}
 	versions := phpext.InstalledVersions()
 	if len(versions) > 0 {
 		return versions[0]

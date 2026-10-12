@@ -52,25 +52,6 @@ func (s *Server) handleStackUninstall(w http.ResponseWriter, r *http.Request, us
 	})
 }
 
-// handleSetStackDefault records the explicit choice: which version new sites get. An
-// install does not decide this any more — it only fills an empty choice.
-func (s *Server) handleSetStackDefault(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
-	var req struct {
-		Component string `json:"component"`
-		Version   string `json:"version"`
-	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", "Invalid JSON body")
-		return
-	}
-	if err := s.installs.SetDefault(req.Component, req.Version); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
-	_ = s.store.Audit(user.ID, "stack.default", req.Component+" "+req.Version, clientIP(r), "")
-	writeJSON(w, http.StatusOK, stack.Detect(r.Context(), s.store, s.host, s.lookPath))
-}
-
 // stackUsage names everything that would break if a version went away: the websites whose
 // runtime and version match, the databases on that engine, and the ingress.
 func (s *Server) stackUsage(component, version string) ([]string, error) {

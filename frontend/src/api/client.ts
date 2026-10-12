@@ -677,10 +677,6 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ component, version }) },
     ),
 
-  /** The explicit choice of version for new sites (an install only fills an empty one). */
-  setStackDefault: (component: string, version: string) =>
-    request<StackStatus>('/system/stack/default', { method: 'POST', body: JSON.stringify({ component, version }) }),
-
   /** The PHP extensions this host really has for a version, and the switch that runs phpenmod/phpdismod. */
   phpExtensions: (version?: string) =>
     request<PhpExtensionReport>(`/system/php/extensions${version ? `?version=${encodeURIComponent(version)}` : ''}`),
