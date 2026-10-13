@@ -50,7 +50,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   onShowToast,
   onOpenTerminal,
 }) => {
-  const [activeTab, setActiveTab] = useSubRoute<'general' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'databases' | 'php_defaults' | 'maintenance'>('general');
+  const [activeTab, setActiveTab] = useSubRoute<'general' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults' | 'maintenance'>('general');
   const [isSaving, setIsSaving] = useState(false);
   // The address an external client should use. Unlike most of this screen it is real: the daemon
   // stores it and every connection snippet prefers it. It cannot be detected — behind NAT there is
@@ -298,8 +298,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [smtpUser, setSmtpUser] = useState('postmaster@barepod.cloud');
   const [smtpPassword, setSmtpPassword] = useState('••••••••••••');
 
-  // 6. Databases
-  const [ssoSessionMinutes, setSsoSessionMinutes] = useState(120);
 
   const handleSaveAll = (e: React.FormEvent) => {
     e.preventDefault();
@@ -452,17 +450,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             <span>Notifications & Alerts</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab('databases')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
-              activeTab === 'databases'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Database className="w-4 h-4" />
-            <span>Database Defaults</span>
-          </button>
 
           <button
             onClick={() => setActiveTab('php_defaults')}
@@ -1500,29 +1487,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             </div>
           )}
 
-          {/* 6. DATABASES */}
-          {activeTab === 'databases' && (
-            <div className="space-y-6 max-w-2xl">
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Web GUI SSO Session Lifetime (phpMyAdmin / DbGate)
-                </label>
-                <select
-                  value={ssoSessionMinutes}
-                  onChange={(e) => setSsoSessionMinutes(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
-                >
-                  <option value={60}>60 Minutes (1 hour)</option>
-                  <option value={120}>120 Minutes (2 hours)</option>
-                  <option value={360}>360 Minutes (6 hours)</option>
-                </select>
-                <p className="text-[10px] text-rose-600 font-semibold mt-1">
-                  Not applied: the daemon closes an idle manager on its own timer, and nothing reads this yet.
-                </p>
-              </div>
-            </div>
-          )}
 
           {/* 7. PHP RUNTIMES & EXTENSIONS BLUEPRINT */}
           {activeTab === 'php_defaults' && (

@@ -227,7 +227,21 @@ func Commands(component, version string) ([][]string, error) {
 		if parts := strings.Split(major, "."); len(parts) > 0 && parts[0] != "" {
 			major = parts[0]
 		}
-		return apt("postgresql-" + major), nil
+		script := "set -e\n" +
+			"TARGET=\"" + major + "\"\n" +
+			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " -o Dpkg::Options::=--force-confdef install -y postgresql-$TARGET postgresql-client-$TARGET\n" +
+			"if ! pg_lsclusters -h 2>/dev/null | grep -q \"^$TARGET\\s\\+main\"; then\n" +
+			"  pg_createcluster $TARGET main --port 5432 || true\n" +
+			"fi\n" +
+			"for v in $(pg_lsclusters -h 2>/dev/null | awk '{print $1}'); do\n" +
+			"  if [ \"$v\" != \"$TARGET\" ]; then\n" +
+			"    systemctl stop postgresql@$v-main 2>/dev/null || true\n" +
+			"    sed -i 's/^port = 5432/port = 5433/' /etc/postgresql/$v/main/postgresql.conf 2>/dev/null || true\n" +
+			"  fi\n" +
+			"done\n" +
+			"sed -i 's/^port = .*/port = 5432/' /etc/postgresql/$TARGET/main/postgresql.conf 2>/dev/null || true\n" +
+			"systemctl restart postgresql@$TARGET-main 2>/dev/null || systemctl restart postgresql 2>/dev/null || true\n"
+		return [][]string{{"bash", "-c", script}}, nil
 	case "mariadb":
 		// MariaDB repository carries major/LTS lines (10.11, 11.4, 11.8, 12.3, 13.0).
 		// Switching versions targets the selected line via APT preferences pinning with
@@ -252,12 +266,33 @@ func Commands(component, version string) ([][]string, error) {
 			"    mv \"$d\" \"$d-$(date +%s)\"\n" +
 			"  fi\n" +
 			"done\n" +
-			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " install -y --allow-downgrades mariadb-server\n" +
+			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " -o Dpkg::Options::=--force-confdef install -y --allow-downgrades mariadb-server\n" +
 			"systemctl restart mariadb 2>/dev/null || systemctl start mariadb 2>/dev/null || true\n" +
 			"mariadb-upgrade -u root 2>&1 || mysql_upgrade -u root 2>&1 || echo 'mariadb-upgrade did not run — check the server log'\n"
 		return [][]string{{"bash", "-c", script}}, nil
 	case "redis":
-		return apt("redis-server"), nil
+		script := "set -e\n" +
+			"TARGET=\"" + version + "\"\n" +
+			"PKG=\"redis-server redis-tools\"\n" +
+			"if [ -n \"$TARGET\" ]; then\n" +
+			"  V=$(apt-cache madison redis-server | awk '{print $3}' | grep -m1 -E \"^[0-9]+:\"$TARGET\"(\\\\.|-)\" || true)\n" +
+			"  if [ -n \"$V\" ]; then\n" +
+			"    PKG=\"redis-server=$V redis-tools=$V\"\n" +
+			"  fi\n" +
+			"fi\n" +
+			"systemctl stop redis-server 2>/dev/null || true\n" +
+			"if [ -f /var/lib/redis/dump.rdb ]; then\n" +
+			"  mv /var/lib/redis/dump.rdb /var/lib/redis/dump.rdb-$(date +%s) 2>/dev/null || true\n" +
+			"fi\n" +
+			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " -o Dpkg::Options::=--force-confdef install -y --allow-downgrades $PKG\n" +
+			"if [ -f /etc/redis/redis.conf ]; then\n" +
+			"  sed -i 's/^#\\?\\s*supervised\\s\\+.*/supervised systemd/' /etc/redis/redis.conf\n" +
+			"  if ! grep -q '^supervised systemd' /etc/redis/redis.conf; then\n" +
+			"    echo 'supervised systemd' >> /etc/redis/redis.conf\n" +
+			"  fi\n" +
+			"fi\n" +
+			"systemctl restart redis-server 2>/dev/null || systemctl start redis-server 2>/dev/null || true\n"
+		return [][]string{{"bash", "-c", script}}, nil
 	case "mongodb":
 		// MongoDB runs in a container on hosts that have Docker.
 		// MongoDB requires featureCompatibilityVersion (fCV) step transitions when moving between major versions.

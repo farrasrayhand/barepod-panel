@@ -74,12 +74,25 @@ var versionPattern = regexp.MustCompile(`(\d+)\.(\d+)`)
 var distribPattern = regexp.MustCompile(`(?:Distrib |from )(\d+)\.(\d+)`)
 
 func probeVersion(ctx context.Context, runner host.Runner, engine Engine) string {
-	argv := versionProbe(engine)
-	if argv == nil || runner == nil || runner.Mode() != "real" {
+	if runner == nil || runner.Mode() != "real" {
 		return ""
 	}
 	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
+
+	if engine.Name == "postgresql" {
+		// Prefer the actual running PostgreSQL server version over the psql client package
+		if srvOut, err := runner.Run(cctx, "", "sudo", "-u", "postgres", "psql", "-t", "-A", "-c", "SHOW server_version"); err == nil && strings.TrimSpace(srvOut) != "" {
+			if m := versionPattern.FindStringSubmatch(srvOut); m != nil {
+				return m[1] + "." + m[2]
+			}
+		}
+	}
+
+	argv := versionProbe(engine)
+	if argv == nil {
+		return ""
+	}
 	out, err := runner.Run(cctx, "", argv[0], argv[1:]...)
 	if err != nil {
 		return ""
@@ -318,6 +331,9 @@ func probeServer(ctx context.Context, runner host.Runner, engine Engine) (bool, 
 
 	out, err := runner.Run(probeCtx, "", argv[0], argv[1:]...)
 	if err != nil {
+		if strings.Contains(out, "NOAUTH") {
+			return true, ""
+		}
 		if probeCtx.Err() != nil {
 			return false, fmt.Sprintf("%s did not answer within 3 seconds.", engine.Daemon)
 		}
