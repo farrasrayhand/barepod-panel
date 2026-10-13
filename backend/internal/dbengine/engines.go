@@ -69,9 +69,9 @@ func versionProbe(engine Engine) []string {
 var versionPattern = regexp.MustCompile(`(\d+)\.(\d+)`)
 
 // distribPattern is preferred when present: MariaDB's client banner starts with the
-// *protocol* version ("Ver 15.1 Distrib 10.11.6-MariaDB"), so the leading number is
-// not the server's.
-var distribPattern = regexp.MustCompile(`Distrib (\d+)\.(\d+)`)
+// *protocol* version ("Ver 15.1 Distrib 10.11.6-MariaDB" or "mariadb from 11.4.13-MariaDB"),
+// so matching the server version prefix is preferred.
+var distribPattern = regexp.MustCompile(`(?:Distrib |from )(\d+)\.(\d+)`)
 
 func probeVersion(ctx context.Context, runner host.Runner, engine Engine) string {
 	argv := versionProbe(engine)

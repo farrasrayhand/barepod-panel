@@ -229,20 +229,35 @@ func Commands(component, version string) ([][]string, error) {
 		}
 		return apt("postgresql-" + major), nil
 	case "mariadb":
-		// MariaDB repository carries major/LTS lines (10.11, 11.4, 11.8, 12.3, 13.0). Switching
-		// version targets the selected repo line, runs apt-get install, starts the service, and upgrades.
-		line := version
+		// MariaDB repository carries major/LTS lines (10.11, 11.4, 11.8, 12.3, 13.0).
+		// Switching versions targets the selected line via APT preferences pinning with
+		// --allow-downgrades, preventing APT from refusing downgrades when an existing higher
+		// package (e.g. 13.0) is already installed.
+		line := strings.TrimPrefix(version, "v")
+		if parts := strings.Split(line, "."); len(parts) >= 2 {
+			line = parts[0] + "." + parts[1]
+		}
 		if line == "" {
 			line = "11.4"
 		}
 		script := "set -e\n" +
-			"CODENAME=$(lsb_release -cs)\n" +
-			"echo \"deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.org/repo/" + line + "/ubuntu $CODENAME main\" > /etc/apt/sources.list.d/mariadb.list\n" +
-			"apt-get " + strings.Join(aptWait, " ") + " update >/dev/null\n" +
-			"apt-get " + strings.Join(aptWait, " ") + " install -y mariadb-server\n" +
-			"systemctl start mariadb 2>/dev/null || true\n" +
-			"mariadb-upgrade -u root 2>&1 || mysql_upgrade -u root 2>&1 || echo 'mariadb-upgrade did not run — check the server log'\n" +
-			mariadbRepoScript
+			mariadbRepoScript + "\n" +
+			"cat << 'EOF' > /etc/apt/preferences.d/mariadb\n" +
+			"Package: *mariadb* mysql-common libmariadb*\n" +
+			"Pin: version 1:" + line + "*\n" +
+			"Pin-Priority: 1001\n" +
+			"EOF\n" +
+			"for flag in /var/lib/mysql/debian-*.flag; do\n" +
+			"  if [ -f \"$flag\" ]; then\n" +
+			"    v=$(basename \"$flag\" .flag | sed 's/debian-//')\n" +
+			"    if [ -d \"/var/lib/mysql-$v\" ]; then\n" +
+			"      mv \"/var/lib/mysql-$v\" \"/var/lib/mysql-$v-$(date +%s)\"\n" +
+			"    fi\n" +
+			"  fi\n" +
+			"done\n" +
+			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " install -y --allow-downgrades mariadb-server\n" +
+			"systemctl restart mariadb 2>/dev/null || systemctl start mariadb 2>/dev/null || true\n" +
+			"mariadb-upgrade -u root 2>&1 || mysql_upgrade -u root 2>&1 || echo 'mariadb-upgrade did not run — check the server log'\n"
 		return [][]string{{"bash", "-c", script}}, nil
 	case "redis":
 		return apt("redis-server"), nil
