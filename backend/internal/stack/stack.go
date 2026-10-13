@@ -157,21 +157,26 @@ func Commands(component, version string) ([][]string, error) {
 			{"bash", "-c", openlitespeedRepoScript},
 		}, nil
 	case "php":
-		// A PHP install is a full one: the extensions the panel's Settings screen toggles
-		// (phpenmod/phpdismod) are installed here, so enabling one later is a switch rather
-		// than another install.
+		// A PHP install is a full one: all available extensions offered by the repository
+		// for this PHP version are dynamically discovered and installed.
+		// Conflicting packages (e.g. gmagick vs imagick, yac vs apcu, openswoole vs swoole, phalcon5 vs phalcon)
+		// and non-extension binaries (fpm, cli, dev, dbg, pear, cgi) are safely excluded.
 		//
-		// Only FPM and CLI are requirements. The extensions are installed one by one and a
-		// missing one is named in the log: repositories do not carry the same set for every
-		// version (Sury has no php8.0-sodium, for one), and an apt install is atomic, so
-		// asking for them together failed the whole install over a single absent package.
-		extensions := []string{
-			"curl", "mbstring", "xml", "zip", "gd", "intl", "bcmath", "mysql", "pgsql",
-			"sqlite3", "opcache", "soap", "sodium", "exif", "bz2", "gmp",
-			"imagick", "redis", "mongodb", "ldap", "imap", "swoole", "pcntl",
-		}
-		script := "set -e\napt-get -o DPkg::Lock::Timeout=600 install -y php" + version + "-fpm php" + version + "-cli" +
-			"\nfor e in " + strings.Join(extensions, " ") + "; do apt-get -o DPkg::Lock::Timeout=600 install -y php" + version + "-$e || echo \"skipped php" + version + "-$e (not offered by this repository)\"; done"
+		// This dynamically works for ANY PHP version (8.4, 8.3, 8.2, 8.1, 8.0, 7.4, etc.).
+		script := "set -e\n" +
+			"apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y php" + version + "-fpm php" + version + "-cli\n" +
+			"pkgs=\"\"\n" +
+			"for pkg in $(apt-cache search --names-only \"^php" + version + "-[a-z0-9]+$\" | awk '{print $1}'); do\n" +
+			"  case \"$pkg\" in\n" +
+			"    *-fpm|*-cli|*-common|*-dev|*-dbg|*-phpdbg|*-cgi|*-apache2|*-pear|lib*) continue ;;\n" +
+			"    *-gmagick|*-yac|*-openswoole|*-phalcon5) continue ;;\n" +
+			"  esac\n" +
+			"  pkgs=\"$pkgs $pkg\"\n" +
+			"done\n" +
+			"apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y $pkgs 2>/dev/null || " +
+			"for p in $pkgs; do apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y \"$p\" 2>/dev/null || echo \"skipped $p\"; done\n" +
+			"phpenmod -v " + version + " ALL 2>/dev/null || true\n" +
+			"systemctl reload php" + version + "-fpm 2>/dev/null || true"
 		// Ubuntu ships a single PHP, so the versions the panel offers come from the Sury
 		// repository; it is added first and the available versions are read back from apt.
 		return [][]string{{"bash", "-c", suryRepoScript}, {"bash", "-c", script}}, nil
