@@ -655,6 +655,7 @@ func (i *Installer) release() {
 	i.jobID = ""
 	i.claimedAt = time.Time{}
 	i.mu.Unlock()
+	InvalidateCache()
 }
 
 // Start records the job and runs it in the background.
@@ -699,6 +700,7 @@ func (i *Installer) Start(component, version string) (*store.DeployJob, error) {
 		return nil, err
 	}
 	i.setJobID(job.ID)
+	InvalidateCache()
 	snapshot := *job
 	go i.run(job, "installing", "installed", component, version, commands)
 	return &snapshot, nil
@@ -763,6 +765,7 @@ func (i *Installer) StartRemoval(component, version string) (*store.DeployJob, e
 		return nil, err
 	}
 	i.setJobID(job.ID)
+	InvalidateCache()
 	snapshot := *job
 	go i.run(job, "removing", "removed", component, version, append([][]string{dpkgRepair()}, commands...))
 	return &snapshot, nil
@@ -881,6 +884,49 @@ type Status struct {
 	Mode         string             `json:"mode"`
 }
 
+var (
+	detectCacheMu  sync.RWMutex
+	detectCacheVal Status
+	detectCacheAt  time.Time
+)
+
+const detectCacheTTL = 30 * time.Second
+
+// InvalidateCache clears the cached stack status so subsequent requests probe fresh.
+func InvalidateCache() {
+	detectCacheMu.Lock()
+	detectCacheAt = time.Time{}
+	detectCacheMu.Unlock()
+}
+
+// DetectCached returns cached Stack Status if fresh, or probes host state.
+func DetectCached(ctx context.Context, st *store.Store, h *host.Host, lookPath func(string) (string, error), force bool) Status {
+	if !force {
+		detectCacheMu.RLock()
+		if !detectCacheAt.IsZero() && time.Since(detectCacheAt) < detectCacheTTL {
+			cached := detectCacheVal
+			detectCacheMu.RUnlock()
+			// Keep active webserver and user in sync with latest store panel setting
+			if v, err := st.PanelSetting("active_web_server"); err == nil && webserver.Supported(v) {
+				cached.WebServer.Active = strings.ToLower(strings.TrimSpace(v))
+				cached.WebServer.WebUser = webserver.WebUser(cached.WebServer.Active)
+				cached.WebServer.VhostsPath = h.VhostsFor(cached.WebServer.Active)
+			}
+			return cached
+		}
+		detectCacheMu.RUnlock()
+	}
+
+	fresh := Detect(ctx, st, h, lookPath)
+
+	detectCacheMu.Lock()
+	detectCacheVal = fresh
+	detectCacheAt = time.Now()
+	detectCacheMu.Unlock()
+
+	return fresh
+}
+
 // Detect reports the host's real state — never a stored wish.
 func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(string) (string, error)) Status {
 	var out Status
@@ -895,9 +941,6 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 		active = strings.ToLower(strings.TrimSpace(v))
 	}
 	out.WebServer.Active = active
-	// Supported is who can own :80 — the ingress. Managed is every web server the panel
-	// keeps versions for, because OpenLiteSpeed and Apache are perfectly good engines that
-	// simply cannot be the ingress today.
 	out.WebServer.Supported = []string{webserver.Nginx, webserver.Caddy}
 	out.WebServer.Managed = []string{webserver.Nginx, webserver.Caddy, "openlitespeed", "apache"}
 	out.WebServer.WebUser = webserver.WebUser(active)
@@ -905,103 +948,200 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 	out.WebServer.Available = map[string][]string{}
 	out.WebServer.Latest = map[string]string{}
 	out.WebServer.ManagedInstalled = []WebServerStatus{}
-	for _, engine := range out.WebServer.Managed {
-		status := WebServerStatus{Engine: engine, Installed: webServerInstalled(engine, lookPath)}
-		if status.Installed {
-			status.Running = serviceActive(ctx, h, engine)
-			status.Version = engineVersion(ctx, h, engine)
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	// --- 1. Web Servers (concurrent per-engine probe) ---
+	type wsResult struct {
+		engine    string
+		status    WebServerStatus
+		available []string
+		latest    string
+	}
+	wsResults := make([]wsResult, len(out.WebServer.Managed))
+
+	go func() {
+		defer wg.Done()
+		var subWg sync.WaitGroup
+		for i, eng := range out.WebServer.Managed {
+			subWg.Add(1)
+			go func(idx int, engine string) {
+				defer subWg.Done()
+				status := WebServerStatus{Engine: engine, Installed: webServerInstalled(engine, lookPath)}
+				if status.Installed {
+					status.Running = serviceActive(ctx, h, engine)
+					status.Version = engineVersion(ctx, h, engine)
+				}
+				avail := webServerVersions(ctx, h, engine)
+				wsResults[idx] = wsResult{
+					engine:    engine,
+					status:    status,
+					available: avail,
+					latest:    newestOf(avail),
+				}
+			}(i, eng)
 		}
-		out.WebServer.Available[engine] = webServerVersions(ctx, h, engine)
-		out.WebServer.Latest[engine] = newestOf(out.WebServer.Available[engine])
-		out.WebServer.ManagedInstalled = append(out.WebServer.ManagedInstalled, status)
-		if slices.Contains(out.WebServer.Supported, engine) {
-			out.WebServer.Installed = append(out.WebServer.Installed, status)
+		subWg.Wait()
+	}()
+
+	// --- 2. Databases (concurrent per-database probe) ---
+	type dbResult struct {
+		index     int
+		installed []string
+		available []string
+		latest    string
+		version   string
+	}
+	var (
+		databases []dbengine.Engine
+		dbResults []dbResult
+	)
+
+	go func() {
+		defer wg.Done()
+		databases = dbengine.Detect(ctx, h.Runner)
+		dbResults = make([]dbResult, len(databases))
+		var subWg sync.WaitGroup
+		for i := range databases {
+			subWg.Add(1)
+			go func(idx int) {
+				defer subWg.Done()
+				engine := &databases[idx]
+				if engine.Mode == dbengine.ModeDocker {
+					if tag := dockerRunningTag(ctx, h, engine.Name); tag != "" {
+						engine.Installed = tag
+					} else if tag := dockerNewestLocalTag(ctx, h, engine.Name); tag != "" {
+						engine.Installed = tag + " (image)"
+					}
+				}
+				inst := databaseInstalledVersions(ctx, h, engine.Name, engine.Installed)
+				avail := databaseVersions(ctx, h, engine.Name)
+				lat := newestOf(avail)
+				if engine.Name == "postgresql" && lat != "" {
+					if candidate, ok := aptCandidate(ctx, h, "postgresql-"+lat); ok {
+						if _, after, found := strings.Cut(candidate, ":"); found {
+							candidate = after
+						}
+						if m := runtimesVersionPattern.FindStringSubmatch(candidate); m != nil {
+							lat = m[1] + "." + m[2]
+						}
+					}
+					if active := strings.TrimSpace(engine.Installed); active != "" && strings.HasPrefix(active, lat+".") {
+						if !strings.Contains(lat, ".") {
+							lat = active
+						}
+					}
+				}
+				dbResults[idx] = dbResult{
+					index:     idx,
+					installed: inst,
+					available: avail,
+					latest:    lat,
+					version:   strings.TrimSpace(engine.Installed),
+				}
+			}(i)
+		}
+		subWg.Wait()
+	}()
+
+	// --- 3. Runtimes (concurrent per-runtime probe) ---
+	type rtResult struct {
+		r      runtimeSource
+		status RuntimeStatus
+	}
+	sources := runtimeSources()
+	rtResults := make([]rtResult, len(sources))
+	var (
+		phpInst  []string
+		nodeInst []string
+	)
+
+	go func() {
+		defer wg.Done()
+		var prepWg sync.WaitGroup
+		prepWg.Add(2)
+		go func() {
+			defer prepWg.Done()
+			phpInst = phpVersions()
+		}()
+		go func() {
+			defer prepWg.Done()
+			nodeInst = nodeInstalled(ctx, h, lookPath)
+		}()
+		prepWg.Wait()
+
+		var subWg sync.WaitGroup
+		for i, r := range sources {
+			subWg.Add(1)
+			go func(idx int, src runtimeSource) {
+				defer subWg.Done()
+				status := RuntimeStatus{PerSite: src.perSite, Source: src.source}
+				status.Available = availableVersions(ctx, h, src)
+				switch {
+				case src.name == "php":
+					status.Installed = phpInst
+				case src.name == "node":
+					status.Installed = nodeInst
+				case src.name == "python":
+					status.Installed = aptVersionedInstalled(ctx, h, "python", status.Available)
+				case src.name == "ruby":
+					status.Installed = aptVersionedInstalled(ctx, h, "ruby", status.Available)
+				case src.name == "go":
+					status.Installed = goInstalled(ctx, h)
+				case src.name == "rust":
+					status.Installed = rustInstalled(ctx, h)
+				case len(src.binary) > 0:
+					status.Installed = probeVersions(ctx, h, lookPath, src.probe, src.binary)
+				}
+				status.Latest = newestOf(status.Available)
+				status.Supported = primaryVersions(src.name, status.Available)
+				if src.name == "node" && h.Materialises() {
+					status.Labels = nodeOfferingCached().Labels
+				}
+				status.UpToDate = upToDate(ctx, h, src.name, status.Latest, status.Installed)
+				rtResults[idx] = rtResult{r: src, status: status}
+			}(i, r)
+		}
+		subWg.Wait()
+	}()
+
+	wg.Wait()
+
+	// Assemble WebServer results
+	for _, res := range wsResults {
+		out.WebServer.Available[res.engine] = res.available
+		out.WebServer.Latest[res.engine] = res.latest
+		out.WebServer.ManagedInstalled = append(out.WebServer.ManagedInstalled, res.status)
+		if slices.Contains(out.WebServer.Supported, res.engine) {
+			out.WebServer.Installed = append(out.WebServer.Installed, res.status)
 		}
 	}
 
-	out.Databases = dbengine.Detect(ctx, h.Runner)
+	// Assemble Database results
+	out.Databases = databases
 	out.DatabaseVersions = map[string]string{}
 	out.DatabaseInstalled = map[string][]string{}
 	out.DatabaseAvailable = map[string][]string{}
 	out.DatabaseLatest = map[string]string{}
-	for i := range out.Databases {
-		engine := &out.Databases[i]
-		// An engine running in a container has no binary on this host to probe, so its
-		// version is the image tag Docker is running — which is what "installed" means for
-		// it. Without this the screen said "—" for a MongoDB that was up.
-		if engine.Mode == dbengine.ModeDocker {
-			// A container's version is its image tag. A running container answers directly;
-			// when none is up, the images present locally are what is installed here — which
-			// is why MongoDB showed "—" while mongo:7 and mongo:7.0 sat on the host.
-			if tag := dockerRunningTag(ctx, h, engine.Name); tag != "" {
-				engine.Installed = tag
-			} else if tag := dockerNewestLocalTag(ctx, h, engine.Name); tag != "" {
-				engine.Installed = tag + " (image)"
-			}
-		}
-		// The probe, not the catalogue: Versions is what the engine *could* run, and using
-		// it here made the screen show an installed version nobody had installed (MariaDB
-		// 11.4 beside an installed 10.11).
-		out.DatabaseVersions[engine.Name] = strings.TrimSpace(engine.Installed)
-		out.DatabaseInstalled[engine.Name] = databaseInstalledVersions(ctx, h, engine.Name, engine.Installed)
-		out.DatabaseAvailable[engine.Name] = databaseVersions(ctx, h, engine.Name)
-		out.DatabaseLatest[engine.Name] = newestOf(out.DatabaseAvailable[engine.Name])
-		if engine.Name == "postgresql" && out.DatabaseLatest[engine.Name] != "" {
-			if candidate, ok := aptCandidate(ctx, h, "postgresql-"+out.DatabaseLatest[engine.Name]); ok {
-				if _, after, found := strings.Cut(candidate, ":"); found {
-					candidate = after
-				}
-				if m := runtimesVersionPattern.FindStringSubmatch(candidate); m != nil {
-					out.DatabaseLatest[engine.Name] = m[1] + "." + m[2]
-				}
-			}
-			if active := strings.TrimSpace(engine.Installed); active != "" && strings.HasPrefix(active, out.DatabaseLatest[engine.Name]+".") {
-				if !strings.Contains(out.DatabaseLatest[engine.Name], ".") {
-					out.DatabaseLatest[engine.Name] = active
-				}
-			}
-		}
+	for _, res := range dbResults {
+		engName := databases[res.index].Name
+		out.DatabaseVersions[engName] = res.version
+		out.DatabaseInstalled[engName] = res.installed
+		out.DatabaseAvailable[engName] = res.available
+		out.DatabaseLatest[engName] = res.latest
 	}
-	out.PHP.Installed = phpVersions()
-	// There is no stored "default" version: a site's version is chosen when the site is
-	// created, and the wizard always asks. What the screen shows as the default is simply
-	// the newest one installed, which is what the extensions screen falls back to.
-	out.PHP.Default = newestOf(out.PHP.Installed)
-	out.Node.Installed = nodeInstalled(ctx, h, lookPath)
-	out.Node.Default = newestOf(out.Node.Installed)
+
+	// Assemble Runtime results
+	out.PHP.Installed = phpInst
+	out.PHP.Default = newestOf(phpInst)
+	out.Node.Installed = nodeInst
+	out.Node.Default = newestOf(nodeInst)
 	out.Runtimes = map[string]RuntimeStatus{}
-	for _, r := range runtimeSources() {
-		status := RuntimeStatus{PerSite: r.perSite, Source: r.source}
-		// The repository's list comes first: a version is only "installed" if it is in it
-		// (Python answers per version, which is what a distribution install looks like).
-		status.Available = availableVersions(ctx, h, r)
-		switch {
-		case r.name == "php":
-			status.Installed = out.PHP.Installed
-		case r.name == "node":
-			status.Installed = nodeInstalled(ctx, h, lookPath)
-		case r.name == "python":
-			status.Installed = aptVersionedInstalled(ctx, h, "python", status.Available)
-		case r.name == "ruby":
-			status.Installed = aptVersionedInstalled(ctx, h, "ruby", status.Available)
-		case r.name == "go":
-			// Several Go toolchains coexist as /usr/local/go<version>, so the answer is a
-			// list and not one probe.
-			status.Installed = goInstalled(ctx, h)
-		case r.name == "rust":
-			status.Installed = rustInstalled(ctx, h)
-		case len(r.binary) > 0:
-			status.Installed = probeVersions(ctx, h, lookPath, r.probe, r.binary)
-		}
-		status.Latest = newestOf(status.Available)
-		status.Supported = primaryVersions(r.name, status.Available)
-		if r.name == "node" && h.Materialises() {
-			// Node's versions mean nothing without their line: which is Current, which LTS.
-			status.Labels = nodeOfferingCached().Labels
-		}
-		status.UpToDate = upToDate(ctx, h, r.name, status.Latest, status.Installed)
-		out.Runtimes[r.name] = status
+	for _, res := range rtResults {
+		out.Runtimes[res.r.name] = res.status
 	}
+
 	return out
 }
 

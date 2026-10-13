@@ -18,7 +18,8 @@ import (
 // handleStackStatus reports the host-level platform choices and what is really
 // installed — the screen shows the truth, not a stored wish.
 func (s *Server) handleStackStatus(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
-	status := stack.Detect(r.Context(), s.store, s.host, s.lookPath)
+	force := r.URL.Query().Get("refresh") == "true" || r.URL.Query().Get("refresh") == "1"
+	status := stack.DetectCached(r.Context(), s.store, s.host, s.lookPath, force)
 	// So "nothing is running" is never a guess: the screen can name what holds the queue.
 	status.InstallRunning, status.ActiveJobID = s.installs.Running()
 	writeJSON(w, http.StatusOK, status)
@@ -276,5 +277,6 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 	}
 	_ = s.store.Audit(user.ID, "stack.web_server", engine, clientIP(r), "was "+previous)
 
-	writeJSON(w, http.StatusOK, stack.Detect(r.Context(), s.store, s.host, s.lookPath))
+	stack.InvalidateCache()
+	writeJSON(w, http.StatusOK, stack.DetectCached(r.Context(), s.store, s.host, s.lookPath, true))
 }

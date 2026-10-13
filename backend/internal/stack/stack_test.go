@@ -206,3 +206,40 @@ func TestDetectReportsBothEnginesAndTheActiveOne(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectCachedAndInvalidation(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "panel.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	h := &host.Host{Runner: &host.DryRunner{}, SitesRoot: filepath.Join(dir, "home")}
+
+	InvalidateCache()
+	res1 := DetectCached(context.Background(), st, h, func(string) (string, error) { return "", os.ErrNotExist }, false)
+	if res1.WebServer.Active != "nginx" {
+		t.Fatalf("res1 active = %q, want nginx", res1.WebServer.Active)
+	}
+
+	// Cache hit should return immediately
+	res2 := DetectCached(context.Background(), st, h, func(string) (string, error) { return "", os.ErrNotExist }, false)
+	if res2.WebServer.Active != "nginx" {
+		t.Fatalf("res2 active = %q, want nginx", res2.WebServer.Active)
+	}
+
+	// Change panel setting
+	_ = st.SavePanelSetting("active_web_server", "caddy")
+	res3 := DetectCached(context.Background(), st, h, func(string) (string, error) { return "", os.ErrNotExist }, false)
+	if res3.WebServer.Active != "caddy" {
+		t.Fatalf("res3 active = %q, want caddy to reflect active store setting", res3.WebServer.Active)
+	}
+
+	// Invalidation clears cache
+	InvalidateCache()
+	res4 := DetectCached(context.Background(), st, h, func(string) (string, error) { return "", os.ErrNotExist }, false)
+	if res4.WebServer.Active != "caddy" {
+		t.Fatalf("res4 active = %q, want caddy after fresh detect", res4.WebServer.Active)
+	}
+}
+

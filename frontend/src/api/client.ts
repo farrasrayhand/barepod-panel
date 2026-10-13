@@ -726,8 +726,7 @@ export const api = {
       { method: 'POST' },
     ),
 
-  /** The Stack: host-level choices (web server, database/PHP/Node versions). */
-  stack: () => request<StackStatus>('/system/stack'),
+  stack: (refresh?: boolean) => request<StackStatus>(refresh ? '/system/stack?refresh=true' : '/system/stack'),
 
   setStackWebServer: (engine: string) =>
     request<StackStatus>('/system/stack/web-server', { method: 'PUT', body: JSON.stringify({ engine }) }),

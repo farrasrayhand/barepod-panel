@@ -40,12 +40,28 @@ const InstallButton: React.FC<{
   </button>
 );
 
+// Module-level cache for instant 0ms navigation render
+let cachedStackStatus: StackStatus | null = null;
+let cachedWebsites: ApiWebsite[] = [];
+
 export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
   const [activeTab, setActiveTab] = useSubRoute<'web' | 'runtime' | 'database'>('web');
-  const [status, setStatus] = useState<StackStatus | null>(null);
-  const [websites, setWebsites] = useState<ApiWebsite[]>([]);
-  const [live, setLive] = useState<boolean | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<StackStatus | null>(() => {
+    if (cachedStackStatus) return cachedStackStatus;
+    try {
+      const stored = sessionStorage.getItem('barepod_stack_status');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        cachedStackStatus = parsed;
+        return parsed;
+      }
+    } catch {}
+    return null;
+  });
+  const [websites, setWebsites] = useState<ApiWebsite[]>(() => cachedWebsites);
+  const [live, setLive] = useState<boolean | null>(() => (cachedStackStatus ? true : null));
+  const [loading, setLoading] = useState<boolean>(!status && !cachedStackStatus);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [busy, setBusy] = useState(false);
 
   const [jobId, setJobId] = useState<string | null>(null);
@@ -68,18 +84,28 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
   const sourceRef = useRef<EventSource | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (forceRefresh = false) => {
+    if (!status && !cachedStackStatus) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
       const reachable = await apiReachable();
       setLive(reachable);
       if (reachable) {
         const [s, sitesRes] = await Promise.all([
-          api.stack(),
+          api.stack(forceRefresh),
           api.websites().catch(() => ({ items: [] })),
         ]);
         setStatus(s);
-        setWebsites(sitesRes.items || []);
+        cachedStackStatus = s;
+        try {
+          sessionStorage.setItem('barepod_stack_status', JSON.stringify(s));
+        } catch {}
+        const items = sitesRes.items || [];
+        setWebsites(items);
+        cachedWebsites = items;
         if (s.activeJobId && !sourceRef.current) {
           watchJob(s.activeJobId);
         }
@@ -88,6 +114,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       onShowToast?.('Could not read the stack', describeError(err), 'error');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -147,7 +174,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       }
       source.close();
       sourceRef.current = null;
-      void load();
+      void load(true);
     });
     source.onerror = () => {
       source.close();
@@ -213,7 +240,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       // The engines take a moment to settle — the one that just started is not "running" in
       // the same instant — so the table is asked again instead of showing a stale state
       // beside the new ingress.
-      window.setTimeout(() => void load(), 2500);
+      window.setTimeout(() => void load(true), 2500);
     } catch (err) {
       onShowToast?.('Could not switch the web server', describeError(err), 'error');
     } finally {
@@ -276,7 +303,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
             </span>
             {live === true && <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">Live</span>}
             {live === false && <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">Daemon unreachable</span>}
-            {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+            {(loading || refreshing) && <Loader2 className="w-4 h-4 animate-spin text-blue-500" />}
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
             The host-level choices: which web server serves the sites, and which runtime and database versions are installed.
@@ -290,12 +317,12 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           )}
         </div>
         <button
-          onClick={() => void load()}
-          disabled={live !== true}
-          className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 disabled:opacity-40"
-          title="Reload"
+          onClick={() => void load(true)}
+          disabled={live !== true || refreshing}
+          className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 disabled:opacity-40 transition-colors"
+          title="Reload Stack Status"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-blue-600' : ''}`} />
         </button>
       </div>
 
@@ -317,8 +344,26 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
         ))}
       </div>
 
-      {/* Web server */}
-      {activeTab === 'web' && (
+      {/* Cold loading skeleton */}
+      {!status && loading ? (
+        <div className="space-y-6 animate-pulse">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+            <div className="h-5 bg-slate-200 rounded w-1/4"></div>
+            <div className="h-4 bg-slate-100 rounded w-1/2"></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              <div className="h-32 bg-slate-100 rounded-xl"></div>
+              <div className="h-32 bg-slate-100 rounded-xl"></div>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+            <div className="h-5 bg-slate-200 rounded w-1/3"></div>
+            <div className="h-48 bg-slate-100 rounded-xl"></div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Web server */}
+          {activeTab === 'web' && (
         <div className="space-y-6">
           {repositoriesCard('web', 'web server')}
 
@@ -886,8 +931,10 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           </div>
         </div>
       )}
+    </>
+  )}
 
-      {/* Install log */}
+  {/* Install log */}
       {jobId && (
         <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-2 border-b border-slate-800">
