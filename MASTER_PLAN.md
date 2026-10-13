@@ -60,7 +60,7 @@ This document is the complete technical architecture blueprint, module specifica
 
 ## 0. What is live, and the decisions behind it
 
-The detailed build log of every fix — with its measurements — is in this file's history (`git log -- MASTER_PLAN.md`). What follows is the durable part: what is real, and the decisions a later change must not undo. **Current state and the working loop live in `HANDOFF.md`; endpoints live in `API_CONTRACT.md`.**
+The detailed build log of every fix — with its measurements — is in this file's history (`git log -- MASTER_PLAN.md`). What follows is the durable part: what is real, and the decisions a later change must not undo. **Current state, architectural decisions, and the working loop live in this document; endpoints live in `API_CONTRACT.md`.**
 
 **Real, verified on a Linux host (LXC, Ubuntu 24.04):** the daemon and its API (`mode: real`), sign-in with Argon2id + session cookies + CSRF + audit, websites deployed end to end (unit, tenant ownership, cgroup limits, health check) with redeploy and delete, a jailed tenant terminal, host and per-site metrics, a host file manager whose system paths are read-only by policy, databases and caches (0.3) with a vault, and a web port that answers a status page instead of "connection refused". **Still mock, and badged as such:** Pods/Docker, Domains, API & MCP, Backup & Migration, Cloudflare Tunnels, and most of Panel Settings.
 
@@ -273,14 +273,15 @@ The platform a host runs is one admin screen, because these are **host-level** f
 
 - **Installs are the panel's, from an allowlist.** `POST /system/stack/install` accepts only known components (the web servers, `php`+version, `node`+major, `python`+version, `ruby`+version, `go`+minor, `rust`, the database engines, and `repositories` — one step that adds every extra source) and runs the apt/docker commands itself as a job with a live log over SSE. A client can never hand the daemon a free-form command. **One install runs at a time** (they share one dpkg lock, and the second is refused by name), every job starts with `dpkg --configure -a` (a daemon restart under a running apt leaves dpkg half-done), and **each step runs as its own transient systemd unit** — so a deploy that restarts the daemon no longer kills an install: verified by restarting the daemon mid-install of PHP 8.2 and finding it installed afterwards.
 - **The repositories come from the projects, not from the distribution.** Ubuntu carries one version of everything, so the panel adds the sources that carry several: Sury (PHP), deadsnakes (Python), PGDG (PostgreSQL 10–18), MariaDB, MongoDB, Redis (6.2–8.10), nginx.org, Cloudsmith for Caddy — plus rustup. `GET /system/stack` reports which are present, per tab, and the "Prepare repositories" card is drawn only while one is missing and only in the tab whose versions it fills.
-- **Versions are read, never kept.** A runtime's list comes from its repository or its vendor's own index (nodejs.org's schedule gives Node's Current plus the LTS lines, each named; Go's and Rust's feeds give the toolchains and the released versions; `ruby-build` is gone — Ruby is the distribution's **prebuilt** `ruby3.x` packages, because compiling it took minutes per version). The screen draws a short list first (`supported`) and keeps the rest behind a click. `upToDate` is resolved by the daemon, because a Rust channel is a moving name.
+- **Versions are read, never kept.** A runtime's list comes from its repository or its vendor's own index (nodejs.org's schedule gives Node's Current plus the LTS lines, each named; Go's and Rust's feeds give the toolchains and the released versions; `ruby-build` is gone — Ruby is the distribution's **prebuilt** `ruby3.x` packages, because compiling it took minutes per version). Direct binary tarball installations (Node.js, Go) dynamically determine host CPU architecture (`uname -m` mapped to `x64`/`arm64` and `amd64`/`arm64`) rather than hardcoding x86_64. Frontend wizards and `AddAppModal` query `GET /system/stack` for live installed/available versions instead of using static hardcoded lists. The screen draws a short list first (`supported`) and keeps the rest behind a click. `upToDate` is resolved by the daemon, because a Rust channel is a moving name.
 - **A version switch is an install of that version.** Web servers and database engines have a picker and a Switch; the daemon resolves the full package version from what the repository carries (`apt-cache madison`) instead of trusting a number. The Web server tab draws two tables: the **ingress** (nginx or caddy, with "Set as ingress" always offered for the engine that is not it) and a **version manager** for every engine the panel keeps versions for — including Apache and OpenLiteSpeed, which cannot be the ingress yet because there is no vhost writer for them.
 - **Detection follows the package, not PATH.** OpenLiteSpeed installs into `/usr/local/lsws/bin` and its unit is `lshttpd`: asking PATH turned a real install into "not installed", which is the kind of quiet lie this project is meant to avoid.
 - **A container engine is versioned by its image.** MongoDB's Active version is the tag of the container that is running (or the images on disk when none is), and the panel is explicit that a Switch pulls the image without replacing the container — that swap, with MongoDB's one-major-at-a-time rule for data, is not built yet.
 - **Nothing is left half-done.** Every apt call is non-interactive (`DEBIAN_FRONTEND=noninteractive`, `--force-confold`), because an upgrade that stops at a configuration prompt with no terminal aborts mid-transaction — that is how MariaDB was left unpacked with seven packages unconfigured, since repaired. A MariaDB install runs `mariadb-upgrade` afterwards, and a job the daemon restarts under is marked interrupted at the next start.
-- **`GET /system/stack/plan` is the dry run**: what a switch or a removal would do, which databases it would touch, the dump that has to happen first, and whether it is safe — nothing is changed.
+- **`GET /system/stack/plan` is the dry run**: what a switch or a removal would do, which databases it would touch, the dump that has to happen first, and whether it is safe — nothing is changed. The frontend StackView renders this as an interactive modal previewing execution steps, warnings, in-use resources (`uses`), and `safeToRun` status prior to running a switch or uninstall.
 - **Removal has exactly one condition: nothing uses it.** A runtime version a site runs on, a database engine any database is on, or the active ingress (every site is served by it) are refused, naming what is in the way. Everything else goes, and a database engine's data directories are named in the log and left in place.
 - **Switching the ingress is atomic in effect.** Every site's vhost is written for the new engine, validated once, then the old engine is stopped and the new one started (a reload alone cannot work: the new engine is not running while the old one holds `:80`). A failed validation or start restores the files, the site ownership and the previous engine.
+- **Port collision prevention across web servers.** While 4 web servers can be managed (nginx, caddy, apache2, openlitespeed), only one Ingress engine owns `:80`/`:443`. When installing Apache, Debian's default trigger starting/enabling apache2 is guarded: `apache2` is immediately stopped and disabled (`systemctl disable --now apache2`) if another ingress is active. When switching ingress (`PUT /system/stack/web-server`), the previous engine and `apache2` are explicitly disabled to prevent port collisions upon reboot. OpenLiteSpeed runs its management and virtual ports (`:7080`, `:8088`) without conflicting on `:80`.
 - **Nothing is claimed that is not measured.** The screen shows what is installed and running (`nginx -v`, `caddy version`, `php-fpm*`, `node --version`, `dbengine.Detect`), never a stored intention; and the capability report keeps the same honesty (see §0).
 
 ### 3.8. Additional UI Modules (outside §3.1–§3.7)
@@ -307,7 +308,7 @@ The platform a host runs is one admin screen, because these are **host-level** f
 > **Phase 1 (frontend)**: complete as a **prototype**, and now **wired to the API where the daemon already covers it** — sign-in, the website list, per-website metrics, the file manager, databases & caches, monitoring and a real terminal are live. Pods, backups, domains, tunnels and the traffic-map telemetry still run on mock data.
 > **Phase 2 (Go daemon)**: SQLite/WAL + migrations · Argon2id + opaque session cookies with CSRF, instant revoke, elevated mode, audit log · per-account RBAC where a group is also the resource package, with a **live capacity guard** · the `barepod` CLI (+ the `fs-exec` privilege-drop helper) · an **8-step asynchronous deploy pipeline** with a persisted job log over SSE · a **file manager** with a separator-safe path jail and tenant-credential helper · **PTY terminals** with one-time tickets · **host and per-website metrics** (raw numbers) · **LXC-aware capability reporting** with reasons and advice.
 > **Execution modes are honest:** real work only on Linux with systemd; everywhere else **dry-run** — units and `.env` are written, nothing is started, and the API reports `mode: "dry-run"` instead of a fake success.
-> **Next:** start from `HANDOFF.md` — it carries the verified state, the working loop, and the order the operator chose. In short: **Tenants & User Groups** (the tenancy model: ownership, list scoping, OS isolation), then **one PHP website end to end** (the php-fpm pool writer and the web-server → FPM connector do not exist yet), then domains & TLS, backups, pods and tunnels, which are still mocks. Databases & caches and the anti-brute-force watchdog are live and measured.
+> **Next:** start from `HANDOFF.md` — it carries the verified state, the working loop, and the order the operator chose. Tenants & User Groups, one PHP website end to end (nginx + php-fpm pool writer), databases & caches, watchdog, and The Stack (dynamic runtimes, ingress collision prevention, dry-run plan modal) are live and measured. Next scheduled modules: domains & TLS, backups, pods and tunnels.
 
 ### 4.1. Component Status Table: Simulated Frontend vs Real Backend
 
@@ -368,19 +369,19 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - ✅ **Databases & Caches module (0.3 reached)**: SQLite file engine with live `os.Stat` size reporting & `.trash` Recycle Bin, Redis multi-tenant ACL users with key prefix restrictions and password rotation, AES-256-GCM vault with elevated sessions, and live UI Reveal/Rotate click-through.
   - ✅ **A database manager is hosted for PostgreSQL**: `internal/dbtools` (one `Spec` per tool + a single-flight `Supervisor`) and a reverse proxy serve **pgweb** under `/api/v1/databases/:id/gui/pgweb/…` — started on first access, credential injected server-side, session-gated (401 without one), audited as `database.gui_open`, stopped after the idle window (`database.gui_idle`) with leftovers reconciled at start. Verified on the LXC (page + assets 200, a `select` through the proxy, loopback-only `127.0.0.1:8790`, Reconcile and idle stop both seen). MySQL/MariaDB/MongoDB/Redis use the panel's own Data Browser until DbGate ships.
   - ✅ **Tenants & User Groups (control plane)**: a real users/groups HTTP API — `GET|POST /users`, `PATCH|DELETE /users/{id}`, `POST /users/{id}/password`, `GET|POST /groups`, `PATCH|DELETE /groups/{name}` — gated on the `users` capability. Creating an account also provisions its Linux account and applies the package's disk/inode quota (dry-run safe); suspending mirrors `usermod --lock` and revokes that account's sessions; deleting one that still owns websites/databases is refused with `409 has_resources`. Hardened alongside: an unknown owner is refused on every create path, `maxSites` now answers `409 quota_exceeded` (matching databases), and a package edit re-applies the quota to its members. The `UsersView` screen is wired live (raw numbers, live/mock badge). The capability matrix, package limits and capacity guard are unchanged. Suspending an account also stops and marks its websites `suspended` (a start is then refused with `409 owner_suspended`), and reactivating releases them to `stopped`. The Linux account is created **before** the panel account and is mandatory where the host can make one — the CLI `barepod admin create` provisions too — and `POST /users/{id}/provision` reconciles an account that predates this rule (the screen offers it whenever `osExists` is false). Session tokens are stored only as a hash, and the panel database with its WAL/SHM siblings is `0600`.
-  - ⏳ Next: a **single PHP website end to end** (php-fpm pool writer + web-server → FPM connector + TLS), then the remaining mocked views. See `HANDOFF.md` for the verified state and the deploy loop.
-* **Phase 3: Host OS & Container Integration (SCHEDULED 📋)**:
+  - ✅ **PHP website end to end**: `internal/phpfpm` writes the pool (`<site>/php-fpm.conf`, tenant-owned, unix socket inside the site, `open_basedir` = site + `/tmp`), `internal/webserver` writes the nginx/caddy vhost (`fastcgi_pass` to socket, read access granted to `www-data` via setgid). Verified on LXC: `php-demo.test` answers "Hello from PHP 8.3.6 as bptest" through both nginx and caddy.
+  - ✅ **The Stack (host-level package management)**: detection and dynamic discovery of runtimes (Node, Go, Python, PHP, Ruby, Rust), databases, and 4 web servers. Ingress switching (Nginx/Caddy) with service disable guards on `apache2` and inactive ingress to prevent port 80 collisions. Dynamic CPU architecture resolution (`x64`/`arm64`). Dry-run plan pre-flight modal (`GET /system/stack/plan`).
+* **Phase 3: Container Pods & External Integrations (SCHEDULED 📋)**:
   - Docker Engine SDK (`docker/moby`) integration for container pod management.
-  - File Manager backend API (reading/writing real Linux directories with isolated tenant user privileges).
-  - WebSocket PTY terminal bridge (`creack/pty` + Xterm.js).
-* **Phase 4: Web Server & Network Automations (SCHEDULED 📋)**:
-  - Real vhost configuration generator (OpenLiteSpeed, Nginx, Caddy).
-  - Automated Let's Encrypt / ZeroSSL.
-  - `cloudflared` daemon controller.
-* **Phase 5: Database Engine & SSO Gateway (SCHEDULED 📋)**:
-  - Automated database user creation & schema grants in PostgreSQL, MySQL, Mongo, Redis.
-  - Internal reverse proxy gateway for autologin to DbGate / phpMyAdmin.
-* **Phase 6: Live Migration Daemon & Installer (SCHEDULED 📋)**:
+  - Pod lifecycle (create, start, stop, rebuild, env, volumes, port mapping).
+* **Phase 4: Web Server & Network Automations (PARTIALLY LIVE 🟡)**:
+  - ✅ Nginx & Caddy vhost generators live; OpenLiteSpeed & Apache vhost generators scheduled.
+  - Automated Let's Encrypt / ZeroSSL ACME certificate issuance.
+  - `cloudflared` daemon controller & Cloudflare Tunnels integration.
+* **Phase 5: Database Engine & SSO Gateway (LIVE ✅)**:
+  - ✅ Automated database user creation & schema grants in PostgreSQL, MySQL, MariaDB, Mongo, Redis.
+  - ✅ Internal reverse proxy gateway for autologin to DbGate, pgweb, and phpMyAdmin under `/api/v1/databases/:id/gui/...`.
+* **Phase 6: Live Migration Daemon & Backups (SCHEDULED 📋)**:
   - Daemon-to-daemon encrypted stream transfer via rsync.
   - `.bpod` snapshot packager (tar.gz + metadata + sql dump).
   - 1-line installation script for Ubuntu/Debian VPS (`curl -fsSL https://get.barepod.com | bash`).
@@ -500,3 +501,25 @@ Locked decisions to be implemented in Phase 2/3:
 All four kickoff decisions are **LOCKED** — Phase 2 can start.
 
 ---
+
+## 9. Development Working Loop & Operational Traps
+
+### 9.1. The Working Loop
+- **Backend (Go, `backend/`)**: `go build ./...` then `go test -timeout 250s ./...` (ensure tests pass before committing).
+- **Frontend (`frontend/`)**: `npx tsc -b` **and** `npx vite build` (both are required; TypeScript type-check alone cannot verify rollup bundle resolution).
+- **Deployment**:
+  1. Build stripped `linux/amd64` binary: `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/barepod ./cmd/barepod`
+  2. Build frontend: `npm run build`
+  3. Copy binary to host `/usr/local/bin/barepod` and unpack dist to `/var/lib/barepod/dist`.
+  4. Restart daemon: `systemctl restart barepod`.
+  5. Verify by host measurement: `systemctl is-active barepod`, journalctl logs, listening sockets (`ss -tulpn`), and database state.
+
+### 9.2. Traps & Rules
+- **Direct, honest claims**: A mock is labelled `Not applied: ...`. Every "done" must be measured on the host, not just compiled.
+- **Credential hygiene**: Passwords, SSH keys, and secret tokens must NEVER be committed to git.
+- **Commits**: Commits carry no co-author trailers. Changes to behavior must update documentation in the same commit.
+- **The type-checker cannot see placement**: A component can be valid TypeScript but rendered outside its tab condition block. Check tab placement order in JSX.
+- **Read before patching**: Verify context before applying replacements; avoid assumptions.
+- **nftables syntax**: `nft add element` with comma-separated lists silently adds nothing. Add elements individually with per-element timeouts.
+- **Timestamps**: The panel stores UTC; system logs may follow host-local timezone (e.g., WITA UTC+8). Use read-time ordering, not parsed log timestamps.
+

@@ -31,7 +31,7 @@ import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../type
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
 import { AVAILABLE_ENGINE_VERSIONS, ENGINE_LABELS } from '../data/databaseEngines';
 import { getProvisionPlan } from '../data/frameworkProvision';
-import { api, apiReachable, ApiError } from '../api/client';
+import { api, apiReachable, ApiError, type StackStatus } from '../api/client';
 
 interface AddAppModalProps {
   isOpen: boolean;
@@ -158,11 +158,35 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const [clientMaxBodyMB] = useState(100);
 
   const [copiedConfig, setCopiedConfig] = useState(false);
+  const [stackStatus, setStackStatus] = useState<StackStatus | null>(null);
 
-  const runtimeConfigs: Record<RuntimeType, { versions: string[]; frameworks: string[] }> = useMemo(
-    () => ({
+  useEffect(() => {
+    if (!isOpen) return;
+    void (async () => {
+      try {
+        if (await apiReachable()) {
+          const s = await api.stack();
+          setStackStatus(s);
+        }
+      } catch {
+        // simulation or offline mode fallback
+      }
+    })();
+  }, [isOpen]);
+
+  const runtimeConfigs: Record<RuntimeType, { versions: string[]; frameworks: string[] }> = useMemo(() => {
+    const getVersions = (name: string, fallback: string[]) => {
+      const rt = stackStatus?.runtimes?.[name];
+      if (rt) {
+        if (rt.installed && rt.installed.length > 0) return rt.installed;
+        if (rt.available && rt.available.length > 0) return rt.supported?.length ? rt.supported : rt.available;
+      }
+      return fallback;
+    };
+
+    return {
       php: {
-        versions: ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4'],
+        versions: getVersions('php', ['8.4', '8.3', '8.2', '8.1', '8.0', '7.4']),
         frameworks: [
           'Generic (bring your own code)',
           'Laravel 13',
@@ -194,22 +218,28 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
         ],
       },
       python: {
-        versions: ['3.12', '3.11', '3.10'],
+        versions: getVersions('python', ['3.12', '3.11', '3.10']),
         frameworks: ['Flask', 'FastAPI', 'Django', 'Generic (bring your own code)'],
       },
       nodejs: {
-        versions: ['22 LTS', '20 LTS', '18'],
+        versions: getVersions('node', ['22', '20', '18']),
         frameworks: ['Next.js', 'Nuxt', 'Astro', 'Express', 'NestJS', 'Generic (bring your own code)'],
       },
-      go: { versions: ['1.23', '1.22'], frameworks: ['Gin', 'Fiber', 'Standard HTTP', 'Generic (bring your own code)'] },
-      rust: { versions: ['1.81', '1.80'], frameworks: ['Axum', 'Actix-web', 'Generic (bring your own code)'] },
-      ruby: { versions: ['3.3', '3.2'], frameworks: ['Ruby on Rails', 'Sinatra', 'Generic (bring your own code)'] },
+      go: { versions: getVersions('go', ['1.23', '1.22']), frameworks: ['Gin', 'Fiber', 'Standard HTTP', 'Generic (bring your own code)'] },
+      rust: { versions: getVersions('rust', ['stable', 'beta']), frameworks: ['Axum', 'Actix-web', 'Generic (bring your own code)'] },
+      ruby: { versions: getVersions('ruby', ['3.3', '3.2']), frameworks: ['Ruby on Rails', 'Sinatra', 'Generic (bring your own code)'] },
       docker: { versions: ['Latest'], frameworks: ['Custom Containerfile'] },
       static: { versions: ['HTML5'], frameworks: ['Static Web App', 'Vite Dist', 'Astro Static'] },
       proxy: { versions: ['v1.0'], frameworks: ['Reverse Proxy Forwarder'] },
-    }),
-    [],
-  );
+    };
+  }, [stackStatus]);
+
+  useEffect(() => {
+    const available = runtimeConfigs[runtime]?.versions ?? [];
+    if (available.length > 0 && !available.includes(version)) {
+      setVersion(available[0]);
+    }
+  }, [runtimeConfigs, runtime, version]);
 
   const steps = stepsForMode(appMode);
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];

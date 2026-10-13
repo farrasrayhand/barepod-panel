@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2 } from 'lucide-react';
-import { api, apiReachable, type StackStatus, type StackComponent, type StackJobLogLine } from '../api/client';
+import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert } from 'lucide-react';
+import { api, apiReachable, type StackStatus, type StackComponent, type StackJobLogLine, type StackPlanResult } from '../api/client';
 import { describeError } from '../utils/format';
 import { useSubRoute } from '../hooks/useSubRoute';
 
@@ -52,6 +52,15 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
   const [jobStatus, setJobStatus] = useState<string>('');
   // The version picked for each database engine (the switch acts on it).
   const [pickedVersion, setPickedVersion] = useState<Record<string, string>>({});
+
+  // Dry-run plan modal state
+  const [planModal, setPlanModal] = useState<{
+    action: 'install' | 'uninstall';
+    component: string;
+    version: string;
+    plan: StackPlanResult | null;
+    loading: boolean;
+  } | null>(null);
 
   // Which runtimes have their long version list open.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -152,14 +161,22 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     }
   };
 
-  const uninstall = async (component: string, version: string) => {
+  const planAndExecute = async (action: 'install' | 'uninstall', component: string, version: string) => {
     if (!live) {
-      onShowToast?.('Simulation', 'The daemon is not reachable, so nothing can be removed.', 'info');
+      onShowToast?.('Simulation', 'The daemon is not reachable, so nothing can be modified.', 'info');
       return;
     }
-    if (!window.confirm(`Remove ${component} ${version} from this host? A version a site or database uses is refused.`)) {
-      return;
+    setPlanModal({ action, component, version, plan: null, loading: true });
+    try {
+      const plan = await api.stackPlan(component, version);
+      setPlanModal({ action, component, version, plan, loading: false });
+    } catch (err) {
+      setPlanModal(null);
+      onShowToast?.('Could not compute plan', describeError(err), 'error');
     }
+  };
+
+  const executeUninstall = async (component: string, version: string) => {
     setBusy(true);
     try {
       const job = await api.uninstallStackComponent(component, version);
@@ -170,6 +187,10 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     } finally {
       setBusy(false);
     }
+  };
+
+  const uninstall = (component: string, version: string) => {
+    void planAndExecute('uninstall', component, version);
   };
 
   const switchWebServer = async (engine: string) => {
@@ -603,10 +624,10 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
                           <button
                             onClick={() => {
-                              if (picked && !active.startsWith(picked)) void install(component.name, picked);
+                              if (picked && !active.startsWith(picked)) void planAndExecute('install', component.name, picked);
                             }}
                             disabled={busy || live !== true || !picked || active.startsWith(picked)}
-                            title="Install the picked version — a database with data needs a dump first"
+                            title="Plan & switch database version — checks data safety before proceeding"
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
                           >
                             <Download className="w-3 h-3" /> {active ? 'Switch' : 'Install'}
@@ -655,6 +676,129 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 {line.line}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      {/* Plan confirmation modal */}
+      {planModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Server className="w-4 h-4 text-slate-700" />
+                <h3 className="font-bold text-sm text-slate-900">
+                  {planModal.action === 'install' ? 'Plan: Switch Engine' : 'Plan: Remove Component'}
+                </h3>
+              </div>
+              <button
+                onClick={() => setPlanModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              {planModal.loading ? (
+                <div className="py-8 flex flex-col items-center justify-center gap-2 text-slate-400">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                  <span>Computing execution plan…</span>
+                </div>
+              ) : planModal.plan ? (
+                <>
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                    <div>
+                      <span className="font-bold text-slate-900 text-sm capitalize">
+                        {planModal.component} {planModal.version}
+                      </span>
+                      {planModal.plan.installed && (
+                        <span className="block text-[11px] text-slate-500 font-mono">
+                          current: {planModal.plan.installed}
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
+                        planModal.plan.safeToRun
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}
+                    >
+                      {planModal.plan.safeToRun ? 'Safe to proceed' : 'Caution advised'}
+                    </span>
+                  </div>
+
+                  {planModal.plan.warnings.length > 0 && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">
+                      <div className="flex items-center gap-1.5 font-semibold text-amber-900">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Warnings</span>
+                      </div>
+                      <ul className="list-disc list-inside text-amber-800 text-[11px] space-y-0.5">
+                        {planModal.plan.warnings.map((w, idx) => (
+                          <li key={idx}>{w}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {planModal.plan.uses.length > 0 && (
+                    <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 space-y-1">
+                      <div className="flex items-center gap-1.5 font-semibold text-rose-900">
+                        <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Resources In Use ({planModal.plan.uses.length})</span>
+                      </div>
+                      <p className="text-[11px] text-rose-800">
+                        The following items depend on this component:
+                      </p>
+                      <ul className="list-disc list-inside text-rose-900 text-[11px] font-mono">
+                        {planModal.plan.uses.map((u, idx) => (
+                          <li key={idx}>{u}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div>
+                    <span className="font-semibold text-slate-700 block mb-1.5">Execution Steps:</span>
+                    <ol className="list-decimal list-inside space-y-1 text-slate-600 font-mono text-[11px] bg-slate-50 p-3 rounded-xl border border-slate-200">
+                      {planModal.plan.steps.map((step, idx) => (
+                        <li key={idx}>{step}</li>
+                      ))}
+                    </ol>
+                  </div>
+                </>
+              ) : (
+                <div className="text-slate-500 py-4 text-center">Failed to load plan.</div>
+              )}
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setPlanModal(null)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const m = planModal;
+                  setPlanModal(null);
+                  if (m) {
+                    if (m.action === 'install') void install(m.component, m.version);
+                    else void executeUninstall(m.component, m.version);
+                  }
+                }}
+                disabled={busy || live !== true || !planModal?.plan || (planModal.action === 'uninstall' && !planModal.plan.safeToRun)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold text-white ${
+                  planModal?.action === 'uninstall'
+                    ? 'bg-rose-600 hover:bg-rose-700 disabled:opacity-50'
+                    : 'bg-blue-600 hover:bg-blue-700 disabled:opacity-50'
+                }`}
+              >
+                {planModal?.action === 'install' ? 'Proceed with Switch' : 'Confirm Removal'}
+              </button>
+            </div>
           </div>
         </div>
       )}

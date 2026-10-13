@@ -129,7 +129,12 @@ func Commands(component, version string) ([][]string, error) {
 	case "caddy":
 		return append([][]string{{"bash", "-c", caddyRepoScript}}, installEngine("caddy", version)...), nil
 	case "apache":
-		return append([][]string{{"bash", "-c", apacheRepoScript}}, installEngine("apache2", version)...), nil
+		cmds := append([][]string{{"bash", "-c", apacheRepoScript}}, installEngine("apache2", version)...)
+		// Debian/Ubuntu enables and starts apache2 by default on port 80. If another engine
+		// owns the ingress, disable and stop apache2 immediately so it does not collide with :80
+		// or fail at boot.
+		guard := "if systemctl is-active --quiet nginx || systemctl is-active --quiet caddy; then systemctl stop apache2 2>/dev/null || true; systemctl disable apache2 2>/dev/null || true; fi"
+		return append(cmds, []string{"bash", "-c", guard}), nil
 	case "openlitespeed":
 		return append([][]string{{"bash", "-c", openlitespeedRepoScript}}, installEngine("openlitespeed", version)...), nil
 	case "repositories":
@@ -175,7 +180,7 @@ func Commands(component, version string) ([][]string, error) {
 		// what lets 20 and 22 coexist for different sites. The tarball carries npm too, so
 		// it is never a second install — and the plain names follow the newest major, so
 		// `node` and `npm` in a shell are the ones a person just installed.
-		install := "set -e; mkdir -p /opt/barepod/node; V=$(curl -fsSL https://nodejs.org/dist/index.json | tr ',' '\\n' | grep -m1 -o '\"version\":\"v" + version + "\\.[0-9.]*\"' | cut -d'\"' -f4); test -n \"$V\"; curl -fsSL https://nodejs.org/dist/$V/node-$V-linux-x64.tar.xz | tar -xJ -C /opt/barepod/node; rm -rf /opt/barepod/node/" + version + "; mv /opt/barepod/node/node-$V-linux-x64 /opt/barepod/node/" + version
+		install := "set -e; ARCH=$(uname -m); case \"$ARCH\" in x86_64) NARCH=\"x64\" ;; aarch64|arm64) NARCH=\"arm64\" ;; *) NARCH=\"$ARCH\" ;; esac; mkdir -p /opt/barepod/node; V=$(curl -fsSL https://nodejs.org/dist/index.json | tr ',' '\\n' | grep -m1 -o '\"version\":\"v" + version + "\\.[0-9.]*\"' | cut -d'\"' -f4); test -n \"$V\"; curl -fsSL https://nodejs.org/dist/$V/node-$V-linux-$NARCH.tar.xz | tar -xJ -C /opt/barepod/node; rm -rf /opt/barepod/node/" + version + "; mv /opt/barepod/node/node-$V-linux-$NARCH /opt/barepod/node/" + version
 		link := "set -e; newest=$(ls /opt/barepod/node | sort -V | tail -1); for b in node npm npx; do ln -sf /opt/barepod/node/$newest/bin/$b /usr/local/bin/$b; done; /usr/local/bin/node --version; /usr/local/bin/npm --version"
 		return [][]string{{"bash", "-c", install}, {"bash", "-c", link}}, nil
 	case "python":
@@ -200,7 +205,7 @@ func Commands(component, version string) ([][]string, error) {
 		if version == "" {
 			return nil, fmt.Errorf("stack: go needs a version (1.22, 1.23, …)")
 		}
-		script := "set -e\nV=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' | tr ',' '\\n' | grep -m1 -o '\"version\": *\"go" + version + "\\.[0-9.]*\"' | cut -d'\"' -f4)\ntest -n \"$V\"\ncurl -fsSL https://go.dev/dl/$V.linux-amd64.tar.gz | tar -xz -C /usr/local\nrm -rf /usr/local/go" + version + "\nmv /usr/local/go /usr/local/go" + version
+		script := "set -e\nARCH=$(uname -m); case \"$ARCH\" in x86_64) GARCH=\"amd64\" ;; aarch64|arm64) GARCH=\"arm64\" ;; *) GARCH=\"$ARCH\" ;; esac\nV=$(curl -fsSL 'https://go.dev/dl/?mode=json&include=all' | tr ',' '\\n' | grep -m1 -o '\"version\": *\"go" + version + "\\.[0-9.]*\"' | cut -d'\"' -f4)\ntest -n \"$V\"\ncurl -fsSL https://go.dev/dl/$V.linux-$GARCH.tar.gz | tar -xz -C /usr/local\nrm -rf /usr/local/go" + version + "\nmv /usr/local/go /usr/local/go" + version
 		return [][]string{{"bash", "-c", script}}, nil
 	case "rust":
 		if version == "" {

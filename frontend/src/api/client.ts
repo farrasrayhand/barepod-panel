@@ -670,6 +670,12 @@ export const api = {
 
   stackJobStreamUrl: (id: string) => `${API_BASE}/system/stack/jobs/stream?id=${encodeURIComponent(id)}`,
 
+  /** Dry run: what a switch or removal would do and what it touches. */
+  stackPlan: (component: string, version?: string) =>
+    request<StackPlanResult>(
+      `/system/stack/plan?component=${encodeURIComponent(component)}${version ? `&version=${encodeURIComponent(version)}` : ''}`,
+    ),
+
   /** Uninstalls an installed version. The daemon refuses when a site or database uses it. */
   uninstallStackComponent: (component: string, version: string) =>
     request<{ jobId: string; component: string; version: string; status: string; totalSteps: number; mode: string; stream: string }>(
@@ -1139,6 +1145,18 @@ export interface StackJob {
   error?: string;
   currentStep?: string;
   totalSteps: number;
+  mode: string;
+}
+
+/** The dry run returned by GET /system/stack/plan. */
+export interface StackPlanResult {
+  component: string;
+  version: string;
+  installed: string;
+  steps: string[];
+  uses: string[];
+  warnings: string[];
+  safeToRun: boolean;
   mode: string;
 }
 

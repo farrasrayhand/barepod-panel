@@ -117,7 +117,6 @@ BarePod-Panel/
 ├── frontend/             # Dashboard web UI (React + Vite + TypeScript + Tailwind CSS)
 ├── backend/              # Core daemon (Go) — Phase 2 skeleton (SQLite, auth, websites API)
 ├── scripts/              # install.sh, install-engines.sh, uninstall.sh, restore.sh (Ubuntu/Debian)
-├── HANDOFF.md            # Start here: verified state, the working loop, what is next
 ├── MASTER_PLAN.md        # Architecture, decisions with the measurements behind them, roadmap
 ├── API_CONTRACT.md       # What the daemon serves, endpoint by endpoint
 └── README.md
