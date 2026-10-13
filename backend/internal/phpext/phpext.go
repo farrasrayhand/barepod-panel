@@ -152,8 +152,27 @@ func InstalledVersions() []string {
 	}
 	if dirs, err := os.ReadDir("/etc/php"); err == nil {
 		for _, d := range dirs {
-			if d.IsDir() {
-				found[d.Name()] = true
+			if !d.IsDir() {
+				continue
+			}
+			name := d.Name()
+			// Must have at least an FPM binary, CLI binary, fpm configuration, or cli configuration.
+			// An empty directory or leftover mods-available folder is not an installed version.
+			if _, err := os.Stat("/usr/sbin/php-fpm" + name); err == nil {
+				found[name] = true
+				continue
+			}
+			if _, err := os.Stat("/usr/bin/php" + name); err == nil {
+				found[name] = true
+				continue
+			}
+			if _, err := os.Stat("/etc/php/" + name + "/fpm/php.ini"); err == nil {
+				found[name] = true
+				continue
+			}
+			if _, err := os.Stat("/etc/php/" + name + "/cli/php.ini"); err == nil {
+				found[name] = true
+				continue
 			}
 		}
 	}

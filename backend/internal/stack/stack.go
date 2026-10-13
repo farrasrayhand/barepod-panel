@@ -163,6 +163,11 @@ func Commands(component, version string) ([][]string, error) {
 		// and non-extension binaries (fpm, cli, dev, dbg, pear, cgi) are safely excluded.
 		//
 		// This dynamically works for ANY PHP version (8.4, 8.3, 8.2, 8.1, 8.0, 7.4, etc.).
+		extensions := []string{
+			"curl", "mbstring", "xml", "zip", "gd", "intl", "bcmath", "mysql", "pgsql",
+			"sqlite3", "opcache", "soap", "sodium", "exif", "bz2", "gmp",
+			"imagick", "redis", "mongodb", "ldap", "imap", "swoole", "pcntl",
+		}
 		script := "set -e\n" +
 			"apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y php" + version + "-fpm php" + version + "-cli\n" +
 			"pkgs=\"\"\n" +
@@ -174,7 +179,7 @@ func Commands(component, version string) ([][]string, error) {
 			"  pkgs=\"$pkgs $pkg\"\n" +
 			"done\n" +
 			"apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y $pkgs 2>/dev/null || " +
-			"for p in $pkgs; do apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y \"$p\" 2>/dev/null || echo \"skipped $p\"; done\n" +
+			"for e in " + strings.Join(extensions, " ") + "; do apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y php" + version + "-$e 2>/dev/null || echo \"skipped php" + version + "-$e\"; done\n" +
 			"phpenmod -v " + version + " ALL 2>/dev/null || true\n" +
 			"systemctl reload php" + version + "-fpm 2>/dev/null || true"
 		// Ubuntu ships a single PHP, so the versions the panel offers come from the Sury
@@ -576,7 +581,7 @@ func UninstallCommands(component, version string) ([][]string, error) {
 	}
 	switch component {
 	case "php":
-		return apt("apt-get " + strings.Join(aptWait, " ") + " purge -y 'php" + version + "-*'"), nil
+		return [][]string{{"bash", "-c", "set -e; apt-get " + strings.Join(aptWait, " ") + " purge -y 'php" + version + "-*'; apt-get " + strings.Join(aptWait, " ") + " autoremove -y; rm -rf /etc/php/" + version}}, nil
 	case "python":
 		return apt("apt-get " + strings.Join(aptWait, " ") + " purge -y 'python" + version + "' 'python" + version + "-venv' 'python" + version + "-dev'"), nil
 	case "node":
