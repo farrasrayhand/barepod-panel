@@ -180,6 +180,9 @@ func Detect(ctx context.Context, runner host.Runner) []Engine {
 				engine.Available = true
 				engine.Mode = ModeDocker
 				engine.Running = containerEngineRunning(ctx, runner, engine.Name)
+				if engine.Running {
+					engine.Installed = probeDockerRunningTag(ctx, runner, engine.Name)
+				}
 				engine.Note = fmt.Sprintf("Nothing is installed, but this host runs containers: the panel starts %s as a container (%s, bound to 127.0.0.1).",
 					engine.Label, recipe.Image)
 				continue
@@ -196,12 +199,41 @@ func Detect(ctx context.Context, runner host.Runner) []Engine {
 		engine.Mode = ModeHost
 		engine.Running, engine.Note = probeServer(ctx, runner, *engine)
 		engine.Installed = probeVersion(ctx, runner, *engine)
-		if containers && containerised && !engine.Running {
-			engine.Note = fmt.Sprintf("%s is installed but its server did not answer; this host can also run it as a container (%s).",
-				engine.Client, recipe.Image)
+		if containers && containerised && (!engine.Running || engine.Installed == "") {
+			if containerEngineRunning(ctx, runner, engine.Name) {
+				engine.Mode = ModeDocker
+				engine.Running = true
+				engine.Installed = probeDockerRunningTag(ctx, runner, engine.Name)
+			} else {
+				engine.Note = fmt.Sprintf("%s is installed but its server did not answer; this host can also run it as a container (%s).",
+					engine.Client, recipe.Image)
+			}
 		}
 	}
 	return engines
+}
+
+// probeDockerRunningTag detects the tag of the running container image for an engine.
+func probeDockerRunningTag(ctx context.Context, runner host.Runner, engine string) string {
+	repo := map[string]string{
+		"mongodb": "mongo", "mariadb": "mariadb", "mysql": "mysql",
+		"postgresql": "postgres", "redis": "redis",
+	}[engine]
+	if repo == "" || runner == nil || runner.Mode() != "real" {
+		return ""
+	}
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := runner.Run(cctx, "", "bash", "-c",
+		"docker ps --format '{{.Image}}' 2>/dev/null | grep -E '^"+repo+"(:|$)' | head -1")
+	if err != nil {
+		return ""
+	}
+	image := strings.TrimSpace(out)
+	if _, tag, found := strings.Cut(image, ":"); found && tag != "latest" {
+		return tag
+	}
+	return ""
 }
 
 // containerEngineRunning reports whether the container the panel runs an engine in is

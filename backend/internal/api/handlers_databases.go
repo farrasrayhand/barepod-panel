@@ -102,6 +102,33 @@ func withSizes(items []store.Database) []store.Database {
 	return items
 }
 
+// withLiveEngineMetadata fills in the size of file-based databases and updates
+// daemon-based databases with the live engine and version currently running on the
+// host or in container.
+func (s *Server) withLiveEngineMetadata(ctx context.Context, items []store.Database) []store.Database {
+	items = withSizes(items)
+	for i := range items {
+		if items[i].FileBased {
+			continue
+		}
+		engName := items[i].Engine
+		if engName == "postgres" {
+			engName = "postgresql"
+		} else if engName == "mysql" {
+			engName = "mariadb"
+		}
+		if eng, ok := s.engineFor(ctx, engName); ok {
+			if eng.Installed != "" {
+				items[i].Version = eng.Installed
+			}
+			if eng.Running {
+				items[i].Status = "ready"
+			}
+		}
+	}
+	return items
+}
+
 // detectedDatabase turns a "det:" id back into a record, re-checking that the file
 // is still inside a website the caller may manage and that it really is a SQLite
 // database. Nothing is stored for it.
@@ -272,7 +299,7 @@ func (s *Server) handleListDatabases(kind string) authedHandler {
 		}
 		sort.SliceStable(items, func(i, j int) bool { return items[i].Alias < items[j].Alias })
 		response := map[string]any{
-			"items":         withSizes(items),
+			"items":         s.withLiveEngineMetadata(r.Context(), items),
 			"bin":           binned,
 			"retentionDays": 30,
 		}
@@ -322,7 +349,7 @@ func (s *Server) handleListRecycleBin(kind string) authedHandler {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not read the recycle bin")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"items": withSizes(items), "bin": true, "retentionDays": 30})
+		writeJSON(w, http.StatusOK, map[string]any{"items": s.withLiveEngineMetadata(r.Context(), items), "bin": true, "retentionDays": 30})
 	}
 }
 
@@ -692,7 +719,7 @@ func (s *Server) handleGetDatabase(kind string) authedHandler {
 		if !ok {
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"database": withSizes([]store.Database{*record})[0]})
+		writeJSON(w, http.StatusOK, map[string]any{"database": s.withLiveEngineMetadata(r.Context(), []store.Database{*record})[0]})
 	}
 }
 

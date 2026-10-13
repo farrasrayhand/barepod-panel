@@ -53,12 +53,32 @@ const isDetached = (db: DatabaseItem): boolean => !!db.detachedAt;
 const isSqlEngine = (type: DatabaseEngine): boolean =>
   type === 'postgres' || type === 'mysql' || type === 'mariadb';
 
+const formatEngineName = (eng: string) => {
+  switch (eng.toLowerCase()) {
+    case 'postgresql':
+    case 'postgres':
+      return 'PostgreSQL';
+    case 'mariadb':
+      return 'MariaDB';
+    case 'mysql':
+      return 'MySQL';
+    case 'mongodb':
+      return 'MongoDB';
+    case 'redis':
+      return 'Redis';
+    case 'sqlite':
+      return 'SQLite';
+    default:
+      return eng;
+  }
+};
+
 /** One daemon row, in the shape this screen already renders. */
 const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
   id: row.id,
   name: row.alias || row.name,
   type: ENGINE_TO_ITEM[row.engine] ?? 'postgres',
-  version: [row.engine, row.version].filter(Boolean).join(' ') + (row.fileBased ? ' · file' : ''),
+  version: [formatEngineName(row.engine), row.version].filter(Boolean).join(' ') + (row.fileBased ? ' · file' : ''),
   username: row.user || '—',
   // A file-based database has a real size; a daemon one is not measured yet.
   size: row.fileBased ? (row.sizeBytes ? formatBytes(row.sizeBytes) : '0 B') : '—',
@@ -423,18 +443,21 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
     if (activeTab === 'detached') return isDetached(db);
     if (activeTab === 'all') return db.type !== 'redis';
     if (activeTab === 'caches') return db.type === 'redis';
+    if (activeTab === 'mysql' || activeTab === 'mariadb') {
+      return db.type === 'mysql' || db.type === 'mariadb';
+    }
     return db.type === activeTab;
   });
 
   const getDbBadge = (type: DatabaseEngine) => {
     switch (type) {
       case 'postgres':
-        return { bg: 'bg-blue-100 text-blue-700', label: 'PG', name: 'PostgreSQL 16' };
+        return { bg: 'bg-blue-100 text-blue-700', label: 'PG', name: 'PostgreSQL' };
       case 'mysql':
       case 'mariadb':
-        return { bg: 'bg-amber-100 text-amber-700', label: 'MY', name: 'MariaDB/MySQL' };
+        return { bg: 'bg-amber-100 text-amber-700', label: 'MY', name: 'MySQL / MariaDB' };
       case 'mongodb':
-        return { bg: 'bg-emerald-100 text-emerald-800', label: 'MG', name: 'MongoDB 7' };
+        return { bg: 'bg-emerald-100 text-emerald-800', label: 'MG', name: 'MongoDB' };
       case 'redis':
         return { bg: 'bg-rose-100 text-rose-700', label: 'RD', name: 'Redis Cache' };
       case 'sqlite':

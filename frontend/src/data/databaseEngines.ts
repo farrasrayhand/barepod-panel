@@ -42,7 +42,7 @@ export const AVAILABLE_ENGINE_VERSIONS: Record<DatabaseEngine, EngineOption[]> =
 export const ENGINE_LABELS: Record<DatabaseEngine, string> = {
   postgres: 'PostgreSQL',
   mysql: 'MySQL / MariaDB',
-  mariadb: 'MariaDB',
+  mariadb: 'MySQL / MariaDB',
   mongodb: 'MongoDB',
   redis: 'Redis Cache',
   sqlite: 'SQLite (file)',

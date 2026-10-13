@@ -927,8 +927,8 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
 
               {createDb && (
                 <div className="pl-5 space-y-4">
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                    {(['postgres', 'mysql', 'mariadb', 'mongodb', 'sqlite'] as DatabaseEngine[]).map((engineId) => {
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(['postgres', 'mariadb', 'mongodb', 'sqlite'] as DatabaseEngine[]).map((engineId) => {
                       const DbIcon = dbIcon[engineId] ?? Database;
                       return (
                         <button
