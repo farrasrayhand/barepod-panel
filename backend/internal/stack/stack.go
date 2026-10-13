@@ -1961,8 +1961,11 @@ func setting(st *store.Store, key string) string {
 }
 
 func serviceActive(ctx context.Context, h *host.Host, engine string) bool {
-	// Not every engine's unit carries its own name: OpenLiteSpeed's is "lshttpd".
-	unit := map[string]string{"openlitespeed": "lshttpd"}[engine]
+	// Not every engine's unit carries its own name: OpenLiteSpeed's is "lshttpd", Apache's is "apache2".
+	unit := map[string]string{
+		"openlitespeed": "lshttpd",
+		"apache":        "apache2",
+	}[engine]
 	if unit == "" {
 		unit = engine
 	}

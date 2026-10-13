@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert } from 'lucide-react';
+import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert, Globe } from 'lucide-react';
 import { api, apiReachable, type StackStatus, type StackComponent, type StackJobLogLine, type StackPlanResult } from '../api/client';
 import { describeError } from '../utils/format';
 import { useSubRoute } from '../hooks/useSubRoute';
@@ -314,14 +314,122 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
 
       {/* Web server */}
       {activeTab === 'web' && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           {repositoriesCard('web', 'web server')}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+
+          {/* Dedicated Edge Ingress Switcher Card */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">Multi-Engine Web Servers</span>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-blue-600" />
+                  Edge Ingress Switcher
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Directs incoming visitor traffic on public ports 80 and 443 with atomic zero-downtime vhost switching.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Current Ingress:</span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  {status?.webServer.active?.toUpperCase()}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Nginx Ingress Option */}
+              <div className={`p-4 rounded-xl border transition-all ${
+                status?.webServer.active === 'nginx'
+                  ? 'border-blue-500 bg-blue-50/30 ring-1 ring-blue-500 shadow-xs'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900">Nginx</span>
+                      {status?.webServer.active === 'nginx' ? (
+                        <span className="text-[10px] font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">Active Ingress (:80, :443)</span>
+                      ) : (
+                        <span className="text-[10px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">Internal Backend (:8082)</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      High-concurrency event-driven reverse proxy & edge ingress.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    {status?.webServer.active === 'nginx' ? 'Port 0.0.0.0:80, :443' : 'Port 127.0.0.1:8082'}
+                  </span>
+                  {status?.webServer.active !== 'nginx' ? (
+                    <button
+                      onClick={() => void switchWebServer('nginx')}
+                      disabled={busy || live !== true}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow-sm disabled:opacity-50"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" /> Switch Ingress to Nginx
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Serving Public Traffic
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Caddy Ingress Option */}
+              <div className={`p-4 rounded-xl border transition-all ${
+                status?.webServer.active === 'caddy'
+                  ? 'border-blue-500 bg-blue-50/30 ring-1 ring-blue-500 shadow-xs'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900">Caddy</span>
+                      {status?.webServer.active === 'caddy' ? (
+                        <span className="text-[10px] font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">Active Ingress (:80, :443)</span>
+                      ) : (
+                        <span className="text-[10px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">Internal Backend (:8081)</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Automatic HTTPS & modern HTTP/3 QUIC edge ingress/backend.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    {status?.webServer.active === 'caddy' ? 'Port 0.0.0.0:80, :443' : 'Port 127.0.0.1:8081'}
+                  </span>
+                  {status?.webServer.active !== 'caddy' ? (
+                    <button
+                      onClick={() => void switchWebServer('caddy')}
+                      disabled={busy || live !== true}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow-sm disabled:opacity-50"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" /> Switch Ingress to Caddy
+                    </button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Serving Public Traffic
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Multi-Engine Web Servers Table */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">Web Server Engines (Multi-Engine Concurrency)</span>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Engines operate simultaneously with conflict-free port allocation. Edge ingress (:80/:443) is served by {status?.webServer.active === 'nginx' ? 'Nginx' : 'Caddy'}, while Apache (:8080) and OpenLiteSpeed (:8088) run as high-performance backends.
+                  All 4 engines run concurrently in systemd. Edge ingress routes traffic to backend engines transparently with zero port collisions.
                 </p>
               </div>
             </div>
@@ -363,7 +471,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                             </span>
                           ) : (
                             <span className="inline-flex items-center text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
-                              Ingress Standby
+                              Internal Backend (:8082)
                             </span>
                           )
                         )}
@@ -408,18 +516,6 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {/* Ingress switch button for Nginx and Caddy */}
-                          {(engine === 'nginx' || engine === 'caddy') && !activeIngress && state?.installed && (
-                            <button
-                              onClick={() => void switchWebServer(engine)}
-                              disabled={busy || live !== true}
-                              title={`Switch edge ingress (:80/:443) to ${engine}`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-700 border border-slate-300 hover:bg-slate-50 disabled:opacity-50"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" /> Set as Ingress
-                            </button>
-                          )}
-
                           {/* Install / Update button (always latest) */}
                           {!state?.installed ? (
                             <button

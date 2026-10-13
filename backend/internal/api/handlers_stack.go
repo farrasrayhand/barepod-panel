@@ -222,25 +222,30 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 			return
 		}
 	}
-	// Swap the ingress. The new engine is not running yet (it cannot be — the old one
-	// holds :80), so a reload would fail: stop the old, start the new, then reload to
-	// pick up the freshly written configuration. If the new engine will not start, the
-	// host is put back the way it was.
+	// Swap the ingress. Stop the previous edge ingress so port 80/443 is freed:
 	if _, err := s.host.Run(r.Context(), []string{"systemctl", "stop", previous}); err != nil && s.host.Materialises() {
 		regrantFor(r.Context(), s, sites, previous)
 		rollback()
 		writeError(w, http.StatusBadGateway, "service_error", "could not stop "+previous)
 		return
 	}
-	// In the hybrid multi-webserver architecture, backend engines (apache2 on :8080,
-	// lshttpd on :8088) run concurrently alongside edge ingress.
-	// Only the conflicting edge ingress candidate (nginx or caddy) is stopped and swapped.
-	if previous != engine {
-		_, _ = s.host.Run(r.Context(), []string{"systemctl", "stop", previous})
+
+	if engine == "caddy" {
+		// Nginx moves to internal backend port 127.0.0.1:8082 so it never collides with Caddy on :80/:443
+		reconfigNginx := "sed -i 's/listen [0-9.]*:80;/listen 127.0.0.1:8082;/g; s/listen 80 /listen 127.0.0.1:8082 /g; s/listen 80;/listen 127.0.0.1:8082;/g; s/listen \\[::\\]:80;/listen [::1]:8082;/g; s/listen \\[::1\\]:80;/listen [::1]:8082;/g' /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d/*.conf 2>/dev/null || true"
+		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", reconfigNginx})
+		cleanCaddyPort := "sed -i '/http_port 8081/d' /etc/caddy/Caddyfile 2>/dev/null || true; sed -i '/{\\s*}/d' /etc/caddy/Caddyfile 2>/dev/null || true"
+		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", cleanCaddyPort})
+	} else if engine == "nginx" {
+		// Nginx takes edge ingress on :80 and :443
+		reconfigNginx := "sed -i 's/listen 127.0.0.1:8082;/listen 80;/g; s/listen 127.0.0.1:8082 default_server;/listen 80 default_server;/g; s/listen \\[::1\\]:8082;/listen [::]:80;/g; s/listen \\[::1\\]:8082 default_server;/listen [::]:80 default_server;/g' /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d/*.conf 2>/dev/null || true"
+		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", reconfigNginx})
+		// Caddy moves to internal backend port 8081
+		caddyPortCmd := "if [ -f /etc/caddy/Caddyfile ] && ! grep -q 'http_port' /etc/caddy/Caddyfile; then sed -i '1s/^/{\\n    http_port 8081\\n}\\n/' /etc/caddy/Caddyfile 2>/dev/null || true; fi"
+		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", caddyPortCmd})
 	}
-	// Ensure backend engines remain active and enabled
-	_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "apache2"})
-	_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "lshttpd"})
+
+	// Start the new edge ingress engine
 	if out, err := s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", engine}); err != nil && s.host.Materialises() {
 		_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", previous})
 		regrantFor(r.Context(), s, sites, previous)
@@ -248,6 +253,17 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 		writeError(w, http.StatusBadGateway, "service_error", engine+" did not start: "+strings.TrimSpace(out))
 		return
 	}
+
+	// Bring the standby engine (nginx or caddy) back up on its internal port
+	if engine == "caddy" {
+		_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "nginx"})
+	} else if engine == "nginx" {
+		_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "caddy"})
+	}
+
+	// Ensure all backend engines remain active and enabled
+	_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "apache2"})
+	_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "lshttpd"})
 	if err := webserver.Reload(r.Context(), engine, s.host); err != nil && s.host.Materialises() {
 		// The engine started, so the config it read is the one we wrote; a reload failing
 		// here is not fatal, and saying so beats pretending.
