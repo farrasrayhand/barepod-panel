@@ -626,6 +626,19 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 	return nil
 }
 
+// ensureDatabaseProvisioned re-runs the provision plan for a daemon database using its
+// existing decrypted password to ensure the user and database exist in the engine.
+func (s *Server) ensureDatabaseProvisioned(ctx context.Context, record *store.Database, password string, engine dbengine.Engine) error {
+	if record.FileBased || !engine.Running || !s.host.Materialises() {
+		return nil
+	}
+	plan, err := dbengine.PlanFor(dbengine.StepProvision, s.resourceFor(record, password))
+	if err != nil || len(plan.Commands) == 0 {
+		return err
+	}
+	return s.runDatabasePlan(ctx, plan)
+}
+
 // databaseFileDir is where a file-based database belongs: inside the website it
 // was created for.
 func (s *Server) databaseFileDir(record *store.Database) string {

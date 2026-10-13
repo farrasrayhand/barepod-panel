@@ -563,6 +563,9 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 						record.Host, record.Port = host, port
 					}
 				}
+				if engine.Running && !record.FileBased {
+					_ = s.ensureDatabaseProvisioned(r.Context(), record, password, engine)
+				}
 				if tool == "dbgate" {
 					if reason, unreachable := s.dbgateReach(r.Context(), engine, record); unreachable {
 						writeError(w, http.StatusConflict, "not_reachable", reason)
@@ -764,6 +767,14 @@ func (s *Server) preparePhpMyAdmin(record *store.Database, password, mount strin
 		return "", errors.New("phpMyAdmin is not installed on this host")
 	}
 	scheme := requestScheme(r)
+	host := record.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port := record.Port
+	if port == 0 {
+		port = 3306
+	}
 	config := fmt.Sprintf(`<?php
 $cfg['blowfish_secret'] = '%s';
 $i = 1;
@@ -775,7 +786,7 @@ $cfg['Servers'][$i]['password'] = '%s';
 $cfg['Servers'][$i]['only_db'] = '%s';
 $cfg['Servers'][$i]['AllowNoPassword'] = false;
 $cfg['PmaAbsoluteUri'] = '%s';
-`, id.Token(16), phpQuote(record.Host), record.Port, phpQuote(record.User), phpQuote(password), phpQuote(record.Name),
+`, id.Token(16), phpQuote(host), port, phpQuote(record.User), phpQuote(password), phpQuote(record.Name),
 		phpQuote(fmt.Sprintf("%s://%s%s/", scheme, r.Host, mount)))
 	if err := os.WriteFile(filepath.Join(dir, "config.inc.php"), []byte(config), 0o600); err != nil {
 		return "", err

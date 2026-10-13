@@ -153,9 +153,10 @@ func mysqlPlan(step Step, resource Resource) (Plan, error) {
 		return Plan{}, errors.New("dbengine: a name and a user are required")
 	}
 	db := quoteBacktick(resource.Name)
-	// The user is scoped to localhost: a database created for a site is not a
-	// database for the internet.
-	account := fmt.Sprintf("'%s'@'localhost'", escapeSingleQuotes(resource.User))
+	// The user is scoped to loopback: both unix socket ('localhost') and TCP ('127.0.0.1')
+	// so applications, DbGate, phpMyAdmin and Go drivers can all authenticate.
+	accountLocal := fmt.Sprintf("'%s'@'localhost'", escapeSingleQuotes(resource.User))
+	accountTCP := fmt.Sprintf("'%s'@'127.0.0.1'", escapeSingleQuotes(resource.User))
 	client := func(sql string) []string {
 		cmd := []string{resource.ClientBinary(), "--no-defaults"}
 		if resource.Port != 0 && resource.Port != 3306 {
@@ -171,36 +172,43 @@ func mysqlPlan(step Step, resource Resource) (Plan, error) {
 		}
 		return Plan{Commands: [][]string{client(strings.Join([]string{
 			fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s CHARACTER SET utf8mb4", db),
-			fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", account, escapeSingleQuotes(resource.Secret)),
-			fmt.Sprintf("GRANT ALL PRIVILEGES ON %s.* TO %s", db, account),
+			fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", accountLocal, escapeSingleQuotes(resource.Secret)),
+			fmt.Sprintf("ALTER USER %s IDENTIFIED BY '%s'", accountLocal, escapeSingleQuotes(resource.Secret)),
+			fmt.Sprintf("GRANT ALL PRIVILEGES ON %s.* TO %s", db, accountLocal),
+			fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", accountTCP, escapeSingleQuotes(resource.Secret)),
+			fmt.Sprintf("ALTER USER %s IDENTIFIED BY '%s'", accountTCP, escapeSingleQuotes(resource.Secret)),
+			fmt.Sprintf("GRANT ALL PRIVILEGES ON %s.* TO %s", db, accountTCP),
 			"FLUSH PRIVILEGES",
 		}, "; "))}}, nil
 	case StepRotate:
 		if resource.Secret == "" {
 			return Plan{}, errors.New("dbengine: a password is required")
 		}
-		return Plan{Commands: [][]string{client(fmt.Sprintf(
-			"ALTER USER %s IDENTIFIED BY '%s'", account, escapeSingleQuotes(resource.Secret)))}}, nil
+		return Plan{Commands: [][]string{client(strings.Join([]string{
+			fmt.Sprintf("ALTER USER %s IDENTIFIED BY '%s'", accountLocal, escapeSingleQuotes(resource.Secret)),
+			fmt.Sprintf("ALTER USER %s IDENTIFIED BY '%s'", accountTCP, escapeSingleQuotes(resource.Secret)),
+			"FLUSH PRIVILEGES",
+		}, "; "))}}, nil
 	case StepSuspend:
 		return Plan{Commands: [][]string{
-			client(fmt.Sprintf("REVOKE ALL PRIVILEGES ON %s.* FROM %s", db, account)),
-			client(fmt.Sprintf("ALTER USER %s ACCOUNT LOCK", account)),
-			client(fmt.Sprintf("FLUSH PRIVILEGES")),
+			client(fmt.Sprintf("REVOKE ALL PRIVILEGES ON %s.* FROM %s; REVOKE ALL PRIVILEGES ON %s.* FROM %s", db, accountLocal, db, accountTCP)),
+			client(fmt.Sprintf("ALTER USER %s ACCOUNT LOCK; ALTER USER %s ACCOUNT LOCK", accountLocal, accountTCP)),
+			client("FLUSH PRIVILEGES"),
 		}}, nil
 	case StepRestore:
 		return Plan{Commands: [][]string{
-			client(fmt.Sprintf("ALTER USER %s ACCOUNT UNLOCK", account)),
-			client(fmt.Sprintf("GRANT ALL PRIVILEGES ON %s.* TO %s", db, account)),
-			client(fmt.Sprintf("FLUSH PRIVILEGES")),
+			client(fmt.Sprintf("ALTER USER %s ACCOUNT UNLOCK; ALTER USER %s ACCOUNT UNLOCK", accountLocal, accountTCP)),
+			client(fmt.Sprintf("GRANT ALL PRIVILEGES ON %s.* TO %s; GRANT ALL PRIVILEGES ON %s.* TO %s", db, accountLocal, db, accountTCP)),
+			client("FLUSH PRIVILEGES"),
 		}}, nil
 	case StepPurge:
 		return Plan{Commands: [][]string{
 			client(fmt.Sprintf("DROP DATABASE IF EXISTS %s", db)),
-			client(fmt.Sprintf("DROP USER IF EXISTS %s", account)),
+			client(fmt.Sprintf("DROP USER IF EXISTS %s, %s", accountLocal, accountTCP)),
 		}}, nil
 	case StepLimits:
 		return Plan{Commands: [][]string{
-			client(fmt.Sprintf("ALTER USER %s WITH MAX_USER_CONNECTIONS %d", account, resource.MaxConn)),
+			client(fmt.Sprintf("ALTER USER %s WITH MAX_USER_CONNECTIONS %d; ALTER USER %s WITH MAX_USER_CONNECTIONS %d", accountLocal, resource.MaxConn, accountTCP, resource.MaxConn)),
 		}}, nil
 	}
 	return Plan{}, fmt.Errorf("dbengine: unknown step %q", step)
