@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/phpext"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
@@ -140,6 +141,16 @@ opcache.revalidate_freq = %d
 				tuningPath := filepath.Join(modsDir, "99-barepod-tuning.ini")
 				_ = os.WriteFile(tuningPath, []byte(iniContent), 0o644)
 				_, _ = s.host.Run(r.Context(), []string{"phpenmod", "-v", ver, "99-barepod-tuning"})
+				for _, ext := range cfg.RecommendedExtensions {
+					ext = strings.TrimSpace(ext)
+					if ext == "" {
+						continue
+					}
+					iniFile := filepath.Join(modsDir, ext+".ini")
+					if _, statErr := os.Stat(iniFile); statErr == nil {
+						_, _ = s.host.Run(r.Context(), []string{"phpenmod", "-v", ver, ext})
+					}
+				}
 				_, _ = s.host.Run(r.Context(), []string{"systemctl", "reload", "php" + ver + "-fpm"})
 			}
 		}

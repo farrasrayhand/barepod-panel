@@ -307,10 +307,17 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `GET|PUT /backups/cloud-sync` (R2/S3/GCS/Wasabi, cron, retention) · `POST /backups/cloud-sync/test`
 
 ### 4.12 System Cleanup & Panel Settings
-- `GET|PUT /settings/:tab` (general, monitoring, security, proxy, backups, notifications, databases, php_defaults, maintenance)
+- `GET /system/settings/php-defaults` → `{ config: PhpDefaultsConfig, installedVersions: string[] }`
+  Returns baseline PHP tuning blueprint directives (`memoryLimit`, `uploadMaxSize`, `postMaxSize`, `maxExecutionTime`, `maxInputTime`, `maxInputVars`, OPcache settings, and `recommendedExtensions[]`) from SQLite `panel_settings` (defaults if unset) and lists all installed PHP versions on the host (`phpext.InstalledVersions()`).
+- `PUT /system/settings/php-defaults` → Payload `{ config: PhpDefaultsConfig, applyToHost?: bool }`
+  Validates parameters and saves the global blueprint preset to SQLite `panel_settings`. When `applyToHost: true`, writes `/etc/php/<version>/mods-available/99-barepod-tuning.ini` across all installed PHP versions, executes `phpenmod -v <version> 99-barepod-tuning`, ensures recommended extensions in the blueprint are enabled via `phpenmod -v <version> <ext>`, and reloads `php<version>-fpm`. Audited as `panel.php_defaults`.
+- `GET /system/settings` → `{ externalAddress, trustedAddresses }`
+- `PATCH /system/settings` → `{ externalAddress?: string, trustedAddresses?: string[] }`
+- `GET /system/ports` → `{ panel: number, ssh: number, engines: map, sshPorts: number[] }`
+- `POST /system/ports/panel` → `{ port: number }`
+- `POST /system/ports/ssh` → `{ port: number, action: "add" | "remove" }`
 - `POST /settings/prune` (system junk + docker, per option) → `{ reclaimedBytes }`
-- `GET|PUT /settings/cron-jobs` (recommended default cron jobs + enable/disable)
-- `POST /settings/backup-now` · `POST /system/daemon/restart`
+- `POST /system/daemon/restart`
 
 ### 4.13 Docker Pods
 - `GET|POST /pods` (image / dockerfile / compose) · `GET|PATCH|DELETE /pods/:id`

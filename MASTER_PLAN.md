@@ -1,6 +1,6 @@
 # Master Architecture & Development Plan: BarePod Panel
 > **Document Version:** 0.3 (Prototype) — databases & caches module live end-to-end (SQLite file engine, Redis multi-tenant ACL, AES-256-GCM vault, live Reveal & Rotate, and Recycle Bin)
-> **Last Updated:** October 11, 2026  
+> **Last Updated:** October 13, 2026  
 > **Status:** Active & Maintained
 
 ## Versioning policy
@@ -80,6 +80,8 @@ The detailed build log of every fix — with its measurements — is in this fil
 - **Suspending an account is not a label.** It stops the account's services and marks their websites `suspended`, and a start is refused (`409 owner_suspended`) until the account is active again — otherwise "suspended" would be cosmetic. Reactivating releases the sites to `stopped` and leaves the decision to start them to the operator.
 - **An account without a Linux account is a bug, not a state to live with.** Creating a panel account — from the panel or from the CLI, `barepod admin create` included — creates its Linux account **first**, and a host that cannot make one refuses rather than recording an account with no OS identity. Deleting one removes the Linux account and its home too, so the two cannot drift apart. `POST /users/{id}/provision` reconciles an account that predates the rule, and the screen offers it whenever `osExists` is false. (The directory layout and the account are separate steps — `EnsureSiteDir` mkdirs for real — which is how an orphan `/home/<name>` without an account used to appear.) **A capability must not be claimed without the thing it names:** "disk quota" is reported only when the tools exist **and** the filesystem really has user quotas enabled — `setquota` fails on a filesystem that was never mounted with `usrquota`, and a false capability is worse than a missing one.
 - **Where the kernel cannot enforce a disk quota, the panel does — and labels it.** On a host whose filesystem has no user quotas (an unprivileged LXC cannot enable them), the panel measures each account's home, reports it in `GET /users` (`disk{usedBytes,maxBytes}`), and refuses its **own** writes — editor saves and uploads — that would exceed the package allowance with `409 quota_exceeded { enforcedBy: "panel" }`. It covers what the panel writes; a process writing from inside the site is not stopped, which is exactly what a kernel quota is for. When the filesystem does have quotas the kernel is the authority and the panel is redundant, so it steps aside.
+- **Global PHP Tuning Blueprint & Extension Preset (Host Baseline + Per-Project Independence):** The admin Settings screen (`/settings/php_defaults`) acts as a global baseline blueprint preset for all installed PHP versions on the host. It does **not** force a single global "Default PHP Version" (each project retains independent version selection and per-pool `php_admin_value[...]` override capability in project settings). Persisted in SQLite `panel_settings` (`php_defaults`). When the operator chooses **Apply Tuning to All Versions**, the daemon writes `/etc/php/<version>/mods-available/99-barepod-tuning.ini` across all installed PHP runtimes, executes `phpenmod -v <version> 99-barepod-tuning`, and gracefully reloads `php<version>-fpm` pools.
+- **Settings Layout & Sub-Navigation Architecture:** Sub-menus within Panel Settings use a modern **horizontal Top Tab Bar** matching the application detail layout, eliminating the nested vertical sidebar that left an empty 256px whitespace column when scrolling tall settings forms. Content containers span the full width (`w-full`) with responsive grid systems, eliminating artificial half-width (`max-w-*`) cutoffs.
 
 > **Versioning note:** the panel is still a prototype, so the document stays in the 0.x line (**0.3** — the databases module; see the policy at the top).
 
@@ -335,6 +337,7 @@ The platform a host runs is one admin screen, because these are **host-level** f
 | **Backup & Migration Hub** | ✅ Complete (wizard, token, `.bpod`) | ⏳ Not yet (rsync stream, S3/R2) | **UI Simulation** |
 | **World Traffic Map & Logs** | ✅ Complete (vector map, pins, log viewer) | ⏳ Not yet (daemon log streamer / WS) | **UI Simulation** |
 | **Per-App Access Control** | ✅ Complete (503, Basic Auth, anti-brute-force) | ⏳ Not yet (vhost snippet, `.htpasswd`, fail2ban) | **UI Simulation** |
+| **Panel Settings & PHP Defaults** | ✅ Complete (horizontal top tabs, w-full responsive layout, php blueprint editor & module inspector) | ✅ `GET|PUT /system/settings/php-defaults` (persisted in SQLite `panel_settings`, generates `/etc/php/<ver>/mods-available/99-barepod-tuning.ini`, runs `phpenmod -v <ver>` and enables blueprint extensions, reloads `php<ver>-fpm`), `GET|PATCH /system/settings`, `GET|POST /system/ports/*` | **Live** |
 | **URL Routing & Deep-link** | ✅ Complete (`/apps/<slug>/<tab>`, `/settings/<tab>`, …) | ✅ SPA fallback in the daemon | **Live** |
 
 ---

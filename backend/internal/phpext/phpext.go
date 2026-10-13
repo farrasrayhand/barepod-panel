@@ -59,7 +59,7 @@ func List(ctx context.Context, h *host.Host, version string) (Report, error) {
 
 	modsDir := "/etc/php/" + version + "/mods-available"
 	mods, _ := h.Run(ctx, []string{"bash", "-c", "ls " + modsDir + "/*.ini 2>/dev/null"})
-	confd, _ := h.Run(ctx, []string{"bash", "-c", "ls /etc/php/" + version + "/fpm/conf.d/ 2>/dev/null"})
+	confd, _ := h.Run(ctx, []string{"bash", "-c", "if [ -d /etc/php/" + version + "/fpm/conf.d ]; then ls /etc/php/" + version + "/fpm/conf.d/ 2>/dev/null; else ls /etc/php/" + version + "/cli/conf.d/ 2>/dev/null; fi"})
 
 	on := map[string]bool{}
 	for _, line := range strings.Split(confd, "\n") {
