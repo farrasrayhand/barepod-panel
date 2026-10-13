@@ -1,4 +1,4 @@
-import { api } from '../api/client';
+import { api, type PhpDefaultsConfig } from '../api/client';
 import React, { useEffect, useState } from 'react';
 import { GuardCard } from './GuardCard';
 import { 
@@ -29,10 +29,12 @@ import {
   Activity,
   Cpu,
   Clock,
-  Trash2
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import type { WebServerType } from '../types';
 import { useSubRoute } from '../hooks/useSubRoute';
+import { describeError } from '../utils/format';
 import { PhpExtensionsPanel } from './PhpExtensionsPanel';
 
 interface PanelSettingsViewProps {
@@ -229,24 +231,69 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }, 1400);
   };
 
-  // Global PHP Extensions Blueprint Settings
-  const [hostPhpVersion, setHostPhpVersion] = useState('');
-  const [defaultPhpVersion, setDefaultPhpVersion] = useState('8.4');
-  const [defaultMemoryLimit, setDefaultMemoryLimit] = useState('512M');
-  const [defaultUploadMaxSize, setDefaultUploadMaxSize] = useState('100M');
-  const [defaultMaxExecutionTime, setDefaultMaxExecutionTime] = useState('300');
+  // Global PHP Extensions Blueprint & Tuning Settings
+  const [phpConfig, setPhpConfig] = useState<PhpDefaultsConfig>({
+    memoryLimit: '256M',
+    uploadMaxSize: '64M',
+    postMaxSize: '64M',
+    maxExecutionTime: 60,
+    maxInputTime: 60,
+    maxInputVars: 3000,
+    opcacheEnable: true,
+    opcacheMemoryConsumption: 128,
+    opcacheMaxAcceleratedFiles: 10000,
+    opcacheValidateTimestamps: true,
+    opcacheRevalidateFreq: 2,
+    recommendedExtensions: [
+      'curl', 'mbstring', 'openssl', 'pdo_mysql', 'pdo_pgsql', 'gd', 'zip', 'intl', 'bcmath', 'redis', 'opcache',
+    ],
+  });
+  const [installedPhpVersions, setInstalledPhpVersions] = useState<string[]>([]);
+  const [selectedInspectVersion, setSelectedInspectVersion] = useState<string>('');
+  const [isLoadingPhpDefaults, setIsLoadingPhpDefaults] = useState(false);
+  const [isSavingPhpDefaults, setIsSavingPhpDefaults] = useState(false);
+
+  const loadPhpDefaults = async () => {
+    setIsLoadingPhpDefaults(true);
+    try {
+      const res = await api.phpDefaults();
+      if (res?.config) {
+        setPhpConfig(res.config);
+      }
+      if (res?.installedVersions?.length) {
+        setInstalledPhpVersions(res.installedVersions);
+        setSelectedInspectVersion((prev) => (prev && res.installedVersions.includes(prev) ? prev : res.installedVersions[0]));
+      }
+    } catch (err) {
+      console.error('Failed to load php defaults:', err);
+    } finally {
+      setIsLoadingPhpDefaults(false);
+    }
+  };
 
   useEffect(() => {
-    // The extension list is read from the host, so first ask which PHP version it has.
-    void (async () => {
-      try {
-        const status = await api.stack();
-        setHostPhpVersion(status.php?.default || status.php?.installed?.[0] || '');
-      } catch {
-        // the panel then says there is no version to read
-      }
-    })();
-  }, []);
+    if (activeTab === 'php_defaults') {
+      void loadPhpDefaults();
+    }
+  }, [activeTab]);
+
+  const handleSavePhpDefaults = async (applyToHost: boolean) => {
+    setIsSavingPhpDefaults(true);
+    try {
+      await api.savePhpDefaults(phpConfig, applyToHost);
+      onShowToast?.(
+        applyToHost ? 'Blueprint Applied to All Versions' : 'Blueprint Preset Saved',
+        applyToHost
+          ? 'Saved preset and generated 99-barepod-tuning.ini across all installed PHP versions on host.'
+          : 'Global PHP tuning preset saved to panel store.',
+        'success'
+      );
+    } catch (err) {
+      onShowToast?.('Failed to save PHP defaults', describeError(err), 'error');
+    } finally {
+      setIsSavingPhpDefaults(false);
+    }
+  };
 
   // Monitoring & Telemetry Retention Settings
   const [serverMetricsRetentionDays, setServerMetricsRetentionDays] = useState(90);
@@ -373,115 +420,46 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Main Container with Sidebar Navigation */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col md:flex-row min-h-[580px]">
+      {/* Main Container with Top Navigation Tabs */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
         
-        {/* Settings Navigation Tabs */}
-        <div className="w-full md:w-64 border-r border-slate-200 bg-slate-50/50 p-3 space-y-1 shrink-0">
-          <button
-            onClick={() => setActiveTab('general')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
-              activeTab === 'general'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            <span>General & Defaults</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('monitoring')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
-              activeTab === 'monitoring'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Activity className="w-4 h-4" />
-            <span>Monitoring Policy (Retention)</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('security')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
-              activeTab === 'security'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <ShieldCheck className="w-4 h-4" />
-            <span>Security & Authentication</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('proxy')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
-              activeTab === 'proxy'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Globe className="w-4 h-4" />
-            <span>Reverse Proxy & SSL</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('backups')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
-              activeTab === 'backups'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <HardDrive className="w-4 h-4" />
-            <span>Backup Policy (Schedule)</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('notifications')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
-              activeTab === 'notifications'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Bell className="w-4 h-4" />
-            <span>Notifications & Alerts</span>
-          </button>
-
-
-          <button
-            onClick={() => setActiveTab('php_defaults')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
-              activeTab === 'php_defaults'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Cpu className="w-4 h-4" />
-            <span>PHP Stack & Default Exts</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('maintenance')}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
-              activeTab === 'maintenance'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Trash2 className="w-4 h-4" />
-            <span>System & Cleanup</span>
-          </button>
+        {/* Settings Navigation Tabs Header */}
+        <div className="border-b border-slate-200 bg-slate-50/70 px-4 pt-2 flex items-center gap-1.5 overflow-x-auto">
+          {[
+            { id: 'general', label: 'General & Defaults', icon: Settings },
+            { id: 'monitoring', label: 'Monitoring Policy', icon: Activity },
+            { id: 'security', label: 'Security & Auth', icon: ShieldCheck },
+            { id: 'proxy', label: 'Reverse Proxy & SSL', icon: Globe },
+            { id: 'backups', label: 'Backup Policy', icon: HardDrive },
+            { id: 'notifications', label: 'Alerts & Webhooks', icon: Bell },
+            { id: 'php_defaults', label: 'PHP Tuning & Exts', icon: Cpu },
+            { id: 'maintenance', label: 'System & Cleanup', icon: Trash2 },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                className={`py-3 px-3.5 border-b-2 flex items-center gap-2 text-xs font-semibold transition-all whitespace-nowrap cursor-pointer ${
+                  isActive
+                    ? 'border-blue-600 text-blue-700 font-bold bg-white -mb-px rounded-t-lg border-t border-x border-slate-200 shadow-2xs'
+                    : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100/60 rounded-t-lg'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Tab Content Form */}
-        <div className="flex-1 p-6 md:p-8 overflow-y-auto">
+        <div className="p-6 md:p-8">
           
           {/* 1. GENERAL SETTINGS */}
           {activeTab === 'general' && (
-            <div className="space-y-6 max-w-2xl">
+            <div className="space-y-6 w-full">
               <div>
                 <h2 className="text-base font-bold text-slate-900">General Panel Preferences</h2>
                 <p className="text-xs text-slate-500 mt-0.5">Daemon port, panel domain, and default web server.</p>
@@ -661,7 +639,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           {/* MONITORING & TELEMETRY RETENTION SETTINGS */}
 
           {activeTab === 'monitoring' && (
-            <div className="space-y-6 max-w-3xl">
+            <div className="space-y-6 w-full">
               <div>
                 <h2 className="text-base font-bold text-slate-900">
                   Monitoring & Telemetry Retention Policy
@@ -847,7 +825,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
           {/* 2. SECURITY & AUTH */}
           {activeTab === 'security' && (
-            <div className="space-y-6 max-w-2xl">
+            <div className="space-y-6 w-full">
               <div>
                 <h2 className="text-base font-bold text-slate-900">Security & Access Control</h2>
                 <p className="text-xs text-slate-500 mt-0.5">Panel authentication policy, brute-force protection, and IP restrictions.</p>
@@ -990,7 +968,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
           {/* 3. REVERSE PROXY & SSL */}
           {activeTab === 'proxy' && (
-            <div className="space-y-6 max-w-2xl">
+            <div className="space-y-6 w-full">
               <div>
                 <h2 className="text-base font-bold text-slate-900">Reverse Proxy & SSL Protocols</h2>
                 <p className="text-xs text-slate-500 mt-0.5">Public ingress ports, HTTP/3, Let's Encrypt email, and Cloudflare IP restore.</p>
@@ -1095,7 +1073,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
           {/* 4. BACKUPS & SNAPSHOTS */}
           {activeTab === 'backups' && (
-            <div className="space-y-6 max-w-2xl">
+            <div className="space-y-6 w-full">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-base font-bold text-slate-900">Automated Backups & Storage</h2>
@@ -1213,7 +1191,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
           {/* 5. SYSTEM & DOCKER CLEANUP */}
           {activeTab === 'maintenance' && (
-            <div className="space-y-6 max-w-3xl">
+            <div className="space-y-6 w-full">
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div>
                   <h2 className="text-base font-bold text-slate-900">System & Docker Cleanup</h2>
@@ -1386,7 +1364,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
           {/* 6. NOTIFICATIONS */}
           {activeTab === 'notifications' && (
-            <div className="space-y-6 max-w-2xl">
+            <div className="space-y-6 w-full">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-base font-bold text-slate-900">Notifications & Alert Channels</h2>
@@ -1490,74 +1468,265 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
           {/* 7. PHP RUNTIMES & EXTENSIONS BLUEPRINT */}
           {activeTab === 'php_defaults' && (
-            <div className="space-y-6 max-w-4xl">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-bold text-slate-900">PHP Stack & Global Extension Blueprint</h2>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
-                    Admin Defaults for All New Apps
-                  </span>
+            <div className="space-y-6 w-full">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-base font-bold text-slate-900">PHP Tuning Blueprint & Extension Preset</h2>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">
+                      Global Admin Preset
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1 max-w-2xl leading-relaxed">
+                    Set the default baseline tuning directives and recommended extension preset for all installed PHP versions on this host.
+                    Newly created PHP apps inherit these values by default, and tenants can still freely override their own parameters via the Project Settings menu.
+                  </p>
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Set the default extensions and resource limits applied when a user creates a new PHP app.
-                </p>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void handleSavePhpDefaults(false)}
+                    disabled={isSavingPhpDefaults || isLoadingPhpDefaults}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg shadow-2xs transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSavingPhpDefaults ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    <span>Save Preset</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSavePhpDefaults(true)}
+                    disabled={isSavingPhpDefaults || isLoadingPhpDefaults}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSavingPhpDefaults ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                    <span>Apply Tuning to All Versions</span>
+                  </button>
+                </div>
               </div>
 
-              {/* Default PHP Parameters */}
-              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-4 shadow-2xs">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Default php.ini Directive Limits
-                </h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              {/* Core php.ini Tuning Directive Limits */}
+              <div className="p-5 rounded-xl border border-slate-200 bg-white space-y-4 shadow-2xs">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Default PHP Version</label>
-                    <select
-                      value={defaultPhpVersion}
-                      onChange={(e) => setDefaultPhpVersion(e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
-                    >
-                      <option value="8.4">PHP 8.4 (Recommended)</option>
-                      <option value="8.3">PHP 8.3 LTS</option>
-                      <option value="8.2">PHP 8.2</option>
-                      <option value="8.1">PHP 8.1</option>
-                    </select>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-purple-600" />
+                      Default php.ini Directive Limits
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Resource caps and memory bounds applied as the baseline template.
+                    </p>
                   </div>
+                </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">memory_limit</label>
                     <input
                       type="text"
-                      value={defaultMemoryLimit}
-                      onChange={(e) => setDefaultMemoryLimit(e.target.value)}
+                      value={phpConfig.memoryLimit}
+                      onChange={(e) => setPhpConfig((prev) => ({ ...prev, memoryLimit: e.target.value }))}
                       className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                      placeholder="256M"
                     />
+                    <span className="text-[10px] text-slate-400 mt-1 block">Baseline RAM per worker (e.g. 256M, 512M)</span>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">upload_max_filesize</label>
                     <input
                       type="text"
-                      value={defaultUploadMaxSize}
-                      onChange={(e) => setDefaultUploadMaxSize(e.target.value)}
+                      value={phpConfig.uploadMaxSize}
+                      onChange={(e) => setPhpConfig((prev) => ({ ...prev, uploadMaxSize: e.target.value }))}
                       className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                      placeholder="64M"
                     />
+                    <span className="text-[10px] text-slate-400 mt-1 block">Maximum single file upload size</span>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">max_execution_time</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">post_max_size</label>
                     <input
                       type="text"
-                      value={defaultMaxExecutionTime}
-                      onChange={(e) => setDefaultMaxExecutionTime(e.target.value)}
+                      value={phpConfig.postMaxSize}
+                      onChange={(e) => setPhpConfig((prev) => ({ ...prev, postMaxSize: e.target.value }))}
                       className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                      placeholder="64M"
                     />
+                    <span className="text-[10px] text-slate-400 mt-1 block">Must be equal or greater than upload_max_filesize</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">max_execution_time (seconds)</label>
+                    <input
+                      type="number"
+                      value={phpConfig.maxExecutionTime}
+                      onChange={(e) => setPhpConfig((prev) => ({ ...prev, maxExecutionTime: Number(e.target.value) }))}
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                      placeholder="60"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">Execution timeout (e.g. 60, 120, 300)</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">max_input_time (seconds)</label>
+                    <input
+                      type="number"
+                      value={phpConfig.maxInputTime}
+                      onChange={(e) => setPhpConfig((prev) => ({ ...prev, maxInputTime: Number(e.target.value) }))}
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                      placeholder="60"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">Time allowed to parse POST / uploads</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">max_input_vars</label>
+                    <input
+                      type="number"
+                      value={phpConfig.maxInputVars}
+                      onChange={(e) => setPhpConfig((prev) => ({ ...prev, maxInputVars: Number(e.target.value) }))}
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                      placeholder="3000"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">Max form inputs (3000 for WordPress / modern apps)</span>
                   </div>
                 </div>
               </div>
 
-              {/* The extensions this host really has, read from the daemon. */}
-              <PhpExtensionsPanel version={hostPhpVersion} onShowToast={onShowToast} />
+              {/* OPcache Performance Tuning */}
+              <div className="p-5 rounded-xl border border-slate-200 bg-white space-y-4 shadow-2xs">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-amber-500" />
+                      OPcache Bytecode Accelerator Tuning
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      High-throughput bytecode caching directives applied across PHP runtimes.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <span className="text-xs font-bold text-slate-700">OPcache Enabled</span>
+                    <input
+                      type="checkbox"
+                      checked={phpConfig.opcacheEnable}
+                      onChange={(e) => setPhpConfig((prev) => ({ ...prev, opcacheEnable: e.target.checked }))}
+                      className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">opcache.memory_consumption (MB)</label>
+                    <input
+                      type="number"
+                      value={phpConfig.opcacheMemoryConsumption}
+                      onChange={(e) => setPhpConfig((prev) => ({ ...prev, opcacheMemoryConsumption: Number(e.target.value) }))}
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">Shared memory allocation (128 - 512 MB)</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">opcache.max_accelerated_files</label>
+                    <input
+                      type="number"
+                      value={phpConfig.opcacheMaxAcceleratedFiles}
+                      onChange={(e) => setPhpConfig((prev) => ({ ...prev, opcacheMaxAcceleratedFiles: Number(e.target.value) }))}
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">File hash slots (10000 - 40000)</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">opcache.revalidate_freq (s)</label>
+                    <input
+                      type="number"
+                      value={phpConfig.opcacheRevalidateFreq}
+                      onChange={(e) => setPhpConfig((prev) => ({ ...prev, opcacheRevalidateFreq: Number(e.target.value) }))}
+                      className="w-full px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono font-semibold"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">Revalidation check interval in seconds</span>
+                  </div>
+
+                  <div className="flex flex-col justify-center">
+                    <label className="flex items-center gap-2 cursor-pointer mt-2">
+                      <input
+                        type="checkbox"
+                        checked={phpConfig.opcacheValidateTimestamps}
+                        onChange={(e) => setPhpConfig((prev) => ({ ...prev, opcacheValidateTimestamps: e.target.checked }))}
+                        className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                      />
+                      <span className="text-xs font-bold text-slate-700">validate_timestamps</span>
+                    </label>
+                    <span className="text-[10px] text-slate-400 mt-1">Check file changes on disk for updates</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recommended Extensions Blueprint & Version Inspector */}
+              <div className="p-5 rounded-xl border border-slate-200 bg-white space-y-4 shadow-2xs">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3 flex-wrap gap-2">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                      <Cpu className="w-4 h-4 text-purple-600" />
+                      Installed Version Inspector & Extensions
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Inspect active extensions and modules across any installed PHP runtime on this host.
+                    </p>
+                  </div>
+
+                  {installedPhpVersions.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[11px] font-semibold text-slate-500 mr-1">Inspect Version:</span>
+                      {installedPhpVersions.map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          onClick={() => setSelectedInspectVersion(v)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
+                            selectedInspectVersion === v
+                              ? 'bg-purple-600 text-white shadow-xs'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          PHP {v}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Recommended Blueprint Chips */}
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <span className="text-[11px] font-bold text-slate-700 block mb-1.5">
+                    Recommended Core Extension Blueprint:
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {phpConfig.recommendedExtensions.map((ext) => (
+                      <span
+                        key={ext}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-white border border-slate-200 text-purple-700 shadow-2xs"
+                      >
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        {ext}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Real Live Extension Switcher for Selected PHP Version */}
+                {selectedInspectVersion && (
+                  <PhpExtensionsPanel
+                    version={selectedInspectVersion}
+                    title={`PHP ${selectedInspectVersion} Active Host Modules`}
+                    onShowToast={onShowToast}
+                  />
+                )}
+              </div>
             </div>
           )}
 

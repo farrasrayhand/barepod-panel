@@ -186,6 +186,8 @@ func New(d Deps) http.Handler {
 	// and every snippet prefers it.
 	mux.HandleFunc("GET /api/v1/system/settings", s.requireAuth(s.handlePanelSettings))
 	mux.HandleFunc("PATCH /api/v1/system/settings", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSavePanelSettings)))
+	mux.HandleFunc("GET /api/v1/system/settings/php-defaults", s.requireAuth(s.handleGetPhpDefaults))
+	mux.HandleFunc("PUT /api/v1/system/settings/php-defaults", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSavePhpDefaults)))
 
 	// The ports this host is actually listening on, because the settings screen used to have them
 	// written into it — including none for SSH.

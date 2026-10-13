@@ -767,6 +767,15 @@ export const api = {
       body: JSON.stringify({ version, name, enabled }),
     }),
 
+  phpDefaults: () =>
+    request<{ config: PhpDefaultsConfig; installedVersions: string[] }>('/system/settings/php-defaults'),
+
+  savePhpDefaults: (config: PhpDefaultsConfig, applyToHost = false) =>
+    request<{ success: boolean; config: PhpDefaultsConfig; installedVersions: string[] }>('/system/settings/php-defaults', {
+      method: 'PUT',
+      body: JSON.stringify({ config, applyToHost }),
+    }),
+
   deployStreamUrl: (slug: string, deployId?: string) =>
     `${API_BASE}/websites/${slug}/deploy/stream${deployId ? `?id=${deployId}` : ''}`,
 
@@ -1192,6 +1201,21 @@ export interface RuntimeStatus {
   /** True when the version matters per site (interpreted), false for a build toolchain. */
   perSite: boolean;
   source?: string;
+}
+
+export interface PhpDefaultsConfig {
+  memoryLimit: string;
+  uploadMaxSize: string;
+  postMaxSize: string;
+  maxExecutionTime: number;
+  maxInputTime: number;
+  maxInputVars: number;
+  opcacheEnable: boolean;
+  opcacheMemoryConsumption: number;
+  opcacheMaxAcceleratedFiles: number;
+  opcacheValidateTimestamps: boolean;
+  opcacheRevalidateFreq: number;
+  recommendedExtensions: string[];
 }
 
 /** What a PHP version really has on this host: the mods it can toggle and what its
