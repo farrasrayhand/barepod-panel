@@ -477,9 +477,12 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">Web Server Engines (Multi-Engine Concurrency)</span>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  All 4 engines run concurrently in systemd. Edge ingress routes traffic to backend engines transparently with zero port collisions.
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Server className="w-4 h-4 text-blue-600" />
+                  Installed Web Server Engines
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Web engines installed on this host. Public traffic on ports 80 and 443 is directed by the Active Ingress engine above.
                 </p>
               </div>
             </div>
@@ -487,10 +490,11 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
               <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
                 <tr>
                   <th className="py-3 px-4">Engine</th>
-                  <th className="py-3 px-4">Role & Ports</th>
-                  <th className="py-3 px-4">Active</th>
-                  <th className="py-3 px-4">Latest Upstream</th>
-                  <th className="py-3 px-4">State</th>
+                  <th className="py-3 px-4">Role & Port</th>
+                  <th className="py-3 px-4">Websites</th>
+                  <th className="py-3 px-4">Installed</th>
+                  <th className="py-3 px-4">Upstream</th>
+                  <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -506,102 +510,102 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   const canUninstall = Boolean(state?.installed && !activeIngress && !isUsedBySites);
 
                   return (
-                    <tr key={engine} className="hover:bg-slate-50/70">
-                      <td className="py-3 px-4 font-semibold text-slate-900 capitalize">
-                        {engine}
-                        <span className="block text-[10px] font-normal text-slate-400">
-                          {engine === 'nginx' && 'High-concurrency reverse proxy & edge ingress'}
-                          {engine === 'caddy' && 'Automatic HTTPS & HTTP/3 edge ingress/backend'}
-                          {engine === 'apache' && 'Apache 2.4 with native .htaccess rewrite engine'}
-                          {engine === 'openlitespeed' && 'Event-driven server with native LSCache'}
-                        </span>
-                        {isUsedBySites && (
-                          <div className="text-[10px] text-slate-500 mt-1">
-                            In use by: <span className="font-mono text-blue-600 font-semibold">{usedSites.map((s) => s.slug).join(', ')}</span>
+                    <tr key={engine} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-[11px] text-slate-700 shrink-0">
+                            {engine === 'nginx' ? 'NG' : engine === 'caddy' ? 'CA' : engine === 'apache' ? 'AP' : 'OLS'}
                           </div>
-                        )}
+                          <div>
+                            <span className="font-semibold text-slate-900 capitalize text-sm">{engine}</span>
+                            <span className="block text-[11px] text-slate-400">
+                              {engine === 'nginx' && 'High-concurrency reverse proxy'}
+                              {engine === 'caddy' && 'Automatic HTTPS & HTTP/3 engine'}
+                              {engine === 'apache' && 'Apache 2.4 & .htaccess rewrites'}
+                              {engine === 'openlitespeed' && 'Event-driven server with LSCache'}
+                            </span>
+                          </div>
+                        </div>
                       </td>
                       <td className="py-3 px-4">
                         {activeIngress ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
-                            <Play className="w-3 h-3 text-emerald-600" /> Edge Ingress (:80, :443)
-                          </span>
-                        ) : isUsedBySites ? (
-                          <span className="inline-flex items-center text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
-                            Backend (Active App)
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Edge Ingress (:80, :443)
                           </span>
                         ) : (
-                          <span className="inline-flex items-center text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                            Backend (Idle / Unused)
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200 font-mono">
+                            Backend {engine === 'nginx' ? '(:8082)' : engine === 'caddy' ? '(:8081)' : engine === 'apache' ? '(:8080)' : '(:8088)'}
                           </span>
                         )}
                       </td>
-                      <td className="py-3 px-4 font-mono text-slate-700">
-                        {state?.installed ? installed || '—' : 'not installed'}
+                      <td className="py-3 px-4">
+                        {isUsedBySites ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                              {usedSites.length} {usedSites.length === 1 ? 'site' : 'sites'}
+                            </span>
+                            <span className="text-[11px] text-slate-500 font-mono truncate max-w-[140px]" title={usedSites.map((s) => s.slug).join(', ')}>
+                              {usedSites.map((s) => s.slug).join(', ')}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-400 italic">None (Idle)</span>
+                        )}
                       </td>
-                      <td className="py-3 px-4 font-mono text-slate-700">
-                        <span className="inline-flex items-center gap-1">
-                          {latest || '—'}
-                          {state?.installed && isUpToDate && (
-                            <span className="text-[10px] text-emerald-600 font-sans font-semibold bg-emerald-50 px-1 rounded">Latest</span>
-                          )}
-                        </span>
+                      <td className="py-3 px-4 font-mono text-slate-800 text-xs">
+                        {state?.installed ? (installed ? `v${installed}` : '—') : <span className="text-slate-400 font-sans">not installed</span>}
                       </td>
                       <td className="py-3 px-4">
-                        <span className="flex items-center gap-1.5 text-[11px]">
-                          <span className={`w-1.5 h-1.5 rounded-full ${state?.running ? 'bg-emerald-500' : state?.installed ? 'bg-amber-500' : 'bg-slate-300'}`} />
-                          {state?.running ? 'running' : state?.installed ? 'stopped' : 'not installed'}
+                        <div className="flex items-center gap-1.5 font-mono text-xs text-slate-600">
+                          {latest ? `v${latest}` : '—'}
+                          {state?.installed && isUpToDate && (
+                            <span className="text-[10px] text-emerald-700 font-sans font-semibold bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
+                              Latest
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium">
+                          <span className={`w-2 h-2 rounded-full ${state?.running ? 'bg-emerald-500' : state?.installed ? 'bg-amber-500' : 'bg-slate-300'}`} />
+                          <span className={state?.running ? 'text-emerald-700' : state?.installed ? 'text-amber-700' : 'text-slate-400'}>
+                            {state?.running ? 'Running' : state?.installed ? 'Stopped' : 'Not installed'}
+                          </span>
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {/* Install / Update button */}
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* Install / Update actions only */}
                           {!state?.installed ? (
                             <button
                               onClick={() => void install(engine, 'latest')}
                               disabled={busy || live !== true}
                               title={`Install official upstream latest ${engine}`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 shadow-xs"
                             >
-                              <Download className="w-3 h-3" /> Install Latest
+                              <Download className="w-3 h-3" /> Install
                             </button>
                           ) : !isUpToDate && latest ? (
                             <button
                               onClick={() => void install(engine, 'latest')}
                               disabled={busy || live !== true}
                               title={`Update ${engine} to latest upstream version (${latest})`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 shadow-xs"
                             >
-                              <Download className="w-3 h-3" /> Update to {latest}
+                              <Download className="w-3 h-3" /> Update
                             </button>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
-                              <CheckCircle2 className="w-3 h-3" /> Up to Date
-                            </span>
-                          )}
-
-                          {/* Switch to Edge Ingress button */}
-                          {state?.installed && !activeIngress && status?.webServer.supported?.includes(engine) && (
-                            <button
-                              onClick={() => void switchWebServer(engine)}
-                              disabled={busy || live !== true}
-                              title={`Switch public Edge Ingress (:80, :443) to ${engine}`}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
-                            >
-                              <RefreshCw className="w-3 h-3" /> Set Ingress
-                            </button>
-                          )}
-
-                          {/* Uninstall button (strictly for UNUSED engines only) */}
-                          {canUninstall && (
+                          ) : canUninstall ? (
                             <button
                               onClick={() => void uninstall(engine, installed)}
                               disabled={busy || live !== true}
                               title={`Uninstall unused ${engine} — safe to remove because no website uses it`}
-                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition-colors"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition-colors"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
+                          ) : (
+                            <span className="text-xs text-slate-300 px-2">—</span>
                           )}
                         </div>
                       </td>
@@ -610,11 +614,12 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 })}
               </tbody>
             </table>
-            <p className="px-4 py-3 text-[11px] text-slate-500 border-t border-slate-100">
-              <span className="font-semibold text-slate-700">Web Server Management:</span> All 4 engines operate concurrently without port collisions.
-              Edge ingress on port 80 and 443 is served by <span className="font-semibold text-slate-700 font-mono">{status?.webServer.active}</span> with atomic zero-downtime vhost switching.
-              Web servers run as system services and automatically follow official upstream latest stable releases.
-            </p>
+            <div className="px-5 py-3 text-[11px] text-slate-500 border-t border-slate-100 flex items-center justify-between">
+              <span>
+                Public ingress traffic on port 80/443 is managed via the <strong className="text-slate-700 font-medium">Edge Ingress Switcher</strong> above.
+              </span>
+              <span className="font-mono text-slate-400 text-[10px]">Active Ingress: {status?.webServer.active?.toUpperCase()}</span>
+            </div>
           </div>
         </div>
       )}
