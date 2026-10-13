@@ -234,15 +234,39 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
       }
     };
 
+    const loadOps = async () => {
+      try {
+        const [procRes, svcRes] = await Promise.allSettled([
+          api.systemProcesses(),
+          api.systemServices(),
+        ]);
+        if (cancelled) return;
+        if (procRes.status === 'fulfilled' && procRes.value?.items) {
+          setProcesses(procRes.value.items);
+        }
+        if (svcRes.status === 'fulfilled' && svcRes.value?.items) {
+          setServices(svcRes.value.items);
+        }
+      } catch {
+        // fallback
+      }
+    };
+
     void load();
+    void loadOps();
     if (!isAutoRefresh) return () => { cancelled = true; };
 
-    const timer = window.setInterval(load, Math.max(1000, refreshInterval));
+    const timer = window.setInterval(() => {
+      void load();
+      if (activeTab === 'processes' || activeTab === 'services') {
+        void loadOps();
+      }
+    }, Math.max(1000, refreshInterval));
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [liveMode, hostRange, isAutoRefresh, refreshInterval]);
+  }, [liveMode, hostRange, isAutoRefresh, refreshInterval, activeTab]);
 
   const [ramUsed, setRamUsed] = useState(2.3);
   const [ramTotal] = useState(8.0);
@@ -401,40 +425,70 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
     }, 600);
   };
 
-  const handleKillProcess = (pid: number, signal: 'SIGTERM' | 'SIGKILL') => {
-    setProcesses(processes.filter(p => p.pid !== pid));
-    setProcessToKill(null);
+  const handleKillProcess = async (pid: number, signal: 'SIGTERM' | 'SIGKILL') => {
+    try {
+      if (liveMode) {
+        await api.systemProcessKill(pid, signal);
+      }
+      setProcesses(prev => prev.filter(p => p.pid !== pid));
+      setProcessToKill(null);
+      onShowToast?.(
+        'Process Terminated',
+        `Sent ${signal} to PID ${pid}. Process stopped.`,
+        'success'
+      );
+    } catch (err: any) {
+      onShowToast?.('Termination Failed', err.message || 'Could not terminate process', 'error');
+    }
+  };
+
+  const handleRestartService = async (unit: string) => {
+    onShowToast?.('Service Restarting', `Issued systemctl restart ${unit}`, 'info');
+    try {
+      if (liveMode) {
+        await api.systemServiceAction(unit, 'restart');
+        const res = await api.systemServices();
+        if (res && res.items) setServices(res.items);
+      } else {
+        setServices(services.map(s => (s.unit === unit ? { ...s, uptime: '1 second ago' } : s)));
+      }
+      onShowToast?.('Service Restarted', `Service ${unit} restarted successfully.`, 'success');
+    } catch (err: any) {
+      onShowToast?.('Restart Failed', err.message || `Failed to restart ${unit}`, 'error');
+    }
+  };
+
+  const handleToggleService = async (unit: string) => {
+    const target = services.find(s => s.unit === unit);
+    const action = target?.status === 'active' ? 'stop' : 'start';
     onShowToast?.(
-      'Process Terminated',
-      `Sent ${signal} to PID ${pid}. Process removed from active queue.`,
+      action === 'start' ? 'Starting Service' : 'Stopping Service',
+      `Issued systemctl ${action} ${unit}`,
       'info'
     );
-  };
-
-  const handleRestartService = (unit: string) => {
-    onShowToast?.('Service Restarting', `Issued systemctl restart ${unit}`, 'info');
-    setServices(services.map(s => {
-      if (s.unit === unit) {
-        return { ...s, uptime: '1 second ago' };
+    try {
+      if (liveMode) {
+        await api.systemServiceAction(unit, action);
+        const res = await api.systemServices();
+        if (res && res.items) setServices(res.items);
+      } else {
+        setServices(services.map(s => {
+          if (s.unit === unit) {
+            const nextStatus = s.status === 'active' ? 'inactive' : 'active';
+            const nextSub = nextStatus === 'active' ? 'running' : 'dead';
+            return { ...s, status: nextStatus, subState: nextSub };
+          }
+          return s;
+        }));
       }
-      return s;
-    }));
-  };
-
-  const handleToggleService = (unit: string) => {
-    setServices(services.map(s => {
-      if (s.unit === unit) {
-        const nextStatus = s.status === 'active' ? 'inactive' : 'active';
-        const nextSub = nextStatus === 'active' ? 'running' : 'dead';
-        onShowToast?.(
-          nextStatus === 'active' ? 'Service Started' : 'Service Stopped',
-          `Issued systemctl ${nextStatus === 'active' ? 'start' : 'stop'} ${unit}`,
-          nextStatus === 'active' ? 'success' : 'info'
-        );
-        return { ...s, status: nextStatus, subState: nextSub };
-      }
-      return s;
-    }));
+      onShowToast?.(
+        action === 'start' ? 'Service Started' : 'Service Stopped',
+        `Service ${unit} ${action} succeeded.`,
+        'success'
+      );
+    } catch (err: any) {
+      onShowToast?.('Action Failed', err.message || `Failed to ${action} ${unit}`, 'error');
+    }
   };
 
   // Filter processes
@@ -818,49 +872,54 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                 <div className="flex items-center justify-between">
                   <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                     <Cpu className="w-4 h-4 text-blue-600" />
-                    Processor Telemetry
+                    Processor & Load Telemetry
                   </h3>
-                  <span className="text-xs text-slate-500 font-mono">AMD EPYC 7763 @ 2.45GHz</span>
+                  <span className="text-xs text-slate-500 font-mono">
+                    {kpi.cores} vCPU Cores Active • {hostInfo?.arch || 'Host Node'}
+                  </span>
                 </div>
 
                 <div className="space-y-3">
                   <div>
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-600">Core 0</span>
-                      <span className="font-mono font-bold text-slate-800">{perCore[0]}%</span>
+                      <span className="text-slate-600 font-medium">Global CPU Load</span>
+                      <span className="font-mono font-bold text-slate-800">{kpi.cpu.toFixed(1)}%</span>
                     </div>
                     <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                      <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${perCore[0]}%` }} />
+                      <div 
+                        className={`h-1.5 rounded-full transition-all duration-300 ${
+                          kpi.cpu > 80 ? 'bg-rose-500' : kpi.cpu > 50 ? 'bg-amber-500' : 'bg-blue-600'
+                        }`} 
+                        style={{ width: `${Math.min(100, Math.max(1, kpi.cpu))}%` }} 
+                      />
                     </div>
                   </div>
 
                   <div>
                     <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-600">Core 1</span>
-                      <span className="font-mono font-bold text-slate-800">{perCore[1]}%</span>
+                      <span className="text-slate-600 font-medium">System Load Average (1m / 5m / 15m)</span>
+                      <span className="font-mono font-bold text-slate-800">{kpi.load}</span>
                     </div>
                     <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                      <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${perCore[1]}%` }} />
+                      <div 
+                        className="bg-indigo-600 h-1.5 rounded-full transition-all duration-300" 
+                        style={{ width: `${Math.min(100, Math.max(2, (Number(kpi.load.split(',')[0]) / Math.max(1, kpi.cores)) * 100))}%` }} 
+                      />
                     </div>
                   </div>
 
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-600">Core 2</span>
-                      <span className="font-mono font-bold text-slate-800">{perCore[2]}%</span>
+                  <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] text-slate-400 block font-semibold uppercase">Capacity Utilization</span>
+                      <span className="font-mono font-bold text-slate-800">
+                        {((kpi.cpu / 100) * kpi.cores).toFixed(1)} / {kpi.cores} Cores Busy
+                      </span>
                     </div>
-                    <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                      <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${perCore[2]}%` }} />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-slate-600">Core 3</span>
-                      <span className="font-mono font-bold text-slate-800">{perCore[3]}%</span>
-                    </div>
-                    <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                      <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${perCore[3]}%` }} />
+                    <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                      <span className="text-[10px] text-slate-400 block font-semibold uppercase">Uptime Counter</span>
+                      <span className="font-mono font-bold text-slate-800 truncate block">
+                        {kpi.uptime}
+                      </span>
                     </div>
                   </div>
                 </div>

@@ -696,9 +696,27 @@ export const api = {
   deployStreamUrl: (slug: string, deployId?: string) =>
     `${API_BASE}/websites/${slug}/deploy/stream${deployId ? `?id=${deployId}` : ''}`,
 
-  // --- metrics -------------------------------------------------------------
+  // --- metrics & host operations ------------------------------------------
   systemMetrics: (range = '1h') =>
     request<MetricSeries<HostMetrics>>(`/system/metrics?range=${encodeURIComponent(range)}`),
+
+  systemProcesses: () =>
+    request<{ items: any[]; total: number; checkedAt: string }>('/system/processes'),
+
+  systemProcessKill: (pid: number, signal: 'SIGTERM' | 'SIGKILL' = 'SIGTERM') =>
+    request<{ ok: boolean; pid: number }>(`/system/processes/${pid}/kill`, {
+      method: 'POST',
+      body: JSON.stringify({ signal }),
+    }),
+
+  systemServices: () =>
+    request<{ items: any[]; total: number; checkedAt: string }>('/system/services'),
+
+  systemServiceAction: (unit: string, action: 'start' | 'stop' | 'restart') =>
+    request<{ ok: boolean; unit: string; action: string }>(`/system/services/${encodeURIComponent(unit)}/action`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
 
   siteMetrics: (slug: string, range = '1h') =>
     request<MetricSeries<SiteMetrics>>(`/websites/${slug}/metrics?range=${encodeURIComponent(range)}`),
