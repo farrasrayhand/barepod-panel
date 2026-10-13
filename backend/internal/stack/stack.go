@@ -247,12 +247,9 @@ func Commands(component, version string) ([][]string, error) {
 			"Pin: version 1:" + line + "*\n" +
 			"Pin-Priority: 1001\n" +
 			"EOF\n" +
-			"for flag in /var/lib/mysql/debian-*.flag; do\n" +
-			"  if [ -f \"$flag\" ]; then\n" +
-			"    v=$(basename \"$flag\" .flag | sed 's/debian-//')\n" +
-			"    if [ -d \"/var/lib/mysql-$v\" ]; then\n" +
-			"      mv \"/var/lib/mysql-$v\" \"/var/lib/mysql-$v-$(date +%s)\"\n" +
-			"    fi\n" +
+			"for d in /var/lib/mysql-[0-9]*; do\n" +
+			"  if [ -d \"$d\" ]; then\n" +
+			"    mv \"$d\" \"$d-$(date +%s)\"\n" +
 			"  fi\n" +
 			"done\n" +
 			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " install -y --allow-downgrades mariadb-server\n" +
@@ -262,9 +259,10 @@ func Commands(component, version string) ([][]string, error) {
 	case "redis":
 		return apt("redis-server"), nil
 	case "mongodb":
-		// MongoDB runs in a container on hosts that have Docker. If the container exists,
-		// we safely swap it with sequential featureCompatibilityVersion handling (e.g. 7.0 -> 8.0 -> 9.0).
-		// Packages are the fallback for hosts without Docker.
+		// MongoDB runs in a container on hosts that have Docker.
+		// MongoDB requires featureCompatibilityVersion (fCV) step transitions when moving between major versions.
+		// Downgrading (e.g. 9.0 -> 8.0, 8.0 -> 7.0, or 9.0 -> 7.0) requires lowering fCV while the compatible version
+		// is running before the lower mongod binary can start. Upgrading requires raising fCV.
 		script := `set -e
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   TARGET="` + version + `"
@@ -272,63 +270,88 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   echo "Pulling Docker image for MongoDB $TARGET..."
   docker pull ` + mongodbImage + `:"$TARGET"
 
+  DATA_VOL="barepod-mongo-data"
+  CONF_VOL="barepod-mongo-config"
   if docker inspect barepod-mongo >/dev/null 2>&1; then
-    CURRENT=$(docker inspect barepod-mongo --format '{{.Config.Image}}' 2>/dev/null | cut -d: -f2)
-    echo "Current container running mongo:$CURRENT, target is mongo:$TARGET"
-    ADMIN_PASS=$(docker inspect barepod-mongo --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^MONGO_INITDB_ROOT_PASSWORD=' | cut -d= -f2-)
-    DATA_VOL=$(docker inspect barepod-mongo --format '{{range .Mounts}}{{if eq .Destination "/data/db"}}{{.Name}}{{end}}{{end}}')
-    [ -z "$DATA_VOL" ] && DATA_VOL=$(docker inspect barepod-mongo --format '{{range .Mounts}}{{if eq .Destination "/var/lib/mongodb"}}{{.Name}}{{end}}{{end}}')
-    [ -z "$DATA_VOL" ] && DATA_VOL="barepod-mongo-data"
-
-    if echo "$CURRENT" | grep -q '^7' && echo "$TARGET" | grep -q '^9'; then
-      echo "Performing sequential upgrade: 7.0 -> 8.0 -> 9.0..."
-      docker pull mongo:8.0
-      docker stop barepod-mongo
-      docker run -d --name barepod-mongo-upgrading --network host -v "$DATA_VOL":/data/db mongo:8.0 mongod --port 27018 --dbpath /data/db
-      sleep 4
-      docker exec barepod-mongo-upgrading mongosh --port 27018 -u barepod_admin -p "$ADMIN_PASS" --authenticationDatabase admin --eval 'db.adminCommand({setFeatureCompatibilityVersion: "8.0", confirm: true})'
-      docker stop barepod-mongo-upgrading
-      docker rm barepod-mongo-upgrading
-      docker rm barepod-mongo
-      docker run -d --restart unless-stopped --name barepod-mongo --network host \
-        -v "$DATA_VOL":/data/db \
-        -e MONGO_INITDB_ROOT_USERNAME=barepod_admin \
-        -e MONGO_INITDB_ROOT_PASSWORD="$ADMIN_PASS" \
-        mongo:9.0 --port 27018
-      sleep 4
-      docker exec barepod-mongo mongosh --port 27018 -u barepod_admin -p "$ADMIN_PASS" --authenticationDatabase admin --eval 'db.adminCommand({setFeatureCompatibilityVersion: "9.0", confirm: true})'
-      echo "MongoDB successfully upgraded to 9.0!"
-    elif echo "$CURRENT" | grep -q '^7' && echo "$TARGET" | grep -q '^8'; then
-      echo "Performing upgrade: 7.0 -> 8.0..."
-      docker stop barepod-mongo
-      docker rm barepod-mongo
-      docker run -d --restart unless-stopped --name barepod-mongo --network host \
-        -v "$DATA_VOL":/data/db \
-        -e MONGO_INITDB_ROOT_USERNAME=barepod_admin \
-        -e MONGO_INITDB_ROOT_PASSWORD="$ADMIN_PASS" \
-        mongo:8.0 --port 27018
-      sleep 4
-      docker exec barepod-mongo mongosh --port 27018 -u barepod_admin -p "$ADMIN_PASS" --authenticationDatabase admin --eval 'db.adminCommand({setFeatureCompatibilityVersion: "8.0", confirm: true})'
-      echo "MongoDB successfully upgraded to 8.0!"
-    else
-      echo "Swapping container to mongo:$TARGET..."
-      docker stop barepod-mongo
-      docker rm barepod-mongo
-      docker run -d --restart unless-stopped --name barepod-mongo --network host \
-        -v "$DATA_VOL":/data/db \
-        -e MONGO_INITDB_ROOT_USERNAME=barepod_admin \
-        -e MONGO_INITDB_ROOT_PASSWORD="$ADMIN_PASS" \
-        mongo:"$TARGET" --port 27018
-      sleep 4
-      if [ -n "$ADMIN_PASS" ]; then
-        docker exec barepod-mongo mongosh --port 27018 -u barepod_admin -p "$ADMIN_PASS" --authenticationDatabase admin --eval "db.adminCommand({setFeatureCompatibilityVersion: '$TARGET', confirm: true})" 2>/dev/null || true
-      fi
-      echo "MongoDB container swapped to $TARGET successfully!"
-    fi
+    DATA_VOL_NAME=$(docker inspect barepod-mongo --format '{{range .Mounts}}{{if eq .Destination "/data/db"}}{{.Name}}{{end}}{{end}}')
+    [ -n "$DATA_VOL_NAME" ] && DATA_VOL="$DATA_VOL_NAME"
+    CONF_VOL_NAME=$(docker inspect barepod-mongo --format '{{range .Mounts}}{{if eq .Destination "/data/configdb"}}{{.Name}}{{end}}{{end}}')
+    [ -n "$CONF_VOL_NAME" ] && CONF_VOL="$CONF_VOL_NAME"
   fi
+
+  set_fcv() {
+    local img="$1"
+    local fcv="$2"
+    echo "Transitioning featureCompatibilityVersion to $fcv using $img..."
+    docker run -d --name mongo-fcv-step --network host -v "$DATA_VOL":/data/db "$img" mongod --port 27019 --dbpath /data/db
+    for i in $(seq 1 20); do
+      if docker exec mongo-fcv-step mongosh --port 27019 --eval 'db.ping()' >/dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+    docker exec mongo-fcv-step mongosh --port 27019 --eval "db.adminCommand({setFeatureCompatibilityVersion: '$fcv', confirm: true})" || true
+    docker stop mongo-fcv-step >/dev/null 2>&1 || true
+    docker rm -f mongo-fcv-step >/dev/null 2>&1 || true
+  }
+
+  CUR_IMG=$(docker inspect barepod-mongo --format '{{.Config.Image}}' 2>/dev/null | cut -d: -f2 || true)
+  CUR_MAJ=$(echo "$CUR_IMG" | cut -d. -f1)
+  TGT_MAJ=$(echo "$TARGET" | cut -d. -f1)
+
+  echo "MongoDB switch requested: from ${CUR_MAJ:-unknown} ($CUR_IMG) to $TGT_MAJ ($TARGET)"
+
+  # Stop and remove existing container before transitions
+  docker stop barepod-mongo >/dev/null 2>&1 || true
+  docker rm -f barepod-mongo >/dev/null 2>&1 || true
+
+  # Handle downgrades (must lower fCV step-by-step using higher binary before lower binary starts)
+  if [ "$CUR_MAJ" = "9" ] && [ "$TGT_MAJ" = "8" ]; then
+    docker pull mongo:9.0
+    set_fcv mongo:9.0 8.0
+  elif [ "$CUR_MAJ" = "8" ] && [ "$TGT_MAJ" = "7" ]; then
+    docker pull mongo:8.0
+    set_fcv mongo:8.0 7.0
+  elif [ "$CUR_MAJ" = "9" ] && [ "$TGT_MAJ" = "7" ]; then
+    docker pull mongo:9.0
+    set_fcv mongo:9.0 8.0
+    docker pull mongo:8.0
+    set_fcv mongo:8.0 7.0
+  # Handle multi-step upgrades
+  elif [ "$CUR_MAJ" = "7" ] && [ "$TGT_MAJ" = "9" ]; then
+    docker pull mongo:8.0
+    set_fcv mongo:8.0 8.0
+  fi
+
+  # Start the target container
+  echo "Starting container barepod-mongo with mongo:$TARGET..."
+  docker run -d --restart unless-stopped --name barepod-mongo --network host \
+    -v "$DATA_VOL":/data/db \
+    -v "$CONF_VOL":/data/configdb \
+    ` + mongodbImage + `:"$TARGET" --port 27018
+
+  # Post-start fCV upgrade for higher versions
+  if [ "$TGT_MAJ" = "8" ]; then
+    for i in $(seq 1 15); do
+      if docker exec barepod-mongo mongosh --port 27018 --eval 'db.ping()' >/dev/null 2>&1; then
+        docker exec barepod-mongo mongosh --port 27018 --eval 'db.adminCommand({setFeatureCompatibilityVersion: "8.0", confirm: true})' >/dev/null 2>&1 || true
+        break
+      fi
+      sleep 1
+    done
+  elif [ "$TGT_MAJ" = "9" ]; then
+    for i in $(seq 1 15); do
+      if docker exec barepod-mongo mongosh --port 27018 --eval 'db.ping()' >/dev/null 2>&1; then
+        docker exec barepod-mongo mongosh --port 27018 --eval 'db.adminCommand({setFeatureCompatibilityVersion: "9.0", confirm: true})' >/dev/null 2>&1 || true
+        break
+      fi
+      sleep 1
+    done
+  fi
+
+  echo "MongoDB $TARGET is now running!"
 else
-  echo 'no Docker here — installing MongoDB packages'
-  apt-get ` + strings.Join(aptWait, " ") + ` install -y 'mongodb-org=` + version + `*'
+  ` + strings.Join(aptGet("install", "-y", "mongodb-org"), " ") + `
 fi`
 		return [][]string{{"bash", "-c", mongodbRepoScript}, {"bash", "-c", script}}, nil
 	}
