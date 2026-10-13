@@ -177,13 +177,21 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `GET /system/capacity` → `{ capacity, allocation, usage{cpu,ram,disk}, fits, exceeds[], suggested, packages[], checkedAt }`. Capacity is read **live** — cgroup v2 `cpu.max`, `/sys/devices/system/cpu/online`, `/proc/meminfo`, `statfs` of the sites filesystem — so scaling the server up or down changes the answer **without restarting the daemon**. After a scale-down `fits` becomes `false`, `exceeds` names each resource with its numbers, and the daemon logs + audits `system.capacity_exceeded` once per change.
 - **Pods reuse the same `Limits` model** as their Docker resource spec (Phase 3): one model, three consumers.
 
-### 4.3 Runtime, VHost & PHP
+### 4.3 Runtime, VHost & Polyglot Runtime Configuration
 - `GET /websites/:slug/runtime` → `{ runtime, version, webServer, engine, engineSupported, engineInstalled, docRoot, port, vhostPath, socket?, mode }`.
 - `PUT /websites/:slug/runtime` `{ engine }` → switches the engine, rewrites the vhost and reloads the web server. A runtime **version** change is refused with `409 redeploy_required` (it rewrites the unit's ExecStart, which the deploy pipeline owns). An engine the daemon cannot write answers `501 not_supported_yet`; one that is not installed answers `409 engine_not_installed`.
 - `GET /websites/:slug/vhost/preview?engine=` → `{ engine, config }` — rendered **by the daemon** (the client used to build this string itself).
 - `POST /websites/:slug/php-fpm/reload` → `{ status: "reloaded", mode, pool, output }`; a non-PHP site answers `409 not_applicable`.
+- `GET /websites/:slug/runtime/config` → `{ runtime, version, config }`. Returns runtime-specific tuning options:
+  - PHP: `{ memoryLimit, uploadMaxSize, postMaxSize, maxExecutionTime, maxInputVars, maxChildren, idleTimeout, extensions: [] }`
+  - Node.js: `{ entrypoint, packageManager, memoryLimitMb, script, nodeVersion }`
+  - Python: `{ wsgiServer, workers, timeout, venvPath, pythonVersion }`
+  - Ruby: `{ appServer, workers, threads, rubyVersion }`
+  - Go / Rust: `{ binaryPath, args, port }`
+  - Proxy / Static: `{ upstreamUrl, websocket, spaFallback }`
+- `PUT /websites/:slug/runtime/config` → validates parameters against the site's `runtime`. For PHP, updates `<siteDir>/php-fpm.conf` with `php_admin_value[...]` directives and gracefully reloads the FPM pool. For daemon runtimes (Node, Python, Ruby, Go, Rust), updates the systemd unit drop-in / `.env` and restarts the service. Audited as `website.runtime_config`.
 - `GET|PUT /websites/:slug/php/extensions` · `POST .../php/extensions/install` (PECL)
-- `GET|PUT /websites/:slug/php/ini`
+- `GET|PUT /websites/:slug/php/ini` (compatibility alias for `/runtime/config` on PHP sites)
 > **Engine support today:** All 4 engines (`nginx`, `caddy`, `apache`, `openlitespeed`) are supported site choices. A site can choose its web server engine freely in `AddAppModal` and `POST /websites`. Public ports `:80`/`:443` are managed by the active edge ingress (Nginx or Caddy), which reverse-proxies traffic to internal backend engine ports (Apache on `127.0.0.1:8080`, OpenLiteSpeed on `127.0.0.1:8088`, Caddy on `127.0.0.1:8081`).
 
 ### 4.14 Stack (host-level platform choices)

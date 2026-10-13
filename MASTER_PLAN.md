@@ -81,6 +81,7 @@ The detailed build log of every fix — with its measurements — is in this fil
 - **An account without a Linux account is a bug, not a state to live with.** Creating a panel account — from the panel or from the CLI, `barepod admin create` included — creates its Linux account **first**, and a host that cannot make one refuses rather than recording an account with no OS identity. Deleting one removes the Linux account and its home too, so the two cannot drift apart. `POST /users/{id}/provision` reconciles an account that predates the rule, and the screen offers it whenever `osExists` is false. (The directory layout and the account are separate steps — `EnsureSiteDir` mkdirs for real — which is how an orphan `/home/<name>` without an account used to appear.) **A capability must not be claimed without the thing it names:** "disk quota" is reported only when the tools exist **and** the filesystem really has user quotas enabled — `setquota` fails on a filesystem that was never mounted with `usrquota`, and a false capability is worse than a missing one.
 - **Where the kernel cannot enforce a disk quota, the panel does — and labels it.** On a host whose filesystem has no user quotas (an unprivileged LXC cannot enable them), the panel measures each account's home, reports it in `GET /users` (`disk{usedBytes,maxBytes}`), and refuses its **own** writes — editor saves and uploads — that would exceed the package allowance with `409 quota_exceeded { enforcedBy: "panel" }`. It covers what the panel writes; a process writing from inside the site is not stopped, which is exactly what a kernel quota is for. When the filesystem does have quotas the kernel is the authority and the panel is redundant, so it steps aside.
 - **Global PHP Tuning Blueprint & Extension Preset (Host Baseline + Per-Project Independence):** The admin Settings screen (`/settings/php_defaults`) acts as a global baseline blueprint preset for all installed PHP versions on the host. It does **not** force a single global "Default PHP Version" (each project retains independent version selection and per-pool `php_admin_value[...]` override capability in project settings). Persisted in SQLite `panel_settings` (`php_defaults`). When the operator chooses **Apply Tuning to All Versions**, the daemon writes `/etc/php/<version>/mods-available/99-barepod-tuning.ini` across all installed PHP runtimes, executes `phpenmod -v <version> 99-barepod-tuning`, and gracefully reloads `php<version>-fpm` pools.
+- **Polyglot Runtime Configuration Studio (Equal First-Class Support for All Stacks):** The project detail interface must not privilege PHP over other runtimes with a single PHP-only tuning tab. Every supported runtime stack gets its own dedicated, native per-project tuning panel in `AppDetailPage`: PHP tunes FPM pools (`pm.max_children`, `memory_limit`, `upload_max_filesize`, extensions); Node.js manages Node versions, package managers (`npm`/`pnpm`/`yarn`), startup commands, and V8 memory flags (`--max-old-space-size`); Python manages Python versions, virtualenv (`.venv`) lifecycle, and WSGI/ASGI options (Gunicorn/Uvicorn workers & timeouts); Ruby manages Ruby versions, Bundler, and Puma workers; Go/Rust manages binary entrypoints and restart hooks; Proxy/Static manages upstream URLs, WebSocket passthrough, and SPA fallback rewrites.
 - **Settings Layout & Sub-Navigation Architecture:** Sub-menus within Panel Settings use a modern **horizontal Top Tab Bar** matching the application detail layout, eliminating the nested vertical sidebar that left an empty 256px whitespace column when scrolling tall settings forms. Content containers span the full width (`w-full`) with responsive grid systems, eliminating artificial half-width (`max-w-*`) cutoffs.
 
 > **Versioning note:** the panel is still a prototype, so the document stays in the 0.x line (**0.3** — the databases module; see the policy at the top).
@@ -193,9 +194,30 @@ graph TD
   - **Others**: Go (Gin/Fiber), Rust (Axum/Actix), Ruby on Rails, Static HTML.
 - **Polyglot Hybrid Monorepo Sandbox**:
   - The tenant sandbox supports running a PHP backend (chosen version), Node.js 22 LTS build tools (Vite & npm), and Python 3.12 tasks harmoniously within a single terminal session.
-- **PHP Extensions & Configuration Studio**:
-  - 1-Click Extension Toggle (`redis`, `imagick`, `gd`, `intl`, `bcmath`, `zip`, `pdo_mysql`, `pdo_pgsql`, `pdo_sqlite`, `mongodb`, `swoole`, `opcache`, `pcntl`, `exif`, `sodium`, `soap`, `ioncube`).
-  - PECL package installer & `php.ini` directives form.
+- **Polyglot Runtime Configuration Studio (Per-Project Tuning for All Stacks)**:
+  - **Dynamic Runtime Tab**: The application detail view renders a native **Runtime Configuration** tab tailored to `app.runtime`, removing the single-runtime bias toward PHP.
+  - **PHP Project Tuning**:
+    - Per-pool `php_admin_value[...]` tuning form: `memory_limit`, `upload_max_filesize`, `post_max_size`, `max_execution_time`, `max_input_vars`.
+    - FPM process manager controls: `pm.max_children`, `pm.process_idle_timeout`.
+    - 1-Click Extension Toggle per project matching host availability (`redis`, `imagick`, `gd`, `intl`, `bcmath`, `zip`, `pdo_mysql`, `pdo_pgsql`, `pdo_sqlite`, `mongodb`, `swoole`, `opcache`, `pcntl`, `exif`, `sodium`, `soap`).
+    - One-click *Restore Global Baseline* restoring values to admin `/settings/php_defaults`.
+  - **Node.js Project Tuning**:
+    - Node version selector (18, 20, 22 LTS).
+    - Package manager selection (`npm`, `pnpm`, `yarn`).
+    - Entrypoint / script selector (`npm start`, `node server.js`, `next start`, custom script).
+    - V8 memory ceiling toggle (`--max-old-space-size=<megabytes>`).
+  - **Python Project Tuning**:
+    - Python version selector (3.10, 3.11, 3.12).
+    - Virtual environment status & inspection (`.venv` path, package manager `pip`, `requirements.txt`).
+    - WSGI/ASGI server runner configuration (Gunicorn / Uvicorn worker count, worker class, timeout).
+  - **Ruby Project Tuning**:
+    - Ruby version selector & Bundler environment.
+    - Application server runner (Puma / Rails server workers & thread limits).
+  - **Go & Rust Project Tuning**:
+    - Binary executable path, custom start flags, listening port binding, and auto-restart triggers on rebuild.
+  - **Proxy & Static Project Tuning**:
+    - Upstream target URL & WebSocket pass-through toggle.
+    - Custom SPA fallback rewrite rules (`try_files $uri /index.html`).
 
 ### 3.3. Database Suite & SSO Web GUI
 - **5 Integrated Engines**: PostgreSQL 16, MariaDB 11 / MySQL 8, MongoDB 7.0, Redis 7.2, and SQLite (file-based, no daemon). Databases and caches are separate resources — provision either, both, or neither.
