@@ -4,6 +4,8 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { api } from '../api/client';
+import { usePanelSize } from '../hooks/usePanelSize';
+import { PanelSizeControl } from './PanelSizeControl';
 
 interface LiveTerminalProps {
   /** Website slug; omitted = host shell (administrators only). */
@@ -12,6 +14,7 @@ interface LiveTerminalProps {
   subtitle?: string;
   isHost?: boolean;
   height?: number | string;
+  showSizeControl?: boolean;
 }
 
 /**
@@ -21,7 +24,14 @@ interface LiveTerminalProps {
  * token never appears in the URL. Binary frames are stdin/stdout, text frames are
  * control messages (`resize` uses pty.Setsize so vim/top fit the pane).
  */
-export const LiveTerminal: React.FC<LiveTerminalProps> = ({ slug, title, subtitle, isHost, height }) => {
+export const LiveTerminal: React.FC<LiveTerminalProps> = ({ 
+  slug, 
+  title, 
+  subtitle, 
+  isHost, 
+  height,
+  showSizeControl = true,
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -30,6 +40,9 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({ slug, title, subtitl
   const [message, setMessage] = useState('Connecting…');
   const [identity, setIdentity] = useState('');
   const [mode, setMode] = useState('');
+
+  const { size: termSize, height: defaultHeight, setSize: setTermSize } = usePanelSize({ sm: 320, md: 460, lg: 650 });
+  const activeHeight = height ?? defaultHeight;
 
   useEffect(() => {
     let disposed = false;
@@ -158,14 +171,14 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({ slug, title, subtitl
         }
       }, 50);
     }
-  }, [height]);
+  }, [activeHeight]);
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-900 text-white flex items-center gap-1">
-            {isHost ? <Server className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+          <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200 flex items-center gap-1">
+            {isHost ? <Server className="w-3.5 h-3.5 text-purple-600" /> : <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />}
             {isHost ? 'Host shell' : 'Tenant shell'}
           </span>
           <span className="text-sm font-semibold text-slate-800">{title}</span>
@@ -195,14 +208,20 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({ slug, title, subtitl
         </div>
       )}
 
-      <div
-        ref={containerRef}
-        className="w-full rounded-xl overflow-hidden bg-slate-900 p-2"
-        style={{ height: height || 420 }}
-        onMouseDown={() => termRef.current?.focus()}
-      />
+      {/* Terminal Screen Frame with Height Resize Controls */}
+      <div className="w-full rounded-xl overflow-hidden border border-slate-200 shadow-2xs bg-white flex flex-col">
+        <div
+          ref={containerRef}
+          className="w-full bg-[#0a0f1d] p-3"
+          style={{ height: activeHeight }}
+          onMouseDown={() => termRef.current?.focus()}
+        />
+        {showSizeControl && (
+          <PanelSizeControl value={termSize} onChange={setTermSize} dark={false} />
+        )}
+      </div>
 
-      <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+      <p className="text-[11px] text-slate-400 flex items-center gap-1.5 pt-0.5">
         <TerminalIcon className="w-3.5 h-3.5" />
         Binary frames carry stdin/stdout; the pane size is sent to the server so full-screen apps fit.
       </p>
