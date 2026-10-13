@@ -232,8 +232,15 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 		writeError(w, http.StatusBadGateway, "service_error", "could not stop "+previous)
 		return
 	}
-	_, _ = s.host.Run(r.Context(), []string{"systemctl", "disable", previous})
-	_, _ = s.host.Run(r.Context(), []string{"systemctl", "disable", "--now", "apache2"})
+	// In the hybrid multi-webserver architecture, backend engines (apache2 on :8080,
+	// lshttpd on :8088) run concurrently alongside edge ingress.
+	// Only the conflicting edge ingress candidate (nginx or caddy) is stopped and swapped.
+	if previous != engine {
+		_, _ = s.host.Run(r.Context(), []string{"systemctl", "stop", previous})
+	}
+	// Ensure backend engines remain active and enabled
+	_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "apache2"})
+	_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "lshttpd"})
 	if out, err := s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", engine}); err != nil && s.host.Materialises() {
 		_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", previous})
 		regrantFor(r.Context(), s, sites, previous)

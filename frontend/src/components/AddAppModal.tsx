@@ -335,8 +335,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
     const cfg = runtimeConfigs[next];
     setVersion(cfg.versions[0] || 'latest');
     setFramework(cfg.frameworks[0] || 'Generic (bring your own code)');
-    // nginx is the only engine the daemon writes today, whatever the runtime.
-    setWebServer('nginx');
+    // Preserve user webServer selection
   };
 
   const envPreview = useMemo(() => {
@@ -650,29 +649,34 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                 <label className="block text-xs font-semibold text-slate-700 mb-2">Web Server Engine</label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    { id: 'nginx' as WebServerType, label: 'Nginx', desc: 'Implemented today' },
-                    { id: 'openlitespeed' as WebServerType, label: 'OpenLiteSpeed', desc: 'Not yet' },
-                    { id: 'caddy' as WebServerType, label: 'Caddy', desc: 'Not yet' },
-                    { id: 'apache' as WebServerType, label: 'Apache 2.4', desc: 'Not yet' },
+                    { id: 'nginx' as WebServerType, label: 'Nginx', desc: 'High Concurrency' },
+                    { id: 'openlitespeed' as WebServerType, label: 'OpenLiteSpeed', desc: 'OLS + LSCache' },
+                    { id: 'caddy' as WebServerType, label: 'Caddy', desc: 'Auto-HTTPS & HTTP/3' },
+                    { id: 'apache' as WebServerType, label: 'Apache 2.4', desc: '.htaccess & MPM' },
                   ].map((ws) => {
-                    const supported = ws.id === 'nginx';
+                    const isInstalled = stackStatus?.webServer?.installed?.some((s) => s.engine === ws.id) ||
+                                        stackStatus?.webServer?.managedInstalled?.some((s) => s.engine === ws.id) ||
+                                        ws.id === 'nginx';
                     return (
                       <button
                         key={ws.id}
                         type="button"
-                        disabled={!supported}
                         onClick={() => setWebServer(ws.id)}
-                        title={supported ? undefined : 'The daemon cannot write this engine yet'}
-                        className={`p-2.5 rounded-xl border text-left transition-all disabled:opacity-50 disabled:cursor-not-allowed ${cardChoice(webServer === ws.id)}`}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${cardChoice(webServer === ws.id)}`}
                       >
                         <span className="text-xs font-bold block">{ws.label}</span>
                         <span className="text-[10px] text-slate-400 block mt-0.5">{ws.desc}</span>
+                        {isInstalled && (
+                          <span className="inline-block mt-1 text-[9px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+                            Ready
+                          </span>
+                        )}
                       </button>
                     );
                   })}
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1">
-                  Only nginx is written by the daemon today; the other engines are refused rather than silently ignored.
+                  Choose which web server engine powers your application. Edge ingress transparently routes traffic to your selected engine.
                 </p>
               </div>
 

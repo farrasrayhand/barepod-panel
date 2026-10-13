@@ -159,24 +159,20 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 			"The owner account does not exist"))
 		return
 	}
-	// The web server is the host's active engine (one engine owns :80), and it has to be
-	// installed: a site whose vhost cannot be written is not a site.
-	engine := s.deploy.ActiveEngine()
-	if req.WebServer != "" && !webserver.Supported(req.WebServer) {
-		writeError(w, http.StatusNotImplemented, "not_supported_yet",
-			req.WebServer+" is not supported yet — this host's engine is "+engine)
+	// Web server engine selection: supports all 4 engines (nginx, caddy, apache, openlitespeed).
+	// If omitted, defaults to host's active edge ingress engine.
+	if req.WebServer == "" {
+		req.WebServer = s.deploy.ActiveEngine()
+	}
+	if !webserver.Supported(req.WebServer) {
+		writeError(w, http.StatusBadRequest, "unsupported_web_server",
+			req.WebServer+" is not supported — choose nginx, caddy, apache, or openlitespeed")
 		return
 	}
-	if req.WebServer != "" && !strings.EqualFold(req.WebServer, engine) {
-		writeError(w, http.StatusConflict, "engine_is_host_level",
-			"the web server is a host-level choice ("+engine+"); change it in Stack")
+	if !webserver.Available(req.WebServer, s.lookPath) {
+		writeError(w, http.StatusConflict, "engine_not_installed", req.WebServer+" is not installed — "+webserver.InstallHint(req.WebServer))
 		return
 	}
-	if !webserver.Available(engine, s.lookPath) {
-		writeError(w, http.StatusConflict, "engine_not_installed", engine+" is not installed — "+webserver.InstallHint(engine))
-		return
-	}
-	req.WebServer = engine
 	// Package guard: the tenant's group may cap how many websites it can own.
 	if limits := s.limitsForTenant(req.TenantUser); limits.MaxSites > 0 {
 		count, err := s.store.CountWebsitesByTenant(req.TenantUser)

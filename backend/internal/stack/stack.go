@@ -127,14 +127,15 @@ func Commands(component, version string) ([][]string, error) {
 	case "nginx":
 		return append([][]string{{"bash", "-c", nginxRepoScript}}, installEngine("nginx", version)...), nil
 	case "caddy":
-		return append([][]string{{"bash", "-c", caddyRepoScript}}, installEngine("caddy", version)...), nil
+		cmds := append([][]string{{"bash", "-c", caddyRepoScript}}, installEngine("caddy", version)...)
+		caddyPortSetup := "if systemctl is-active --quiet nginx; then if [ -f /etc/caddy/Caddyfile ] && ! grep -q 'http_port' /etc/caddy/Caddyfile; then sed -i '1s/^/{\\n    http_port 8081\\n}\\n/' /etc/caddy/Caddyfile 2>/dev/null || true; systemctl restart caddy 2>/dev/null || true; fi; fi"
+		return append(cmds, []string{"bash", "-c", caddyPortSetup}), nil
 	case "apache":
 		cmds := append([][]string{{"bash", "-c", apacheRepoScript}}, installEngine("apache2", version)...)
-		// Debian/Ubuntu enables and starts apache2 by default on port 80. If another engine
-		// owns the ingress, disable and stop apache2 immediately so it does not collide with :80
-		// or fail at boot.
-		guard := "if systemctl is-active --quiet nginx || systemctl is-active --quiet caddy; then systemctl stop apache2 2>/dev/null || true; systemctl disable apache2 2>/dev/null || true; fi"
-		return append(cmds, []string{"bash", "-c", guard}), nil
+		// Reconfigure Apache to listen on internal port 127.0.0.1:8080 (and 8443) so it never collides with
+		// edge ingress on :80/:443 and stays active and enabled concurrently alongside other engines.
+		portSetup := "if [ -f /etc/apache2/ports.conf ]; then sed -i 's/Listen 80$/Listen 127.0.0.1:8080/' /etc/apache2/ports.conf 2>/dev/null || true; sed -i 's/Listen 443$/Listen 127.0.0.1:8443/' /etc/apache2/ports.conf 2>/dev/null || true; sed -i 's/<VirtualHost \\*:80>/<VirtualHost 127.0.0.1:8080>/' /etc/apache2/sites-available/000-default.conf 2>/dev/null || true; systemctl restart apache2 2>/dev/null || true; systemctl enable apache2 2>/dev/null || true; fi"
+		return append(cmds, []string{"bash", "-c", portSetup}), nil
 	case "openlitespeed":
 		return append([][]string{{"bash", "-c", openlitespeedRepoScript}}, installEngine("openlitespeed", version)...), nil
 	case "repositories":

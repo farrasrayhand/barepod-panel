@@ -64,14 +64,53 @@ func TestCaddyVhosts(t *testing.T) {
 }
 
 func TestSupportedEngines(t *testing.T) {
-	for _, engine := range []string{"nginx", "caddy", "NGINX", " Caddy "} {
+	for _, engine := range []string{"nginx", "caddy", "apache", "openlitespeed", "NGINX", " Caddy ", "Apache", "OpenLiteSpeed"} {
 		if !Supported(engine) {
 			t.Errorf("Supported(%q) = false, want true", engine)
 		}
 	}
-	for _, engine := range []string{"openlitespeed", "apache", "", "caddy2"} {
+	for _, engine := range []string{"iis", "caddy2", "", "tomcat"} {
 		if Supported(engine) {
 			t.Errorf("Supported(%q) = true, want false", engine)
+		}
+	}
+}
+
+func TestApacheVhost(t *testing.T) {
+	cfg, err := Render(Apache, Spec{
+		Slug: "blog", Domain: "blog.example.com", Kind: "php",
+		DocRoot: "/home/alex/apps/blog", Socket: "/home/alex/apps/blog/fpm.sock",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"<VirtualHost 127.0.0.1:8080>",
+		"ServerName blog.example.com",
+		"DocumentRoot /home/alex/apps/blog",
+		"proxy:unix:/home/alex/apps/blog/fpm.sock|fcgi://localhost",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("apache php vhost missing %q:\n%s", want, cfg)
+		}
+	}
+}
+
+func TestOpenLiteSpeedVhost(t *testing.T) {
+	cfg, err := Render(OpenLiteSpeed, Spec{
+		Slug: "blog", Domain: "blog.example.com", Kind: "php",
+		DocRoot: "/home/alex/apps/blog", Socket: "/home/alex/apps/blog/fpm.sock",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"docRoot                   /home/alex/apps/blog",
+		"extprocessor phpfpm {",
+		"unix:/home/alex/apps/blog/fpm.sock",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("openlitespeed php vhost missing %q:\n%s", want, cfg)
 		}
 	}
 }

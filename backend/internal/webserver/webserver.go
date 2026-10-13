@@ -17,18 +17,19 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/phpfpm"
 )
 
-// Nginx and Caddy are the engines this package can write. A host runs one of them
-// as its ingress; the other three the product mentions (openlitespeed, apache) are
-// refused by name rather than silently ignored.
+// The 4 web server engines managed by BarePod Panel:
+// Edge Ingress (nginx, caddy) and backend/proxy engines (apache, openlitespeed).
 const (
-	Nginx = "nginx"
-	Caddy = "caddy"
+	Nginx         = "nginx"
+	Caddy         = "caddy"
+	Apache        = "apache"
+	OpenLiteSpeed = "openlitespeed"
 )
 
-// Supported reports whether this engine can be generated.
+// Supported reports whether this engine is supported.
 func Supported(engine string) bool {
 	switch strings.ToLower(strings.TrimSpace(engine)) {
-	case Nginx, Caddy:
+	case Nginx, Caddy, Apache, OpenLiteSpeed:
 		return true
 	}
 	return false
@@ -39,23 +40,38 @@ const DefaultEngine = Nginx
 
 // WebUser is the account the engine runs as on Debian/Ubuntu.
 func WebUser(engine string) string {
-	if strings.EqualFold(engine, Caddy) {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case Caddy:
 		return "caddy"
+	case OpenLiteSpeed:
+		return "nobody"
+	default:
+		return host.DefaultWebUser
 	}
-	return host.DefaultWebUser
 }
 
 // VhostsDir default per engine (empty config falls back here).
 func defaultVhostsDir(engine string) string {
-	if strings.EqualFold(engine, Caddy) {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case Caddy:
 		return "/etc/caddy/sites"
+	case Apache:
+		return "/etc/apache2/sites-enabled"
+	case OpenLiteSpeed:
+		return "/usr/local/lsws/conf/vhosts"
+	default:
+		return host.DefaultVhostsDir
 	}
-	return host.DefaultVhostsDir
 }
 
 // Available reports whether the engine is installed, using the caller's LookPath so
 // the answer does not depend on the machine (the daemon injects its own).
 func Available(engine string, lookPath func(string) (string, error)) bool {
+	if strings.EqualFold(engine, OpenLiteSpeed) {
+		if _, err := os.Stat("/usr/local/lsws/bin/openlitespeed"); err == nil {
+			return true
+		}
+	}
 	if lookPath == nil {
 		lookPath = exec.LookPath
 	}
@@ -64,10 +80,16 @@ func Available(engine string, lookPath func(string) (string, error)) bool {
 }
 
 func engineBinary(engine string) string {
-	if strings.EqualFold(engine, Caddy) {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case Caddy:
 		return "caddy"
+	case Apache:
+		return "apache2"
+	case OpenLiteSpeed:
+		return "openlitespeed"
+	default:
+		return "nginx"
 	}
-	return "nginx"
 }
 
 // InstallHint is what to tell the operator when the engine is missing.
@@ -121,8 +143,12 @@ func Render(engine string, s Spec) (string, error) {
 		return nginxVhost(s), nil
 	case Caddy:
 		return caddyVhost(s), nil
+	case Apache:
+		return apacheVhost(s), nil
+	case OpenLiteSpeed:
+		return openlitespeedVhost(s), nil
 	}
-	return "", fmt.Errorf("webserver: %s is not supported yet — only nginx and caddy are implemented", engine)
+	return "", fmt.Errorf("webserver: %s is not supported yet", engine)
 }
 
 // Default renders the catch-all for an engine.
@@ -142,6 +168,21 @@ server {
 :80 {
     respond "Nothing is hosted here yet." 404
 }
+`, nil
+	case Apache:
+		return `# Managed by BarePod Panel — the catch-all site (barepod-default.conf).
+<VirtualHost 127.0.0.1:8080>
+    ServerName default
+    ServerAlias *
+    DocumentRoot /var/www/html
+    <Location />
+        Require all granted
+    </Location>
+</VirtualHost>
+`, nil
+	case OpenLiteSpeed:
+		return `# Managed by BarePod Panel — the catch-all site (barepod-default.conf).
+docRoot /var/www/html
 `, nil
 	}
 	return "", fmt.Errorf("webserver: no catch-all for %s", engine)
@@ -218,6 +259,83 @@ func caddyVhost(s Spec) string {
 		fmt.Fprintf(&b, "\treverse_proxy 127.0.0.1:%d\n", s.Port)
 	}
 	b.WriteString("}\n")
+	return b.String()
+}
+
+// --- Apache ---
+
+func apacheVhost(s Spec) string {
+	var b strings.Builder
+	b.WriteString("# Managed by BarePod Panel — do not edit by hand (" + FileName(Apache, s.Slug) + ").\n")
+	b.WriteString("<VirtualHost 127.0.0.1:8080>\n")
+	fmt.Fprintf(&b, "    ServerName %s\n", s.Domain)
+	if s.DocRoot != "" {
+		fmt.Fprintf(&b, "    DocumentRoot %s\n", s.DocRoot)
+	}
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "    CustomLog /var/log/apache2/barepod-%s.access.log combined\n", s.Slug)
+	fmt.Fprintf(&b, "    ErrorLog  /var/log/apache2/barepod-%s.error.log\n\n", s.Slug)
+
+	if s.DocRoot != "" {
+		fmt.Fprintf(&b, "    <Directory %s>\n", s.DocRoot)
+		b.WriteString("        Options -Indexes +FollowSymLinks\n")
+		b.WriteString("        AllowOverride All\n")
+		b.WriteString("        Require all granted\n")
+		b.WriteString("    </Directory>\n\n")
+	}
+
+	switch s.Kind {
+	case "php":
+		b.WriteString("    <FilesMatch \\.php$>\n")
+		fmt.Fprintf(&b, "        SetHandler \"proxy:unix:%s|fcgi://localhost\"\n", s.Socket)
+		b.WriteString("    </FilesMatch>\n")
+	case "static":
+		b.WriteString("    DirectoryIndex index.html index.htm\n")
+	default:
+		b.WriteString("    ProxyPreserveHost On\n")
+		b.WriteString("    ProxyRequests Off\n")
+		fmt.Fprintf(&b, "    ProxyPass / http://127.0.0.1:%d/\n", s.Port)
+		fmt.Fprintf(&b, "    ProxyPassReverse / http://127.0.0.1:%d/\n", s.Port)
+	}
+
+	b.WriteString("</VirtualHost>\n")
+	return b.String()
+}
+
+// --- OpenLiteSpeed ---
+
+func openlitespeedVhost(s Spec) string {
+	var b strings.Builder
+	b.WriteString("# Managed by BarePod Panel — do not edit by hand (" + FileName(OpenLiteSpeed, s.Slug) + ").\n")
+	fmt.Fprintf(&b, "docRoot                   %s\n", s.DocRoot)
+	b.WriteString("enableGzip                1\n\n")
+
+	switch s.Kind {
+	case "php":
+		b.WriteString("extprocessor phpfpm {\n")
+		b.WriteString("    type                    fcgi\n")
+		fmt.Fprintf(&b, "    address                 unix:%s\n", s.Socket)
+		b.WriteString("    maxConns                20\n")
+		b.WriteString("    initTimeout             60\n")
+		b.WriteString("    retryTimeout            0\n")
+		b.WriteString("}\n")
+	case "static":
+		b.WriteString("indexFiles                index.html, index.htm\n")
+	default:
+		fmt.Fprintf(&b, "extprocessor %s_proxy {\n", s.Slug)
+		b.WriteString("    type                    proxy\n")
+		fmt.Fprintf(&b, "    address                 127.0.0.1:%d\n", s.Port)
+		b.WriteString("    maxConns                200\n")
+		b.WriteString("    initTimeout             60\n")
+		b.WriteString("    retryTimeout            0\n")
+		b.WriteString("}\n\n")
+		b.WriteString("context / {\n")
+		b.WriteString("    type                    proxy\n")
+		fmt.Fprintf(&b, "    handler                 %s_proxy\n", s.Slug)
+		b.WriteString("    addDefaultCharset       off\n")
+		b.WriteString("}\n")
+	}
+
 	return b.String()
 }
 
@@ -326,9 +444,14 @@ func writeCaddyConfig(caddyfile, sitesDir string) error {
 // Test validates the engine's whole configuration.
 func Test(ctx context.Context, engine string, h *host.Host) error {
 	var argv []string
-	if strings.EqualFold(engine, Caddy) {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case Caddy:
 		argv = []string{"caddy", "validate", "--config", filepath.Join(h.CaddyDir(), "Caddyfile")}
-	} else {
+	case Apache:
+		argv = []string{"apache2ctl", "configtest"}
+	case OpenLiteSpeed:
+		argv = []string{"/usr/local/lsws/bin/openlitespeed", "-t"}
+	default:
 		argv = []string{"nginx", "-t"}
 	}
 	out, err := h.Run(ctx, argv)
@@ -344,8 +467,13 @@ func Test(ctx context.Context, engine string, h *host.Host) error {
 // Reload asks the engine to load the new configuration without dropping connections.
 func Reload(ctx context.Context, engine string, h *host.Host) error {
 	service := "nginx"
-	if strings.EqualFold(engine, Caddy) {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case Caddy:
 		service = "caddy"
+	case Apache:
+		service = "apache2"
+	case OpenLiteSpeed:
+		service = "lshttpd"
 	}
 	out, err := h.Run(ctx, []string{"systemctl", "reload", service})
 	if err != nil {

@@ -74,9 +74,9 @@ func (s *Server) handlePutRuntime(w http.ResponseWriter, r *http.Request, user *
 		return
 	}
 	engine := strings.ToLower(strings.TrimSpace(req.Engine))
-	if engine != "" && engine != s.deploy.ActiveEngine() {
-		writeError(w, http.StatusConflict, "engine_is_host_level",
-			"the web server is a host-level choice ("+s.deploy.ActiveEngine()+"); change it in Stack")
+	if engine != "" && !webserver.Supported(engine) {
+		writeError(w, http.StatusBadRequest, "unsupported_web_server",
+			engine+" is not supported — choose nginx, caddy, apache, or openlitespeed")
 		return
 	}
 	writeJSON(w, http.StatusOK, s.siteRuntime(site))
