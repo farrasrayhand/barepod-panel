@@ -665,7 +665,7 @@ SHELL=/bin/bash`;
             />
           </div>
         </div>
-        <PanelSizeControl value={termSize} onChange={setTermSize} dark={false} />
+        <PanelSizeControl value={termSize} onChange={setTermSize} dark={true} />
       </div>
     </div>
   );

@@ -209,7 +209,7 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({
       )}
 
       {/* Terminal Screen Frame with Height Resize Controls */}
-      <div className="w-full rounded-xl overflow-hidden border border-slate-200 shadow-2xs bg-white flex flex-col">
+      <div className="w-full rounded-xl overflow-hidden border border-slate-800 shadow-2xs bg-[#0a0f1d] flex flex-col">
         <div
           ref={containerRef}
           className="w-full bg-[#0a0f1d] p-3"
@@ -217,7 +217,7 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({
           onMouseDown={() => termRef.current?.focus()}
         />
         {showSizeControl && (
-          <PanelSizeControl value={termSize} onChange={setTermSize} dark={false} />
+          <PanelSizeControl value={termSize} onChange={setTermSize} dark={true} />
         )}
       </div>
 
