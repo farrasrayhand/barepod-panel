@@ -20,7 +20,7 @@ import (
 func (s *Server) handleStackStatus(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
 	status := stack.Detect(r.Context(), s.store, s.host, s.lookPath)
 	// So "nothing is running" is never a guess: the screen can name what holds the queue.
-	status.InstallRunning = s.installs.Running()
+	status.InstallRunning, status.ActiveJobID = s.installs.Running()
 	writeJSON(w, http.StatusOK, status)
 }
 

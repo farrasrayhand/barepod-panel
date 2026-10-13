@@ -38,10 +38,12 @@ func Scaffold(framework, version string) []string {
 		return []string{"npx", "@nestjs/cli@latest", "new", ".", "--package-manager", "npm", "--skip-git"}
 	case "express":
 		return []string{"npm", "init", "-y"}
-	case "django":
-		return []string{"python3", "-m", "venv", ".venv"}
-	case "flask", "fastapi":
-		return []string{"python3", "-m", "venv", ".venv"}
+	case "django", "flask", "fastapi":
+		bin := "python3"
+		if version != "" {
+			bin = "python" + strings.TrimSpace(version)
+		}
+		return []string{bin, "-m", "venv", ".venv"}
 	case "rails":
 		return []string{"rails", "new", ".", "--skip-bundle"}
 	case "go", "gin", "fiber":

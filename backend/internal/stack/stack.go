@@ -488,6 +488,7 @@ type Installer struct {
 
 	mu        sync.Mutex
 	running   string    // the install in progress, empty when none is
+	jobID     string    // active job id
 	claimedAt time.Time // when it was claimed, so a stranded claim can be taken over
 }
 
@@ -498,14 +499,14 @@ func New(st *store.Store, h *host.Host) *Installer { return &Installer{store: st
 // and the next install takes it over rather than being refused forever.
 const claimTTL = 30 * time.Minute
 
-// Running reports the install in progress, or empty.
-func (i *Installer) Running() string {
+// Running reports the install in progress and active job ID, or empty.
+func (i *Installer) Running() (string, string) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if time.Since(i.claimedAt) > claimTTL {
-		return ""
+		return "", ""
 	}
-	return i.running
+	return i.running, i.jobID
 }
 
 // claim marks an install as running, or reports which one is in the way.
@@ -516,13 +517,21 @@ func (i *Installer) claim(label string) error {
 		return fmt.Errorf("stack: %s is installing right now — wait for it to finish (two installs would share one package lock)", i.running)
 	}
 	i.running = label
+	i.jobID = ""
 	i.claimedAt = time.Now()
 	return nil
+}
+
+func (i *Installer) setJobID(id string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.jobID = id
 }
 
 func (i *Installer) release() {
 	i.mu.Lock()
 	i.running = ""
+	i.jobID = ""
 	i.claimedAt = time.Time{}
 	i.mu.Unlock()
 }
@@ -565,6 +574,7 @@ func (i *Installer) Start(component, version string) (*store.DeployJob, error) {
 		i.release() // a job that was never recorded must not hold the queue
 		return nil, err
 	}
+	i.setJobID(job.ID)
 	snapshot := *job
 	go i.run(job, "installing", "installed", component, version, commands)
 	return &snapshot, nil
@@ -628,6 +638,7 @@ func (i *Installer) StartRemoval(component, version string) (*store.DeployJob, e
 		i.release()
 		return nil, err
 	}
+	i.setJobID(job.ID)
 	snapshot := *job
 	go i.run(job, "removing", "removed", component, version, append([][]string{dpkgRepair()}, commands...))
 	return &snapshot, nil
@@ -732,6 +743,7 @@ type Status struct {
 	// InstallRunning names an install in progress, so "nothing is running" is never a
 	// guess: the screen can say what holds the queue.
 	InstallRunning string `json:"installRunning,omitempty"`
+	ActiveJobID    string `json:"activeJobId,omitempty"`
 	// DatabaseAvailable is what each engine's repositories offer, read the same way a
 	// runtime's list is: a version is shown because apt has the package, not because a
 	// catalog names it.

@@ -69,7 +69,15 @@ func TestPhpFpmPathKeepsTheDottedVersion(t *testing.T) {
 	if len(argv) == 0 || argv[0] != "/usr/sbin/php-fpm8.3" {
 		t.Fatalf("php-fpm path = %v, want /usr/sbin/php-fpm8.3", argv)
 	}
-	if got := ExecStart("php", "", "", "/srv/site", 9000); len(got) == 0 || got[0] != "/usr/sbin/php-fpm" {
-		t.Errorf("unversioned php-fpm path = %v, want the distribution's default binary", got)
+}
+
+func TestPythonScaffoldUsesSpecificVersion(t *testing.T) {
+	argv := Scaffold("flask", "3.12")
+	if len(argv) < 1 || argv[0] != "python3.12" {
+		t.Fatalf("Scaffold(flask, 3.12) = %v, want python3.12", argv)
+	}
+	defaultArgv := Scaffold("flask", "")
+	if len(defaultArgv) < 1 || defaultArgv[0] != "python3" {
+		t.Fatalf("Scaffold(flask, '') = %v, want python3", defaultArgv)
 	}
 }

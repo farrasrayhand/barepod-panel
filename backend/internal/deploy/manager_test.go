@@ -76,7 +76,7 @@ func TestDeployRunsSiteCommandsAsTheTenant(t *testing.T) {
 	}
 	joined := strings.Join(runner.Commands(), "\n")
 	for _, want := range []string{
-		"as tester, cd " + h.SitePath("tester", "tenant-owned") + " && python3 -m venv .venv",
+		"as tester, cd " + h.SitePath("tester", "tenant-owned") + " && python3.12 -m venv .venv",
 		"as tester, cd " + h.SitePath("tester", "tenant-owned") + " && ./.venv/bin/pip install",
 	} {
 		if !strings.Contains(joined, want) {

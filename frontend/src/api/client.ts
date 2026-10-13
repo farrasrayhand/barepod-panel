@@ -1101,6 +1101,8 @@ export interface PhpExtensionReport {
 export interface StackStatus {
   /** The install in progress, if any: an install holds the queue one at a time. */
   installRunning?: string;
+  /** The ID of the currently running install job, if any. */
+  activeJobId?: string;
   /** The sources the panel adds (Sury, deadsnakes, rbenv, rustup) and whether they are here. */
   repositories?: { name: string; label: string; present: boolean; group: string; path?: string }[];
   /** What each engine's repositories carry, and the newest of them. */

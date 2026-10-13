@@ -289,7 +289,11 @@ func stepFetchSource(ctx context.Context, s *state) error {
 		return nil
 	}
 
-	argv := provision.Scaffold(s.req.Framework, s.req.FrameworkVersion)
+	scaffoldVer := s.req.FrameworkVersion
+	if s.req.Runtime == "python" && s.req.Version != "" {
+		scaffoldVer = s.req.Version
+	}
+	argv := provision.Scaffold(s.req.Framework, scaffoldVer)
 	if len(argv) == 0 {
 		s.log("stdout", "no automated download for this template — use a GitHub repository or upload the code instead")
 		return nil

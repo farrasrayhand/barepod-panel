@@ -72,7 +72,13 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     try {
       const reachable = await apiReachable();
       setLive(reachable);
-      if (reachable) setStatus(await api.stack());
+      if (reachable) {
+        const s = await api.stack();
+        setStatus(s);
+        if (s.activeJobId && !sourceRef.current) {
+          watchJob(s.activeJobId);
+        }
+      }
     } catch (err) {
       onShowToast?.('Could not read the stack', describeError(err), 'error');
     } finally {
