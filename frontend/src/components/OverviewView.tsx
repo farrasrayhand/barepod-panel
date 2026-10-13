@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   Server, 
   Cpu, 
@@ -21,7 +21,9 @@ import {
   Loader2,
   RefreshCw,
   ExternalLink,
-  CheckCircle2
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import type { NavItem, WebApp } from '../types';
 import { api, apiReachable, type HostMetrics } from '../api/client';
@@ -59,6 +61,23 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
   const [metrics, setMetrics] = useState<HostMetrics | null>(null);
   const [userCount, setUserCount] = useState<number>(1);
   const [webServerName, setWebServerName] = useState<string>('OpenLiteSpeed');
+  const [sessionPage, setSessionPage] = useState<number>(1);
+  const SESSIONS_PER_PAGE = 5;
+
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      if (a.current && !b.current) return -1;
+      if (!a.current && b.current) return 1;
+      return 0;
+    });
+  }, [sessions]);
+
+  const totalSessionPages = Math.max(1, Math.ceil(sortedSessions.length / SESSIONS_PER_PAGE));
+  const currentSessionPage = Math.min(sessionPage, totalSessionPages);
+  const paginatedSessions = sortedSessions.slice(
+    (currentSessionPage - 1) * SESSIONS_PER_PAGE,
+    currentSessionPage * SESSIONS_PER_PAGE
+  );
 
   const loadData = async () => {
     const reachable = await apiReachable();
@@ -435,19 +454,20 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
               </div>
               <button
                 onClick={() => onNavigate('profile')}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
+                className="text-xs font-semibold text-blue-600 hover:text-blue-700 cursor-pointer flex items-center gap-1"
               >
-                Manage Sessions
+                <span>Manage Sessions</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
             <div className="divide-y divide-slate-100">
-              {sessions.map((session, i) => (
-                <div key={i} className="px-5 py-3 flex items-center justify-between gap-3 text-xs">
+              {paginatedSessions.map((session, i) => (
+                <div key={i} className="px-5 py-3 flex items-center justify-between gap-3 text-xs hover:bg-slate-50/50 transition-colors">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <LogIn className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                     <span className="font-semibold text-slate-800 truncate">{session.device}</span>
                     {session.current && (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded shrink-0">
                         Current Device
                       </span>
                     )}
@@ -463,6 +483,36 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
                 </p>
               )}
             </div>
+
+            {/* Pagination Controls */}
+            {totalSessionPages > 1 && (
+              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between text-xs">
+                <span className="text-[11px] text-slate-500 font-medium">
+                  Showing <strong className="text-slate-800">{(currentSessionPage - 1) * SESSIONS_PER_PAGE + 1}</strong>–<strong className="text-slate-800">{Math.min(currentSessionPage * SESSIONS_PER_PAGE, sortedSessions.length)}</strong> of <strong className="text-slate-800">{sortedSessions.length}</strong> sessions
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setSessionPage((p) => Math.max(1, p - 1))}
+                    disabled={currentSessionPage <= 1}
+                    className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Prev</span>
+                  </button>
+                  <span className="text-[11px] font-mono text-slate-600 px-1.5">
+                    {currentSessionPage} / {totalSessionPages}
+                  </span>
+                  <button
+                    onClick={() => setSessionPage((p) => Math.min(totalSessionPages, p + 1))}
+                    disabled={currentSessionPage >= totalSessionPages}
+                    className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs"
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

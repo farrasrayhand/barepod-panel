@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   User,
   Mail,
@@ -11,6 +11,9 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
+  Trash2,
 } from 'lucide-react';
 import { PERMISSION_MATRIX } from '../data/permissions';
 import { api, apiReachable } from '../api/client';
@@ -87,6 +90,47 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
     }
     setSessions((prev) => prev.filter((s) => s.id !== id));
     onShowToast?.('Session Revoked', `Signed out ${device}.`, 'info');
+  };
+
+  const [sessionPage, setSessionPage] = useState<number>(1);
+  const SESSIONS_PER_PAGE = 8;
+
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      if (a.current && !b.current) return -1;
+      if (!a.current && b.current) return 1;
+      return 0;
+    });
+  }, [sessions]);
+
+  const totalSessionPages = Math.max(1, Math.ceil(sortedSessions.length / SESSIONS_PER_PAGE));
+  const currentSessionPage = Math.min(sessionPage, totalSessionPages);
+  const paginatedSessions = sortedSessions.slice(
+    (currentSessionPage - 1) * SESSIONS_PER_PAGE,
+    currentSessionPage * SESSIONS_PER_PAGE
+  );
+
+  const revokeAllOtherSessions = async () => {
+    const otherSessions = sessions.filter((s) => !s.current);
+    if (!otherSessions.length) return;
+    if (!window.confirm(`Revoke all ${otherSessions.length} other session(s)? All other logged-in devices will be signed out.`)) return;
+
+    setSessionsBusy(true);
+    try {
+      if (sessionsLive) {
+        await Promise.allSettled(otherSessions.map((s) => api.revokeSession(s.id)));
+        await loadSessions();
+        onShowToast?.('Sessions Revoked', `Successfully revoked ${otherSessions.length} other session(s).`, 'success');
+      } else {
+        setSessions((prev) => prev.filter((s) => s.current));
+        onShowToast?.('Sessions Revoked', 'Cleared all other sessions.', 'info');
+      }
+      setSessionPage(1);
+    } catch (err) {
+      onShowToast?.('Could not revoke sessions', describeError(err), 'error');
+    } finally {
+      setSessionsBusy(false);
+    }
   };
 
   // This used to report "Your panel password has been changed." without calling anything —
@@ -229,37 +273,55 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
 
       {/* Active sessions */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-2">
-          <Monitor className="w-4 h-4 text-slate-700" />
-          <h2 className="text-sm font-bold text-slate-900">Active Sessions</h2>
-          {sessionsLive === true && (
-            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">Live</span>
-          )}
-          {sessionsLive === false && (
-            <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-              Simulation (mock data)
+        <div className="px-5 py-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Monitor className="w-4 h-4 text-slate-700" />
+            <h2 className="text-sm font-bold text-slate-900">Active Sessions</h2>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">
+              {sessions.length}
             </span>
+            {sessionsLive === true && (
+              <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">Live</span>
+            )}
+            {sessionsLive === false && (
+              <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
+                Simulation (mock data)
+              </span>
+            )}
+            {sessionsBusy && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+          </div>
+
+          {sessions.filter((s) => !s.current).length > 0 && (
+            <button
+              onClick={revokeAllOtherSessions}
+              disabled={sessionsBusy}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Revoke Other Sessions ({sessions.filter((s) => !s.current).length})</span>
+            </button>
           )}
-          {sessionsBusy && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
         </div>
+
         <div className="divide-y divide-slate-100">
-          {sessions.map((session) => (
-            <div key={session.id} className="px-5 py-3 flex items-center justify-between gap-3">
+          {paginatedSessions.map((session) => (
+            <div key={session.id} className="px-5 py-3 flex items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
               <div className="text-xs min-w-0">
                 <span className="font-semibold text-slate-800 flex items-center gap-2">
                   {session.device}
                   {session.current && (
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">This device</span>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">This device</span>
                   )}
                 </span>
                 <span className="text-slate-400 font-mono text-[11px]">{session.ip} · {session.lastActive}</span>
               </div>
               {session.current ? (
-                <span className="text-[10px] text-slate-400">—</span>
+                <span className="text-[10px] text-slate-400 font-medium px-2">—</span>
               ) : (
                 <button
                   onClick={() => revokeSession(session.id, session.device)}
-                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                  disabled={sessionsBusy}
+                  className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                 >
                   <LogOut className="w-3 h-3" /> Revoke
                 </button>
@@ -270,6 +332,36 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
             <div className="px-5 py-6 text-center text-xs text-slate-400">No other active sessions.</div>
           )}
         </div>
+
+        {/* Pagination Controls */}
+        {totalSessionPages > 1 && (
+          <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between text-xs">
+            <span className="text-[11px] text-slate-500 font-medium">
+              Showing <strong className="text-slate-800">{(currentSessionPage - 1) * SESSIONS_PER_PAGE + 1}</strong>–<strong className="text-slate-800">{Math.min(currentSessionPage * SESSIONS_PER_PAGE, sortedSessions.length)}</strong> of <strong className="text-slate-800">{sortedSessions.length}</strong> sessions
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setSessionPage((p) => Math.max(1, p - 1))}
+                disabled={currentSessionPage <= 1}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Prev</span>
+              </button>
+              <span className="text-[11px] font-mono text-slate-600 px-1.5">
+                {currentSessionPage} / {totalSessionPages}
+              </span>
+              <button
+                onClick={() => setSessionPage((p) => Math.min(totalSessionPages, p + 1))}
+                disabled={currentSessionPage >= totalSessionPages}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-2xs"
+              >
+                <span>Next</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Permissions */}
