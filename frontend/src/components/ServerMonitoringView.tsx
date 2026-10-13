@@ -927,8 +927,8 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
         >
           <Disc className="w-4 h-4" />
           <span>Storage & S.M.A.R.T. Health</span>
-          <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
-            NVMe 39°C
+          <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-bold text-[10px]">
+            {storageData?.mounts?.length ? `${storageData.mounts.length} Mounts` : `${kpi.diskUsedGb.toFixed(0)}/${kpi.diskTotalGb.toFixed(0)} GB`}
           </span>
         </button>
 
@@ -1015,16 +1015,16 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
                 <div className="pt-2 border-t border-slate-200 grid grid-cols-3 gap-2 text-[11px] text-slate-500 text-center font-mono">
                   <div className="bg-white p-2 rounded border border-slate-200">
-                    <span className="block text-slate-400 text-[10px]">USER SPACE</span>
-                    <strong className="text-slate-800">8.2%</strong>
+                    <span className="block text-slate-400 text-[10px]">LOAD 1M</span>
+                    <strong className="text-slate-800">{live ? live.load1.toFixed(2) : '0.34'}</strong>
                   </div>
                   <div className="bg-white p-2 rounded border border-slate-200">
-                    <span className="block text-slate-400 text-[10px]">KERNEL / SYS</span>
-                    <strong className="text-slate-800">4.1%</strong>
+                    <span className="block text-slate-400 text-[10px]">LOAD 5M</span>
+                    <strong className="text-slate-800">{live ? live.load5.toFixed(2) : '0.48'}</strong>
                   </div>
                   <div className="bg-white p-2 rounded border border-slate-200">
-                    <span className="block text-slate-400 text-[10px]">I/O WAIT</span>
-                    <strong className="text-slate-800">1.9%</strong>
+                    <span className="block text-slate-400 text-[10px]">LOAD 15M</span>
+                    <strong className="text-slate-800">{live ? live.load15.toFixed(2) : '0.52'}</strong>
                   </div>
                 </div>
               </div>
@@ -1036,43 +1036,56 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                     <Activity className="w-4 h-4 text-emerald-600" />
                     RAM & Virtual Memory Pool
                   </h3>
-                  <span className="text-xs text-slate-500 font-mono">Total Physical: 8192 MB</span>
+                  <span className="text-xs text-slate-500 font-mono">
+                    Total Physical: {Math.round(kpi.ramTotalGb * 1024)} MB
+                  </span>
                 </div>
 
                 <div className="space-y-3 text-xs">
                   <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-2">
                     <div className="flex justify-between">
                       <span className="text-slate-600 font-medium">Active Applications Memory</span>
-                      <span className="font-mono font-bold text-slate-900">{ramUsed} GB ({((ramUsed / ramTotal) * 100).toFixed(0)}%)</span>
+                      <span className="font-mono font-bold text-slate-900">
+                        {kpi.ramUsedGb.toFixed(1)} GB ({((kpi.ramUsedGb / Math.max(0.1, kpi.ramTotalGb)) * 100).toFixed(0)}%)
+                      </span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                      <div className="bg-emerald-500 h-1.5" style={{ width: `${(ramUsed / ramTotal) * 100}%` }} />
+                      <div className="bg-emerald-500 h-1.5" style={{ width: `${Math.min(100, (kpi.ramUsedGb / Math.max(0.1, kpi.ramTotalGb)) * 100)}%` }} />
                     </div>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-2">
                     <div className="flex justify-between">
-                      <span className="text-slate-600 font-medium">Page Cache & Buffers</span>
-                      <span className="font-mono font-bold text-slate-900">3.1 GB (38%)</span>
+                      <span className="text-slate-600 font-medium">Available / Free RAM</span>
+                      <span className="font-mono font-bold text-slate-900">
+                        {Math.max(0, kpi.ramTotalGb - kpi.ramUsedGb).toFixed(1)} GB ({Math.max(0, (1 - kpi.ramUsedGb / Math.max(0.1, kpi.ramTotalGb)) * 100).toFixed(0)}%)
+                      </span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                      <div className="bg-amber-400 h-1.5" style={{ width: '38%' }} />
+                      <div className="bg-sky-500 h-1.5" style={{ width: `${Math.min(100, Math.max(0, (1 - kpi.ramUsedGb / Math.max(0.1, kpi.ramTotalGb)) * 100))}%` }} />
                     </div>
                   </div>
 
                   <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-2">
                     <div className="flex justify-between">
                       <span className="text-slate-600 font-medium">Linux Swap Space</span>
-                      <span className="font-mono font-bold text-slate-900">84 MB / 2048 MB (4%)</span>
+                      <span className="font-mono font-bold text-slate-900">
+                        {kpi.swapTotalGb > 0
+                          ? `${Math.round(kpi.swapUsedGb * 1024)} MB / ${Math.round(kpi.swapTotalGb * 1024)} MB (${((kpi.swapUsedGb / Math.max(0.01, kpi.swapTotalGb)) * 100).toFixed(0)}%)`
+                          : 'Disabled / No Swap configured'}
+                      </span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                      <div className="bg-purple-500 h-1.5" style={{ width: '4%' }} />
+                      <div 
+                        className="bg-purple-500 h-1.5 transition-all duration-300" 
+                        style={{ width: `${kpi.swapTotalGb > 0 ? Math.min(100, (kpi.swapUsedGb / kpi.swapTotalGb) * 100) : 0}%` }} 
+                      />
                     </div>
                   </div>
                 </div>
 
-                <div className="text-[11px] text-slate-400 text-center">
-                  Swappiness: <strong className="text-slate-600 font-mono">vm.swappiness=10</strong> • ZRAM compression active
+                <div className="text-[11px] text-slate-400 text-center font-mono">
+                  Virtual Memory Pool • Kernel swap accounting active
                 </div>
               </div>
 
@@ -1473,8 +1486,8 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                   })}
                 </div>
                 <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono pt-1">
-                  <span>Min: 8.4 Mbps</span>
-                  <span>Max: 26.2 Mbps</span>
+                  <span>Min: {netRxHistory.length ? Math.min(...netRxHistory).toFixed(1) : '0.0'} Mbps</span>
+                  <span>Max: {netRxHistory.length ? Math.max(...netRxHistory).toFixed(1) : '0.0'} Mbps</span>
                 </div>
               </div>
 
@@ -1504,8 +1517,8 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                   })}
                 </div>
                 <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono pt-1">
-                  <span>Min: 22.0 Mbps</span>
-                  <span>Max: 54.8 Mbps</span>
+                  <span>Min: {netTxHistory.length ? Math.min(...netTxHistory).toFixed(1) : '0.0'} Mbps</span>
+                  <span>Max: {netTxHistory.length ? Math.max(...netTxHistory).toFixed(1) : '0.0'} Mbps</span>
                 </div>
               </div>
 
@@ -1555,8 +1568,8 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                 </div>
 
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                  <span>Packet Drops: <strong>0%</strong></span>
-                  <span>Jitter: <strong>0.1 ms</strong></span>
+                  <span>Status: <strong className={pingLatencyResults ? 'text-emerald-600' : 'text-slate-500'}>{pingLatencyResults ? 'Reachable' : 'Ready to test'}</strong></span>
+                  <span>Gateway: <strong>{networkData?.gateway || 'Detected'}</strong></span>
                 </div>
               </div>
             </div>

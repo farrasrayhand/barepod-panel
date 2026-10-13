@@ -11,6 +11,7 @@ interface LiveTerminalProps {
   title: string;
   subtitle?: string;
   isHost?: boolean;
+  height?: number | string;
 }
 
 /**
@@ -20,7 +21,7 @@ interface LiveTerminalProps {
  * token never appears in the URL. Binary frames are stdin/stdout, text frames are
  * control messages (`resize` uses pty.Setsize so vim/top fit the pane).
  */
-export const LiveTerminal: React.FC<LiveTerminalProps> = ({ slug, title, subtitle, isHost }) => {
+export const LiveTerminal: React.FC<LiveTerminalProps> = ({ slug, title, subtitle, isHost, height }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -147,6 +148,18 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({ slug, title, subtitl
     };
   }, [slug]);
 
+  useEffect(() => {
+    if (fitRef.current && termRef.current) {
+      setTimeout(() => {
+        fitRef.current?.fit();
+        const socket = socketRef.current;
+        if (socket?.readyState === WebSocket.OPEN && termRef.current) {
+          socket.send(JSON.stringify({ type: 'resize', cols: termRef.current.cols, rows: termRef.current.rows }));
+        }
+      }, 50);
+    }
+  }, [height]);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -184,7 +197,8 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({ slug, title, subtitl
 
       <div
         ref={containerRef}
-        className="h-[420px] w-full rounded-xl overflow-hidden bg-slate-900 p-2"
+        className="w-full rounded-xl overflow-hidden bg-slate-900 p-2"
+        style={{ height: height || 420 }}
         onMouseDown={() => termRef.current?.focus()}
       />
 
