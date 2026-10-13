@@ -649,7 +649,15 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         )}
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-700">{active || '—'}</td>
-                      <td className="py-3 px-4 font-mono text-slate-700">{status?.databaseLatest?.[component.name] ?? '—'}</td>
+                      <td className="py-3 px-4 font-mono text-slate-700">
+                        {(() => {
+                          const latestRaw = status?.databaseLatest?.[component.name] ?? '—';
+                          if (latestRaw !== '—' && active && active.startsWith(latestRaw + '.') && !latestRaw.includes('.')) {
+                            return active;
+                          }
+                          return latestRaw;
+                        })()}
+                      </td>
                       <td className="py-3 px-4">
                         <span className="flex items-center gap-1.5 text-[11px]">
                           <span className={`w-1.5 h-1.5 rounded-full ${detected?.running ? 'bg-emerald-500' : detected?.available ? 'bg-amber-500' : 'bg-slate-300'}`} />
@@ -671,9 +679,12 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                             } else if (isInst) {
                               tag = '• Installed on host';
                             }
+                            const displayLabel = isAct && active && active !== version && (active.startsWith(version + '.') || active.split('.')[0] === version)
+                              ? `${version} (v${active})`
+                              : version;
                             return (
                               <option key={version} value={version}>
-                                {version} {tag}
+                                {displayLabel} {tag}
                               </option>
                             );
                           })}

@@ -223,7 +223,11 @@ func Commands(component, version string) ([][]string, error) {
 		guard := "set -e; if rustc +stable --version 2>/dev/null | grep -q '" + version + "'; then echo 'stable already holds " + version + " — updating the channel instead of adding a second toolchain'; rustup update stable; else rustup toolchain install " + version + "; fi"
 		return [][]string{{"bash", "-c", rustupRepoScript}, {"bash", "-c", guard}}, nil
 	case "postgresql":
-		return apt("postgresql-" + version), nil
+		major := strings.TrimPrefix(version, "v")
+		if parts := strings.Split(major, "."); len(parts) > 0 && parts[0] != "" {
+			major = parts[0]
+		}
+		return apt("postgresql-" + major), nil
 	case "mariadb":
 		// MariaDB upgrades its own system tables after the packages move; skipping it leaves
 		// a server that starts and then refuses real work.
@@ -439,8 +443,12 @@ func UninstallCommands(component, version string) ([][]string, error) {
 			append(purged([]string{component}, "/etc/"+component), nil...)[0],
 		}, nil
 	case "postgresql":
-		// One package per major, so one version can go on its own.
-		return purged([]string{"postgresql-" + version}, "/var/lib/postgresql/"+version), nil
+		// One package per major (postgresql-18), so strip any patch suffix like 18.6
+		major := strings.TrimPrefix(version, "v")
+		if parts := strings.Split(major, "."); len(parts) > 0 && parts[0] != "" {
+			major = parts[0]
+		}
+		return purged([]string{"postgresql-" + major}, "/var/lib/postgresql/"+major), nil
 	case "mariadb", "mysql":
 		return purged([]string{"mariadb-server*"}, "/var/lib/mysql"), nil
 	case "mongodb":
@@ -544,7 +552,10 @@ func (i *Installer) Start(component, version string) (*store.DeployJob, error) {
 		// exactly what "php 8.0 is not offered (choose 8.3, 8.2, 8.1)" was: the check used
 		// a hand-kept catalog list while the screen showed the repository's).
 		if offered := i.offered(context.Background(), component); len(offered) > 0 && !containsString(offered, version) {
-			return nil, fmt.Errorf("stack: %s %s is not offered here (available: %s)", component, version, strings.Join(offered, ", "))
+			major := strings.Split(version, ".")[0]
+			if !containsString(offered, major) {
+				return nil, fmt.Errorf("stack: %s %s is not offered here (available: %s)", component, version, strings.Join(offered, ", "))
+			}
 		}
 	}
 	commands, err := Commands(component, version)
@@ -822,6 +833,21 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 		out.DatabaseInstalled[engine.Name] = databaseInstalledVersions(ctx, h, engine.Name, engine.Installed)
 		out.DatabaseAvailable[engine.Name] = databaseVersions(ctx, h, engine.Name)
 		out.DatabaseLatest[engine.Name] = newestOf(out.DatabaseAvailable[engine.Name])
+		if engine.Name == "postgresql" && out.DatabaseLatest[engine.Name] != "" {
+			if candidate, ok := aptCandidate(ctx, h, "postgresql-"+out.DatabaseLatest[engine.Name]); ok {
+				if _, after, found := strings.Cut(candidate, ":"); found {
+					candidate = after
+				}
+				if m := runtimesVersionPattern.FindStringSubmatch(candidate); m != nil {
+					out.DatabaseLatest[engine.Name] = m[1] + "." + m[2]
+				}
+			}
+			if active := strings.TrimSpace(engine.Installed); active != "" && strings.HasPrefix(active, out.DatabaseLatest[engine.Name]+".") {
+				if !strings.Contains(out.DatabaseLatest[engine.Name], ".") {
+					out.DatabaseLatest[engine.Name] = active
+				}
+			}
+		}
 	}
 	out.PHP.Installed = phpVersions()
 	// There is no stored "default" version: a site's version is chosen when the site is
