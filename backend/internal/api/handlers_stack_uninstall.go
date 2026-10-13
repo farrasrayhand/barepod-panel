@@ -115,31 +115,45 @@ func (s *Server) handleStackPlan(w http.ResponseWriter, r *http.Request, _ *stor
 		installed = db
 	}
 
+	action := strings.TrimSpace(r.URL.Query().Get("action"))
 	steps := []string{}
 	warnings := []string{}
-	if version != "" && version != installed {
-		steps = append(steps, "install "+component+" "+version)
-	}
-	switch {
-	case stack.DatabaseEngine(component):
-		steps = append(steps, "stop the "+component+" service")
-		steps = append(steps, "migrate the existing data to "+version)
-		steps = append(steps, "start "+component+" "+version, "verify it answers")
-		warnings = append(warnings,
-			"a database holds data: the migration copies it, it does not reinstall it")
+
+	if action == "uninstall" {
+		steps = []string{
+			"verify no active sites or databases depend on " + component + " " + version,
+			"stop and purge " + component + " " + version + " packages from system",
+			"clean up associated configuration and dependencies",
+		}
 		if len(inUse) > 0 {
 			warnings = append(warnings,
-				"take a dump first — "+strings.Join(inUse, ", ")+" would otherwise be at risk")
+				"this component is in use by "+strings.Join(inUse, ", ")+" — uninstall will be refused until they are moved")
 		}
-		if stack.DatabaseEngine(component) && component == "mongodb" {
-			steps = append(steps[:0], "pull the image mongo:"+version, "start a container on it", "copy the data across", "point the panel at the new port")
+	} else {
+		if version != "" && version != installed {
+			steps = append(steps, "install "+component+" "+version)
 		}
-	case component == "nginx" || component == "caddy":
-		if component == status.WebServer.Active {
-			warnings = append(warnings, "this is the active ingress: every site is served by it during the switch")
+		switch {
+		case stack.DatabaseEngine(component):
+			steps = append(steps, "stop the "+component+" service")
+			steps = append(steps, "migrate the existing data to "+version)
+			steps = append(steps, "start "+component+" "+version, "verify it answers")
+			warnings = append(warnings,
+				"a database holds data: the migration copies it, it does not reinstall it")
+			if len(inUse) > 0 {
+				warnings = append(warnings,
+					"take a dump first — "+strings.Join(inUse, ", ")+" would otherwise be at risk")
+			}
+			if stack.DatabaseEngine(component) && component == "mongodb" {
+				steps = append(steps[:0], "pull the image mongo:"+version, "start a container on it", "copy the data across", "point the panel at the new port")
+			}
+		case component == "nginx" || component == "caddy" || component == "apache" || component == "openlitespeed":
+			if component == status.WebServer.Active {
+				warnings = append(warnings, "this is the active ingress: every site is served by it during the switch")
+			}
+		default:
+			steps = append(steps, "switch to "+component+" "+version)
 		}
-	default:
-		steps = append(steps, "leave the installed version in place")
 	}
 
 	_ = s.store.Audit("", "stack.plan", component+" "+version, clientIP(r), "")

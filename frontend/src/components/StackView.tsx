@@ -70,13 +70,20 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
   // The version picked for each database engine (the switch acts on it).
   const [pickedVersion, setPickedVersion] = useState<Record<string, string>>({});
 
-  // Dry-run plan modal state
+  // Dry-run plan modal state (specifically for Database Migration / Engine Switch)
   const [planModal, setPlanModal] = useState<{
-    action: 'install' | 'uninstall';
     component: string;
     version: string;
     plan: StackPlanResult | null;
     loading: boolean;
+  } | null>(null);
+
+  // Dedicated Uninstall confirmation modal (not the database dry-run migration plan modal)
+  const [uninstallTarget, setUninstallTarget] = useState<{
+    component: string;
+    version: string;
+    label: string;
+    inUse: string[];
   } | null>(null);
 
   // Which runtimes have their long version list open.
@@ -199,15 +206,15 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     }
   };
 
-  const planAndExecute = async (action: 'install' | 'uninstall', component: string, version: string) => {
+  const planAndSwitchDatabase = async (component: string, version: string) => {
     if (!live) {
       onShowToast?.('Simulation', 'The daemon is not reachable, so nothing can be modified.', 'info');
       return;
     }
-    setPlanModal({ action, component, version, plan: null, loading: true });
+    setPlanModal({ component, version, plan: null, loading: true });
     try {
-      const plan = await api.stackPlan(component, version);
-      setPlanModal({ action, component, version, plan, loading: false });
+      const plan = await api.stackPlan(component, version, 'switch');
+      setPlanModal({ component, version, plan, loading: false });
     } catch (err) {
       setPlanModal(null);
       onShowToast?.('Could not compute plan', describeError(err), 'error');
@@ -227,8 +234,43 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     }
   };
 
-  const uninstall = (component: string, version: string) => {
-    void planAndExecute('uninstall', component, version);
+  const promptUninstall = (component: string, version: string, label?: string) => {
+    if (!live) {
+      onShowToast?.('Simulation', 'The daemon is not reachable, so nothing can be modified.', 'info');
+      return;
+    }
+    const inUse: string[] = [];
+    const rt = component === 'node' ? 'nodejs' : component;
+    for (const site of websites) {
+      if (site.runtime === rt && (site.version === version || site.version?.startsWith(version))) {
+        inUse.push(`Website "${site.slug}" (runtime ${site.runtime} ${site.version})`);
+      }
+      if (site.webServer === component) {
+        inUse.push(`Website "${site.slug}" (web server ${site.webServer})`);
+      }
+    }
+    if (
+      (component === 'nginx' || component === 'caddy' || component === 'apache' || component === 'openlitespeed') &&
+      status?.webServer.active === component
+    ) {
+      inUse.push(`Active Edge Ingress (${component} is routing traffic on port 80/443)`);
+    }
+    if (status?.databaseVersions?.[component] === version) {
+      inUse.push(`Active Database Engine (${component} ${version} is running on the primary port)`);
+    }
+    setUninstallTarget({
+      component,
+      version,
+      label: label || component,
+      inUse,
+    });
+  };
+
+  const handleConfirmUninstall = () => {
+    if (!uninstallTarget) return;
+    const { component, version } = uninstallTarget;
+    setUninstallTarget(null);
+    void executeUninstall(component, version);
   };
 
   const switchWebServer = async (engine: string) => {
@@ -597,7 +639,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                             </button>
                           ) : canUninstall ? (
                             <button
-                              onClick={() => void uninstall(engine, installed)}
+                              onClick={() => void promptUninstall(engine, installed, engine)}
                               disabled={busy || live !== true}
                               title={`Uninstall unused ${engine} — safe to remove because no website uses it`}
                               className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition-colors"
@@ -730,7 +772,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                       >
                         <span className="font-mono">{version}</span>
                         <button
-                          onClick={() => void uninstall(component.name, version)}
+                          onClick={() => void promptUninstall(component.name, version, component.label)}
                           disabled={busy || live !== true}
                           title={`Uninstall ${component.label} ${version} — refused while a site or database uses it`}
                           className="p-0.5 rounded hover:bg-emerald-100 disabled:opacity-40"
@@ -903,7 +945,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                                 >
                                   <span>{ver}</span>
                                   <button
-                                    onClick={() => void uninstall(component.name, ver)}
+                                    onClick={() => void promptUninstall(component.name, ver, component.label)}
                                     disabled={busy || live !== true}
                                     title={`Uninstall unused version ${ver} from host`}
                                     className="p-0.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors disabled:opacity-40 cursor-pointer"
@@ -954,7 +996,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                           ) : (
                             <button
                               onClick={() => {
-                                if (picked && !isCurrent) void planAndExecute('install', component.name, picked);
+                                if (picked && !isCurrent) void planAndSwitchDatabase(component.name, picked);
                               }}
                               disabled={busy || live !== true || !picked}
                               title={`Plan & switch database version to ${picked} — checks data safety before proceeding`}
@@ -1014,15 +1056,15 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           </div>
         </div>
       )}
-      {/* Plan confirmation modal */}
+      {/* Database Migration & Switch Plan Modal */}
       {planModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <Server className="w-4 h-4 text-slate-700" />
+                <Database className="w-4 h-4 text-slate-700" />
                 <h3 className="font-bold text-sm text-slate-900">
-                  {planModal.action === 'install' ? 'Plan: Switch Engine' : 'Plan: Remove Component'}
+                  Database Migration Plan: {planModal.component} {planModal.version}
                 </h3>
               </div>
               <button
@@ -1037,7 +1079,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
               {planModal.loading ? (
                 <div className="py-8 flex flex-col items-center justify-center gap-2 text-slate-400">
                   <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-                  <span>Computing execution plan…</span>
+                  <span>Computing database migration plan…</span>
                 </div>
               ) : planModal.plan ? (
                 <>
@@ -1081,10 +1123,10 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                     <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 space-y-1">
                       <div className="flex items-center gap-1.5 font-semibold text-rose-900">
                         <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
-                        <span>Resources In Use ({planModal.plan.uses.length})</span>
+                        <span>Databases On This Engine ({planModal.plan.uses.length})</span>
                       </div>
                       <p className="text-[11px] text-rose-800">
-                        The following items depend on this component:
+                        Existing databases that will be preserved and migrated:
                       </p>
                       <ul className="list-disc list-inside text-rose-900 text-[11px] font-mono">
                         {planModal.plan.uses.map((u, idx) => (
@@ -1095,7 +1137,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   )}
 
                   <div>
-                    <span className="font-semibold text-slate-700 block mb-1.5">Execution Steps:</span>
+                    <span className="font-semibold text-slate-700 block mb-1.5">Migration Steps:</span>
                     <ol className="list-decimal list-inside space-y-1 text-slate-600 font-mono text-[11px] bg-slate-50 p-3 rounded-xl border border-slate-200">
                       {planModal.plan.steps.map((step, idx) => (
                         <li key={idx}>{step}</li>
@@ -1104,7 +1146,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   </div>
                 </>
               ) : (
-                <div className="text-slate-500 py-4 text-center">Failed to load plan.</div>
+                <div className="text-slate-500 py-4 text-center">Failed to load migration plan.</div>
               )}
             </div>
 
@@ -1119,20 +1161,91 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 onClick={() => {
                   const m = planModal;
                   setPlanModal(null);
-                  if (m) {
-                    if (m.action === 'install') void install(m.component, m.version);
-                    else void executeUninstall(m.component, m.version);
-                  }
+                  if (m) void install(m.component, m.version);
                 }}
-                disabled={busy || live !== true || !planModal?.plan || (planModal.action === 'uninstall' && !planModal.plan.safeToRun)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold text-white ${
-                  planModal?.action === 'uninstall'
-                    ? 'bg-rose-600 hover:bg-rose-700 disabled:opacity-50'
-                    : 'bg-blue-600 hover:bg-blue-700 disabled:opacity-50'
-                }`}
+                disabled={busy || live !== true || !planModal?.plan || !planModal.plan.safeToRun}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 shadow-xs"
               >
-                {planModal?.action === 'install' ? 'Proceed with Switch' : 'Confirm Removal'}
+                Proceed with Switch
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dedicated Uninstall Confirmation Modal */}
+      {uninstallTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Trash2 className="w-4 h-4 text-rose-600" />
+                <h3 className="font-bold text-sm text-slate-900">
+                  Uninstall {uninstallTarget.label} {uninstallTarget.version}
+                </h3>
+              </div>
+              <button
+                onClick={() => setUninstallTarget(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              {uninstallTarget.inUse.length > 0 ? (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 space-y-2">
+                  <div className="flex items-center gap-1.5 font-semibold text-rose-900">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>Cannot uninstall while in use ({uninstallTarget.inUse.length})</span>
+                  </div>
+                  <p className="text-[11px] text-rose-800">
+                    The following resources are currently configured to use {uninstallTarget.label} {uninstallTarget.version}:
+                  </p>
+                  <ul className="list-disc list-inside text-rose-900 text-[11px] font-mono space-y-0.5">
+                    {uninstallTarget.inUse.map((u, idx) => (
+                      <li key={idx}>{u}</li>
+                    ))}
+                  </ul>
+                  <p className="text-[11px] text-rose-700 pt-1 border-t border-rose-200/60">
+                    Please switch or reconfigure these websites or services to another version before removing this component.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-slate-700 text-sm">
+                    Are you sure you want to uninstall <strong className="text-slate-900">{uninstallTarget.label} {uninstallTarget.version}</strong> from this server?
+                  </p>
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="text-[11px] text-emerald-800">
+                      <span className="font-semibold block text-emerald-900">Safe to remove</span>
+                      No active websites, databases, or services are currently using this version.
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    This will remove the package binaries, modules, and system configurations for this version.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setUninstallTarget(null)}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-200 transition"
+              >
+                {uninstallTarget.inUse.length > 0 ? 'Close' : 'Cancel'}
+              </button>
+              {uninstallTarget.inUse.length === 0 && (
+                <button
+                  onClick={handleConfirmUninstall}
+                  disabled={busy || live !== true}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 transition shadow-xs"
+                >
+                  Confirm Uninstall
+                </button>
+              )}
             </div>
           </div>
         </div>
