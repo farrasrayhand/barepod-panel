@@ -73,12 +73,17 @@ const formatEngineName = (eng: string) => {
   }
 };
 
+const shortenUserPath = (p: string) => {
+  if (!p) return '';
+  return p.replace(/^\/home\/[^/]+\//, '~/');
+};
+
 /** One daemon row, in the shape this screen already renders. */
 const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
   id: row.id,
   name: row.alias || row.name,
   type: ENGINE_TO_ITEM[row.engine] ?? 'postgres',
-  version: [formatEngineName(row.engine), row.version || (row.engine === 'sqlite' ? '3' : '')].filter(Boolean).join(' ') + (row.fileBased ? ' · file' : ''),
+  version: [formatEngineName(row.engine), row.version || (row.engine === 'sqlite' ? '3' : '')].filter(Boolean).join(' '),
   username: row.user || '—',
   // A file-based database has a real size; a daemon one is not measured yet.
   size: row.fileBased ? (row.sizeBytes ? formatBytes(row.sizeBytes) : '0 B') : '—',
@@ -549,92 +554,113 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
       </div>
 
       {/* Tabs Filter */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
+      <div className="flex items-center gap-1.5 border-b border-slate-200 pb-2.5 overflow-x-auto text-xs">
         <button
           onClick={() => setActiveTab('all')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 shrink-0 ${
             activeTab === 'all'
               ? 'bg-blue-600 text-white shadow-2xs'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
-          All Databases ({activeDatabases.filter((d) => d.type !== 'redis').length})
+          <span>All Databases</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'all' ? 'bg-blue-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {activeDatabases.filter((d) => d.type !== 'redis').length}
+          </span>
         </button>
         <button
           onClick={() => setActiveTab('postgres')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 shrink-0 ${
             activeTab === 'postgres'
               ? 'bg-blue-600 text-white shadow-2xs'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
           <span>PostgreSQL</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'postgres' ? 'bg-blue-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {activeDatabases.filter((d) => d.type === 'postgres').length}
+          </span>
         </button>
         <button
           onClick={() => setActiveTab('mysql')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 shrink-0 ${
             activeTab === 'mysql'
               ? 'bg-blue-600 text-white shadow-2xs'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
           <span>MySQL / MariaDB</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'mysql' ? 'bg-blue-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {activeDatabases.filter((d) => d.type === 'mysql' || d.type === 'mariadb').length}
+          </span>
         </button>
         <button
           onClick={() => setActiveTab('mongodb')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 shrink-0 ${
             activeTab === 'mongodb'
               ? 'bg-blue-600 text-white shadow-2xs'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
           <span>MongoDB</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'mongodb' ? 'bg-blue-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {activeDatabases.filter((d) => d.type === 'mongodb').length}
+          </span>
         </button>
         <button
           onClick={() => setActiveTab('sqlite')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 shrink-0 ${
             activeTab === 'sqlite'
               ? 'bg-blue-600 text-white shadow-2xs'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
           <span>SQLite</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'sqlite' ? 'bg-blue-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {activeDatabases.filter((d) => d.type === 'sqlite').length}
+          </span>
         </button>
         <button
           onClick={() => setActiveTab('caches')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 shrink-0 ${
             activeTab === 'caches'
               ? 'bg-rose-600 text-white shadow-2xs'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
-          <span>Caches (Redis) ({activeDatabases.filter((d) => d.type === 'redis').length})</span>
+          <span>Caches (Redis)</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'caches' ? 'bg-rose-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {activeDatabases.filter((d) => d.type === 'redis').length}
+          </span>
         </button>
-        {/* Databases kept when their website was deleted: their file moves into the
-            tenant's home, and the record outlives the site. */}
         <button
           onClick={() => setActiveTab('detached')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 shrink-0 ${
             activeTab === 'detached'
               ? 'bg-slate-900 text-white shadow-2xs'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
           <Folder className="w-3.5 h-3.5" />
-          <span>Detached ({activeDatabases.filter((d) => isDetached(d)).length})</span>
+          <span>Detached</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'detached' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {activeDatabases.filter((d) => isDetached(d)).length}
+          </span>
         </button>
         <button
           onClick={() => setActiveTab('trash')}
-          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+          className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 shrink-0 ${
             activeTab === 'trash'
               ? 'bg-slate-900 text-white shadow-2xs'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
           <Trash2 className="w-3.5 h-3.5" />
-          <span>Recycle Bin ({binnedDatabases.length})</span>
+          <span>Recycle Bin</span>
+          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'trash' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {binnedDatabases.length}
+          </span>
         </button>
-
       </div>
 
       {/* Recycle Bin notice */}
@@ -650,12 +676,19 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
 
       {/* Database Cards Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-left text-xs table-fixed">
+          <colgroup>
+            <col className="w-[28%]" />
+            <col className="w-[22%]" />
+            <col className="w-[22%]" />
+            <col className="w-[11%]" />
+            <col className="w-[17%]" />
+          </colgroup>
           <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
             <tr>
               <th className="py-3.5 px-4">Database Name</th>
-              <th className="py-3.5 px-4">Engine & Shared Daemon</th>
-              <th className="py-3.5 px-4">Tenant User & Isolation Scope</th>
+              <th className="py-3.5 px-4">Engine & Endpoint</th>
+              <th className="py-3.5 px-4">Tenant & Access</th>
               <th className="py-3.5 px-4">Size & Pool</th>
               <th className="py-3.5 px-4 text-right">Actions</th>
             </tr>
@@ -677,21 +710,23 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                 <tr key={db.id} className={`hover:bg-slate-50/70 transition-colors ${isBinned ? 'opacity-70' : ''}`}>
                   {/* Database Name */}
                   <td className="py-3.5 px-4">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shadow-2xs ${badge.bg}`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs ${badge.bg}`}>
                         {badge.label}
                       </div>
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-900 text-sm block">{db.name}</span>
+                          <span className="font-semibold text-slate-900 text-sm truncate block" title={db.name}>
+                            {db.name}
+                          </span>
                           {db.detected && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                              Detected (app-managed)
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200/80 shrink-0">
+                              App-managed
                             </span>
                           )}
                         </div>
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          {db.detected && db.path ? db.path : `Format: ${db.charset}`}
+                        <span className="text-[10px] text-slate-400 font-mono block mt-0.5 truncate">
+                          {db.detected ? 'Format: SQLite file' : `Format: ${db.charset}`}
                         </span>
                         {isBinned && (
                           <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
@@ -703,23 +738,23 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                     </div>
                   </td>
 
-                  {/* Engine & storage (daemon endpoint, or file path for SQLite) */}
+                  {/* Engine & Endpoint (daemon host:port, or file path for SQLite) */}
                   <td className="py-3.5 px-4">
                     <div className="space-y-1">
-                      <span className="font-semibold text-slate-800 block">{db.version}</span>
+                      <span className="font-semibold text-slate-800 text-xs block">{db.version}</span>
                       {isSqliteDb ? (
-                        <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[10px] border border-slate-200/60 max-w-[260px]">
+                        <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-50 px-2 py-0.5 rounded-md text-[10px] border border-slate-200 max-w-[240px]" title={db.path || sqlitePath}>
                           <Folder className="w-3 h-3 text-slate-400 shrink-0" />
-                          <span className="truncate" title={db.path || sqlitePath}>{db.path || sqlitePath}</span>
-                          <span className="text-[9px] text-slate-400 shrink-0">({db.detected ? 'app' : 'file'})</span>
+                          <span className="truncate">{shortenUserPath(db.path || sqlitePath)}</span>
+                          <span className="text-[9px] text-slate-400 shrink-0 font-sans">({db.detected ? 'app' : 'file'})</span>
                         </div>
                       ) : (
-                        <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[10px] border border-slate-200/60">
-                          <Server className="w-3 h-3 text-slate-400" />
-                          <span className="font-semibold text-slate-800">{host}</span>
+                        <div className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-50 px-2 py-0.5 rounded-md text-[10px] border border-slate-200">
+                          <Server className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="font-medium text-slate-700">{host}</span>
                           <span className="text-slate-400">:</span>
                           <span className="text-blue-600 font-bold">{port}</span>
-                          <span className="text-[9px] text-slate-400">(Shared)</span>
+                          <span className="text-[9px] text-slate-400 ml-0.5 font-sans">(shared)</span>
                         </div>
                       )}
                     </div>
@@ -729,26 +764,26 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                   <td className="py-3.5 px-4">
                     <div className="space-y-1">
                       {isSqliteDb ? (
-                        <div className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-[11px]">
-                          <Folder className="w-3 h-3 text-slate-400" />
-                          <span className="font-semibold">tenant filesystem</span>
+                        <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md text-[10px]">
+                          <Folder className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="font-medium truncate max-w-[150px]">{db.tenantUser || 'tenant'} filesystem</span>
                         </div>
                       ) : (
-                        <div className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded text-[11px]">
-                          <Key className="w-3 h-3 text-slate-400" />
-                          <span className="font-semibold">{db.username}</span>
+                        <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md text-[10px]" title={db.username}>
+                          <Key className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="font-medium truncate max-w-[150px]">{db.username}</span>
                         </div>
                       )}
-                      <div className="flex items-center gap-1 text-[10px]">
-                        <span className="inline-flex items-center gap-0.5 text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 font-semibold">
-                          <ShieldCheck className="w-2.5 h-2.5" />
+                      <div className="flex items-center gap-1.5 text-[10px]">
+                        <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 font-medium shrink-0">
+                          <ShieldCheck className="w-2.5 h-2.5 text-emerald-600" />
                           <span>
                             {isSqliteDb
-                              ? 'File 0600 · tenant user'
+                              ? 'File 0600'
                               : isSqlEngine(db.type)
                                 ? 'Isolated GRANT'
                                 : db.type === 'redis'
-                                  ? 'ACL user · key prefix'
+                                  ? 'ACL prefix'
                                   : 'SCRAM user'}
                           </span>
                         </span>
@@ -756,7 +791,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                           <button
                             type="button"
                             onClick={() => setSelectedDbForDetails(db)}
-                            className="text-slate-500 hover:text-blue-600 font-mono cursor-pointer hover:underline decoration-dotted transition-colors"
+                            className="text-slate-500 hover:text-blue-600 font-mono cursor-pointer hover:underline transition-colors shrink-0"
                             title="Click to edit connection quota"
                           >
                             Max {db.maxConnections || 25} conn
@@ -766,25 +801,27 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                     </div>
                   </td>
 
-                  {/* Size & Connections */}
+                  {/* Size & Pool */}
                   <td className="py-3.5 px-4">
-                    <span className="font-semibold text-slate-800">{db.size}</span>
-                    <span className="block text-[10px] text-slate-400">
-                      {isSqliteDb
-                        ? 'embedded file'
-                        : isSqlEngine(db.type)
-                          ? `${db.connections} active pool`
-                          : db.type === 'redis'
-                            ? 'in-memory keys'
-                            : 'document store'}
-                    </span>
+                    <div className="space-y-0.5">
+                      <span className="font-semibold text-slate-800 text-xs block">{db.size}</span>
+                      <span className="text-[10px] text-slate-400 block font-normal">
+                        {isSqliteDb
+                          ? 'embedded file'
+                          : isSqlEngine(db.type)
+                            ? `${db.connections} active pool`
+                            : db.type === 'redis'
+                              ? 'in-memory keys'
+                              : 'document store'}
+                      </span>
+                    </div>
                   </td>
 
-                  {/* Actions: Clean Details Button + Trash */}
+                  {/* Actions */}
                   <td className="py-3.5 px-4 text-right">
                     {isBinned ? (
-                      <div className="flex items-center justify-end gap-2">
-                        <span className="text-[10px] font-mono text-slate-400">deleted {db.deletedAt}</span>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <span className="text-[10px] font-mono text-slate-400 mr-1">deleted {db.deletedAt}</span>
                         <button
                           onClick={() => handleRestoreDatabase(db.id, db.name)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors text-xs font-semibold cursor-pointer"
@@ -802,61 +839,61 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                         </button>
                       </div>
                     ) : (
-                    <div className="flex items-center justify-end gap-2">
-                      {!isSqliteDb && (
-                        <>
+                      <div className="flex items-center justify-end gap-1.5">
+                        {!isSqliteDb ? (
+                          <>
+                            <button
+                              onClick={() => setSelectedDbForRotate(db)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
+                              title={db.status === 'active' ? 'Rotate password' : 'Finish setup (rotate the password)'}
+                            >
+                              <KeyRound className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              onClick={() => setSelectedDbForCredentials(db)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                              title="Open Password Vault (requires panel account password)"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        ) : (
                           <button
-                            onClick={() => setSelectedDbForRotate(db)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
-                            title={db.status === 'active' ? 'Rotate password' : 'Finish setup (rotate the password)'}
+                            onClick={() => void handleSqliteDownload(db)}
+                            disabled={downloadingId === db.id}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer disabled:opacity-50"
+                            title="Download .sqlite file"
                           >
-                            <KeyRound className="w-3.5 h-3.5" />
+                            {downloadingId === db.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Download className="w-3.5 h-3.5" />
+                            )}
                           </button>
+                        )}
 
+                        <button
+                          onClick={() => setSelectedDbForDetails(db)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all text-xs font-semibold border border-blue-200/80 shadow-2xs group cursor-pointer"
+                          title="View host, port, credentials, connection URL & open visual manager"
+                        >
+                          <Zap className="w-3.5 h-3.5 text-blue-600 group-hover:text-white transition-colors" />
+                          <span>Details & Connect</span>
+                        </button>
+
+                        {!db.detected ? (
                           <button
-                            onClick={() => setSelectedDbForCredentials(db)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
-                            title="Open Password Vault (requires panel account password)"
+                            onClick={() => setDbToDelete(db)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Drop database"
                           >
-                            <Lock className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        </>
-                      )}
-
-                      {isSqliteDb && (
-                        <button
-                          onClick={() => void handleSqliteDownload(db)}
-                          disabled={downloadingId === db.id}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer disabled:opacity-50"
-                          title="Download .sqlite file"
-                        >
-                          {downloadingId === db.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Download className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      )}
-
-                      <button
-                        onClick={() => setSelectedDbForDetails(db)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all text-xs font-semibold border border-blue-200/80 shadow-2xs group cursor-pointer"
-                        title="View host, port, credentials, connection URL & open visual manager"
-                      >
-                        <Zap className="w-3.5 h-3.5 text-blue-600 group-hover:text-white transition-colors" />
-                        <span>Details & Connect</span>
-                      </button>
-
-                      {!db.detected && (
-                        <button
-                          onClick={() => setDbToDelete(db)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                          title="Drop database"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
+                        ) : (
+                          <div className="w-[28px] h-[28px]" />
+                        )}
+                      </div>
                     )}
                   </td>
                 </tr>
