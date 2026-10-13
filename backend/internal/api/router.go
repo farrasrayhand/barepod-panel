@@ -203,6 +203,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/system/processes/{pid}/kill", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSystemProcessKill)))
 	mux.HandleFunc("GET /api/v1/system/services", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemServices)))
 	mux.HandleFunc("POST /api/v1/system/services/{unit}/action", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSystemServiceAction)))
+	mux.HandleFunc("GET /api/v1/system/services/{unit}/logs", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemServiceLogs)))
+	mux.HandleFunc("GET /api/v1/system/storage", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemStorage)))
+	mux.HandleFunc("GET /api/v1/system/network", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemNetwork)))
+	mux.HandleFunc("POST /api/v1/system/network/ping", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemPing)))
 	mux.HandleFunc("POST /api/v1/ws/ticket", s.requireAuth(s.handleWSTicket))
 
 	// Interactive terminals. Auth uses the one-time ticket (never a long-lived

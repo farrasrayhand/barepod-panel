@@ -111,6 +111,7 @@ export interface PrepareDirectoryResult {
 }
 
 export interface Capabilities {
+  hostname?: string;
   os: string;
   arch: string;
   kernel: string;
@@ -125,6 +126,80 @@ export interface Capabilities {
   runAsUser: boolean;
   diskStats: boolean;
   systemdState: string;
+}
+
+export interface StorageMount {
+  mountPoint: string;
+  filesystem: string;
+  fsType: string;
+  totalBytes: number;
+  usedBytes: number;
+  availBytes: number;
+  usagePercent: number;
+  inodes: string;
+}
+
+export interface StorageDisk {
+  name: string;
+  size: string;
+  type: string;
+  model: string;
+  mounted: string;
+}
+
+export interface SystemStorageResponse {
+  mounts: StorageMount[];
+  disks: StorageDisk[];
+  smartSupported: boolean;
+  smartMessage: string;
+}
+
+export interface NetInterface {
+  name: string;
+  state: string;
+  mac: string;
+  ipv4: string;
+  ipv6: string;
+  mtu: number;
+  rxBytes: number;
+  txBytes: number;
+  rxPackets: number;
+  txPackets: number;
+  rxErrors: number;
+  txErrors: number;
+  rxDrops: number;
+  txDrops: number;
+}
+
+export interface SocketPort {
+  proto: string;
+  port: number;
+  localAddr: string;
+  process: string;
+  pid: number;
+  status: string;
+}
+
+export interface SocketSummary {
+  established: number;
+  timeWait: number;
+  closeWait: number;
+  listen: number;
+  total: number;
+}
+
+export interface SystemNetworkResponse {
+  interfaces: NetInterface[];
+  ports: SocketPort[];
+  socketSummary: SocketSummary;
+  gateway: string;
+}
+
+export interface SystemPingResponse {
+  cloudflare: string;
+  google: string;
+  gateway: string;
+  gatewayIp: string;
 }
 
 /** One thing this host cannot do, with the reason and what to use instead. */
@@ -717,6 +792,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ action }),
     }),
+
+  systemServiceLogs: (unit: string) =>
+    request<{ unit: string; lines: string[]; total: number }>(`/system/services/${encodeURIComponent(unit)}/logs`),
+
+  systemStorage: () =>
+    request<SystemStorageResponse>('/system/storage'),
+
+  systemNetwork: () =>
+    request<SystemNetworkResponse>('/system/network'),
+
+  systemPing: () =>
+    request<SystemPingResponse>('/system/network/ping', { method: 'POST' }),
 
   siteMetrics: (slug: string, range = '1h') =>
     request<MetricSeries<SiteMetrics>>(`/websites/${slug}/metrics?range=${encodeURIComponent(range)}`),

@@ -11,19 +11,20 @@ import (
 
 // Capabilities describes what the daemon can actually do on this host.
 type Capabilities struct {
-	OS        string `json:"os"`
-	Arch      string `json:"arch"`
-	Kernel    string `json:"kernel"`
-	Distro    string `json:"distro"`
-	Systemd   bool   `json:"systemd"`
-	LXC       bool   `json:"lxc"`
-	Docker    bool   `json:"docker"`
-	Smart     bool   `json:"smart"`
-	Fstrim    bool   `json:"fstrim"`
-	Useradd   bool   `json:"useradd"`   // can create Linux tenant accounts
-	Quota     bool   `json:"quota"`     // setquota exists AND user quotas are enabled on the root filesystem
-	RunAsUser bool   `json:"runAsUser"` // can drop to a tenant UID/GID (Linux)
-	DiskStats bool   `json:"diskStats"` // /proc/diskstats is readable
+	Hostname     string `json:"hostname"`
+	OS           string `json:"os"`
+	Arch         string `json:"arch"`
+	Kernel       string `json:"kernel"`
+	Distro       string `json:"distro"`
+	Systemd      bool   `json:"systemd"`
+	LXC          bool   `json:"lxc"`
+	Docker       bool   `json:"docker"`
+	Smart        bool   `json:"smart"`
+	Fstrim       bool   `json:"fstrim"`
+	Useradd      bool   `json:"useradd"`   // can create Linux tenant accounts
+	Quota        bool   `json:"quota"`     // setquota exists AND user quotas are enabled on the root filesystem
+	RunAsUser    bool   `json:"runAsUser"` // can drop to a tenant UID/GID (Linux)
+	DiskStats    bool   `json:"diskStats"` // /proc/diskstats is readable
 	// PTYJail reports that a tenant shell can be confined to its own site with a
 	// private mount namespace (Linux + CAP_SYS_ADMIN).
 	PTYJail      bool   `json:"ptyJail"`
@@ -102,7 +103,13 @@ func Detect() Capabilities {
 		state = "available"
 	}
 
+	hn, _ := os.Hostname()
+	if hn == "" {
+		hn = readTrim("/etc/hostname")
+	}
+
 	return Capabilities{
+		Hostname:     hn,
 		OS:           runtime.GOOS,
 		Arch:         runtime.GOARCH,
 		Kernel:       readTrim("/proc/sys/kernel/osrelease"),
@@ -110,7 +117,7 @@ func Detect() Capabilities {
 		Systemd:      systemd,
 		LXC:          lxc,
 		Docker:       has("docker"),
-		Smart:        has("smartctl"),
+		Smart:        has("smartctl") && !lxc,
 		Fstrim:       has("fstrim") && !lxc,
 		Useradd:      runtime.GOOS == "linux" && has("useradd"),
 		Quota:        runtime.GOOS == "linux" && has("setquota") && quotaEnabled(),
