@@ -756,11 +756,10 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
               <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
                 <tr>
                   <th className="py-3 px-4">Engine</th>
-                  <th className="py-3 px-4">Active</th>
-                  <th className="py-3 px-4">Newest</th>
-                  <th className="py-3 px-4">State</th>
-                  <th className="py-3 px-4">Version</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+                  <th className="py-3 px-4">Active Status</th>
+                  <th className="py-3 px-4">Upstream Latest</th>
+                  <th className="py-3 px-4">Local Versions</th>
+                  <th className="py-3 px-4 text-right">Switch / Install</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -770,11 +769,21 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   const active = detected?.installedVersion ?? '';
                   const installedList = status?.databaseInstalled?.[component.name] ?? (active ? [active] : []);
 
+                  // Metadata & branding
+                  const dbMetas: Record<string, { code: string; color: string; defaultPort: number }> = {
+                    postgresql: { code: 'PG', color: 'bg-sky-50 text-sky-700 border-sky-200', defaultPort: 5432 },
+                    mariadb: { code: 'MD', color: 'bg-amber-50 text-amber-700 border-amber-200', defaultPort: 3306 },
+                    mysql: { code: 'MD', color: 'bg-amber-50 text-amber-700 border-amber-200', defaultPort: 3306 },
+                    mongodb: { code: 'MG', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', defaultPort: 27017 },
+                    redis: { code: 'RD', color: 'bg-rose-50 text-rose-700 border-rose-200', defaultPort: 6379 },
+                  };
+                  const meta = dbMetas[component.name] ?? { code: component.label.slice(0, 2).toUpperCase(), color: 'bg-slate-50 text-slate-700 border-slate-200', defaultPort: 0 };
+                  const port = detected?.port || meta.defaultPort;
+
                   // Build clean dropdown options without duplicate version entries
                   const dropdownVersions = (() => {
                     const list = [...installedList, ...versions];
                     if (active && !list.includes(active)) {
-                      // Check if active matches a line already in list (e.g. active "18.6" matches major "18")
                       const hasLine = list.some((v) => v === active || (active.startsWith(v + '.') && !v.includes('.')));
                       if (!hasLine) {
                         list.unshift(active);
@@ -786,7 +795,6 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   const isVersionActive = (v: string) => {
                     if (!active) return false;
                     if (v === active) return true;
-                    // If exact active version is not present in options, match major line (e.g. active "18.6" matches "18")
                     if (!dropdownVersions.includes(active) && (active.startsWith(v + '.') || active.split('.')[0] === v)) {
                       return true;
                     }
@@ -797,29 +805,101 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   const picked = pickedVersion[component.name] ?? (currentActiveOption || dropdownVersions[0] || '');
                   const isCurrent = isVersionActive(picked);
 
+                  // Latest upstream logic
+                  const latestRaw = status?.databaseLatest?.[component.name] ?? '—';
+                  const latest = (() => {
+                    if (latestRaw !== '—' && active && active.startsWith(latestRaw + '.') && !latestRaw.includes('.')) {
+                      return active;
+                    }
+                    return latestRaw;
+                  })();
+                  const isUpToDate = Boolean(active && latest !== '—' && (active === latest || active.startsWith(latest + '.') || latest.startsWith(active + '.')));
+
                   return (
                     <tr key={component.name} className="hover:bg-slate-50/70">
-                      <td className="py-3 px-4 font-semibold text-slate-900">
-                        {component.label}
-                        <span className="block text-[10px] font-normal text-slate-400">{component.description}</span>
-                        {installedList.length > 0 && (
-                          <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-slate-500 mt-1.5">
-                            <span>Installed on host:</span>
+                      {/* Engine */}
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs border ${meta.color} shrink-0`}>
+                            {meta.code}
+                          </span>
+                          <div>
+                            <span className="font-semibold text-slate-900 text-sm">{component.label}</span>
+                            <span className="block text-[11px] text-slate-400">
+                              {component.description} {port ? `• Port ${port}` : ''}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Active Status */}
+                      <td className="py-3 px-4">
+                        {detected?.running ? (
+                          <div>
+                            <span className="font-mono font-semibold text-slate-900 text-xs">
+                              {active ? `v${active}` : 'active'}
+                            </span>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                Running ({detected.mode})
+                              </span>
+                            </div>
+                          </div>
+                        ) : detected?.available ? (
+                          <div>
+                            <span className="font-mono text-slate-600 text-xs">{active ? `v${active}` : '—'}</span>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                Stopped ({detected.mode})
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                            Not installed
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Upstream Latest */}
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-1.5 font-mono text-xs text-slate-600">
+                          {latest !== '—' ? `v${latest}` : '—'}
+                          {detected?.running && isUpToDate && (
+                            <span className="text-[10px] text-emerald-700 font-sans font-semibold bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded">
+                              Latest
+                            </span>
+                          )}
+                          {detected?.running && !isUpToDate && latest !== '—' && (
+                            <span className="text-[10px] text-blue-700 font-sans font-semibold bg-blue-50 border border-blue-200 px-1.5 py-0.2 rounded">
+                              Newer
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Local Versions on Host */}
+                      <td className="py-3 px-4">
+                        {installedList.length > 0 ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             {installedList.map((ver) => {
                               const isAct = isVersionActive(ver);
                               return isAct ? (
                                 <span
                                   key={ver}
-                                  className="inline-flex items-center gap-1 font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-semibold"
-                                  title="Currently running active version (serving queries — cannot be uninstalled while active)"
+                                  className="inline-flex items-center gap-1 font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-semibold text-[11px]"
+                                  title="Active version serving queries (cannot be uninstalled while active)"
                                 >
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                  {ver} (active)
+                                  {ver}
                                 </span>
                               ) : (
                                 <span
                                   key={ver}
-                                  className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-medium"
+                                  className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 text-[11px]"
                                 >
                                   <span>{ver}</span>
                                   <button
@@ -834,90 +914,64 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                               );
                             })}
                           </div>
+                        ) : (
+                          <span className="text-slate-400 text-xs italic">None</span>
                         )}
                       </td>
-                      <td className="py-3 px-4 font-mono text-slate-700">{active || '—'}</td>
-                      <td className="py-3 px-4 font-mono text-slate-700">
-                        {(() => {
-                          const latestRaw = status?.databaseLatest?.[component.name] ?? '—';
-                          if (latestRaw !== '—' && active && active.startsWith(latestRaw + '.') && !latestRaw.includes('.')) {
-                            return active;
-                          }
-                          return latestRaw;
-                        })()}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="flex items-center gap-1.5 text-[11px]">
-                          <span className={`w-1.5 h-1.5 rounded-full ${detected?.running ? 'bg-emerald-500' : detected?.available ? 'bg-amber-500' : 'bg-slate-300'}`} />
-                          {detected ? `${detected.mode}${detected.running ? ' · running' : ''}` : 'unknown'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <select
-                          value={picked}
-                          onChange={(e) => setPickedVersion((prev) => ({ ...prev, [component.name]: e.target.value }))}
-                          className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
-                        >
-                          {dropdownVersions.map((version) => {
-                            const isAct = isVersionActive(version);
-                            const isInst = installedList.includes(version);
-                            let tag = '• Repository (Download)';
-                            if (isAct) {
-                              tag = '• Active (Running)';
-                            } else if (isInst) {
-                              tag = '• Installed on host';
-                            }
-                            const displayLabel = isAct && active && active !== version && (active.startsWith(version + '.') || active.split('.')[0] === version)
-                              ? `${version} (v${active})`
-                              : version;
-                            return (
-                              <option key={version} value={version}>
-                                {displayLabel} {tag}
-                              </option>
-                            );
-                          })}
-                        </select>
-                      </td>
+
+                      {/* Switch / Install Action */}
                       <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                        <div className="flex items-center justify-end gap-2">
+                          <select
+                            value={picked}
+                            onChange={(e) => setPickedVersion((prev) => ({ ...prev, [component.name]: e.target.value }))}
+                            className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[190px]"
+                          >
+                            {dropdownVersions.map((version) => {
+                              const isAct = isVersionActive(version);
+                              const isInst = installedList.includes(version);
+                              let tag = '• Repository';
+                              if (isAct) {
+                                tag = '• Active (Running)';
+                              } else if (isInst) {
+                                tag = '• Local (Installed)';
+                              }
+                              const displayLabel = isAct && active && active !== version && (active.startsWith(version + '.') || active.split('.')[0] === version)
+                                ? `${version} (v${active})`
+                                : version;
+                              return (
+                                <option key={version} value={version}>
+                                  {displayLabel} {tag}
+                                </option>
+                              );
+                            })}
+                          </select>
+
                           {isCurrent ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
-                              <CheckCircle2 className="w-3 h-3" /> Active (Running)
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 whitespace-nowrap">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Active
                             </span>
                           ) : (
-                            <>
-                              <button
-                                onClick={() => {
-                                  if (picked && !isCurrent) void planAndExecute('install', component.name, picked);
-                                }}
-                                disabled={busy || live !== true || !picked}
-                                title={`Plan & switch database version to ${picked} — checks data safety before proceeding`}
-                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white ${
-                                  installedList.includes(picked) ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
-                                } disabled:opacity-50`}
-                              >
-                                {installedList.includes(picked) ? (
-                                  <>
-                                    <RefreshCw className="w-3 h-3" /> Switch to {picked} (Local)
-                                  </>
-                                ) : (
-                                  <>
-                                    <Download className="w-3 h-3" /> {active ? `Download & Switch to ${picked}` : `Install ${picked}`}
-                                  </>
-                                )}
-                              </button>
-                              {/* Only show delete button for the picked version if it is installed on host but NOT active */}
-                              {installedList.includes(picked) && (
-                                <button
-                                  onClick={() => void uninstall(component.name, picked)}
-                                  disabled={busy || live !== true}
-                                  title={`Uninstall inactive ${component.label} ${picked} from host`}
-                                  className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition-colors cursor-pointer"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                            <button
+                              onClick={() => {
+                                if (picked && !isCurrent) void planAndExecute('install', component.name, picked);
+                              }}
+                              disabled={busy || live !== true || !picked}
+                              title={`Plan & switch database version to ${picked} — checks data safety before proceeding`}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white whitespace-nowrap shadow-sm transition ${
+                                installedList.includes(picked) ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
+                              } disabled:opacity-50`}
+                            >
+                              {installedList.includes(picked) ? (
+                                <>
+                                  <RefreshCw className="w-3.5 h-3.5" /> Switch to {picked}
+                                </>
+                              ) : (
+                                <>
+                                  <Download className="w-3.5 h-3.5" /> {active ? `Switch to ${picked}` : `Install ${picked}`}
+                                </>
                               )}
-                            </>
+                            </button>
                           )}
                         </div>
                       </td>
@@ -926,13 +980,13 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 })}
               </tbody>
             </table>
-            <p className="px-4 py-3 text-[11px] text-slate-500 border-t border-slate-100">
-              <span className="font-semibold text-slate-700">Database Version Guide:</span> One version per engine runs on the standard port at a time.
-              Versions tagged <span className="font-semibold text-slate-700 font-mono">• Active (Running)</span> are serving queries now.
-              Versions tagged <span className="font-semibold text-emerald-700 font-mono">• Installed on host</span> are already present locally on server disk / images.
-              Versions tagged <span className="font-semibold text-blue-700 font-mono">• Repository</span> will be downloaded from upstream repositories.
-              Always export / dump SQL backups before switching database versions.
-            </p>
+            <div className="px-5 py-3 text-[11px] text-slate-500 border-t border-slate-100 flex items-center justify-between">
+              <div>
+                <span className="font-semibold text-slate-700">Database Engine Architecture:</span> Single active version runs on the standard port at a time.
+                Local versions on disk switch instantly with safe data validation.
+              </div>
+              <span className="font-mono text-slate-400 text-[10px]">Safe Data Migration Enforced</span>
+            </div>
           </div>
         </div>
       )}
