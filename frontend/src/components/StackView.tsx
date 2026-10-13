@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert, Globe } from 'lucide-react';
-import { api, apiReachable, type StackStatus, type StackComponent, type StackJobLogLine, type StackPlanResult } from '../api/client';
+import { api, apiReachable, type StackStatus, type StackComponent, type StackJobLogLine, type StackPlanResult, type ApiWebsite } from '../api/client';
 import { describeError } from '../utils/format';
 import { useSubRoute } from '../hooks/useSubRoute';
 
@@ -43,6 +43,7 @@ const InstallButton: React.FC<{
 export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
   const [activeTab, setActiveTab] = useSubRoute<'web' | 'runtime' | 'database'>('web');
   const [status, setStatus] = useState<StackStatus | null>(null);
+  const [websites, setWebsites] = useState<ApiWebsite[]>([]);
   const [live, setLive] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -73,8 +74,12 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       const reachable = await apiReachable();
       setLive(reachable);
       if (reachable) {
-        const s = await api.stack();
+        const [s, sitesRes] = await Promise.all([
+          api.stack(),
+          api.websites().catch(() => ({ items: [] })),
+        ]);
         setStatus(s);
+        setWebsites(sitesRes.items || []);
         if (s.activeJobId && !sourceRef.current) {
           watchJob(s.activeJobId);
         }
@@ -451,6 +456,9 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   const installed = (state?.version ?? '').replace(/^v/, '');
                   const latest = status?.webServer.latest?.[engine] ?? installed;
                   const isUpToDate = Boolean(installed && latest && (installed === latest || installed.startsWith(latest)));
+                  const usedSites = websites.filter((site) => site.webServer === engine);
+                  const isUsedBySites = usedSites.length > 0;
+                  const canUninstall = Boolean(state?.installed && !activeIngress && !isUsedBySites);
 
                   return (
                     <tr key={engine} className="hover:bg-slate-50/70">
@@ -462,38 +470,24 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                           {engine === 'apache' && 'Apache 2.4 with native .htaccess rewrite engine'}
                           {engine === 'openlitespeed' && 'Event-driven server with native LSCache'}
                         </span>
+                        {isUsedBySites && (
+                          <div className="text-[10px] text-slate-500 mt-1">
+                            In use by: <span className="font-mono text-blue-600 font-semibold">{usedSites.map((s) => s.slug).join(', ')}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4">
-                        {engine === 'nginx' && (
-                          activeIngress ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
-                              <Play className="w-3 h-3 text-emerald-600" /> Edge Ingress (:80, :443)
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
-                              Internal Backend (:8082)
-                            </span>
-                          )
-                        )}
-                        {engine === 'caddy' && (
-                          activeIngress ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
-                              <Play className="w-3 h-3 text-emerald-600" /> Edge Ingress (:80, :443)
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
-                              Internal Backend (:8081)
-                            </span>
-                          )
-                        )}
-                        {engine === 'apache' && (
-                          <span className="inline-flex items-center text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
-                            Internal Backend (:8080)
+                        {activeIngress ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                            <Play className="w-3 h-3 text-emerald-600" /> Edge Ingress (:80, :443)
                           </span>
-                        )}
-                        {engine === 'openlitespeed' && (
-                          <span className="inline-flex items-center text-[11px] font-medium text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">
-                            Internal Backend (:8088)
+                        ) : isUsedBySites ? (
+                          <span className="inline-flex items-center text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
+                            Backend (Active App)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                            Backend (Idle / Unused)
                           </span>
                         )}
                       </td>
@@ -516,7 +510,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {/* Install / Update button (always latest) */}
+                          {/* Install / Update button */}
                           {!state?.installed ? (
                             <button
                               onClick={() => void install(engine, 'latest')}
@@ -541,13 +535,25 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                             </span>
                           )}
 
-                          {/* Uninstall button (only when not active ingress) */}
-                          {state?.installed && !activeIngress && (
+                          {/* Switch to Edge Ingress button */}
+                          {state?.installed && !activeIngress && status?.webServer.supported?.includes(engine) && (
+                            <button
+                              onClick={() => void switchWebServer(engine)}
+                              disabled={busy || live !== true}
+                              title={`Switch public Edge Ingress (:80, :443) to ${engine}`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                            >
+                              <RefreshCw className="w-3 h-3" /> Set Ingress
+                            </button>
+                          )}
+
+                          {/* Uninstall button (strictly for UNUSED engines only) */}
+                          {canUninstall && (
                             <button
                               onClick={() => void uninstall(engine, installed)}
                               disabled={busy || live !== true}
-                              title={`Uninstall ${engine} — refused while a website is configured to use it`}
-                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+                              title={`Uninstall unused ${engine} — safe to remove because no website uses it`}
+                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition-colors"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -747,8 +753,36 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         {component.label}
                         <span className="block text-[10px] font-normal text-slate-400">{component.description}</span>
                         {installedList.length > 0 && (
-                          <div className="text-[10px] text-slate-500 mt-1">
-                            Installed on host: <span className="font-mono text-emerald-700 font-semibold">{installedList.join(', ')}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-slate-500 mt-1.5">
+                            <span>Installed on host:</span>
+                            {installedList.map((ver) => {
+                              const isAct = isVersionActive(ver);
+                              return isAct ? (
+                                <span
+                                  key={ver}
+                                  className="inline-flex items-center gap-1 font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-semibold"
+                                  title="Currently running active version (serving queries — cannot be uninstalled while active)"
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                  {ver} (active)
+                                </span>
+                              ) : (
+                                <span
+                                  key={ver}
+                                  className="inline-flex items-center gap-1 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 font-medium"
+                                >
+                                  <span>{ver}</span>
+                                  <button
+                                    onClick={() => void uninstall(component.name, ver)}
+                                    disabled={busy || live !== true}
+                                    title={`Uninstall unused version ${ver} from host`}
+                                    className="p-0.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors disabled:opacity-40 cursor-pointer"
+                                  >
+                                    <Trash2 className="w-2.5 h-2.5" />
+                                  </button>
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
                       </td>
@@ -798,39 +832,42 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
                           {isCurrent ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
-                              <CheckCircle2 className="w-3 h-3" /> Active
+                              <CheckCircle2 className="w-3 h-3" /> Active (Running)
                             </span>
                           ) : (
-                            <button
-                              onClick={() => {
-                                if (picked && !isCurrent) void planAndExecute('install', component.name, picked);
-                              }}
-                              disabled={busy || live !== true || !picked}
-                              title={`Plan & switch database version to ${picked} — checks data safety before proceeding`}
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white ${
-                                installedList.includes(picked) ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
-                              } disabled:opacity-50`}
-                            >
-                              {installedList.includes(picked) ? (
-                                <>
-                                  <RefreshCw className="w-3 h-3" /> Switch to {picked} (Local)
-                                </>
-                              ) : (
-                                <>
-                                  <Download className="w-3 h-3" /> {active ? `Download & Switch to ${picked}` : `Install ${picked}`}
-                                </>
+                            <>
+                              <button
+                                onClick={() => {
+                                  if (picked && !isCurrent) void planAndExecute('install', component.name, picked);
+                                }}
+                                disabled={busy || live !== true || !picked}
+                                title={`Plan & switch database version to ${picked} — checks data safety before proceeding`}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white ${
+                                  installedList.includes(picked) ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
+                                } disabled:opacity-50`}
+                              >
+                                {installedList.includes(picked) ? (
+                                  <>
+                                    <RefreshCw className="w-3 h-3" /> Switch to {picked} (Local)
+                                  </>
+                                ) : (
+                                  <>
+                                    <Download className="w-3 h-3" /> {active ? `Download & Switch to ${picked}` : `Install ${picked}`}
+                                  </>
+                                )}
+                              </button>
+                              {/* Only show delete button for the picked version if it is installed on host but NOT active */}
+                              {installedList.includes(picked) && (
+                                <button
+                                  onClick={() => void uninstall(component.name, picked)}
+                                  disabled={busy || live !== true}
+                                  title={`Uninstall inactive ${component.label} ${picked} from host`}
+                                  className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               )}
-                            </button>
-                          )}
-                          {active && (
-                            <button
-                              onClick={() => void uninstall(component.name, active)}
-                              disabled={busy || live !== true}
-                              title={`Uninstall ${component.label} ${active} — refused while a database on it exists`}
-                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            </>
                           )}
                         </div>
                       </td>

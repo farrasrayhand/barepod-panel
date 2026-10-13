@@ -78,9 +78,17 @@ func (s *Server) stackUsage(component, version string) ([]string, error) {
 			}
 		}
 	}
-	if component == "nginx" || component == "caddy" {
+	if component == "nginx" || component == "caddy" || component == "apache" || component == "openlitespeed" {
 		if component == s.deploy.ActiveEngine() {
-			out = append(out, "the active web server (every site is served by it)")
+			out = append(out, "the active edge ingress (every site is served by it)")
+		}
+		sites, err := s.store.ListWebsites()
+		if err == nil {
+			for _, site := range sites {
+				if site.WebServer == component {
+					out = append(out, "website "+site.Slug)
+				}
+			}
 		}
 	}
 	return out, nil
