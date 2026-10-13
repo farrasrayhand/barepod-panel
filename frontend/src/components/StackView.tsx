@@ -316,135 +316,141 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       {activeTab === 'web' && (
         <div className="space-y-4">
           {repositoriesCard('web', 'web server')}
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
-              <tr>
-                <th className="py-3 px-4">Engine</th>
-                <th className="py-3 px-4">State</th>
-                <th className="py-3 px-4">Ingress</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {(status?.webServer.supported ?? ['nginx', 'caddy']).map((engine) => {
-                const found = status?.webServer.installed.find((s) => s.engine === engine);
-                const active = status?.webServer.active === engine;
-                return (
-                  <tr key={engine} className="hover:bg-slate-50/70">
-                    <td className="py-3 px-4 font-semibold text-slate-900">{engine}</td>
-                    <td className="py-3 px-4">{webBadge(Boolean(found?.installed), Boolean(found?.running), found?.version)}</td>
-                    <td className="py-3 px-4">
-                      {active ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                          <Play className="w-3 h-3" /> owns :80
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-slate-400">standby</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2 flex-wrap">
-                        {/* Every version the engine's own repository carries. Choosing one
-                            installs it, which is the switch. */}
-                        {/* Always offered for the engine that is not the ingress, so the way
-                            back is never hidden; disabled until it is installed. */}
-                        {!active && (
-                          <button
-                            onClick={() => void switchWebServer(engine)}
-                            disabled={busy || live !== true || !found?.installed}
-                            title={found?.installed ? `Serve every site with ${engine}` : `Install ${engine} first`}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-700 border border-slate-300 hover:bg-slate-50 disabled:opacity-50"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Set as ingress
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <p className="px-4 py-3 text-[11px] text-slate-500 border-t border-slate-100">
-            One engine owns port 80 at a time: switching rewrites every site's vhost, validates it, and only then swaps the
-            service. Panel vhosts live in <span className="font-mono">{status?.webServer.vhostsPath ?? '—'}</span>.
-          </p>
-        </div>
-
-          {/* Version manager: every web server the panel keeps versions for, which is more
-              than the two that can be the ingress. */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-slate-200 flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">Version manager</span>
-              <span className="text-[11px] text-slate-500">
-                Every web server the panel keeps versions for. Only nginx and Caddy can own :80 — the rest run as
-                backends, or are here so a version can be installed.
-              </span>
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">Multi-Engine Web Servers</span>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Engines operate simultaneously with conflict-free port allocation. Edge ingress (:80/:443) is served by {status?.webServer.active === 'nginx' ? 'Nginx' : 'Caddy'}, while Apache (:8080) and OpenLiteSpeed (:8088) run as high-performance backends.
+                </p>
+              </div>
             </div>
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
                 <tr>
                   <th className="py-3 px-4">Engine</th>
+                  <th className="py-3 px-4">Role & Ports</th>
                   <th className="py-3 px-4">Active</th>
-                  <th className="py-3 px-4">Newest</th>
-                  <th className="py-3 px-4">Versions</th>
-                  <th className="py-3 px-4 text-right">Switch</th>
+                  <th className="py-3 px-4">Latest Upstream</th>
+                  <th className="py-3 px-4">State</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {(status?.webServer.managed ?? []).map((engine) => {
+                {(status?.webServer.managed ?? ['nginx', 'caddy', 'apache', 'openlitespeed']).map((engine) => {
                   const state = status?.webServer.managedInstalled?.find((e) => e.engine === engine);
-                  const versions = status?.webServer.available?.[engine] ?? [];
+                  const activeIngress = status?.webServer.active === engine;
                   const installed = (state?.version ?? '').replace(/^v/, '');
-                  // The select shows its first option when nothing is picked, so the state
-                  // has to agree with what is on screen — otherwise the button reads an
-                  // empty string and appears to do nothing at all.
-                  const picked = pickedVersion[engine] ?? (installed || versions[0] || '');
+                  const latest = status?.webServer.latest?.[engine] ?? installed;
+                  const isUpToDate = Boolean(installed && latest && (installed === latest || installed.startsWith(latest)));
+
                   return (
                     <tr key={engine} className="hover:bg-slate-50/70">
-                      <td className="py-3 px-4 font-semibold text-slate-900">{engine}</td>
-                      <td className="py-3 px-4 font-mono text-slate-700">{state?.installed ? installed || '—' : 'not installed'}</td>
-                      <td className="py-3 px-4 font-mono text-slate-700">{status?.webServer.latest?.[engine] ?? '—'}</td>
+                      <td className="py-3 px-4 font-semibold text-slate-900 capitalize">
+                        {engine}
+                        <span className="block text-[10px] font-normal text-slate-400">
+                          {engine === 'nginx' && 'High-concurrency reverse proxy & edge ingress'}
+                          {engine === 'caddy' && 'Automatic HTTPS & HTTP/3 edge ingress/backend'}
+                          {engine === 'apache' && 'Apache 2.4 with native .htaccess rewrite engine'}
+                          {engine === 'openlitespeed' && 'Event-driven server with native LSCache'}
+                        </span>
+                      </td>
                       <td className="py-3 px-4">
-                        <select
-                          value={picked}
-                          onChange={(e) => setPickedVersion((prev) => ({ ...prev, [engine]: e.target.value }))}
-                          className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
-                        >
-                          {Array.from(new Set([installed, ...versions].filter(Boolean))).map((version) => {
-                            const isInst = installed === version;
-                            return (
-                              <option key={version} value={version}>
-                                {version} {isInst ? '• Active on host' : '• Repository (Download)'}
-                              </option>
-                            );
-                          })}
-                        </select>
+                        {engine === 'nginx' && (
+                          activeIngress ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                              <Play className="w-3 h-3 text-emerald-600" /> Edge Ingress (:80, :443)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                              Ingress Standby
+                            </span>
+                          )
+                        )}
+                        {engine === 'caddy' && (
+                          activeIngress ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                              <Play className="w-3 h-3 text-emerald-600" /> Edge Ingress (:80, :443)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
+                              Internal Backend (:8081)
+                            </span>
+                          )
+                        )}
+                        {engine === 'apache' && (
+                          <span className="inline-flex items-center text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                            Internal Backend (:8080)
+                          </span>
+                        )}
+                        {engine === 'openlitespeed' && (
+                          <span className="inline-flex items-center text-[11px] font-medium text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">
+                            Internal Backend (:8088)
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-700">
+                        {state?.installed ? installed || '—' : 'not installed'}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-700">
+                        <span className="inline-flex items-center gap-1">
+                          {latest || '—'}
+                          {state?.installed && isUpToDate && (
+                            <span className="text-[10px] text-emerald-600 font-sans font-semibold bg-emerald-50 px-1 rounded">Latest</span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="flex items-center gap-1.5 text-[11px]">
+                          <span className={`w-1.5 h-1.5 rounded-full ${state?.running ? 'bg-emerald-500' : state?.installed ? 'bg-amber-500' : 'bg-slate-300'}`} />
+                          {state?.running ? 'running' : state?.installed ? 'stopped' : 'not installed'}
+                        </span>
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {state?.installed && picked === installed ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
-                              <CheckCircle2 className="w-3 h-3" /> Active
-                            </span>
-                          ) : (
+                          {/* Ingress switch button for Nginx and Caddy */}
+                          {(engine === 'nginx' || engine === 'caddy') && !activeIngress && state?.installed && (
                             <button
-                              onClick={() => {
-                                if (picked && picked !== installed) void install(engine, picked);
-                              }}
-                              disabled={busy || live !== true || versions.length === 0}
-                              title={versions.length === 0 ? "no versions listed — add this engine's repository" : `Download from repository and switch ${engine} to ${picked}`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                              onClick={() => void switchWebServer(engine)}
+                              disabled={busy || live !== true}
+                              title={`Switch edge ingress (:80/:443) to ${engine}`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-700 border border-slate-300 hover:bg-slate-50 disabled:opacity-50"
                             >
-                              <Download className="w-3 h-3" /> {state?.installed ? `Download & Switch to ${picked}` : `Install ${picked}`}
+                              <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" /> Set as Ingress
                             </button>
                           )}
-                          {state?.installed && installed && (
+
+                          {/* Install / Update button (always latest) */}
+                          {!state?.installed ? (
+                            <button
+                              onClick={() => void install(engine, 'latest')}
+                              disabled={busy || live !== true}
+                              title={`Install official upstream latest ${engine}`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              <Download className="w-3 h-3" /> Install Latest
+                            </button>
+                          ) : !isUpToDate && latest ? (
+                            <button
+                              onClick={() => void install(engine, 'latest')}
+                              disabled={busy || live !== true}
+                              title={`Update ${engine} to latest upstream version (${latest})`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50"
+                            >
+                              <Download className="w-3 h-3" /> Update to {latest}
+                            </button>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3" /> Up to Date
+                            </span>
+                          )}
+
+                          {/* Uninstall button (only when not active ingress) */}
+                          {state?.installed && !activeIngress && (
                             <button
                               onClick={() => void uninstall(engine, installed)}
                               disabled={busy || live !== true}
-                              title={`Uninstall ${engine} ${installed} — refused while a project uses it`}
+                              title={`Uninstall ${engine} — refused while a website is configured to use it`}
                               className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -458,7 +464,9 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
               </tbody>
             </table>
             <p className="px-4 py-3 text-[11px] text-slate-500 border-t border-slate-100">
-              <span className="font-semibold text-slate-700">Web Server Version Guide:</span> Only one version of each package is installed at a time. Versions tagged <span className="font-semibold text-slate-700 font-mono">• Active on host</span> are running now; versions tagged <span className="font-semibold text-blue-700 font-mono">• Repository</span> will be fetched and installed from upstream apt repositories.
+              <span className="font-semibold text-slate-700">Web Server Management:</span> All 4 engines operate concurrently without port collisions.
+              Edge ingress on port 80 and 443 is served by <span className="font-semibold text-slate-700 font-mono">{status?.webServer.active}</span> with atomic zero-downtime vhost switching.
+              Web servers run as system services and automatically follow official upstream latest stable releases.
             </p>
           </div>
         </div>

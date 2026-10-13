@@ -1026,15 +1026,14 @@ func dockerImageTags(ctx context.Context, h *host.Host, image string) []string {
 	return sortedDescending(set)
 }
 
-// installEngine installs a web server: the newest its repository carries when no version
-// was asked for, and exactly that version when one was. It is one or the other — asking
-// for 2.11.0 and also installing the newest was upgrading caddy to 2.11.7 first and then
-// failing on the pin.
+// installEngine installs a web server: always targeting the newest release the repository
+// carries when no version or "latest" was specified, and pinned with downgrade allowance otherwise.
 func installEngine(pkg, version string) [][]string {
-	if strings.TrimSpace(version) != "" {
-		return pinnedApt(pkg, version)
+	v := strings.TrimSpace(version)
+	if v == "" || v == "latest" {
+		return [][]string{aptGet("install", "-y", pkg)}
 	}
-	return [][]string{aptGet("install", "-y", pkg)}
+	return pinnedApt(pkg, v)
 }
 
 // pinnedApt installs one exact version of a package, resolved from what the repositories
@@ -1042,10 +1041,10 @@ func installEngine(pkg, version string) [][]string {
 // the resolver picks the first madison entry that starts with what was asked for.
 func pinnedApt(pkg, version string) [][]string {
 	version = strings.TrimSpace(version)
-	if version == "" || !versionShape.MatchString(version) {
-		return nil // no version asked for: the repository's newest is the answer
+	if version == "" || version == "latest" || !versionShape.MatchString(version) {
+		return [][]string{aptGet("install", "-y", pkg)}
 	}
-	script := "set -e\nV=$(apt-cache madison " + pkg + " | awk '{print $3}' | grep -m1 '^" + version + "')\ntest -n \"$V\"\napt-get " + strings.Join(aptWait, " ") + " install -y " + pkg + "=\"$V\""
+	script := "set -e\nV=$(apt-cache madison " + pkg + " | awk '{print $3}' | grep -m1 '^" + version + "')\ntest -n \"$V\"\napt-get " + strings.Join(aptWait, " ") + " install -y --allow-downgrades " + pkg + "=\"$V\""
 	return [][]string{{"bash", "-c", script}}
 }
 
