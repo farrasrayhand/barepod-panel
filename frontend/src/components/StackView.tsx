@@ -421,26 +421,34 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         </select>
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => {
-                            if (picked && picked !== installed) void install(engine, picked);
-                          }}
-                          disabled={busy || live !== true || versions.length === 0}
-                          title={versions.length === 0 ? 'no versions listed — add this engine\'s repository' : 'Install the picked version'}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-                        >
-                          <Download className="w-3 h-3" /> {state?.installed ? 'Switch' : 'Install'}
-                        </button>
-                        {state?.installed && installed && (
-                          <button
-                            onClick={() => void uninstall(engine, installed)}
-                            disabled={busy || live !== true}
-                            title={`Uninstall ${engine} ${installed} — refused while a project uses it`}
-                            className="ml-1.5 p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {state?.installed && picked === installed ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3" /> Active
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                if (picked && picked !== installed) void install(engine, picked);
+                              }}
+                              disabled={busy || live !== true || versions.length === 0}
+                              title={versions.length === 0 ? "no versions listed — add this engine's repository" : `Install and switch ${engine} to ${picked}`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              <Download className="w-3 h-3" /> {state?.installed ? `Switch to ${picked}` : `Install ${picked}`}
+                            </button>
+                          )}
+                          {state?.installed && installed && (
+                            <button
+                              onClick={() => void uninstall(engine, installed)}
+                              disabled={busy || live !== true}
+                              title={`Uninstall ${engine} ${installed} — refused while a project uses it`}
+                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -653,16 +661,22 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          <button
-                            onClick={() => {
-                              if (picked && !isCurrent) void planAndExecute('install', component.name, picked);
-                            }}
-                            disabled={busy || live !== true || !picked || isCurrent}
-                            title="Plan & switch database version — checks data safety before proceeding"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-                          >
-                            <Download className="w-3 h-3" /> {active ? 'Switch' : 'Install'}
-                          </button>
+                          {isCurrent ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3" /> Active
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                if (picked && !isCurrent) void planAndExecute('install', component.name, picked);
+                              }}
+                              disabled={busy || live !== true || !picked}
+                              title={`Plan & switch database version to ${picked} — checks data safety before proceeding`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              <Download className="w-3 h-3" /> {active ? `Switch to ${picked}` : `Install ${picked}`}
+                            </button>
+                          )}
                           {active && (
                             <button
                               onClick={() => void uninstall(component.name, active)}
