@@ -247,15 +247,74 @@ func Commands(component, version string) ([][]string, error) {
 	case "redis":
 		return apt("redis-server"), nil
 	case "mongodb":
-		// MongoDB runs in a container on hosts that have Docker, so a version is an image tag
-		// and installing it is a pull; the packages are the fallback for a host without it.
-		script := "set -e\nif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then\n" +
-			"  echo 'this host runs MongoDB in Docker — pulling the image instead of installing packages'\n" +
-			"  docker pull " + mongodbImage + ":" + version + "\n" +
-			"else\n" +
-			"  echo 'no Docker here — installing MongoDB " + version + " packages'\n" +
-			"  apt-get " + strings.Join(aptWait, " ") + " install -y 'mongodb-org=" + version + "*'\n" +
-			"fi"
+		// MongoDB runs in a container on hosts that have Docker. If the container exists,
+		// we safely swap it with sequential featureCompatibilityVersion handling (e.g. 7.0 -> 8.0 -> 9.0).
+		// Packages are the fallback for hosts without Docker.
+		script := `set -e
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  TARGET="` + version + `"
+  [ -z "$TARGET" ] && TARGET="9.0"
+  echo "Pulling Docker image for MongoDB $TARGET..."
+  docker pull ` + mongodbImage + `:"$TARGET"
+
+  if docker inspect barepod-mongo >/dev/null 2>&1; then
+    CURRENT=$(docker inspect barepod-mongo --format '{{.Config.Image}}' 2>/dev/null | cut -d: -f2)
+    echo "Current container running mongo:$CURRENT, target is mongo:$TARGET"
+    ADMIN_PASS=$(docker inspect barepod-mongo --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep '^MONGO_INITDB_ROOT_PASSWORD=' | cut -d= -f2-)
+    DATA_VOL=$(docker inspect barepod-mongo --format '{{range .Mounts}}{{if eq .Destination "/data/db"}}{{.Name}}{{end}}{{end}}')
+    [ -z "$DATA_VOL" ] && DATA_VOL=$(docker inspect barepod-mongo --format '{{range .Mounts}}{{if eq .Destination "/var/lib/mongodb"}}{{.Name}}{{end}}{{end}}')
+    [ -z "$DATA_VOL" ] && DATA_VOL="barepod-mongo-data"
+
+    if echo "$CURRENT" | grep -q '^7' && echo "$TARGET" | grep -q '^9'; then
+      echo "Performing sequential upgrade: 7.0 -> 8.0 -> 9.0..."
+      docker pull mongo:8.0
+      docker stop barepod-mongo
+      docker run -d --name barepod-mongo-upgrading --network host -v "$DATA_VOL":/data/db mongo:8.0 mongod --port 27018 --dbpath /data/db
+      sleep 4
+      docker exec barepod-mongo-upgrading mongosh --port 27018 -u barepod_admin -p "$ADMIN_PASS" --authenticationDatabase admin --eval 'db.adminCommand({setFeatureCompatibilityVersion: "8.0", confirm: true})'
+      docker stop barepod-mongo-upgrading
+      docker rm barepod-mongo-upgrading
+      docker rm barepod-mongo
+      docker run -d --restart unless-stopped --name barepod-mongo --network host \
+        -v "$DATA_VOL":/data/db \
+        -e MONGO_INITDB_ROOT_USERNAME=barepod_admin \
+        -e MONGO_INITDB_ROOT_PASSWORD="$ADMIN_PASS" \
+        mongo:9.0 --port 27018
+      sleep 4
+      docker exec barepod-mongo mongosh --port 27018 -u barepod_admin -p "$ADMIN_PASS" --authenticationDatabase admin --eval 'db.adminCommand({setFeatureCompatibilityVersion: "9.0", confirm: true})'
+      echo "MongoDB successfully upgraded to 9.0!"
+    elif echo "$CURRENT" | grep -q '^7' && echo "$TARGET" | grep -q '^8'; then
+      echo "Performing upgrade: 7.0 -> 8.0..."
+      docker stop barepod-mongo
+      docker rm barepod-mongo
+      docker run -d --restart unless-stopped --name barepod-mongo --network host \
+        -v "$DATA_VOL":/data/db \
+        -e MONGO_INITDB_ROOT_USERNAME=barepod_admin \
+        -e MONGO_INITDB_ROOT_PASSWORD="$ADMIN_PASS" \
+        mongo:8.0 --port 27018
+      sleep 4
+      docker exec barepod-mongo mongosh --port 27018 -u barepod_admin -p "$ADMIN_PASS" --authenticationDatabase admin --eval 'db.adminCommand({setFeatureCompatibilityVersion: "8.0", confirm: true})'
+      echo "MongoDB successfully upgraded to 8.0!"
+    else
+      echo "Swapping container to mongo:$TARGET..."
+      docker stop barepod-mongo
+      docker rm barepod-mongo
+      docker run -d --restart unless-stopped --name barepod-mongo --network host \
+        -v "$DATA_VOL":/data/db \
+        -e MONGO_INITDB_ROOT_USERNAME=barepod_admin \
+        -e MONGO_INITDB_ROOT_PASSWORD="$ADMIN_PASS" \
+        mongo:"$TARGET" --port 27018
+      sleep 4
+      if [ -n "$ADMIN_PASS" ]; then
+        docker exec barepod-mongo mongosh --port 27018 -u barepod_admin -p "$ADMIN_PASS" --authenticationDatabase admin --eval "db.adminCommand({setFeatureCompatibilityVersion: '$TARGET', confirm: true})" 2>/dev/null || true
+      fi
+      echo "MongoDB container swapped to $TARGET successfully!"
+    fi
+  fi
+else
+  echo 'no Docker here — installing MongoDB packages'
+  apt-get ` + strings.Join(aptWait, " ") + ` install -y 'mongodb-org=` + version + `*'
+fi`
 		return [][]string{{"bash", "-c", mongodbRepoScript}, {"bash", "-c", script}}, nil
 	}
 	return nil, fmt.Errorf("stack: %s has no install recipe", c.Name)

@@ -51,7 +51,7 @@ func containerImages() map[string]ContainerSpec {
 			Env: []string{"MYSQL_ROOT_HOST=%"},
 		},
 		"mongodb": {
-			Engine: "mongodb", Image: "mongo:7.0", Name: "barepod-mongo",
+			Engine: "mongodb", Image: "mongo:9.0", Name: "barepod-mongo",
 			Volume: "barepod-mongo-data", HostPort: 27018, ContainerPort: 27017,
 			Env: []string{"MONGO_INITDB_ROOT_USERNAME=barepod_admin"},
 		},
@@ -125,11 +125,17 @@ func ContainerFor(engine, adminUser, adminPassword, envDir string) (ContainerSpe
 // directly on the host's loopback, which is where the tenant's application expects
 // it anyway. Each engine is therefore told to listen on its own port.
 func (c ContainerSpec) RunArgv() []string {
+	mountTarget := "/var/lib/" + c.Engine
+	if c.Engine == "mongodb" {
+		mountTarget = "/data/db"
+	} else if c.Engine == "redis" {
+		mountTarget = "/data"
+	}
 	argv := []string{
 		"docker", "run", "-d", "--restart", "unless-stopped",
 		"--name", c.Name,
 		"--network", "host",
-		"-v", c.Volume + ":/var/lib/" + c.Engine,
+		"-v", c.Volume + ":" + mountTarget,
 	}
 	if c.EnvPath != "" {
 		argv = append(argv, "--env-file", c.EnvPath)
