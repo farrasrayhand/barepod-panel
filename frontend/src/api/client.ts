@@ -1125,6 +1125,8 @@ export interface StackStatus {
   databases: DbEngineRow[];
   /** The version chosen for each engine (what an install recorded). */
   databaseVersions: Record<string, string>;
+  /** All versions installed locally on the host for each engine. */
+  databaseInstalled?: Record<string, string[]>;
   /** Each language's versions: installed (probed) and available (from its repositories). */
   runtimes: Record<string, RuntimeStatus>;
   php: { installed: string[]; default: string };

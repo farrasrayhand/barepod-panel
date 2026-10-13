@@ -412,12 +412,14 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                           onChange={(e) => setPickedVersion((prev) => ({ ...prev, [engine]: e.target.value }))}
                           className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
                         >
-                          {Array.from(new Set([installed, ...versions].filter(Boolean))).map((version) => (
-                            <option key={version} value={version}>
-                              {version}
-                              {installed === version ? ' (installed)' : ''}
-                            </option>
-                          ))}
+                          {Array.from(new Set([installed, ...versions].filter(Boolean))).map((version) => {
+                            const isInst = installed === version;
+                            return (
+                              <option key={version} value={version}>
+                                {version} {isInst ? '• Active on host' : '• Repository (Download)'}
+                              </option>
+                            );
+                          })}
                         </select>
                       </td>
                       <td className="py-3 px-4 text-right">
@@ -432,10 +434,10 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                                 if (picked && picked !== installed) void install(engine, picked);
                               }}
                               disabled={busy || live !== true || versions.length === 0}
-                              title={versions.length === 0 ? "no versions listed — add this engine's repository" : `Install and switch ${engine} to ${picked}`}
+                              title={versions.length === 0 ? "no versions listed — add this engine's repository" : `Download from repository and switch ${engine} to ${picked}`}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
                             >
-                              <Download className="w-3 h-3" /> {state?.installed ? `Switch to ${picked}` : `Install ${picked}`}
+                              <Download className="w-3 h-3" /> {state?.installed ? `Download & Switch to ${picked}` : `Install ${picked}`}
                             </button>
                           )}
                           {state?.installed && installed && (
@@ -455,6 +457,9 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 })}
               </tbody>
             </table>
+            <p className="px-4 py-3 text-[11px] text-slate-500 border-t border-slate-100">
+              <span className="font-semibold text-slate-700">Web Server Version Guide:</span> Only one version of each package is installed at a time. Versions tagged <span className="font-semibold text-slate-700 font-mono">• Active on host</span> are running now; versions tagged <span className="font-semibold text-blue-700 font-mono">• Repository</span> will be fetched and installed from upstream apt repositories.
+            </p>
           </div>
         </div>
       )}
@@ -603,10 +608,11 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   const detected = status?.databases?.find((d) => d.engine === component.name);
                   const versions = status?.databaseAvailable?.[component.name] ?? component.versions ?? [];
                   const active = detected?.installedVersion ?? '';
+                  const installedList = status?.databaseInstalled?.[component.name] ?? (active ? [active] : []);
 
                   // Build clean dropdown options without duplicate version entries
                   const dropdownVersions = (() => {
-                    const list = [...versions];
+                    const list = [...installedList, ...versions];
                     if (active && !list.includes(active)) {
                       // Check if active matches a line already in list (e.g. active "18.6" matches major "18")
                       const hasLine = list.some((v) => v === active || (active.startsWith(v + '.') && !v.includes('.')));
@@ -636,6 +642,11 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                       <td className="py-3 px-4 font-semibold text-slate-900">
                         {component.label}
                         <span className="block text-[10px] font-normal text-slate-400">{component.description}</span>
+                        {installedList.length > 0 && (
+                          <div className="text-[10px] text-slate-500 mt-1">
+                            Installed on host: <span className="font-mono text-emerald-700 font-semibold">{installedList.join(', ')}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-700">{active || '—'}</td>
                       <td className="py-3 px-4 font-mono text-slate-700">{status?.databaseLatest?.[component.name] ?? '—'}</td>
@@ -651,12 +662,21 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                           onChange={(e) => setPickedVersion((prev) => ({ ...prev, [component.name]: e.target.value }))}
                           className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
                         >
-                          {dropdownVersions.map((version) => (
-                            <option key={version} value={version}>
-                              {version}
-                              {isVersionActive(version) ? ' (active)' : ''}
-                            </option>
-                          ))}
+                          {dropdownVersions.map((version) => {
+                            const isAct = isVersionActive(version);
+                            const isInst = installedList.includes(version);
+                            let tag = '• Repository (Download)';
+                            if (isAct) {
+                              tag = '• Active (Running)';
+                            } else if (isInst) {
+                              tag = '• Installed on host';
+                            }
+                            return (
+                              <option key={version} value={version}>
+                                {version} {tag}
+                              </option>
+                            );
+                          })}
                         </select>
                       </td>
                       <td className="py-3 px-4 text-right">
@@ -672,9 +692,19 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                               }}
                               disabled={busy || live !== true || !picked}
                               title={`Plan & switch database version to ${picked} — checks data safety before proceeding`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white ${
+                                installedList.includes(picked) ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
+                              } disabled:opacity-50`}
                             >
-                              <Download className="w-3 h-3" /> {active ? `Switch to ${picked}` : `Install ${picked}`}
+                              {installedList.includes(picked) ? (
+                                <>
+                                  <RefreshCw className="w-3 h-3" /> Switch to {picked} (Local)
+                                </>
+                              ) : (
+                                <>
+                                  <Download className="w-3 h-3" /> {active ? `Download & Switch to ${picked}` : `Install ${picked}`}
+                                </>
+                              )}
                             </button>
                           )}
                           {active && (
@@ -695,9 +725,11 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
               </tbody>
             </table>
             <p className="px-4 py-3 text-[11px] text-slate-500 border-t border-slate-100">
-              Active is the version the engine is running, probed from the engine itself. One version per engine at a
-              time: switching means installing the new one and migrating — which needs a dump first while databases
-              exist on it.
+              <span className="font-semibold text-slate-700">Database Version Guide:</span> One version per engine runs on the standard port at a time.
+              Versions tagged <span className="font-semibold text-slate-700 font-mono">• Active (Running)</span> are serving queries now.
+              Versions tagged <span className="font-semibold text-emerald-700 font-mono">• Installed on host</span> are already present locally on server disk / images.
+              Versions tagged <span className="font-semibold text-blue-700 font-mono">• Repository</span> will be downloaded from upstream repositories.
+              Always export / dump SQL backups before switching database versions.
             </p>
           </div>
         </div>

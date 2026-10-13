@@ -728,6 +728,8 @@ type Status struct {
 	// DatabaseVersions is the version chosen for each engine (what an install recorded),
 	// so the screen can show both that and the version really installed.
 	DatabaseVersions map[string]string `json:"databaseVersions"`
+	// DatabaseInstalled lists all versions present locally on the host for each engine.
+	DatabaseInstalled map[string][]string `json:"databaseInstalled"`
 	// Runtimes is each language's versions: what is installed (probed) and what this
 	// host's repositories offer (read from apt, not a hardcoded list), plus whether the
 	// version matters per site (interpreted) or is a build-time toolchain (compiled).
@@ -795,6 +797,7 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 
 	out.Databases = dbengine.Detect(ctx, h.Runner)
 	out.DatabaseVersions = map[string]string{}
+	out.DatabaseInstalled = map[string][]string{}
 	out.DatabaseAvailable = map[string][]string{}
 	out.DatabaseLatest = map[string]string{}
 	for i := range out.Databases {
@@ -816,6 +819,7 @@ func Detect(ctx context.Context, st *store.Store, h *host.Host, lookPath func(st
 		// it here made the screen show an installed version nobody had installed (MariaDB
 		// 11.4 beside an installed 10.11).
 		out.DatabaseVersions[engine.Name] = strings.TrimSpace(engine.Installed)
+		out.DatabaseInstalled[engine.Name] = databaseInstalledVersions(ctx, h, engine.Name, engine.Installed)
 		out.DatabaseAvailable[engine.Name] = databaseVersions(ctx, h, engine.Name)
 		out.DatabaseLatest[engine.Name] = newestOf(out.DatabaseAvailable[engine.Name])
 	}
@@ -1137,6 +1141,43 @@ func databaseVersions(ctx context.Context, h *host.Host, engine string) []string
 	}
 	return sortedDescending(set)
 }
+
+// databaseInstalledVersions lists all versions of an engine that are actually installed
+// on the host disk or pulled as Docker images, distinguishing active vs installed vs repo.
+func databaseInstalledVersions(ctx context.Context, h *host.Host, engine, active string) []string {
+	var installed []string
+	if h.Materialises() {
+		switch engine {
+		case "postgresql":
+			out, err := h.Run(ctx, []string{"bash", "-c", "dpkg -l 'postgresql-[0-9]*' 2>/dev/null | awk '/^ii/ {print $2}' | sed 's/postgresql-//' | grep -E '^[0-9]+$' | sort -V -u"})
+			if err == nil {
+				for _, line := range strings.Split(out, "\n") {
+					if v := strings.TrimSpace(line); v != "" {
+						installed = append(installed, v)
+					}
+				}
+			}
+		case "mongodb":
+			out, err := h.Run(ctx, []string{"bash", "-c", "docker images --format '{{.Tag}}' mongo 2>/dev/null | grep -E '^[0-9]+(\\.[0-9]+)*$' | sort -V -u"})
+			if err == nil {
+				for _, line := range strings.Split(out, "\n") {
+					if v := strings.TrimSpace(line); v != "" {
+						installed = append(installed, v)
+					}
+				}
+			}
+		}
+	}
+	if active != "" {
+		activeClean := strings.TrimSuffix(strings.TrimSpace(active), " (image)")
+		if activeClean != "" && !slices.Contains(installed, activeClean) {
+			installed = append(installed, activeClean)
+		}
+	}
+	slices.Sort(installed)
+	return installed
+}
+
 
 // RepositoryStatus is one source the panel adds for itself. The screen only offers to add
 // repositories when one is actually missing, so the card is not permanent furniture.
