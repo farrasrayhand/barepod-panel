@@ -589,7 +589,34 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   const detected = status?.databases?.find((d) => d.engine === component.name);
                   const versions = status?.databaseAvailable?.[component.name] ?? component.versions ?? [];
                   const active = detected?.installedVersion ?? '';
-                  const picked = pickedVersion[component.name] ?? (active || versions[0] || '');
+
+                  // Build clean dropdown options without duplicate version entries
+                  const dropdownVersions = (() => {
+                    const list = [...versions];
+                    if (active && !list.includes(active)) {
+                      // Check if active matches a line already in list (e.g. active "18.6" matches major "18")
+                      const hasLine = list.some((v) => v === active || (active.startsWith(v + '.') && !v.includes('.')));
+                      if (!hasLine) {
+                        list.unshift(active);
+                      }
+                    }
+                    return Array.from(new Set(list.filter(Boolean)));
+                  })();
+
+                  const isVersionActive = (v: string) => {
+                    if (!active) return false;
+                    if (v === active) return true;
+                    // If exact active version is not present in options, match major line (e.g. active "18.6" matches "18")
+                    if (!dropdownVersions.includes(active) && (active.startsWith(v + '.') || active.split('.')[0] === v)) {
+                      return true;
+                    }
+                    return false;
+                  };
+
+                  const currentActiveOption = dropdownVersions.find(isVersionActive);
+                  const picked = pickedVersion[component.name] ?? (currentActiveOption || dropdownVersions[0] || '');
+                  const isCurrent = isVersionActive(picked);
+
                   return (
                     <tr key={component.name} className="hover:bg-slate-50/70">
                       <td className="py-3 px-4 font-semibold text-slate-900">
@@ -605,17 +632,15 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        {/* The active version is always in the list, even when the repository
-                            no longer carries it. */}
                         <select
                           value={picked}
                           onChange={(e) => setPickedVersion((prev) => ({ ...prev, [component.name]: e.target.value }))}
                           className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg font-mono"
                         >
-                          {Array.from(new Set([active, ...versions].filter(Boolean))).map((version) => (
+                          {dropdownVersions.map((version) => (
                             <option key={version} value={version}>
                               {version}
-                              {active.startsWith(version) ? ' (active)' : ''}
+                              {isVersionActive(version) ? ' (active)' : ''}
                             </option>
                           ))}
                         </select>
@@ -624,9 +649,9 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
                           <button
                             onClick={() => {
-                              if (picked && !active.startsWith(picked)) void planAndExecute('install', component.name, picked);
+                              if (picked && !isCurrent) void planAndExecute('install', component.name, picked);
                             }}
-                            disabled={busy || live !== true || !picked || active.startsWith(picked)}
+                            disabled={busy || live !== true || !picked || isCurrent}
                             title="Plan & switch database version — checks data safety before proceeding"
                             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
                           >

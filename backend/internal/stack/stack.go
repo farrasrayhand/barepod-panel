@@ -942,9 +942,26 @@ func dockerImageTags(ctx context.Context, h *host.Host, image string) []string {
 		return nil
 	}
 	set := map[string]bool{}
+	// Match semver and major.minor release tags (e.g. 7.0, 7.0.1, 7.0.43, 8.0.32).
+	// Requiring at least one dot (^\d+\.\d+(\.\d+)*$) eliminates single-digit
+	// floating aliases (like "7", "8", "9") which duplicate the "7.0", "8.0", "9.0" lines.
+	tagRegex := regexp.MustCompile(`^\d+\.\d+(\.\d+)*$`)
 	for _, tag := range payload.Results {
-		if regexp.MustCompile(`^\d+(\.\d+)?$`).MatchString(tag.Name) {
+		if tagRegex.MatchString(tag.Name) {
 			set[tag.Name] = true
+		}
+	}
+	// Also inspect local docker images on this host so any locally pulled/installed tag is included
+	repo := image
+	if image == "mongodb" {
+		repo = "mongo"
+	}
+	if local, err := h.Run(ctx, []string{"bash", "-c", "docker images --format '{{.Tag}}' " + repo + " 2>/dev/null"}); err == nil {
+		for _, tag := range strings.Split(local, "\n") {
+			tag = strings.TrimSpace(tag)
+			if tag != "" && tag != "latest" && tagRegex.MatchString(tag) {
+				set[tag] = true
+			}
 		}
 	}
 	return sortedDescending(set)
@@ -1067,7 +1084,12 @@ func databaseVersions(ctx context.Context, h *host.Host, engine string) []string
 		}
 	default:
 		// One candidate: the version apt would install for the engine's package.
-		pkg := map[string]string{"mariadb": "mariadb-server", "redis": "redis-server", "mongodb": "mongodb-org"}[engine]
+		pkg := map[string]string{
+			"mariadb": "mariadb-server",
+			"redis":   "redis-server",
+			"mongodb": "mongodb-org",
+			"mysql":   "mysql-server",
+		}[engine]
 		if pkg == "" {
 			return nil
 		}
