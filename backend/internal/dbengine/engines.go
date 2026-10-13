@@ -103,28 +103,28 @@ func catalog() []Engine {
 		},
 		{
 			Name: "postgresql", Label: "PostgreSQL", Kind: "database",
-			Versions: []string{"16", "15", "14"}, DefaultPort: 5432,
+			Versions: []string{"18", "17", "16", "15", "14"}, DefaultPort: 5432,
 			Client: "psql", Daemon: "postgresql", Automated: true,
 		},
 		{
 			Name: "mysql", Label: "MySQL", Kind: "database",
-			Versions: []string{"8.0", "5.7"}, DefaultPort: 3306,
+			Versions: []string{"8.4", "8.0"}, DefaultPort: 3306,
 			Client: "mysql", Daemon: "mysql", Automated: true,
 		},
 		{
 			Name: "mariadb", Label: "MariaDB", Kind: "database",
-			Versions: []string{"11.4", "10.11"}, DefaultPort: 3306,
+			Versions: []string{"13.0", "12.3", "11.8", "11.4", "10.11"}, DefaultPort: 3306,
 			Client: "mariadb", Daemon: "mariadb", Automated: true,
 		},
 		{
 			Name: "mongodb", Label: "MongoDB", Kind: "database",
-			Versions: []string{"7.0", "6.0"}, DefaultPort: 27017,
+			Versions: []string{"9.0", "8.0", "7.0", "6.0"}, DefaultPort: 27017,
 			Client: "mongosh", Daemon: "mongod", Automated: true,
 			Note: "The panel administers MongoDB through its own driver: a database's user is created inside the container, and its role is granted or withheld for the recycle bin.",
 		},
 		{
 			Name: "redis", Label: "Redis", Kind: "cache",
-			Versions: []string{"7.2", "7.0", "6.2"}, DefaultPort: 6379,
+			Versions: []string{"8.10", "8.0", "7.4", "7.2", "7.0", "6.2"}, DefaultPort: 6379,
 			Client: "redis-cli", Daemon: "redis-server", Automated: true,
 			Note: "A cache gets its own ACL user, limited to its key prefix. Keys are never flushed for you.",
 		},

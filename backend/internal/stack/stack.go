@@ -58,10 +58,10 @@ func Catalog() []Component {
 		{Name: "ruby", Label: "Ruby", Kind: "runtime", Description: "Ruby runtime (Rails, Sinatra)"},
 		{Name: "go", Label: "Go", Kind: "runtime", Description: "Go toolchain"},
 		{Name: "rust", Label: "Rust", Kind: "runtime", Description: "Rust toolchain (cargo)"},
-		{Name: "postgresql", Label: "PostgreSQL", Kind: "database", Versions: []string{"16", "15"}, Description: "Relational database"},
-		{Name: "mariadb", Label: "MariaDB", Kind: "database", Description: "MySQL-compatible relational database"},
-		{Name: "mongodb", Label: "MongoDB", Kind: "database", Description: "Document database"},
-		{Name: "redis", Label: "Redis", Kind: "database", Description: "In-memory cache and store"},
+		{Name: "postgresql", Label: "PostgreSQL", Kind: "database", Versions: []string{"18", "17", "16", "15", "14"}, Description: "Relational database"},
+		{Name: "mariadb", Label: "MariaDB", Kind: "database", Versions: []string{"13.0", "12.3", "11.8", "11.4", "10.11"}, Description: "MySQL-compatible relational database"},
+		{Name: "mongodb", Label: "MongoDB", Kind: "database", Versions: []string{"9.0", "8.0", "7.0", "6.0"}, Description: "Document database"},
+		{Name: "redis", Label: "Redis", Kind: "database", Versions: []string{"8.10", "8.0", "7.4", "7.2", "7.0", "6.2"}, Description: "In-memory cache and store"},
 	}
 }
 
@@ -229,12 +229,20 @@ func Commands(component, version string) ([][]string, error) {
 		}
 		return apt("postgresql-" + major), nil
 	case "mariadb":
-		// MariaDB upgrades its own system tables after the packages move; skipping it leaves
-		// a server that starts and then refuses real work.
+		// MariaDB repository carries major/LTS lines (10.11, 11.4, 11.8, 12.3, 13.0). Switching
+		// version targets the selected repo line, runs apt-get install, starts the service, and upgrades.
+		line := version
+		if line == "" {
+			line = "11.4"
+		}
 		script := "set -e\n" +
+			"CODENAME=$(lsb_release -cs)\n" +
+			"echo \"deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.org/repo/" + line + "/ubuntu $CODENAME main\" > /etc/apt/sources.list.d/mariadb.list\n" +
+			"apt-get " + strings.Join(aptWait, " ") + " update >/dev/null\n" +
 			"apt-get " + strings.Join(aptWait, " ") + " install -y mariadb-server\n" +
 			"systemctl start mariadb 2>/dev/null || true\n" +
-			"mariadb-upgrade -u root 2>&1 || mysql_upgrade -u root 2>&1 || echo 'mariadb-upgrade did not run — check the server log'"
+			"mariadb-upgrade -u root 2>&1 || mysql_upgrade -u root 2>&1 || echo 'mariadb-upgrade did not run — check the server log'\n" +
+			mariadbRepoScript
 		return [][]string{{"bash", "-c", script}}, nil
 	case "redis":
 		return apt("redis-server"), nil
@@ -282,7 +290,15 @@ apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
 const mariadbRepoScript = `set -e
 apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
 curl -fsSL https://mariadb.org/mariadb_release_signing_key.pgp -o /usr/share/keyrings/mariadb-keyring.pgp
-echo "deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.org/repo/11.4/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/mariadb.list
+CODENAME=$(lsb_release -cs)
+cat << 'EOF' > /etc/apt/sources.list.d/mariadb.list
+deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.org/repo/10.11/ubuntu CODENAME main
+deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.org/repo/11.4/ubuntu CODENAME main
+deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.org/repo/11.8/ubuntu CODENAME main
+deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.org/repo/12.3/ubuntu CODENAME main
+deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.org/repo/13.0/ubuntu CODENAME main
+EOF
+sed -i "s/CODENAME/$CODENAME/g" /etc/apt/sources.list.d/mariadb.list
 apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
 
 const mongodbRepoScript = `set -e
@@ -1196,6 +1212,14 @@ func databaseInstalledVersions(ctx context.Context, h *host.Host, engine, active
 	}
 	if active != "" {
 		activeClean := strings.TrimSuffix(strings.TrimSpace(active), " (image)")
+		if engine == "postgresql" {
+			major := strings.Split(activeClean, ".")[0]
+			if slices.Contains(installed, major) {
+				activeClean = ""
+			} else {
+				activeClean = major
+			}
+		}
 		if activeClean != "" && !slices.Contains(installed, activeClean) {
 			installed = append(installed, activeClean)
 		}
