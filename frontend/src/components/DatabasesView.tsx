@@ -78,7 +78,7 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
   id: row.id,
   name: row.alias || row.name,
   type: ENGINE_TO_ITEM[row.engine] ?? 'postgres',
-  version: [formatEngineName(row.engine), row.version].filter(Boolean).join(' ') + (row.fileBased ? ' · file' : ''),
+  version: [formatEngineName(row.engine), row.version || (row.engine === 'sqlite' ? '3' : '')].filter(Boolean).join(' ') + (row.fileBased ? ' · file' : ''),
   username: row.user || '—',
   // A file-based database has a real size; a daemon one is not measured yet.
   size: row.fileBased ? (row.sizeBytes ? formatBytes(row.sizeBytes) : '0 B') : '—',

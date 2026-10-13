@@ -154,8 +154,12 @@ func (s *Server) detectedDatabase(id, kind string, user *store.User) (*store.Dat
 	if err != nil || info.IsDir() {
 		return nil, false
 	}
+	ver := dbengine.SQLiteFileVersion(cleanFull)
+	if ver == "" {
+		ver = "3"
+	}
 	return &store.Database{
-		ID: id, Kind: kind, Engine: "sqlite", FileBased: true, Detected: true,
+		ID: id, Kind: kind, Engine: "sqlite", Version: ver, FileBased: true, Detected: true,
 		WebsiteSlug: site.Slug, TenantUser: site.TenantUser,
 		Alias: filepath.Base(relative), Name: filepath.Base(relative),
 		FilePath: cleanFull, Status: "ready", SizeBytes: info.Size(),
@@ -197,9 +201,13 @@ func (s *Server) detectedFor(user *store.User, kind string) []store.Database {
 			if known[filepath.Clean(file.Path)] || !dbengine.FileHasSQLiteHeader(file.Path) {
 				continue
 			}
+			ver := file.Version
+			if ver == "" {
+				ver = "3"
+			}
 			out = append(out, store.Database{
 				ID: dbengine.DetectedID(file.SiteSlug, file.Relative), Kind: kind,
-				Engine: "sqlite", FileBased: true, Detected: true,
+				Engine: "sqlite", Version: ver, FileBased: true, Detected: true,
 				WebsiteSlug: file.SiteSlug, TenantUser: file.TenantUser,
 				Alias: filepath.Base(file.Relative), Name: filepath.Base(file.Relative),
 				FilePath: file.Path, Status: "ready", SizeBytes: file.SizeBytes,

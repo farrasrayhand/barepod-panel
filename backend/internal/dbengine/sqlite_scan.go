@@ -2,6 +2,8 @@ package dbengine
 
 import (
 	"encoding/base64"
+	"encoding/binary"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,6 +21,7 @@ type DetectedDatabase struct {
 	TenantUser string
 	SizeBytes  int64
 	ModifiedAt string
+	Version    string
 }
 
 // scanSkip are directories whose contents are dependencies, caches or the
@@ -78,6 +81,10 @@ func ScanSQLiteFiles(siteRoot, slug, tenant string, maxDepth, maxFiles int) ([]D
 		if !matched || len(found) >= maxFiles {
 			return nil
 		}
+		ver := SQLiteFileVersion(path)
+		if ver == "" {
+			return nil
+		}
 		info, statErr := entry.Info()
 		if statErr != nil {
 			return nil
@@ -93,6 +100,7 @@ func ScanSQLiteFiles(siteRoot, slug, tenant string, maxDepth, maxFiles int) ([]D
 			TenantUser: tenant,
 			SizeBytes:  info.Size(),
 			ModifiedAt: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"),
+			Version:    ver,
 		})
 		return nil
 	})
@@ -145,17 +153,35 @@ func IsDetectedID(id string) bool {
 	return strings.HasPrefix(id, "det:sqlite:")
 }
 
+// SQLiteFileVersion extracts the SQLite version string from the file header.
+// It checks the 16-byte magic header ("SQLite format 3\x00") and, if available,
+// reads the 4-byte big-endian SQLITE_VERSION_NUMBER at offset 96.
+func SQLiteFileVersion(path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = file.Close() }()
+	header := make([]byte, 100)
+	n, err := file.Read(header)
+	if err != nil || n < 16 || string(header[:16]) != "SQLite format 3\x00" {
+		return ""
+	}
+	if n >= 100 {
+		vnum := binary.BigEndian.Uint32(header[96:100])
+		if vnum > 0 {
+			major := vnum / 1000000
+			minor := (vnum % 1000000) / 1000
+			if major > 0 {
+				return fmt.Sprintf("%d.%d", major, minor)
+			}
+		}
+	}
+	return "3"
+}
+
 // FileHasSQLiteHeader checks the first bytes so a file that merely ends in .db is
 // not offered as a database.
 func FileHasSQLiteHeader(path string) bool {
-	file, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = file.Close() }()
-	header := make([]byte, 16)
-	if _, err := file.Read(header); err != nil {
-		return false
-	}
-	return string(header) == "SQLite format 3\x00"
+	return SQLiteFileVersion(path) != ""
 }
