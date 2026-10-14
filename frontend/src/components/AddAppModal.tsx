@@ -759,7 +759,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                 <>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-2">Language &amp; Runtime</label>
-                    <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                       {[
                         { id: 'python' as RuntimeType, label: 'Python' },
                         { id: 'php' as RuntimeType, label: 'PHP' },
@@ -767,7 +767,6 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                         { id: 'go' as RuntimeType, label: 'Golang' },
                         { id: 'rust' as RuntimeType, label: 'Rust' },
                         { id: 'ruby' as RuntimeType, label: 'Ruby' },
-                        { id: 'static' as RuntimeType, label: 'Static HTML' },
                       ].map((item) => {
                         const RuntimeIcon = runtimeIcon[item.id] ?? Code2;
                         const active = runtime === item.id;
