@@ -1168,33 +1168,43 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
                     { id: 'nginx' as WebServerType, label: 'Nginx', desc: 'High Concurrency', badge: 'Standard' },
-                    { id: 'openlitespeed' as WebServerType, label: 'OpenLiteSpeed', desc: 'OLS + LSCache', badge: runtime === 'php' ? 'Recommended (PHP)' : undefined },
+                    { id: 'openlitespeed' as WebServerType, label: 'OpenLiteSpeed', desc: runtime === 'php' ? 'LSAPI + LSCache' : 'High Speed HTTP/3', badge: runtime === 'php' ? 'Recommended' : undefined },
                     { id: 'caddy' as WebServerType, label: 'Caddy', desc: 'Auto-HTTPS & HTTP/3', badge: 'Auto SSL' },
                     { id: 'apache' as WebServerType, label: 'Apache 2.4', desc: '.htaccess & MPM', badge: runtime === 'php' ? '.htaccess' : undefined },
                   ].map((ws) => {
                     const isInstalled = stackStatus?.webServer?.installed?.some((s) => s.engine === ws.id) ||
                                         stackStatus?.webServer?.managedInstalled?.some((s) => s.engine === ws.id) ||
                                         ws.id === 'nginx';
+                    const isSelected = webServer === ws.id;
                     return (
                       <button
                         key={ws.id}
                         type="button"
                         onClick={() => setWebServer(ws.id)}
-                        className={`p-2.5 rounded-xl border text-left transition-all ${cardChoice(webServer === ws.id)}`}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${cardChoice(isSelected)}`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold block">{ws.label}</span>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs font-bold block truncate">{ws.label}</span>
                           {ws.badge && (
-                            <span className="text-[9px] font-medium px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded">
+                            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap shrink-0 ${
+                              ws.badge === 'Recommended'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-blue-100 text-blue-800'
+                            }`}>
                               {ws.badge}
                             </span>
                           )}
                         </div>
-                        <span className="text-[10px] text-slate-400 block mt-0.5">{ws.desc}</span>
-                        {isInstalled && (
-                          <span className="inline-block mt-1 text-[9px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
-                            Ready
-                          </span>
+                        <span className="text-[10px] text-slate-400 block mt-1 truncate">{ws.desc}</span>
+                        {isInstalled ? (
+                          <div className="flex items-center gap-1 mt-2 text-[9px] font-medium text-emerald-600 bg-emerald-50/80 border border-emerald-200/60 px-1.5 py-0.5 rounded w-fit">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                            <span>Ready</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 mt-2 text-[9px] font-medium text-slate-400 bg-slate-50 border border-slate-200/60 px-1.5 py-0.5 rounded w-fit">
+                            <span>Not installed</span>
+                          </div>
                         )}
                       </button>
                     );
@@ -1208,7 +1218,15 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               {appMode === 'standard' && (
                 <>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-2">Language &amp; Runtime</label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-xs font-semibold text-slate-700">Language &amp; Runtime</label>
+                      {effectiveSource === 'scaffold' && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md">
+                          <Lock className="w-2.5 h-2.5 text-slate-400" />
+                          Preset untuk {framework}
+                        </span>
+                      )}
+                    </div>
                     <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                       {[
                         { id: 'python' as RuntimeType, label: 'Python' },
@@ -1221,22 +1239,34 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                         const RuntimeIcon = runtimeIcon[item.id] ?? Code2;
                         const active = runtime === item.id;
                         const isDetected = expectedRuntime === item.id;
+                        const isLockedByScaffold = effectiveSource === 'scaffold' && !active;
                         return (
                           <button
                             key={item.id}
                             type="button"
+                            disabled={isLockedByScaffold}
                             onClick={() => handleRuntimeChange(item.id)}
-                            className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border relative transition-all ${cardChoice(active)}`}
+                            title={isLockedByScaffold ? `Terkunci ke runtime ${framework}. Ubah starter di langkah Source jika ingin runtime lain.` : undefined}
+                            className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border relative transition-all ${
+                              isLockedByScaffold
+                                ? 'opacity-35 cursor-not-allowed border-slate-200 bg-slate-50/50 text-slate-400'
+                                : cardChoice(active)
+                            }`}
                           >
                             <RuntimeIcon className="w-4 h-4" />
                             <span className="text-[11px] font-medium">{item.label}</span>
-                            {isDetected && (
-                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded-full">
+                            {active && effectiveSource === 'scaffold' && (
+                              <span className="text-[8px] font-bold text-blue-700 bg-blue-100/90 px-1.5 py-0.2 rounded-full whitespace-nowrap">
+                                🔒 Preset
+                              </span>
+                            )}
+                            {effectiveSource !== 'scaffold' && isDetected && (
+                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded-full whitespace-nowrap">
                                 ✨ Detected
                               </span>
                             )}
-                            {active && isRuntimeMismatch && (
-                              <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded-full">
+                            {effectiveSource !== 'scaffold' && active && isRuntimeMismatch && (
+                              <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded-full whitespace-nowrap">
                                 ⚠️ Mismatch
                               </span>
                             )}
@@ -1248,17 +1278,54 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">Framework / Template</label>
-                      <select value={framework} onChange={(e) => setFramework(e.target.value)} className={inputClass}>
-                        {availableFrameworks.map((fw) => (
-                          <option key={fw} value={fw}>{fw}</option>
-                        ))}
-                      </select>
+                      {effectiveSource === 'scaffold' ? (
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-semibold text-slate-700">Framework / Starter Template</label>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-200/80 px-1.5 py-0.5 rounded-md">
+                              <Lock className="w-2.5 h-2.5" /> Read-Only Preset
+                            </span>
+                          </div>
+                          <div className="px-3 py-2 bg-slate-50/90 border border-slate-200 rounded-lg flex items-center justify-between shadow-2xs">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-7 h-7 rounded-lg bg-blue-600/10 text-blue-600 flex items-center justify-center shrink-0">
+                                <Code2 className="w-4 h-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <span className="text-xs font-bold text-slate-900 block truncate">{framework}</span>
+                                <span className="text-[10px] text-slate-400 block truncate">Scaffold starter otomatis</span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setStepIndex(1)}
+                              className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline px-2 py-1 shrink-0 flex items-center gap-0.5"
+                              title="Ubah starter template di langkah Source"
+                            >
+                              <span>Ganti</span>
+                              <ChevronRight className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">Framework / Template</label>
+                          <select value={framework} onChange={(e) => setFramework(e.target.value)} className={inputClass}>
+                            {availableFrameworks.map((fw) => (
+                              <option key={fw} value={fw}>{fw}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
+
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Runtime Version <span className="text-slate-400 font-normal">({runtime.toUpperCase()})</span>
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-slate-700">
+                          Runtime Version <span className="text-slate-400 font-normal">({runtime.toUpperCase()})</span>
+                        </label>
+                        <span className="text-[10px] text-slate-400">Pilih versi runtime</span>
+                      </div>
                       <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass}>
                         {runtimeConfigs[runtime].versions.map((ver) => (
                           <option key={ver} value={ver}>{ver}</option>
@@ -1268,18 +1335,68 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   </div>
 
                   {isGenericFramework ? (
-                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs text-slate-600 flex items-start gap-2">
-                      <FolderOpen className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-                      <span>Bring your own code — code has been provided in the Source step.</span>
+                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 text-xs text-slate-600 flex items-start gap-3">
+                      <div className="p-2 bg-white rounded-lg border border-slate-200 shadow-2xs text-slate-600 shrink-0">
+                        <FolderOpen className="w-4 h-4" />
+                      </div>
+                      <div className="space-y-0.5">
+                        <div className="font-semibold text-slate-800">Bring Your Own Code</div>
+                        <p className="text-[11px] text-slate-500 leading-relaxed">
+                          Kode aplikasi menggunakan sumber yang telah ditentukan di langkah Source ({effectiveSource.toUpperCase()}). Tidak ada template starter otomatis yang diunduh.
+                        </p>
+                      </div>
                     </div>
                   ) : (
-                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs space-y-1.5">
-                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                        <Download className="w-3.5 h-3.5 text-slate-500" />
-                        {plan.mode === 'download' ? 'Template scaffold configured' : 'Custom template'}
-                      </span>
-                      {plan.install && <code className="block font-mono text-[11px] text-blue-700 bg-white border border-slate-200 rounded px-2 py-1">{plan.install}</code>}
-                      <p className="text-[11px] text-slate-500">{plan.note}</p>
+                    <div className="rounded-xl border border-slate-850 bg-slate-950 text-slate-200 p-3.5 shadow-sm space-y-2.5">
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-rose-500/80 inline-block" />
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-500/80 inline-block" />
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/80 inline-block" />
+                          </div>
+                          <span className="text-[10px] font-mono font-medium tracking-wide text-slate-400 uppercase ml-1">
+                            {plan.mode === 'download' ? 'Scaffold Automation Recipe' : 'Template Provisioning'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                          {framework}
+                        </span>
+                      </div>
+
+                      {plan.install && (
+                        <div className="group relative flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-lg px-3 py-2 font-mono text-[11px] text-cyan-300">
+                          <div className="flex items-center gap-2 overflow-x-auto pr-2">
+                            <span className="text-emerald-400 font-bold select-none">$</span>
+                            <span className="whitespace-nowrap">{plan.install}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(plan.install || '');
+                              setCopiedConfig(true);
+                              setTimeout(() => setCopiedConfig(false), 2000);
+                            }}
+                            className="text-slate-400 hover:text-white transition-colors p-1 shrink-0 flex items-center gap-1"
+                            title="Copy command"
+                          >
+                            {copiedConfig ? (
+                              <span className="text-[10px] text-emerald-400 font-sans flex items-center gap-0.5">
+                                <Check className="w-3 h-3" /> Tersalin
+                              </span>
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex items-start gap-2 text-[11px] text-slate-400">
+                        <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                        <p className="leading-relaxed">
+                          {plan.note || 'BarePod akan mengeksekusi scaffold otomatis saat website di-deploy dan menyambungkan konfigurasi environment ke database.'}
+                        </p>
+                      </div>
                     </div>
                   )}
                 </>
