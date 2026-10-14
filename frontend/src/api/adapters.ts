@@ -70,6 +70,7 @@ export function toWebApp(site: ApiWebsite, metrics?: SiteMetrics): WebApp {
     framework: site.framework || undefined,
     webServer,
     tenantUser: site.tenantUser,
+    deployStatus: site.deployStatus,
     // The API tracks deployStatus separately; the UI shows the service state.
     status:
       site.deployStatus === 'failed'

@@ -39,6 +39,7 @@ export interface WebApp {
   webServer: WebServerType;
   tenantUser: string;
   status: 'running' | 'stopped' | 'suspended' | 'building' | 'error';
+  deployStatus?: 'pending' | 'building' | 'ready' | 'failed';
   ssl: boolean;
   tunnelEnabled: boolean;
   tunnelRoute?: string;

@@ -331,8 +331,8 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       .list(toApiPath(currentPath))
       .then((res) => {
         if (cancelled) return;
-        setLiveEntries(res.items.map((item) => toEntry(item, ops)));
-        setReadOnlyRoot(res.readOnly);
+        setLiveEntries((res?.items ?? []).map((item) => toEntry(item, ops)));
+        setReadOnlyRoot(res?.readOnly ?? false);
       })
       .catch((err) => { if (!cancelled) setError(describeError(err)); })
       .finally(() => { if (!cancelled) setLoading(false); });

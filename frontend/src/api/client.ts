@@ -765,6 +765,9 @@ export const api = {
       { method: 'POST' },
     ),
 
+  /** Get latest deploy job status and error info. */
+  latestDeploy: (slug: string) => request<DeployJob>(`/websites/${slug}/deploy`),
+
   /** Git Ingress & Deploy Keys */
   websiteGitStatus: (slug: string) => request<ApiWebsiteGitStatus>(`/websites/${slug}/git`),
   websiteDeployKey: (slug: string) => request<ApiDeployKey>(`/websites/${slug}/git/deploy-key`),

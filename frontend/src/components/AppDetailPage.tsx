@@ -66,7 +66,7 @@ import { runtimeIcon, frameworkIcon } from '../utils/brandIcons';
 import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
-import { api, apiReachable, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey } from '../api/client';
+import { api, apiReachable, subscribeDeploy, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey, type DeployJob } from '../api/client';
 import { describeError } from '../utils/format';
 
 export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'domains' | 'routing' | 'files' | 'env' | 'php' | 'runtime' | 'security' | 'deploy';
@@ -352,10 +352,13 @@ npm run build`;
   const [proxyTimeout, setProxyTimeout] = useState(app.proxyTimeoutSecs ?? 60);
   const [copiedVhost, setCopiedVhost] = useState(false);
   const [routes, setRoutes] = useState<Array<{ path: string; upstream: string; target: string; cache: string; websocket?: boolean }>>([
-    { path: '/', upstream: app.upstreamUrl || (app.runtime === 'php' ? 'unix:/run/php/php8.4-fpm.sock' : `http://127.0.0.1:${app.port}`), target: app.runtime === 'proxy' ? 'Primary Upstream Target' : `${app.runtime.toUpperCase()} Primary`, cache: 'Bypass / Realtime', websocket: true },
-    { path: '/api/v1/*', upstream: 'http://127.0.0.1:3000', target: 'Node.js (NestJS API)', cache: 'Bypass Cache', websocket: false },
-    { path: '/ai-worker/*', upstream: 'http://127.0.0.1:8000', target: 'Python 3.12 (FastAPI ML)', cache: 'Bypass Cache', websocket: false },
-    { path: '/assets/*', upstream: 'Direct Sendfile Zero-Copy', target: 'Static Media & Assets', cache: 'Browser Cache 365d', websocket: false },
+    {
+      path: '/',
+      upstream: app.upstreamUrl || (app.runtime === 'php' ? 'unix:/run/php/php8.4-fpm.sock' : `http://127.0.0.1:${app.port}`),
+      target: app.runtime === 'proxy' ? 'Primary Upstream Target' : `${(app.framework || app.runtime).toUpperCase()} Primary`,
+      cache: 'Bypass / Realtime',
+      websocket: true,
+    },
   ]);
   const [showAddRoute, setShowAddRoute] = useState(false);
   const [newRoutePath, setNewRoutePath] = useState('');
@@ -699,44 +702,52 @@ systemctl reload ${app.name}`;
     }
   };
 
-  const handleTriggerDirectDeploy = () => {
+  const [deployError, setDeployError] = useState<string>('');
+
+  const handleTriggerDirectDeploy = async () => {
     setIsDeployingNow(true);
+    setDeployError('');
+    setActiveTab('deploy');
     const nowStr = new Date().toLocaleTimeString();
-    setDeployLogs([
-      `[${nowStr}] Redeploy triggered for '${app.name}'`,
-      `[${nowStr}] Fetching repo ${gitRepo} (branch: ${gitBranch})...`,
-      `[${nowStr}] Validating tenant isolation (cgroup v2) /home/${app.tenantUser}...`,
-    ]);
+    setDeployLogs([`[${nowStr}] Triggering deployment pipeline for '${app.name}' on server...`]);
 
-    const updated: WebApp = {
-      ...app,
-      gitRepo,
-      gitBranch,
-      autoDeploy,
-      buildScript,
-      lastDeployedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      lastDeployCommit: '8d2a10c',
-    };
-    onUpdateApp?.(updated);
-
-    setTimeout(() => {
+    try {
+      const res = await api.redeploy(app.name);
       setDeployLogs(prev => [
         ...prev,
-        `[${new Date().toLocaleTimeString()}] Running saved build script:`,
-        ...buildScript.split('\n').filter(Boolean).map(l => `    $ ${l}`),
+        `[${new Date().toLocaleTimeString()}] Pipeline started (Job: ${res.deployId}, Mode: ${res.mode}).`,
+        `[${new Date().toLocaleTimeString()}] Streaming live server deployment progress...`,
       ]);
-    }, 1000);
 
-    setTimeout(() => {
-      setDeployLogs(prev => [
-        ...prev,
-        `[${new Date().toLocaleTimeString()}] Zero-downtime release symlink swap complete.`,
-        `[${new Date().toLocaleTimeString()}] Ingress Cloudflare status: 200 OK (${app.domain})`,
-        `[${new Date().toLocaleTimeString()}] [OK] Deployment succeeded in 3.4s!`,
-      ]);
+      subscribeDeploy(
+        app.name,
+        res.deployId,
+        (line) => {
+          setDeployLogs(prev => [...prev, `[${line.stream}] ${line.line}`]);
+        },
+        (job) => {
+          setIsDeployingNow(false);
+          if (job.status === 'success') {
+            setDeployError('');
+            onShowToast?.('Deployment Successful', `Website '${app.name}' deployed successfully.`, 'success');
+            onUpdateApp?.({ ...app, status: 'running', deployStatus: 'ready' });
+          } else {
+            const err = job.error || 'Deploy job reported a failure.';
+            setDeployError(err);
+            setDeployLogs(prev => [...prev, `[FAIL] ${err}`]);
+            onShowToast?.('Deployment Failed', err, 'error');
+            onUpdateApp?.({ ...app, status: 'error', deployStatus: 'failed' });
+          }
+        }
+      );
+    } catch (err) {
       setIsDeployingNow(false);
-      onShowToast?.('Redeploy Successful', `Build & deploy completed with zero downtime.`, 'success');
-    }, 2400);
+      const msg = err instanceof Error ? err.message : 'Unknown deployment error';
+      setDeployError(msg);
+      setDeployLogs(prev => [...prev, `[FAIL] Failed to trigger redeploy: ${msg}`]);
+      onShowToast?.('Deployment Error', msg, 'error');
+      onUpdateApp?.({ ...app, status: 'error', deployStatus: 'failed' });
+    }
   };
 
   const handleAddCustomRoute = (e: React.FormEvent) => {
@@ -1131,33 +1142,42 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   const phpVersion = app.runtime === 'php' ? app.version : '8.4';
   const AppIcon = frameworkIcon(app.framework) ?? runtimeIcon[app.runtime] ?? Server;
 
-  // Simulated live CPU & RAM metrics
-  const [liveMetrics, setLiveMetrics] = useState({
-    cpu: 0.8,
-    memory: 42,
-    latency: 14,
-    requestsTotal: 18420,
-    http2xx: 98.6,
-    http4xx: 1.1,
-    http5xx: 0.3,
-  });
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setLiveMetrics(prev => ({
-        ...prev,
-        cpu: Number((0.4 + Math.random() * 1.5).toFixed(1)),
-        memory: Math.floor(40 + Math.random() * 8),
-        latency: Math.floor(12 + Math.random() * 6),
-        requestsTotal: prev.requestsTotal + Math.floor(Math.random() * 3),
-      }));
-    }, 2500);
-    return () => clearInterval(interval);
-  }, []);
-
-  const isRunning = app.status === 'running';
+  const isDeployFailed = app.status === 'error' || app.deployStatus === 'failed';
+  const isBuilding = app.status === 'building' || app.deployStatus === 'building' || app.deployStatus === 'pending' || isDeployingNow;
+  const isRunning = app.status === 'running' && !isDeployFailed;
   const isSuspended = app.status === 'suspended';
   const appPath = app.path || `/home/${app.tenantUser}/web/${app.name}`;
+
+  // Derived real CPU & RAM metrics from server
+  const parseMetricNumber = (val?: string): number => {
+    if (!val || val === '—') return 0;
+    const n = parseFloat(val.replace(/[^0-9.]/g, ''));
+    return isNaN(n) ? 0 : n;
+  };
+  const currentCpu = isRunning ? parseMetricNumber(app.cpuUsage) : 0;
+  const currentMem = isRunning ? parseMetricNumber(app.memoryUsage) : 0;
+
+  // Poll latest deployment job on mount to detect status honestly
+  useEffect(() => {
+    let cancelled = false;
+    api.latestDeploy(app.name)
+      .then((job: any) => {
+        if (cancelled || !job) return;
+        if (job.status === 'failed') {
+          setDeployError(job.error || 'Deployment failed');
+          if (app.deployStatus !== 'failed' || app.status !== 'error') {
+            onUpdateApp?.({ ...app, status: 'error', deployStatus: 'failed' });
+          }
+        } else if (job.status === 'success') {
+          setDeployError('');
+          if (app.deployStatus === 'failed') {
+            onUpdateApp?.({ ...app, status: 'running', deployStatus: 'ready' });
+          }
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [app.name]);
 
   // Domains & SSL Subtab State
   const [siteDomains, setSiteDomains] = useState<ApiDomain[]>([]);
@@ -1247,7 +1267,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     }
   };
 
-  // Realistic Logs Generator with Visitor Client IP
+  // Real Traffic Logs & Telemetry
   interface LogItem {
     time: string;
     type: 'access' | 'error' | 'deploy';
@@ -1264,254 +1284,21 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     rawLine?: string;
   }
 
-  const getMockLogs = (): LogItem[] => {
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-    const dateFormatted = `${pad(now.getDate())}/Oct/${now.getFullYear()}:${timeStr} +0700`;
-
-    const commonLogs: LogItem[] = [
-      { 
-        time: timeStr, 
-        type: 'access', 
-        ip: '114.124.180.52', 
-        country: 'ID', 
-        isp: 'Telkomsel',
-        method: 'GET', 
-        path: '/', 
-        status: 200, 
-        latency: '14ms', 
-        size: '2.4 KB',
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/128.0',
-        msg: 'GET / 200 OK - 14ms (Chrome/128 MacOS)',
-        rawLine: `114.124.180.52 - - [${dateFormatted}] "GET / HTTP/2.0" 200 2410 "https://${app.domain}/" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/128.0" (CF-Ray: 8d2b91f-CGK, Latency: 14ms)`
-      },
-      { 
-        time: timeStr, 
-        type: 'access', 
-        ip: '114.124.180.52', 
-        country: 'ID', 
-        isp: 'Telkomsel',
-        method: 'GET', 
-        path: '/assets/app.css', 
-        status: 304, 
-        latency: '2ms', 
-        size: '0 B',
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/128.0',
-        msg: 'GET /assets/app.css 304 Not Modified - 2ms',
-        rawLine: `114.124.180.52 - - [${dateFormatted}] "GET /assets/app.css HTTP/2.0" 304 0 "https://${app.domain}/" "Mozilla/5.0 Chrome/128.0" (CF-Ray: 8d2b921-CGK, Latency: 2ms)`
-      },
-      { 
-        time: timeStr, 
-        type: 'access', 
-        ip: '180.252.164.22', 
-        country: 'ID', 
-        isp: 'Biznet Surabaya',
-        method: 'POST', 
-        path: '/api/v1/telemetry', 
-        status: 201, 
-        latency: '22ms', 
-        size: '340 B',
-        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6) Mobile/15E148',
-        msg: 'POST /api/v1/telemetry 201 Created - 22ms',
-        rawLine: `180.252.164.22 - - [${dateFormatted}] "POST /api/v1/telemetry HTTP/2.0" 201 340 "https://${app.domain}/cart" "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6)" (CF-Ray: 8d2b924-SUB, Latency: 22ms)`
-      },
-      { 
-        time: timeStr, 
-        type: 'access', 
-        ip: '36.72.215.19', 
-        country: 'ID', 
-        isp: 'Indihome Bandung',
-        method: 'GET', 
-        path: '/api/v1/products', 
-        status: 200, 
-        latency: '18ms', 
-        size: '12.8 KB',
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/130.0',
-        msg: 'GET /api/v1/products 200 OK - 18ms',
-        rawLine: `36.72.215.19 - - [${dateFormatted}] "GET /api/v1/products HTTP/2.0" 200 12840 "https://${app.domain}/catalog" "Firefox/130.0" (CF-Ray: 8d2b928-BDO, Latency: 18ms)`
-      },
-      { 
-        time: timeStr, 
-        type: 'error', 
-        ip: '198.51.100.41', 
-        country: 'US', 
-        isp: 'Scanner / Crawler',
-        method: 'GET', 
-        path: '/wp-login.php', 
-        status: 404, 
-        latency: '3ms', 
-        size: '140 B',
-        userAgent: 'Mozilla/5.0 (compatible; Shodan; +https://shodan.io)',
-        msg: 'GET /wp-login.php 404 Not Found - [Blocked by WAF Rule #104]',
-        rawLine: `198.51.100.41 - - [${dateFormatted}] "GET /wp-login.php HTTP/1.1" 404 140 "-" "Shodan/Bot" [CF-Blocked: WAF-Rule-104, Latency: 3ms]`
-      },
-      { 
-        time: timeStr, 
-        type: 'access', 
-        ip: '103.147.154.82', 
-        country: 'SG', 
-        isp: 'MyRepublic Singapore',
-        method: 'GET', 
-        path: '/healthz', 
-        status: 200, 
-        latency: '1ms', 
-        size: '18 B',
-        userAgent: 'BarePod-Uptime-Monitor/2.4 (cgroup-probe)',
-        msg: 'GET /healthz 200 OK - 1ms (Uptime Probe)',
-        rawLine: `103.147.154.82 - - [${dateFormatted}] "GET /healthz HTTP/2.0" 200 18 "-" "BarePod-Uptime-Monitor/2.4" (CF-Ray: 8d2b930-SIN, Latency: 1ms)`
-      },
-      { 
-        time: timeStr, 
-        type: 'access', 
-        ip: '45.33.32.156', 
-        country: 'DE', 
-        isp: 'Hetzner Online Frankfurt',
-        method: 'GET', 
-        path: '/api/v1/health', 
-        status: 200, 
-        latency: '28ms', 
-        size: '120 B',
-        userAgent: 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0',
-        msg: 'GET /api/v1/health 200 OK - 28ms (Frankfurt Node)',
-        rawLine: `45.33.32.156 - - [${dateFormatted}] "GET /api/v1/health HTTP/2.0" 200 120 "https://${app.domain}/" "Firefox/128.0" (CF-Ray: 8d2b932-FRA, Latency: 28ms)`
-      },
-      { 
-        time: timeStr, 
-        type: 'access', 
-        ip: '139.162.112.50', 
-        country: 'JP', 
-        isp: 'Linode Tokyo Datacenter',
-        method: 'GET', 
-        path: '/api/v1/realtime-feed', 
-        status: 200, 
-        latency: '36ms', 
-        size: '1.8 KB',
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 Chrome/127.0',
-        msg: 'GET /api/v1/realtime-feed 200 OK - 36ms (Tokyo Edge)',
-        rawLine: `139.162.112.50 - - [${dateFormatted}] "GET /api/v1/realtime-feed HTTP/2.0" 200 1840 "https://${app.domain}/" "Safari/605.1" (CF-Ray: 8d2b935-NRT, Latency: 36ms)`
-      },
-      { 
-        time: timeStr, 
-        type: 'access', 
-        ip: '13.236.40.91', 
-        country: 'AU', 
-        isp: 'AWS Sydney Edge',
-        method: 'GET', 
-        path: '/docs', 
-        status: 200, 
-        latency: '42ms', 
-        size: '8.4 KB',
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 Chrome/126.0',
-        msg: 'GET /docs 200 OK - 42ms (Sydney Edge)',
-        rawLine: `13.236.40.91 - - [${dateFormatted}] "GET /docs HTTP/2.0" 200 8420 "https://${app.domain}/" "Chrome/126.0" (CF-Ray: 8d2b938-SYD, Latency: 42ms)`
-      },
-      { 
-        time: timeStr, 
-        type: 'deploy', 
-        msg: '[Deploy Runner] git pull origin main - HEAD is at commit 7fa901',
-        rawLine: `[${dateFormatted}] [system:deploy-runner] git pull origin main - HEAD is at commit 7fa901`
-      },
-      { 
-        time: timeStr, 
-        type: 'deploy', 
-        msg: '[Deploy Runner] Zero-downtime symlink swapped to release_20261010_1834',
-        rawLine: `[${dateFormatted}] [system:deploy-runner] Zero-downtime symlink swapped to release_20261010_1834`
-      },
-    ];
-
-    if (app.runtime === 'php') {
-      return [
-        { time: timeStr, type: 'access', msg: `[php-fpm: pool ${app.tenantUser}] child 3914 ready to handle requests`, rawLine: `[${dateFormatted}] [php-fpm:pool-${app.tenantUser}] child 3914 ready to handle requests` },
-        { 
-          time: timeStr, 
-          type: 'access', 
-          ip: '203.190.242.11', 
-          country: 'ID', 
-          isp: 'FirstMedia Medan',
-          method: 'GET', 
-          path: '/dashboard', 
-          status: 200, 
-          latency: '24ms', 
-          size: '5.1 KB', 
-          userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) Safari/605.1.15',
-          msg: 'GET /dashboard 200 OK - 24ms',
-          rawLine: `203.190.242.11 - - [${dateFormatted}] "GET /dashboard HTTP/2.0" 200 5210 "https://${app.domain}/" "Safari/605.1.15" (CF-Ray: 8d2b932-MES, Latency: 24ms)`
-        },
-        ...commonLogs,
-        { time: timeStr, type: 'access', msg: 'PHP 8.4 JIT Compiler enabled (opcache.jit_buffer_size=64M)', rawLine: `[${dateFormatted}] [php-zend-engine] OPcache JIT Compiler enabled (opcache.jit_buffer_size=64M)` },
-        { 
-          time: timeStr, 
-          type: 'error', 
-          ip: '45.155.205.8', 
-          country: 'RU', 
-          isp: 'Suspicious IP Scanner',
-          method: 'POST', 
-          path: '/xmlrpc.php', 
-          status: 403, 
-          latency: '2ms', 
-          size: '42 B', 
-          userAgent: 'python-requests/2.31.0',
-          msg: 'POST /xmlrpc.php 403 Forbidden - [WAF Blocked brute-force attempt]',
-          rawLine: `45.155.205.8 - - [${dateFormatted}] "POST /xmlrpc.php HTTP/1.1" 403 42 "-" "python-requests/2.31.0" [CF-Blocked: WAF-Bot-Shield, Latency: 2ms]`
-        },
-      ];
-    } else if (app.runtime === 'nodejs') {
-      return [
-        { time: timeStr, type: 'access', msg: `[NestJS] Application initialized listening on unix:/run/node/${app.name}.sock`, rawLine: `[${dateFormatted}] [system:node-supervisor] NestJS app listening on unix:/run/node/${app.name}.sock` },
-        ...commonLogs,
-        { 
-          time: timeStr, 
-          type: 'error', 
-          ip: '198.51.100.41', 
-          country: 'US', 
-          isp: 'Scanner / Crawler',
-          method: 'POST', 
-          path: '/api/auth/login', 
-          status: 429, 
-          latency: '4ms', 
-          size: '64 B', 
-          userAgent: 'curl/8.4.0',
-          msg: 'Rate limiter: 429 Too Many Requests on /api/auth/login',
-          rawLine: `198.51.100.41 - - [${dateFormatted}] "POST /api/auth/login HTTP/1.1" 429 64 "-" "curl/8.4.0" (Rate-Limit-Exceeded: 30req/min)`
-        },
-      ];
-    } else if (app.runtime === 'python') {
-      return [
-        { time: timeStr, type: 'access', msg: `[Gunicorn 22.0] Starting gunicorn workers (gevent async worker_class)`, rawLine: `[${dateFormatted}] [system:gunicorn] Starting gunicorn workers (gevent async worker_class)` },
-        { 
-          time: timeStr, 
-          type: 'access', 
-          ip: '103.147.154.82', 
-          country: 'SG', 
-          isp: 'MyRepublic SG',
-          method: 'GET', 
-          path: '/docs', 
-          status: 200, 
-          latency: '8ms', 
-          size: '14.2 KB', 
-          userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/127.0',
-          msg: 'FastAPI OpenAPI documentation mounted at /docs',
-          rawLine: `103.147.154.82 - - [${dateFormatted}] "GET /docs HTTP/2.0" 200 14500 "-" "Chrome/127.0" (CF-Ray: 8d2b938-SIN, Latency: 8ms)`
-        },
-        ...commonLogs,
-      ];
-    }
-    return commonLogs;
-  };
-
-  const logs: LogItem[] = realLogs && realLogs.length > 0 ? realLogs : getMockLogs();
-  const isRealData = realLogs !== null && realLogs.length > 0;
+  const logs: LogItem[] = realLogs || (telemetry?.logs as LogItem[] | undefined) || [];
+  const isRealData = logs.length > 0;
   const uniqueVisitorIps = Array.from(new Set(logs.filter(l => l.ip).map(l => l.ip as string)));
+  const visitorCountryNodes = realNodes && realNodes.length > 0 ? realNodes : (telemetry?.nodes ?? []);
 
-  const visitorCountryNodes = realNodes && realNodes.length > 0 ? realNodes : [
-    { country: 'ID', countryName: 'Indonesia', flag: '🇮🇩', city: 'Jakarta & Surabaya', ip: '114.124.180.52', isp: 'Telkomsel & Biznet', x: 796, y: 268, reqs: 3, percentage: 38, latency: '14ms', isThreat: false },
-    { country: 'SG', countryName: 'Singapore', flag: '🇸🇬', city: 'Singapore Edge', ip: '103.147.154.82', isp: 'MyRepublic Singapore', x: 788, y: 246, reqs: 2, percentage: 25, latency: '1ms', isThreat: false },
-    { country: 'US', countryName: 'United States', flag: '🇺🇸', city: 'Ashburn, VA', ip: '198.51.100.41', isp: 'Security Scanner', x: 285, y: 142, reqs: 1, percentage: 12, latency: '3ms', isThreat: true },
-    { country: 'DE', Germany: 'Germany', flag: '🇩🇪', city: 'Frankfurt Node', ip: '45.33.32.156', isp: 'Hetzner Online', x: 524, y: 111, reqs: 1, percentage: 12, latency: '28ms', isThreat: false, countryName: 'Germany' },
-    { country: 'JP', countryName: 'Japan', flag: '🇯🇵', city: 'Tokyo Edge', ip: '139.162.112.50', isp: 'Linode Tokyo', x: 888, y: 151, reqs: 1, percentage: 12, latency: '36ms', isThreat: false },
-    { country: 'AU', countryName: 'Australia', flag: '🇦🇺', city: 'Sydney Edge', ip: '13.236.40.91', isp: 'AWS Sydney', x: 920, y: 344, reqs: 1, percentage: 12, latency: '42ms', isThreat: false },
-  ];
+  // Compute live traffic metrics from real logs / telemetry
+  const totalRequests = telemetry?.totalRequests ?? logs.filter(l => l.type === 'access').length;
+  const count2xx = logs.filter(l => l.type === 'access' && l.status && l.status >= 200 && l.status < 300).length;
+  const count4xx = logs.filter(l => l.type === 'access' && l.status && l.status >= 400 && l.status < 500).length;
+  const count5xx = logs.filter(l => (l.type === 'access' && l.status && l.status >= 500) || l.type === 'error').length;
+  const accessTotal = logs.filter(l => l.type === 'access').length || 1;
+  const pct2xx = logs.length > 0 ? Math.round((count2xx / accessTotal) * 100) : (isRunning ? 100 : 0);
+  const pct4xx = logs.length > 0 ? Math.round((count4xx / accessTotal) * 100) : 0;
+  const pct5xx = logs.length > 0 ? Math.round((count5xx / accessTotal) * 100) : 0;
+  const responseLatency = isRunning ? '< 1' : '—';
 
   const filteredLogs = logs.filter(log => {
     const matchesType = logType === 'all' || log.type === logType;
@@ -1574,15 +1361,77 @@ QUEUE_CONNECTION=redis`;
           <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
             isSuspended
               ? 'bg-amber-50 text-amber-700 border-amber-200'
-              : isRunning
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-slate-100 text-slate-600 border-slate-200'
+              : isDeployFailed
+                ? 'bg-rose-50 text-rose-700 border-rose-200 shadow-2xs'
+                : isBuilding
+                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                  : isRunning
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-200'
           }`}>
-            <span className={`w-2 h-2 rounded-full ${isSuspended ? 'bg-amber-500' : isRunning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-            {isSuspended ? 'Owner Suspended' : isRunning ? 'Online & Running' : 'Stopped'}
+            <span className={`w-2 h-2 rounded-full ${
+              isSuspended
+                ? 'bg-amber-500'
+                : isDeployFailed
+                  ? 'bg-rose-600 animate-pulse'
+                  : isBuilding
+                    ? 'bg-blue-500 animate-pulse'
+                    : isRunning
+                      ? 'bg-emerald-500 animate-pulse'
+                      : 'bg-slate-400'
+            }`} />
+            {isSuspended
+              ? 'Owner Suspended'
+              : isDeployFailed
+                ? 'Deploy Failed'
+                : isBuilding
+                  ? 'Deploying...'
+                  : isRunning
+                    ? 'Online & Running'
+                    : 'Stopped'}
           </span>
         </div>
       </div>
+
+      {/* Prominent Deployment Failure Alert Banner with Retry Button */}
+      {isDeployFailed && (
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-xs animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-rose-950">Deployment Pipeline Failed</h4>
+                <span className="text-[10px] font-bold bg-rose-200/80 text-rose-900 px-2 py-0.5 rounded font-mono">
+                  ACTION REQUIRED
+                </span>
+              </div>
+              <p className="text-xs text-rose-700 mt-0.5 font-mono break-all">
+                {deployError || 'The last build/deploy step failed to complete.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveTab('deploy')}
+              className="px-3.5 py-2 text-xs font-bold text-rose-900 bg-white border border-rose-300 rounded-xl hover:bg-rose-100 transition-colors cursor-pointer shadow-2xs"
+            >
+              View Build Logs
+            </button>
+            <button
+              type="button"
+              onClick={handleTriggerDirectDeploy}
+              disabled={isDeployingNow}
+              className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
+              <span>{isDeployingNow ? 'Deploying...' : 'Retry Deploy Now'}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Header Card with App Identity & Quick Actions */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-4">
@@ -1716,6 +1565,21 @@ QUEUE_CONNECTION=redis`;
             >
               <Archive className={`w-3.5 h-3.5 text-blue-600 ${isExportingBackup ? 'animate-spin' : ''}`} />
               <span>{isExportingBackup ? 'Packaging...' : 'Backup (.bpod)'}</span>
+            </button>
+
+            {/* Direct Redeploy / Retry Button in Header Quick Actions */}
+            <button
+              onClick={handleTriggerDirectDeploy}
+              disabled={isDeployingNow}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer ${
+                isDeployFailed
+                  ? 'bg-rose-600 text-white hover:bg-rose-700 shadow-rose-500/25 ring-2 ring-rose-400/50'
+                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+              }`}
+              title={isDeployFailed ? 'Retry failed deployment pipeline' : 'Trigger website build and redeploy'}
+            >
+              <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : isDeployFailed ? 'text-white' : 'text-blue-600'}`} />
+              <span>{isDeployingNow ? 'Deploying...' : isDeployFailed ? 'Retry Deploy' : 'Redeploy'}</span>
             </button>
 
             <button
@@ -2006,41 +1870,41 @@ QUEUE_CONNECTION=redis`;
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
                 <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">CPU USAGE</span>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-2xl font-extrabold text-slate-900">{liveMetrics.cpu}%</span>
+                  <span className="text-2xl font-extrabold text-slate-900">{currentCpu}%</span>
                   <span className="text-[10px] text-emerald-600 font-bold">Quota: 1 vCPU</span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden mt-2">
-                  <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${Math.min(100, liveMetrics.cpu * 20)}%` }} />
+                  <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${Math.min(100, currentCpu * 20)}%` }} />
                 </div>
               </div>
 
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
                 <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">MEMORY (RAM)</span>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-2xl font-extrabold text-slate-900">{liveMetrics.memory} MB</span>
+                  <span className="text-2xl font-extrabold text-slate-900">{currentMem} MB</span>
                   <span className="text-[10px] text-slate-400">Limit: 512 MB</span>
                 </div>
                 <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden mt-2">
-                  <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${(liveMetrics.memory / 512) * 100}%` }} />
+                  <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (currentMem / 512) * 100)}%` }} />
                 </div>
               </div>
 
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
                 <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">RESPONSE LATENCY</span>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-2xl font-extrabold text-slate-900">{liveMetrics.latency} ms</span>
-                  <span className="text-[10px] text-emerald-600 font-bold">P99 Fast</span>
+                  <span className="text-2xl font-extrabold text-slate-900">{responseLatency} ms</span>
+                  <span className="text-[10px] text-emerald-600 font-bold">P99 Edge</span>
                 </div>
-                <span className="text-[10px] text-slate-400 block mt-2">Nginx upstream unix socket</span>
+                <span className="text-[10px] text-slate-400 block mt-2 font-mono">Ingress reverse proxy socket</span>
               </div>
 
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
                 <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">TOTAL REQUESTS</span>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-2xl font-extrabold text-slate-900">{liveMetrics.requestsTotal.toLocaleString()}</span>
-                  <span className="text-[10px] text-emerald-600 font-bold">24h Uptime</span>
+                  <span className="text-2xl font-extrabold text-slate-900">{totalRequests.toLocaleString()}</span>
+                  <span className="text-[10px] text-emerald-600 font-bold">Server Logs</span>
                 </div>
-                <span className="text-[10px] text-slate-400 block mt-2">99.98% Success Rate</span>
+                <span className="text-[10px] text-slate-400 block mt-2 font-mono">{isRunning ? 'Active Ingress' : 'Service Idle'}</span>
               </div>
             </div>
 
@@ -2048,7 +1912,7 @@ QUEUE_CONNECTION=redis`;
             <div className="p-5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  HTTP Traffic Distribution (24h)
+                  HTTP Traffic Distribution
                 </h3>
                 <span className="text-[11px] text-slate-400 font-mono">Edge Ingress Telemetry</span>
               </div>
@@ -2057,30 +1921,30 @@ QUEUE_CONNECTION=redis`;
                 <div className="bg-white p-3 rounded-lg border border-slate-200">
                   <div className="flex justify-between items-center">
                     <span className="text-xs text-slate-500 font-medium">2xx Success</span>
-                    <span className="text-sm font-bold text-emerald-600">{liveMetrics.http2xx}%</span>
+                    <span className="text-sm font-bold text-emerald-600">{pct2xx}%</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden mt-2">
-                    <div className="bg-emerald-500 h-1.5" style={{ width: `${liveMetrics.http2xx}%` }} />
+                    <div className="bg-emerald-500 h-1.5" style={{ width: `${pct2xx}%` }} />
                   </div>
                 </div>
 
                 <div className="bg-white p-3 rounded-lg border border-slate-200">
                   <div className="flex justify-between items-center">
                     <span className="text-xs text-slate-500 font-medium">4xx Client Errors</span>
-                    <span className="text-sm font-bold text-amber-600">{liveMetrics.http4xx}%</span>
+                    <span className="text-sm font-bold text-amber-600">{pct4xx}%</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden mt-2">
-                    <div className="bg-amber-500 h-1.5" style={{ width: `${liveMetrics.http4xx * 10}%` }} />
+                    <div className="bg-amber-500 h-1.5" style={{ width: `${Math.min(100, pct4xx * 5)}%` }} />
                   </div>
                 </div>
 
                 <div className="bg-white p-3 rounded-lg border border-slate-200">
                   <div className="flex justify-between items-center">
                     <span className="text-xs text-slate-500 font-medium">5xx Server Errors</span>
-                    <span className="text-sm font-bold text-rose-600">{liveMetrics.http5xx}%</span>
+                    <span className="text-sm font-bold text-rose-600">{pct5xx}%</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden mt-2">
-                    <div className="bg-rose-500 h-1.5" style={{ width: `${liveMetrics.http5xx * 10}%` }} />
+                    <div className="bg-rose-500 h-1.5" style={{ width: `${Math.min(100, pct5xx * 5)}%` }} />
                   </div>
                 </div>
               </div>
@@ -2671,46 +2535,52 @@ QUEUE_CONNECTION=redis`;
                 </div>
 
                 {/* Country Quick-Filter Badges */}
-                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
-                  <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center gap-1">
-                    <Filter className="w-3 h-3 text-slate-400" />
-                    Filter Country:
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCountryFilter(null)}
-                    className={`px-2.5 py-1 text-xs rounded-lg font-mono font-semibold transition-all cursor-pointer ${
-                      !selectedCountryFilter
-                        ? 'bg-blue-600 text-white shadow-2xs font-bold'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
-                    }`}
-                  >
-                    All ({logs.length})
-                  </button>
-                  {visitorCountryNodes.map((n) => (
+                {visitorCountryNodes.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+                    <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center gap-1">
+                      <Filter className="w-3 h-3 text-slate-400" />
+                      Filter Country:
+                    </span>
                     <button
-                      key={n.country}
                       type="button"
-                      onClick={() => setSelectedCountryFilter(selectedCountryFilter === n.country ? null : n.country)}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-mono transition-all cursor-pointer ${
-                        selectedCountryFilter === n.country
+                      onClick={() => setSelectedCountryFilter(null)}
+                      className={`px-2.5 py-1 text-xs rounded-lg font-mono font-semibold transition-all cursor-pointer ${
+                        !selectedCountryFilter
                           ? 'bg-blue-600 text-white shadow-2xs font-bold'
-                          : n.isThreat
-                          ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold'
-                          : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
                       }`}
-                      title={n.isThreat ? 'Traffic flagged as threat (WAF blocked)' : undefined}
                     >
-                      <span>{n.flag}</span>
-                      <span className="font-semibold">{n.country}</span>
-                      <span className={`text-[10px] px-1 rounded ${
-                        selectedCountryFilter === n.country ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-500'
-                      }`}>
-                        {n.percentage}%
-                      </span>
+                      All ({logs.length})
                     </button>
-                  ))}
-                </div>
+                    {visitorCountryNodes.map((n) => (
+                      <button
+                        key={n.country}
+                        type="button"
+                        onClick={() => setSelectedCountryFilter(selectedCountryFilter === n.country ? null : n.country)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg font-mono transition-all cursor-pointer ${
+                          selectedCountryFilter === n.country
+                            ? 'bg-blue-600 text-white shadow-2xs font-bold'
+                            : n.isThreat
+                            ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold'
+                            : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                        }`}
+                        title={n.isThreat ? 'Traffic flagged as threat (WAF blocked)' : undefined}
+                      >
+                        <span>{n.flag}</span>
+                        <span className="font-semibold">{n.country}</span>
+                        <span className={`text-[10px] px-1 rounded ${
+                          selectedCountryFilter === n.country ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {n.percentage}%
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-3 text-center text-xs text-slate-400 border-t border-slate-100 font-mono">
+                    No active visitor locations detected in web server access logs yet.
+                  </div>
+                )}
               </div>
 
           </div>
@@ -4649,14 +4519,26 @@ QUEUE_CONNECTION=redis`}
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setShowConnectGit(true)}
-                    className="px-4 py-2.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-colors flex items-center gap-2 shrink-0 shadow-sm shadow-purple-500/25 cursor-pointer"
-                  >
-                    <FolderGit2 className="w-4 h-4" />
-                    <span>Connect Git Repository</span>
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleTriggerDirectDeploy}
+                      disabled={isDeployingNow}
+                      className="px-4 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center gap-2 shrink-0 shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50"
+                    >
+                      <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
+                      <span>{isDeployingNow ? 'Deploying...' : 'Redeploy Now'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowConnectGit(true)}
+                      className="px-4 py-2.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
+                    >
+                      <FolderGit2 className="w-4 h-4 text-purple-600" />
+                      <span>Connect Git</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (

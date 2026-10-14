@@ -240,8 +240,10 @@ export const AppsView: React.FC<AppsViewProps> = ({
                 </tr>
               ) : (
                 filteredApps.map((app) => {
-                  const isRunning = app.status === 'running';
                   const isSuspended = app.status === 'suspended';
+                  const isFailed = app.status === 'error' || app.deployStatus === 'failed';
+                  const isBuilding = app.status === 'building' || app.deployStatus === 'building' || app.deployStatus === 'pending';
+                  const isRunning = app.status === 'running' && !isFailed;
                   const wsBadge = getWebServerBadge(app.webServer);
 
                   return (
@@ -331,11 +333,42 @@ export const AppsView: React.FC<AppsViewProps> = ({
                       <td className="py-3.5 px-4">
                         <div className="inline-flex items-center gap-1.5">
                           <span className={`h-2 w-2 rounded-full ${
-                            isSuspended ? 'bg-amber-500' : isRunning ? 'bg-emerald-500 shadow-xs shadow-emerald-400' : 'bg-slate-300'
+                            isSuspended
+                              ? 'bg-amber-500'
+                              : isFailed
+                                ? 'bg-rose-600 animate-pulse'
+                                : isBuilding
+                                  ? 'bg-blue-500 animate-pulse'
+                                  : isRunning
+                                    ? 'bg-emerald-500 shadow-xs shadow-emerald-400'
+                                    : 'bg-slate-300'
                           }`} />
-                          <span className={`font-medium ${isSuspended ? 'text-amber-700' : isRunning ? 'text-emerald-700' : 'text-slate-500'}`}>
-                            {isSuspended ? 'Suspended' : isRunning ? 'Active' : 'Stopped'}
+                          <span className={`font-medium ${
+                            isSuspended
+                              ? 'text-amber-700'
+                              : isFailed
+                                ? 'text-rose-700 font-bold'
+                                : isBuilding
+                                  ? 'text-blue-700'
+                                  : isRunning
+                                    ? 'text-emerald-700'
+                                    : 'text-slate-500'
+                          }`}>
+                            {isSuspended ? 'Suspended' : isFailed ? 'Deploy Failed' : isBuilding ? 'Building' : isRunning ? 'Active' : 'Stopped'}
                           </span>
+                          {isFailed && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectApp?.(app.name);
+                              }}
+                              className="ml-1 text-[10px] px-2 py-0.5 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded font-bold transition-colors cursor-pointer border border-rose-200"
+                              title="Click to view deployment error and retry"
+                            >
+                              Retry
+                            </button>
+                          )}
                         </div>
                       </td>
 

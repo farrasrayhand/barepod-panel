@@ -93,6 +93,9 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request, user *s
 		writeFileError(w, err)
 		return
 	}
+	if entries == nil {
+		entries = []files.Entry{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path":    strings.TrimPrefix(relative, "/"),
 		"site":    site.Slug,
