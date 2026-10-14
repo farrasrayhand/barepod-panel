@@ -146,6 +146,17 @@ barepod_keep_inside() {
   esac
 }
 PROMPT_COMMAND="barepod_keep_inside${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+
+# Privilege Escalation Guard
+sudo() {
+  echo "barepod: sudo is disabled in tenant isolation sandbox." >&2
+  return 1
+}
+su() {
+  echo "barepod: su is disabled in tenant isolation sandbox." >&2
+  return 1
+}
+export -f sudo su 2>/dev/null || true
 `
 	return os.WriteFile(projectGuardPath, []byte(script), 0o644)
 }

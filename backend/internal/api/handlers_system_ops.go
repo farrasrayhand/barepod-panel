@@ -158,6 +158,10 @@ func (s *Server) handleSystemProcesses(w http.ResponseWriter, r *http.Request, _
 
 // handleSystemProcessKill terminates a process by PID.
 func (s *Server) handleSystemProcessKill(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	if user.Role != "admin" {
+		writeError(w, http.StatusForbidden, "forbidden", "Only system administrators can terminate system processes")
+		return
+	}
 	pidStr := r.PathValue("pid")
 	pid, err := strconv.Atoi(pidStr)
 	if err != nil || pid <= 1 {
@@ -263,6 +267,10 @@ func (s *Server) handleSystemServices(w http.ResponseWriter, r *http.Request, _ 
 
 // handleSystemServiceAction performs start, stop, or restart on a service unit.
 func (s *Server) handleSystemServiceAction(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	if user.Role != "admin" {
+		writeError(w, http.StatusForbidden, "forbidden", "Only system administrators can control system services")
+		return
+	}
 	unit := r.PathValue("unit")
 	if !strings.HasSuffix(unit, ".service") {
 		unit += ".service"

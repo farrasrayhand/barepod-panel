@@ -165,11 +165,11 @@ Runtime: ${currentApp.runtime.toUpperCase()} ${currentApp.version}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {onOpenHostConsole && (
+            {isAdmin && onOpenHostConsole && (
               <button
                 type="button"
                 onClick={onOpenHostConsole}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-slate-300 cursor-pointer"
               >
                 Host console
               </button>

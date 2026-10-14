@@ -1164,7 +1164,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                     <th className="py-2.5 px-3">THREADS</th>
                     <th className="py-2.5 px-3">STAT</th>
                     <th className="py-2.5 px-4">COMMAND</th>
-                    <th className="py-2.5 px-3 text-right">ACTION</th>
+                    {isAdmin && <th className="py-2.5 px-3 text-right">ACTION</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono">
@@ -1192,14 +1192,16 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                       <td className="py-2.5 px-4 font-sans text-xs text-slate-800 max-w-md truncate" title={proc.command}>
                         {proc.command}
                       </td>
-                      <td className="py-2.5 px-3 text-right">
-                        <button
-                          onClick={() => setProcessToKill(proc)}
-                          className="px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 rounded border border-rose-200 transition-colors cursor-pointer"
-                        >
-                          Kill
-                        </button>
-                      </td>
+                      {isAdmin && (
+                        <td className="py-2.5 px-3 text-right">
+                          <button
+                            onClick={() => setProcessToKill(proc)}
+                            className="px-2 py-1 text-[11px] font-bold text-rose-600 hover:bg-rose-50 rounded border border-rose-200 transition-colors cursor-pointer"
+                          >
+                            Kill
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -1213,16 +1215,29 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Systemd Service Units</h3>
-                <p className="text-xs text-slate-500">Control core server daemons, reverse proxies, runtimes, and databases.</p>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-slate-900">Systemd Service Units</h3>
+                  {!isAdmin && (
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-600 rounded">
+                      Read-Only
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {isAdmin 
+                    ? 'Control core server daemons, reverse proxies, runtimes, and databases.'
+                    : 'System service health and process states (read-only monitoring for regular users).'}
+                </p>
               </div>
-              <button
-                onClick={() => onShowToast?.('Daemon Reloaded', 'systemctl daemon-reload executed.', 'info')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
-              >
-                <RotateCw className="w-3.5 h-3.5" />
-                <span>daemon-reload</span>
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => onShowToast?.('Daemon Reloaded', 'systemctl daemon-reload executed.', 'info')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                  <span>daemon-reload</span>
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1258,27 +1273,31 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => setActiveServiceLogs(svc)}
-                          className="px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded border border-slate-200"
+                          className="px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded border border-slate-200 cursor-pointer"
                           title="View journalctl logs"
                         >
                           <FileText className="w-3.5 h-3.5" />
                         </button>
-                        <button
-                          onClick={() => handleRestartService(svc.unit)}
-                          className="px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded border border-slate-200"
-                        >
-                          Restart
-                        </button>
-                        <button
-                          onClick={() => handleToggleService(svc.unit)}
-                          className={`px-2.5 py-1 text-xs font-bold rounded ${
-                            isActive 
-                              ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200' 
-                              : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                          }`}
-                        >
-                          {isActive ? 'Stop' : 'Start'}
-                        </button>
+                        {isAdmin && (
+                          <>
+                            <button
+                              onClick={() => handleRestartService(svc.unit)}
+                              className="px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded border border-slate-200 cursor-pointer"
+                            >
+                              Restart
+                            </button>
+                            <button
+                              onClick={() => handleToggleService(svc.unit)}
+                              className={`px-2.5 py-1 text-xs font-bold rounded cursor-pointer ${
+                                isActive 
+                                  ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200' 
+                                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                              }`}
+                            >
+                              {isActive ? 'Stop' : 'Start'}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1312,16 +1331,18 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleRunSmartSelfTest}
-                  disabled={isTestingSmart}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-white hover:bg-purple-50 text-purple-700 rounded-lg border border-purple-200 shadow-2xs transition-colors disabled:opacity-50"
-                >
-                  <RotateCw className={`w-3.5 h-3.5 ${isTestingSmart ? 'animate-spin text-purple-600' : ''}`} />
-                  <span>{isTestingSmart ? `Probing (${smartTestProgress}%)...` : 'Probe S.M.A.R.T.'}</span>
-                </button>
-              </div>
+              {isAdmin && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleRunSmartSelfTest}
+                    disabled={isTestingSmart}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-white hover:bg-purple-50 text-purple-700 rounded-lg border border-purple-200 shadow-2xs transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    <RotateCw className={`w-3.5 h-3.5 ${isTestingSmart ? 'animate-spin text-purple-600' : ''}`} />
+                    <span>{isTestingSmart ? `Probing (${smartTestProgress}%)...` : 'Probe S.M.A.R.T.'}</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* S.M.A.R.T. Result Notice if tested */}

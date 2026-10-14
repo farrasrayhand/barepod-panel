@@ -1212,13 +1212,18 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   };
 
   const handleToggleForceHttps = async (dom: ApiDomain) => {
+    if (!dom.sslEnabled) {
+      onShowToast?.('SSL Certificate Required', `Cannot enable HTTPS redirect: no active SSL certificate for ${dom.domain}`, 'info');
+      return;
+    }
     try {
+      const nextVal = !dom.forceHttps;
       await api.toggleSsl(dom.id, {
-        forceHTTPS: !dom.forceHttps,
+        forceHTTPS: nextVal,
         hsts: dom.hstsEnabled,
         autoRenew: dom.autoRenew,
       });
-      onShowToast?.('SSL Updated', `Force HTTPS set to ${!dom.forceHttps ? 'ON' : 'OFF'} for ${dom.domain}`, 'success');
+      onShowToast?.('HTTPS Redirect Updated', `HTTPS 301 Redirect is now ${nextVal ? 'ON (Active)' : 'OFF'} for ${dom.domain}`, 'success');
       fetchSiteDomains();
     } catch (err: any) {
       onShowToast?.('Error', err?.message || 'Failed to update SSL settings', 'error');
@@ -1616,7 +1621,7 @@ QUEUE_CONNECTION=redis`;
                   <ArrowUpRight className="w-3 h-3" />
                 </a>
                 <span>•</span>
-                <span>Tenant: <strong className="text-slate-700 font-mono">{app.tenantUser}</strong></span>
+                <span>Owner: <strong className="text-slate-700 font-mono">{app.tenantUser}</strong></span>
                 <span>•</span>
                 {app.runtime === 'proxy' ? (
                   <span>Upstream: <strong className="text-purple-700 font-mono">{currentUpstream}</strong></span>
@@ -1772,9 +1777,6 @@ QUEUE_CONNECTION=redis`;
         >
           <Globe className="w-4 h-4" />
           <span>Traffic Map</span>
-          <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold">
-            Sim
-          </span>
         </button>
 
         <button
@@ -2834,7 +2836,7 @@ QUEUE_CONNECTION=redis`;
                               </span>
                             )}
                             <a
-                              href={`http://${dom.domain}`}
+                              href={`${dom.sslEnabled && dom.forceHttps ? 'https' : 'http'}://${dom.domain}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-blue-600 hover:text-blue-700 flex items-center gap-1 font-medium"
@@ -2849,16 +2851,32 @@ QUEUE_CONNECTION=redis`;
                       <div className="flex items-center gap-3 shrink-0 self-end md:self-center">
                         <button
                           type="button"
+                          role="switch"
+                          aria-checked={Boolean(dom.sslEnabled && dom.forceHttps)}
+                          disabled={!dom.sslEnabled}
                           onClick={() => handleToggleForceHttps(dom)}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                            dom.forceHttps
-                              ? 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
-                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                            !dom.sslEnabled
+                              ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed opacity-75'
+                              : dom.forceHttps
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100 cursor-pointer'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
                           }`}
-                          title="Force HTTP to HTTPS 301 redirection"
+                          title={!dom.sslEnabled ? 'Requires SSL Certificate' : 'Toggle 301 redirection from HTTP to HTTPS'}
                         >
-                          <span>HTTPS 301:</span>
-                          <span className="font-bold">{dom.forceHttps ? 'ON' : 'OFF'}</span>
+                          <span>HTTPS Redirect:</span>
+                          <div className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors duration-200 ease-in-out ${
+                            dom.sslEnabled && dom.forceHttps ? 'bg-emerald-600' : 'bg-slate-300'
+                          }`}>
+                            <span
+                              className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out translate-y-0.5 ${
+                                dom.sslEnabled && dom.forceHttps ? 'translate-x-3.5' : 'translate-x-0.5'
+                              }`}
+                            />
+                          </div>
+                          <span className="font-bold text-[11px]">
+                            {!dom.sslEnabled ? 'Requires SSL' : dom.forceHttps ? 'ON' : 'OFF'}
+                          </span>
                         </button>
 
                         <button

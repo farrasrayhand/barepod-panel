@@ -83,8 +83,8 @@ func JailRoot(home, siteDir, slug string, uid, gid int) (string, error) {
 		if err := syscall.Mount(source, target, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
 			return "", fmt.Errorf("terminal: cannot bind %s into the jail (%v)", source, err)
 		}
-		// Read-only: a shell inside cannot modify the system it borrows.
-		_ = syscall.Mount("", target, "", syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_RDONLY, "")
+		// Read-only and No-SUID: a shell inside cannot modify the system or escalate privileges via SUID binaries.
+		_ = syscall.Mount("", target, "", syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_RDONLY|syscall.MS_NOSUID, "")
 	}
 
 	// A private scratch, a place for sockets, and the usual device/proc surface so

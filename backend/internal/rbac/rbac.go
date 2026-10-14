@@ -112,7 +112,7 @@ func DefaultGroups() []Group {
 				CapCloudflareTunnels: true,
 				CapMonitoring:        true,
 				CapUsers:             false,
-				CapAPITokens:         false,
+				CapAPITokens:         true,
 			},
 			Limits:    resources.DefaultLimits(),
 			IsDefault: true,

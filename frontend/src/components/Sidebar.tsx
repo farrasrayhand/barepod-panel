@@ -69,9 +69,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
 
   const devItems: NavGroupItem[] = [
     ...(canDo('terminal') ? [{ id: 'terminal' as NavItem, label: 'Isolated Web Terminal', icon: Terminal }] : []),
-    ...(isAdmin ? [{ id: 'files' as NavItem, label: 'Host Files', icon: FolderTree }] : []),
+    { id: 'files' as NavItem, label: isAdmin ? 'Host Files' : 'File Manager', icon: FolderTree },
     ...(isAdmin ? [{ id: 'stack' as NavItem, label: 'Stack', icon: Server }] : []),
-    ...(canDo('apiTokens') ? [{ id: 'api' as NavItem, label: 'API & MCP', icon: Webhook }] : []),
+    { id: 'api' as NavItem, label: 'API & MCP', icon: Webhook },
     ...(canDo('users') ? [{ id: 'users' as NavItem, label: 'Users & Packages', icon: Users }] : []),
     ...(isAdmin ? [{ id: 'settings' as NavItem, label: 'Panel Settings', icon: Settings }] : []),
   ];

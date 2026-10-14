@@ -56,8 +56,8 @@ func TestBasicGroupIsLimited(t *testing.T) {
 	if dev.Permissions.Allows(CapUsers) {
 		t.Error("Basic must not be able to manage users")
 	}
-	if dev.Permissions.Allows(CapAPITokens) {
-		t.Error("Basic must not be able to mint API tokens")
+	if !dev.Permissions.Allows(CapAPITokens) {
+		t.Error("Basic should be able to manage personal API and MCP tokens")
 	}
 }
 

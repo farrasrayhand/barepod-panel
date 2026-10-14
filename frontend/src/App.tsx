@@ -630,20 +630,14 @@ export function App() {
             />
           )}
 
-          {currentTab === 'files' && isAdmin && <HostFilesView onShowToast={showToast} />}
-          {currentTab === 'stack' && isAdmin && <StackView onShowToast={showToast} />}
-
-          {currentTab === 'files' && !isAdmin && (
-            <div className="p-8 max-w-3xl mx-auto">
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-2">
-                <h2 className="text-sm font-bold text-slate-900">Administrators only</h2>
-                <p className="text-xs text-slate-500">
-                  The host file browser spans every account, so it is limited to administrators. Your own files live in
-                  the File Manager of each website.
-                </p>
-              </div>
-            </div>
+          {currentTab === 'files' && (
+            <HostFilesView 
+              isAdmin={isAdmin} 
+              currentUser={session.user} 
+              onShowToast={showToast} 
+            />
           )}
+          {currentTab === 'stack' && isAdmin && <StackView onShowToast={showToast} />}
 
           {currentTab === 'monitoring' && (
             <ServerMonitoringView
