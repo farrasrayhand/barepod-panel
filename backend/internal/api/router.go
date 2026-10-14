@@ -214,6 +214,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/system/storage", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemStorage)))
 	mux.HandleFunc("GET /api/v1/system/network", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemNetwork)))
 	mux.HandleFunc("POST /api/v1/system/network/ping", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemPing)))
+	mux.HandleFunc("GET /api/v1/system/autotune", s.requireAuth(s.handleGetAutoTune))
+	mux.HandleFunc("POST /api/v1/system/autotune", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleApplyAutoTune)))
 	mux.HandleFunc("POST /api/v1/ws/ticket", s.requireAuth(s.handleWSTicket))
 
 	// Interactive terminals. Auth uses the one-time ticket (never a long-lived

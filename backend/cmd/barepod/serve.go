@@ -21,6 +21,7 @@ import (
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/api"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbtools"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/guard"
@@ -390,6 +391,9 @@ func runServe(args []string) error {
 	} else {
 		log.Printf("guard: %d record port(s) reconciled against the firewall set", applied)
 	}
+
+	// Hardware-adaptive auto-tuning for engines (MariaDB, PostgreSQL, Redis)
+	dbengine.AutoTune(context.Background(), h.Runner, cfg.RedisURL, log.Printf)
 
 	log.Printf("host: %s/%s %q systemd=%v lxc=%v docker=%v smart=%v fstrim=%v",
 		caps.OS, caps.Arch, caps.Distro, caps.Systemd, caps.LXC, caps.Docker, caps.Smart, caps.Fstrim)
