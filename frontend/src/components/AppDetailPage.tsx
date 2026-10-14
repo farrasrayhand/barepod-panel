@@ -242,34 +242,52 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   };
 
   // Persistent Deploy & Build Script per App
-  const getDefaultBuildScript = (runtime?: string) => {
+  const getDefaultBuildScript = (runtime?: string, hasGit = false, branch = 'main') => {
+    const gitPull = hasGit ? `git pull origin ${branch}\n` : '';
     if (runtime === 'php') {
-      return `git pull origin main
-composer install --no-dev --optimize-autoloader --quiet
+      return `${gitPull}composer install --no-dev --optimize-autoloader --quiet
 php artisan migrate --force
 php artisan config:cache
 php artisan route:cache
+php artisan view:cache
 systemctl reload php8.4-fpm`;
     } else if (runtime === 'python') {
-      return `git pull origin main
-source venv/bin/activate
+      return `${gitPull}source venv/bin/activate
 pip install -r requirements.txt --quiet
 systemctl restart gunicorn`;
     } else if (runtime === 'nodejs') {
-      return `git pull origin main
-pnpm install --frozen-lockfile
+      return `${gitPull}pnpm install --frozen-lockfile
 pnpm run build
 pm2 reload app --update-env`;
+    } else if (runtime === 'go') {
+      return `${gitPull}go build -o bin/server main.go
+systemctl reload app`;
+    } else if (runtime === 'static') {
+      return hasGit ? `git pull origin ${branch}` : `# Static website — assets served directly by web server`;
     }
-    return `git pull origin main
-npm install
+    return `${gitPull}npm install
 npm run build`;
   };
 
   const [gitRepo, setGitRepo] = useState(app.gitRepo || '');
   const [gitBranch, setGitBranch] = useState(app.gitBranch || 'main');
   const [autoDeploy, setAutoDeploy] = useState(app.autoDeploy !== false);
-  const [buildScript, setBuildScript] = useState(app.buildScript || getDefaultBuildScript(app.runtime));
+
+  const initialHasGit = Boolean(
+    (app.gitRepo && app.gitRepo.trim() !== '') ||
+    app.sourceKind === 'github'
+  );
+  const [buildScript, setBuildScript] = useState(() => {
+    if (app.buildScript && app.buildScript.trim() !== '') {
+      if (!initialHasGit && app.buildScript.trim().startsWith('git pull')) {
+        const cleaned = app.buildScript.replace(/^git pull[^\n]*\n?/m, '').trim();
+        return cleaned || getDefaultBuildScript(app.runtime, false, app.gitBranch);
+      }
+      return app.buildScript;
+    }
+    return getDefaultBuildScript(app.runtime, initialHasGit, app.gitBranch);
+  });
+
   const [isSavingDeployScript, setIsSavingDeployScript] = useState(false);
   const [isDeployingNow, setIsDeployingNow] = useState(false);
   const [copiedDeployWebhook, setCopiedDeployWebhook] = useState(false);
@@ -281,11 +299,39 @@ npm run build`;
   const [isRotatingDeployKey, setIsRotatingDeployKey] = useState(false);
   const [showConnectGit, setShowConnectGit] = useState(false);
 
+  const isGitConnected = Boolean(
+    (gitRepo && gitRepo.trim() !== '') || 
+    (app.gitRepo && app.gitRepo.trim() !== '') || 
+    app.sourceKind === 'github' ||
+    (gitStatus && gitStatus.detected && Boolean(gitStatus.repo?.trim()))
+  );
+
+  const handleBranchChange = (newBranch: string) => {
+    setGitBranch(newBranch);
+    const trimmed = newBranch.trim();
+    if (trimmed && buildScript.includes('git pull origin')) {
+      setBuildScript((prev) => prev.replace(/^git pull origin\s+[^\s\n]+/m, `git pull origin ${trimmed}`));
+    }
+  };
+
+  const handleToggleGitPull = () => {
+    const targetBranch = gitBranch.trim() || app.gitBranch || gitStatus?.branch || 'main';
+    const pullLine = `git pull origin ${targetBranch}`;
+    if (buildScript.includes('git pull')) {
+      const stripped = buildScript.replace(/^git pull[^\n]*\n?/m, '').trim();
+      setBuildScript(stripped);
+      onShowToast?.('Git Pull Removed', 'Removed "git pull" step from build script.', 'info');
+    } else {
+      const added = `${pullLine}\n${buildScript.trim()}`.trim();
+      setBuildScript(added);
+      onShowToast?.('Git Pull Added', `Added "${pullLine}" at the beginning of the script.`, 'info');
+    }
+  };
+
   useEffect(() => {
     setGitRepo(app.gitRepo || '');
     setGitBranch(app.gitBranch || 'main');
     if (app.autoDeploy !== undefined) setAutoDeploy(app.autoDeploy);
-    if (app.buildScript) setBuildScript(app.buildScript);
 
     setLoadingGitStatus(true);
     api.websiteGitStatus(app.name)
@@ -294,14 +340,26 @@ npm run build`;
         if (res.repo) setGitRepo(res.repo);
         if (res.branch) setGitBranch(res.branch);
         setAutoDeploy(res.autoDeploy);
-        if (res.deployScript) setBuildScript(res.deployScript);
+        const hasGitNow = Boolean(res.repo?.trim() || app.sourceKind === 'github');
+        if (res.deployScript && res.deployScript.trim() !== '') {
+          if (!hasGitNow && res.deployScript.trim().startsWith('git pull')) {
+            const cleaned = res.deployScript.replace(/^git pull[^\n]*\n?/m, '').trim();
+            setBuildScript(cleaned || getDefaultBuildScript(app.runtime, false, res.branch || 'main'));
+          } else {
+            setBuildScript(res.deployScript);
+          }
+        } else if (!app.buildScript) {
+          setBuildScript(getDefaultBuildScript(app.runtime, hasGitNow, res.branch || 'main'));
+        } else {
+          setBuildScript(app.buildScript);
+        }
         if (res.deployKey) setDeployKeyInfo(res.deployKey);
       })
       .catch(() => {
         api.websiteDeployKey(app.name).then(k => setDeployKeyInfo(k)).catch(() => {});
       })
       .finally(() => setLoadingGitStatus(false));
-  }, [app.name, app.gitRepo, app.gitBranch, app.autoDeploy, app.buildScript]);
+  }, [app.name, app.gitRepo, app.gitBranch, app.autoDeploy, app.buildScript, app.sourceKind, app.runtime]);
 
   // Detected framework metadata from live host inspection
   const [detectedFramework, setDetectedFramework] = useState<DetectedFramework | null>(null);
@@ -683,35 +741,37 @@ npm run build`;
   };
 
   const handleApplyPresetInDetail = (preset: 'laravel' | 'nextjs' | 'fastapi' | 'go' | 'static') => {
-    const targetBranch = gitBranch || 'main';
+    const isGit = isGitConnected;
+    const targetBranch = gitBranch.trim() || app.gitBranch || gitStatus?.branch || 'main';
+    const gitPull = isGit ? `git pull origin ${targetBranch}\n` : '';
     let script = '';
     if (preset === 'laravel') {
-      script = `git pull origin ${targetBranch}
-composer install --no-dev --optimize-autoloader --quiet
+      script = `${gitPull}composer install --no-dev --optimize-autoloader --quiet
 php artisan migrate --force
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 systemctl reload php8.4-fpm`;
     } else if (preset === 'nextjs') {
-      script = `git pull origin ${targetBranch}
-pnpm install --frozen-lockfile
+      script = `${gitPull}pnpm install --frozen-lockfile
 pnpm run build
 pm2 reload ${app.name} --update-env`;
     } else if (preset === 'fastapi') {
-      script = `git pull origin ${targetBranch}
-source venv/bin/activate
+      script = `${gitPull}source venv/bin/activate
 pip install -r requirements.txt --quiet
 systemctl reload gunicorn-${app.name}`;
     } else if (preset === 'go') {
-      script = `git pull origin ${targetBranch}
-go build -o bin/server main.go
+      script = `${gitPull}go build -o bin/server main.go
 systemctl reload ${app.name}`;
     } else if (preset === 'static') {
-      script = `git pull origin ${targetBranch}`;
+      script = isGit ? `git pull origin ${targetBranch}` : `# Static website — assets served directly by web server`;
     }
     setBuildScript(script);
-    onShowToast?.('Preset Applied', `${preset.toUpperCase()} script template loaded into the editor. Click "Save Script" to persist it.`, 'info');
+    onShowToast?.(
+      'Preset Applied',
+      `${preset.toUpperCase()} preset loaded ${isGit ? '(with git pull)' : '(without git pull)'}. Click "Save Script" to persist.`,
+      'info'
+    );
   };
 
   const handleSaveDeployScript = async (e?: React.FormEvent) => {
@@ -4855,7 +4915,7 @@ QUEUE_CONNECTION=redis`}
                       <input
                         type="text"
                         value={gitBranch}
-                        onChange={(e) => setGitBranch(e.target.value)}
+                        onChange={(e) => handleBranchChange(e.target.value)}
                         placeholder="main"
                         className="w-full bg-transparent border-none outline-hidden p-0 text-slate-800 font-mono text-xs font-bold"
                       />
@@ -4978,7 +5038,7 @@ QUEUE_CONNECTION=redis`}
                   </p>
                 </div>
 
-                {/* Script Presets */}
+                {/* Script Presets & Git Toggle */}
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
                     <Sparkles className="w-3 h-3 text-amber-500" />
@@ -5012,6 +5072,41 @@ QUEUE_CONNECTION=redis`}
                   >
                     Go
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPresetInDetail('static')}
+                    className="px-2.5 py-1 text-xs font-semibold bg-slate-50 border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-700 transition-colors"
+                  >
+                    Static
+                  </button>
+
+                  <div className="h-4 w-px bg-slate-200 mx-0.5" />
+
+                  {/* Quick toggle git pull */}
+                  <button
+                    type="button"
+                    onClick={handleToggleGitPull}
+                    title={buildScript.includes('git pull') ? 'Remove "git pull" step from build script' : 'Prepend "git pull" step to build script'}
+                    className={`px-2.5 py-1 text-xs font-semibold border rounded-lg flex items-center gap-1.5 transition-colors ${
+                      buildScript.includes('git pull')
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <GitBranch className="w-3 h-3" />
+                    <span>{buildScript.includes('git pull') ? 'git pull: ON' : '+ git pull'}</span>
+                  </button>
+
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-medium border ${
+                      isGitConnected
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}
+                    title={isGitConnected ? `Connected to Git repository (${gitBranch || 'main'})` : 'No remote Git repository configured for this site'}
+                  >
+                    {isGitConnected ? `Git: ${gitBranch || 'main'}` : 'No Git'}
+                  </span>
                 </div>
               </div>
 
