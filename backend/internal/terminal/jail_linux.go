@@ -110,13 +110,16 @@ func JailRoot(home, siteDir, slug string, uid, gid int) (string, error) {
 
 	// The website, at the very path it has outside, so prompts and scripts match.
 	tenantRoot := filepath.Join(root, strings.TrimPrefix(home, "/"))
-	insideSite := filepath.Join(tenantRoot, "apps", slug)
+	insideSite := filepath.Join(tenantRoot, "web", slug)
 	if err := os.MkdirAll(insideSite, 0o750); err != nil {
 		return "", err
 	}
 	if err := syscall.Mount(siteDir, insideSite, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
 		return "", fmt.Errorf("terminal: cannot bind the website into the jail (%v)", err)
 	}
+	// Backward-compatibility: symlink inside the jail so legacy references / apps/<slug> still resolve
+	_ = os.Symlink("web", filepath.Join(tenantRoot, "apps"))
+
 	// The way in has to be traversable, and *only the website* belongs to the
 	// tenant: the directories above it stay root-owned and read-only, so `mkdir` out
 	// there fails even if the shell's own guard is bypassed. (The site is a bind of
@@ -124,7 +127,7 @@ func JailRoot(home, siteDir, slug string, uid, gid int) (string, error) {
 	if err := os.Chmod(filepath.Dir(tenantRoot), 0o755); err != nil {
 		return "", err
 	}
-	for _, dir := range []string{tenantRoot, filepath.Join(tenantRoot, "apps")} {
+	for _, dir := range []string{tenantRoot, filepath.Join(tenantRoot, "web")} {
 		if err := os.Chmod(dir, 0o755); err != nil {
 			return "", err
 		}
@@ -139,7 +142,7 @@ func JailRoot(home, siteDir, slug string, uid, gid int) (string, error) {
 	if err := syscall.Chroot(root); err != nil {
 		return "", fmt.Errorf("terminal: cannot enter the jail (%v)", err)
 	}
-	workdir := filepath.Join(string(filepath.Separator), strings.TrimPrefix(home, "/"), "apps", slug)
+	workdir := filepath.Join(string(filepath.Separator), strings.TrimPrefix(home, "/"), "web", slug)
 	if err := os.Chdir(workdir); err != nil {
 		return "", fmt.Errorf("terminal: cannot enter %s (%v)", workdir, err)
 	}

@@ -42,7 +42,7 @@ func MountProbe() error {
 
 // SiteDirFor mirrors the Linux helper.
 func SiteDirFor(sitesRoot, tenant, slug string) string {
-	return filepath.Join(sitesRoot, tenant, "apps", slug)
+	return JailSpec{SitesRoot: sitesRoot, Tenant: tenant, Slug: slug}.SiteDir()
 }
 
 // Exec replaces the process with the shell (used by the helper on any platform

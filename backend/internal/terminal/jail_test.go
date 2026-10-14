@@ -113,7 +113,7 @@ func TestSiteInsideHomeDecidesTheOverlay(t *testing.T) {
 	if !spec.SiteInsideHome() {
 		t.Error("a site under the tenant's home can use the home overlay")
 	}
-	if spec.Home() != "/home/bptest" || spec.SiteDir() != "/home/bptest/apps/own-check" {
+	if spec.Home() != "/home/bptest" || spec.SiteDir() != "/home/bptest/web/own-check" {
 		t.Errorf("unexpected layout: %s / %s", spec.Home(), spec.SiteDir())
 	}
 

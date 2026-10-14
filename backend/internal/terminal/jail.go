@@ -33,7 +33,7 @@ func (s JailSpec) WebDir() string {
 	if _, err := os.Stat(web); err == nil {
 		return web
 	}
-	return legacy
+	return web
 }
 
 // AppsDir holds every site of the tenant (kept for backward compatibility).
