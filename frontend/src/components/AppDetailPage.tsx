@@ -337,31 +337,7 @@ npm run build`;
     return true;
   };
 
-  const getRuntimeTabTitle = () => {
-    const fw = effectiveFrameworkLabel || effectiveFwTitle;
-    if (app.runtime === 'php') {
-      return fw ? `PHP & ${fw}` : 'PHP & Extensions';
-    }
-    if (app.runtime === 'python') {
-      return fw ? `Python & ${fw}` : 'Python Studio';
-    }
-    if (app.runtime === 'nodejs') {
-      return fw ? `Node.js & ${fw}` : 'Node.js Studio';
-    }
-    if (app.runtime === 'ruby') {
-      return fw ? `Ruby & ${fw}` : 'Ruby Studio';
-    }
-    if (app.runtime === 'go') {
-      return fw ? `Go & ${fw}` : 'Go Runtime';
-    }
-    if (app.runtime === 'rust') {
-      return fw ? `Rust & ${fw}` : 'Rust Runtime';
-    }
-    if (app.runtime === 'static') {
-      return fw ? `Static (${fw})` : 'Static & SPA';
-    }
-    return `${app.runtime.toUpperCase()} Studio`;
-  };
+  const getRuntimeTabTitle = () => 'Runtime Settings';
 
   // Extension counts come from the panel below, which reads them from the host.
   const [extensionCounts, setExtensionCounts] = useState({ enabled: 0, total: 0 });
