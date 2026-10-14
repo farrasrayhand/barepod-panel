@@ -106,13 +106,19 @@ The detailed build log of every fix — with its measurements — is in this fil
    - Complete right-click (context) menu (Open/Preview, Copy, Cut, Paste, Duplicate, Rename, Download, Delete).
    - In-browser Visual Previewers (SVG / Vector graphics, Image viewer, PDF viewer with zoom control).
    - In-browser Code Editor with persistent volume sync & syntax styling.
-9. **GitHub Push-to-Deploy & 1-Click Redeploy**: Automatic webhook on pushing a commit to GitHub plus a manual redeploy button with streaming build logs and *zero-downtime*.
+9. **Universal Multi-Tenant Git CI/CD & Push-to-Deploy**:
+   - Per-user Git provider connections (GitHub, GitLab Cloud & Self-hosted, Bitbucket, Gitea/Forgejo, and Custom Git), strictly isolated per tenant account with AES-256-GCM encrypted tokens.
+   - Per-website ED25519 SSH Deploy Keys (`0600` in `/home/<tenant>/.ssh/id_ed25519_<slug>`) for clean read-only access to private repositories across any Git provider without requiring user-level tokens.
+   - Auto-repository & branch discovery via provider APIs.
+   - Universal push-to-deploy webhooks (`POST /api/v1/webhooks/deploy/:slug?token=...`) with streaming build logs and *zero-downtime* service reload.
 10. **Multi-Tenant Cloudflare Tunnel Isolation**: Expose domains and containers to the public internet simply by entering a private Tunnel Token per tenant, with no need for a static public IP or port forwarding.
 11. **Dedicated Reverse Proxy Mode & Multi-Engine Path Routing**: The ease of creating a pure proxy gateway to forward domain traffic to internal ports, complete with WebSocket pass-through, real IP preservation, auto-SSL, upstream ping connectivity test, and live vhost preview (OpenLiteSpeed, Nginx, Caddy).
-12. **World Traffic Map & Streaming Telemetry**:
-    - Interactive world map with visual pulsing radar pins (ID, US, SG, DE, JP, AU, etc.).
-    - Traffic filter per country with latency and ISP info.
-    - Console log with Light/Dark toggle, log text wrap toggle, and expandable request detail inspector.
+12. **World Traffic Map & Streaming Telemetry (IMPLEMENTED IN CODE 🟡 — PENDING LIVE HOST VERIFICATION)**:
+    - Real-time access log ingestion from active web servers (Caddy JSON, Nginx, Apache).
+    - Dynamic GeoIP resolution without static limits: resolves country, real city, ISP, and equirectangular SVG (x, y) coordinates.
+    - Automatic server host node detection (e.g. host location in Samarinda) and private IP mapping to `Local Network` (🏠).
+    - SSE streaming (`GET /api/v1/websites/:slug/telemetry/stream`) for real-time beacon pings and streaming logs console.
+    - *Status Note*: Fully implemented in Go backend (`internal/telemetry`) and React frontend (`AppDetailPage`), verified via unit tests; pending live host verification on remote Linux host (`172.19.1.26`) following power outage.
 13. **Backup & 1-Click Server-to-Server Live Migration Hub**:
     - 1-Click Server-to-Server Live Migration Wizard (Pull from Old VPS via IP & Secret Token, live rsync & DB dump streaming).
     - Source VPS Token Generator (2-hour TTL).
@@ -260,13 +266,22 @@ graph TD
 
 ### 3.5. World Traffic Map & Streaming Telemetry
 - **Interactive Visitor Map**:
-  - Vector world map with live pulsing radar pins.
+  - Vector world map with dynamic equirectangular projection (`LatLonToXY`) rendering live pulsing radar pins on a 1000x500 SVG.
+  - Dynamic GeoIP resolution without static limits: queries `ip-api.com` with in-memory caching (`sync.Map`) to resolve country, city, ISP, and coordinates without static country tables.
+  - Automatic Host Physical Location Detection: dynamically resolves server's outbound public IP (`ip-api.com`) to map host node coordinates (e.g. Samarinda, East Kalimantan).
+  - Private IP & Local Loopback Mapping: maps RFC1918 addresses (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`) to the host's coordinates with `Local Network` label (🏠).
   - Tooltip with country, city, IP, request count, latency (ms), and ISP name.
   - Instant log filter based on the country clicked on the map.
-- **Console Log Studio**:
+- **Console Log Studio & Log Parsing**:
+  - Ingests and parses web server access logs in real-time: Caddy JSON format and Nginx / Apache Combined Log Format (CLF).
+  - Heuristic threat scan detection: flags 403 Forbidden responses, path traversal attacks, exploit probes (`.env`, `.git`, `eval-stdin.php`, `wp-login.php`, `phpmyadmin`).
   - Default Light Mode (`bg-white`) with a Dark Mode toggle (`bg-slate-950`).
   - Log Text Wrapping toggle (prevents text from being cut off).
   - Expandable Request Detail Inspector (`ChevronRight`/`ChevronDown`) for viewing complete headers, cookies, and user-agent.
+  - Server-Sent Events (SSE) streaming (`GET /api/v1/websites/:slug/telemetry/stream`) for real-time beacon pings and log records.
+- **Verification Status**:
+  - Backend `internal/telemetry` and frontend streaming UI are fully coded and pass all Go unit tests.
+  - *Pending Live Host Verification*: Live end-to-end verification against active traffic on host `172.19.1.26` will be executed as soon as the host is powered on following the power outage.
 
 ### 3.6. Backup & Migration Hub (Plug and Play)
 - **1-Click Server-to-Server Live Migration**:
@@ -329,6 +344,31 @@ The platform a host runs is one admin screen, because these are **host-level** f
 - **Recycle Bin**: soft delete for databases — suspend (apps cannot connect), restore, permanent delete, empty bin, 30-day retention.
 - **Accounts, Groups & Permissions (per account, not global)**: the panel has **no built-in account** — the operator creates the root admin with `barepod admin create` at install time. The only built-in data is **two packages** (`Unlimited` / `Basic`), and a group doubles as the **resource package** (CPU, RAM, tasks, disk quota, inodes, max sites, max databases — 0 = unlimited). Every endpoint is gated on a capability from the caller's group (`deployApps`, `fileManager`, `terminal`, `databases`, `backups`, `domains`, `cloudflareTunnels`, `monitoring`, `users`, `apiTokens`) and every resource endpoint is scoped to the caller's own resources — **admins are the single exception** and see all tenants. Backup, migration and every future module follow the same rule. A **capacity guard** rejects any package plan whose total exceeds the server's live capacity (so a scale-down is caught automatically).
 
+### 3.10. Universal Multi-Tenant Git CI/CD & Deploy Key Engine
+
+- **Multi-Tenant Git Isolation & Privacy Boundary**:
+  - Git provider credentials and Personal Access Tokens (PATs) are **strictly isolated per tenant account** (`user_id`). User A cannot see, list, or use Git accounts or repositories configured by User B.
+  - All sensitive provider access tokens and SSH credentials stored in `user_git_providers` are encrypted using **AES-256-GCM** via `internal/secrets`, with the key stored in a host `0600` file outside the database.
+- **Universal Provider Matrix**:
+  - **GitHub**: GitHub Cloud and GitHub Enterprise instances.
+  - **GitLab**: GitLab.com (SaaS) and private self-hosted GitLab CE/EE instances via custom `baseUrl`.
+  - **Gitea / Forgejo**: Self-hosted lightweight Git servers via custom `baseUrl`.
+  - **Bitbucket**: Bitbucket Cloud workspaces.
+  - **Custom Git / Generic SSH**: Any private Git server or VPS accessed via standard SSH repository URLs (`git@host:user/repo.git`).
+- **Private Repository Authentication Architecture**:
+  - **Per-Website ED25519 SSH Deploy Key (Standard & Recommended)**:
+    - Every website generates a dedicated, isolated ED25519 keypair on creation: public key and private key stored at `/home/<tenant>/.ssh/id_ed25519_<slug>` with strict `0600` permissions owned by the tenant.
+    - The public key is cleanly exposed in the website's Git Settings UI, allowing developers to paste it into their repository's **Deploy Keys** (read-only access).
+    - Deploy keys require zero provider API tokens and work universally across GitHub, GitLab, Gitea, Bitbucket, and custom SSH servers.
+    - One-click key rotation supported (`POST /api/v1/websites/:slug/git/deploy-key/rotate`).
+  - **Per-User Personal Access Token (PAT) / API Key**:
+    - Optional integration allowing the panel to auto-discover user repositories (`GET /api/v1/me/git/providers/:id/repos`), list available branches, and automatically register webhook hooks.
+- **Push-to-Deploy & Webhook Security**:
+  - Universal push webhook endpoint: `POST /api/v1/webhooks/deploy/:slug?token=<deployHookToken>`.
+  - Authenticates via the website's unique, vaulted `deployHookToken` (URL-safe string or HMAC token).
+  - Webhook triggers asynchronous deploy pipeline: executes `git fetch` and `git checkout <branch>` as the tenant user (`Runner.RunAs`), executes post-deploy build hooks (e.g. `composer install`, `npm run build`), and reloads the service with *zero-downtime*.
+  - Real-time build progress and stdout/stderr logs are streamed over SSE.
+
 ## 4. Implementation Status & Development Roadmap
 
 > [!IMPORTANT]
@@ -361,7 +401,8 @@ The platform a host runs is one admin screen, because these are **host-level** f
 | **Recycle Bin (Databases)** | ✅ Complete (soft delete, restore, purge) | ✅ Suspend & restore (grants and route withdrawn, data retained), manual purge and empty-bin, 30-day retention | **Live** |
 | **Docker Pods & Containers** | ✅ Complete (PodsView, deploy/config modals) | ⏳ Not yet (Docker Engine SDK) | **UI Simulation** |
 | **Backup & Migration Hub** | ✅ Complete (wizard, token, `.bpod`) | ⏳ Not yet (rsync stream, S3/R2) | **UI Simulation** |
-| **World Traffic Map & Logs** | ✅ Complete (vector map, pins, log viewer) | ⏳ Not yet (daemon log streamer / WS) | **UI Simulation** |
+| **World Traffic Map & Streaming Telemetry** | ✅ Complete (vector map with equirectangular projection, pulsing pins, live SSE listener, light/dark console) | 🟡 Ingests Caddy/Nginx access logs, dynamic GeoIP (`ip-api.com`), host physical detection, private IP mapping, SSE stream handler mounted (`/api/v1/websites/:slug/telemetry/stream`). All unit tests pass; pending live verification on host 172.19.1.26 (offline/blackout). | **Implemented in Code (Pending Live Verification 🟡)** |
+| **Universal Multi-Tenant Git CI/CD** | ⏳ Deploy tab UI & wizard source selector | ⏳ Contract designed: ED25519 per-site deploy key generator (`0600`), AES-256-GCM user token vault, webhook push-to-deploy runner (`POST /api/v1/webhooks/deploy/:slug?token=...`) | **Scheduled (Contract Planned 📋)** |
 | **Per-App Access Control & Security** | ✅ Complete (503 maintenance mode, HTTP Basic Auth, IP allowlist/denylist, rate limiting, live preview) | ✅ `GET|PUT /websites/:slug/security`, `POST .../maintenance/toggle`, `POST .../basic-auth/toggle`. Generates dark-mode 503 HTML with pulse badge & countdown, `.htpasswd` with bcrypt, IP matchers, rate-limiting across all 4 web servers (Nginx, Caddy, Apache, OpenLiteSpeed) + atomic hot-reload. Verified live on host. | **Live (verified on LXC)** |
 | **Panel Settings & PHP Defaults** | ✅ Complete (horizontal top tabs, w-full responsive layout, php blueprint editor & module inspector) | ✅ `GET|PUT /system/settings/php-defaults` (persisted in SQLite `panel_settings`, generates `/etc/php/<ver>/mods-available/99-barepod-tuning.ini`, runs `phpenmod -v <ver>` and enables blueprint extensions, reloads `php<ver>-fpm`), `GET|PATCH /system/settings`, `GET|POST /system/ports/*` | **Live** |
 | **URL Routing & Deep-link** | ✅ Complete (`/apps/<slug>/<tab>`, `/settings/<tab>`, …) | ✅ SPA fallback in the daemon | **Live** |
@@ -400,7 +441,9 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - ✅ **Tenants & User Groups (control plane)**: a real users/groups HTTP API — `GET|POST /users`, `PATCH|DELETE /users/{id}`, `POST /users/{id}/password`, `GET|POST /groups`, `PATCH|DELETE /groups/{name}` — gated on the `users` capability. Creating an account also provisions its Linux account and applies the package's disk/inode quota (dry-run safe); suspending mirrors `usermod --lock` and revokes that account's sessions; deleting one that still owns websites/databases is refused with `409 has_resources`. Hardened alongside: an unknown owner is refused on every create path, `maxSites` now answers `409 quota_exceeded` (matching databases), and a package edit re-applies the quota to its members. The `UsersView` screen is wired live (raw numbers, live/mock badge). The capability matrix, package limits and capacity guard are unchanged. Suspending an account also stops and marks its websites `suspended` (a start is then refused with `409 owner_suspended`), and reactivating releases them to `stopped`. The Linux account is created **before** the panel account and is mandatory where the host can make one — the CLI `barepod admin create` provisions too — and `POST /users/{id}/provision` reconciles an account that predates this rule (the screen offers it whenever `osExists` is false). Session tokens are stored only as a hash, and the panel database with its WAL/SHM siblings is `0600`.
   - ✅ **PHP website end to end**: `internal/phpfpm` writes the pool (`<site>/php-fpm.conf`, tenant-owned, unix socket inside the site, `open_basedir` = site + `/tmp`), `internal/webserver` writes the nginx/caddy vhost (`fastcgi_pass` to socket, read access granted to `www-data` via setgid). Verified on LXC: `php-demo.test` answers "Hello from PHP 8.3.6 as bptest" through both nginx and caddy.
   - ✅ **The Stack (host-level package management)**: detection and dynamic discovery of runtimes (Node, Go, Python, PHP 5.6–8.5 with dynamic extension discovery, Ruby, Rust), databases, and 4 web servers. Hybrid multi-engine concurrent execution (ports 8080/8088/8081) and primary edge ingress switching (Nginx/Caddy) without port collisions. Dynamic CPU architecture resolution (x64/arm64). Database migration pre-flight plan modal (`GET /system/stack/plan`) and dedicated runtime uninstall confirmation modal.
-* **Phase 3: Container Pods & External Integrations (SCHEDULED 📋)**:
+  - 🟡 **World Traffic Map & Streaming Telemetry (implemented in code, pending live host verification)**: `GET /api/v1/websites/:slug/telemetry` & `GET /api/v1/websites/:slug/telemetry/stream` (SSE). Real-time access log ingestion (Caddy JSON, Nginx/Apache CLF), threat detection, dynamic GeoIP lookup (`ip-api.com` with in-memory cache), automatic host location detection, and RFC1918 private IP mapping. All unit tests pass; awaiting live traffic test on host 172.19.1.26.
+* **Phase 3: Universal Git CI/CD, Container Pods & Integrations (SCHEDULED 📋)**:
+  - 📋 **Universal Multi-Tenant Git CI/CD & Deploy Key Engine**: Per-user Git accounts (`user_git_providers` table, AES-256-GCM encrypted tokens) for GitHub, GitLab (Cloud & Self-hosted), Gitea/Forgejo, Bitbucket, and Custom SSH. Per-website ED25519 deploy keypair (`0600`) for private repos without user tokens, and webhook push-to-deploy runner (`POST /api/v1/webhooks/deploy/:slug?token=...`) with streaming build logs.
   - Docker Engine SDK (`docker/moby`) integration for container pod management.
   - Pod lifecycle (create, start, stop, rebuild, env, volumes, port mapping).
 * **Phase 4: Web Server & Network Automations (PARTIALLY LIVE 🟡)**:

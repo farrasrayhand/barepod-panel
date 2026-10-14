@@ -8,7 +8,7 @@
 
 | Already served by the daemon | Contract only (planned) |
 |---|---|
-| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `system/guard` (+ `unban`) · `system/settings` · `system/ports` (panel/ssh) · **the Stack**: `system/stack` + `web-server` switch + allowlisted `install` (job + SSE) + dedicated uninstall modal · **accounts & packages**: `users` list/create/patch/delete + password reset + `provision`, `groups` list/create/`PATCH`/delete · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · **all 4 web servers (nginx, caddy, apache, openlitespeed vhosts & concurrent ports)** · **`runtime` (get/put) + `vhost/preview` + `php-fpm/reload`** · **PHP extensions toggle (`system/php/extensions`) & host tuning blueprint (`system/settings/php-defaults`)** · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**, plus **DbGate** as a per-database container), and a real logical **`export`** · **Domains & Automated SSL/TLS**: `domains` list/`POST`/`DELETE`, ACME Let's Encrypt automated issuance with preflight DNS check, self-signed local generator, custom cert upload, 301 Force HTTPS redirection, HSTS headers, and vhost hot-reload | Pods (Docker) · backups & migration · Cloudflare tunnels · webhooks · MCP server · per-app access control (503, basic auth, anti-brute-force) · per-site custom php.ini directive editor |
+| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `system/guard` (+ `unban`) · `system/settings` · `system/ports` (panel/ssh) · **the Stack**: `system/stack` + `web-server` switch + allowlisted `install` (job + SSE) + dedicated uninstall modal · **accounts & packages**: `users` list/create/patch/delete + password reset + `provision`, `groups` list/create/`PATCH`/delete · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · **all 4 web servers (nginx, caddy, apache, openlitespeed vhosts & concurrent ports)** · **`runtime` (get/put) + `vhost/preview` + `php-fpm/reload`** · **PHP extensions toggle (`system/php/extensions`) & host tuning blueprint (`system/settings/php-defaults`)** · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**, plus **DbGate** as a per-database container), and a real logical **`export`** · **Domains & Automated SSL/TLS**: `domains` list/`POST`/`DELETE`, ACME Let's Encrypt automated issuance with preflight DNS check, self-signed local generator, custom cert upload, 301 Force HTTPS redirection, HSTS headers, and vhost hot-reload · **Website Telemetry & Traffic Map** (`GET /websites/:slug/telemetry` + SSE stream, implemented in code, pending live host verification) | Pods (Docker) · backups & migration · Cloudflare tunnels · **Universal Git Providers** (`/me/git/providers`) · **Deploy Keys** (`/websites/:slug/git/deploy-key`) · **Push-to-Deploy Webhooks** (`/webhooks/deploy/:slug`) · MCP server · per-app access control (503, basic auth, anti-brute-force) · per-site custom php.ini directive editor |
 
 `mode: "real" | "dry-run"` appears on every response that depends on privileged work — off Linux+systemd the daemon is in dry-run and says so instead of faking success.
 
@@ -311,6 +311,84 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `POST /websites/:slug/maintenance/toggle` → `200 { maintenanceMode: bool, security: ApiWebsiteSecurity }`. Quickly toggles maintenance mode on or off, updates the maintenance page, re-renders the vhost, and hot-reloads the web server.
 - `POST /websites/:slug/basic-auth/toggle` → `200 { basicAuthEnabled: bool, security: ApiWebsiteSecurity }`. Quickly toggles HTTP Basic Auth on or off and hot-reloads the web server. Requires that a password was previously configured.
 
+### 4.8.2 Website Telemetry & World Traffic Map (Live Stream)
+> **Implementation status:** Fully implemented in backend (`internal/telemetry`) and frontend (`AppDetailPage`), passing unit tests. Awaiting live host verification against active traffic once host 172.19.1.26 is powered back on following power outage.
+- **`GET /websites/:slug/telemetry?limit=300`** → `200 ApiWebsiteTelemetry`:
+  ```json
+  {
+    "nodes": [
+      {
+        "id": "node-172-19-1-26",
+        "name": "Host (Samarinda)",
+        "lat": -0.5007,
+        "lon": 117.1787,
+        "x": 825.49,
+        "y": 251.39,
+        "isHost": true,
+        "country": "Indonesia",
+        "city": "Samarinda",
+        "isp": "PT. Telkom Indonesia",
+        "activeConnections": 1
+      }
+    ],
+    "logs": [
+      {
+        "id": "log-01HQX...",
+        "ip": "172.19.1.1",
+        "country": "Indonesia",
+        "city": "Samarinda",
+        "isp": "Local Network",
+        "flag": "🏠",
+        "lat": -0.5007,
+        "lon": 117.1787,
+        "x": 825.49,
+        "y": 251.39,
+        "method": "GET",
+        "path": "/api/v1/health",
+        "status": 200,
+        "bytesSent": 45,
+        "durationMs": 1.2,
+        "isThreat": false,
+        "timestamp": "2026-10-14T06:00:00Z"
+      }
+    ],
+    "totalRequests": 1,
+    "totalThreats": 0,
+    "totalBandwidthBytes": 45
+  }
+  ```
+  Parses recent access logs from Caddy JSON (`/var/log/caddy/barepod-<slug>.access.log`) or Nginx/Apache CLF (`/var/log/nginx/barepod-<slug>.access.log`), performs in-memory cached GeoIP resolution, computes equirectangular map projection coordinates (`x`, `y` on 1000x500 SVG), maps RFC1918 private IPs to local host coordinates, and detects threat probes.
+- **`GET /websites/:slug/telemetry/stream`** → **Server-Sent Events (SSE)** stream.
+  Streams live telemetry updates as traffic hits the website:
+  - `event: ping` → `{ id, lat, lon, x, y, country, city, isp, flag, isThreat, timestamp }`
+  - `event: log` → `ApiTelemetryLogItem`
+  - `event: stats` → `{ totalRequests, totalThreats, totalBandwidthBytes }`
+  Automatically reconnects in browser via standard `EventSource`.
+
+### 4.8.3 Universal Multi-Tenant Git Providers & Deploy Keys
+> **Implementation status:** Contract and database schema designed; planned for Phase 3.
+- **Multi-Tenant Git Isolation:** All provider tokens are scoped to the authenticated tenant (`user_id`) in `user_git_providers` and encrypted with **AES-256-GCM**. Non-admin tenants cannot view, use, or mutate another tenant's Git connections.
+- **`GET /me/git/providers`** → `{ items: ApiGitProvider[] }`.
+  Returns the authenticated user's configured Git providers:
+  `{ id, name, provider: "github" | "gitlab" | "gitea" | "bitbucket" | "custom", baseUrl?, username?, createdAt, lastSyncedAt? }` (tokens are never returned).
+- **`POST /me/git/providers`** → Body `{ name: string, provider: string, baseUrl?: string, token?: string, username?: string }` → `201 ApiGitProvider`.
+  Connects a new provider account for the current user. Validates credentials against provider API where applicable.
+- **`DELETE /me/git/providers/:id`** → `200 { status: "deleted", id }`.
+  Removes a provider integration for the current user. Refuses deletion with `409 in_use` if active websites rely on automatic branch syncing through this provider.
+- **`GET /me/git/providers/:id/repos?page=1&per_page=30`** → `{ repos: ApiGitRepo[], page, perPage, total }`.
+  Fetches available repositories the user has access to from the Git provider API:
+  `{ fullName, defaultBranch, isPrivate, cloneUrl, sshUrl, description? }`.
+- **`GET /websites/:slug/git/deploy-key`** → `200 ApiDeployKey`.
+  Returns the website's dedicated ED25519 deploy key:
+  `{ publicKey: string, fingerprint: string, algorithm: "ED25519", createdAt: string }`.
+  The private key is stored at `/home/<tenant>/.ssh/id_ed25519_<slug>` with `0600` permissions and never exposed via the API.
+- **`POST /websites/:slug/git/deploy-key/rotate`** → `200 ApiDeployKey`.
+  Generates a fresh ED25519 keypair, archives the old key, and returns the new public key for pasting into the repository's Deploy Keys.
+- **`POST /webhooks/deploy/:slug?token=<deployHookToken>`** → `202 Accepted { deployId: string, slug: string, stream: string }`.
+  Universal inbound push webhook. Public endpoint (no cookie/session required; authenticated strictly via URL query `token`).
+  - Verifies `token` against the website's vaulted `deployHookToken`.
+  - Dispatches an asynchronous deployment job (`internal/deploy`): executes `git fetch` and `git checkout <branch>` as the tenant UID/GID, runs framework build/migration steps, updates cgroup limits, and hot-reloads the service.
+  - Streaming build logs available at `GET /websites/:slug/deploy/stream?id=<deployId>`.
 
 ### 4.9 Users, Groups & RBAC
 - `GET|POST /users` · `PATCH|DELETE /users/:id` · `POST /users/:id/password`
@@ -358,10 +436,10 @@ Normative: a client must not offer a control the site type cannot use, and the s
 |---|---|
 | `/websites` | `GET /websites` |
 | `/websites/<name>` + monitoring tab | `GET /websites/:slug`, `GET .../metrics?range=` |
-| `/websites/<name>/logs` & `/map` | `GET .../logs`, `WS: site-log-stream` |
+| `/websites/<name>/logs` & `/map` | `GET .../logs`, `GET .../telemetry`, `GET .../telemetry/stream` (SSE) |
 | `/websites/<name>/routing` | `GET|POST .../routes`, `GET .../vhost/preview` |
 | `/websites/<name>/files` | file manager endpoints |
-| `/websites/<name>/deploy` | `PUT .../git`, `POST .../redeploy` (+ `WS: deploy-log`) |
+| `/websites/<name>/deploy` & Git | `GET /me/git/providers`, `GET|POST .../git/deploy-key`, `POST /webhooks/deploy/:slug`, `POST .../redeploy` (+ `deploy/stream` SSE) |
 | `/websites/<name>/security` | maintenance / basic-auth / anti-bruteforce |
 | `/terminal` (tenant) | `GET /websites`, `WS /websites/:slug/pty` |
 | `/monitoring/*` | system monitoring endpoints (+ `WS`) |
