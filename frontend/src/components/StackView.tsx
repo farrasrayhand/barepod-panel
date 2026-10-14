@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert, Globe } from 'lucide-react';
+import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert, Globe, Zap } from 'lucide-react';
 import { api, apiReachable, type StackStatus, type StackComponent, type StackJobLogLine, type StackPlanResult, type ApiWebsite } from '../api/client';
 import { describeError } from '../utils/format';
 import { useSubRoute } from '../hooks/useSubRoute';
@@ -88,8 +88,32 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
 
   // Which runtimes have their long version list open.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [repairing, setRepairing] = useState(false);
+  const [repairNotice, setRepairNotice] = useState<string | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
+
+  const runAutoRepair = async () => {
+    setRepairing(true);
+    setRepairNotice(null);
+    try {
+      const res = await api.stackRepair();
+      const msg = res.actions?.length
+        ? `Auto-repair berhasil: ${res.actions.join(', ')}`
+        : 'Auto-repair selesai: Semua service database dan web engine dalam kondisi normal & aktif.';
+      setRepairNotice(msg);
+      if (onShowToast) onShowToast('Auto-Repair Selesai', msg, 'success');
+      await load(true);
+      setTimeout(() => setRepairNotice(null), 8000);
+    } catch (err: any) {
+      const errMsg = err.message || 'Auto-repair gagal dijalankan.';
+      setRepairNotice(errMsg);
+      if (onShowToast) onShowToast('Auto-Repair Gagal', errMsg, 'error');
+      setTimeout(() => setRepairNotice(null), 8000);
+    } finally {
+      setRepairing(false);
+    }
+  };
 
   const load = async (forceRefresh = false) => {
     if (!status && !cachedStackStatus) {
@@ -358,15 +382,38 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
             </p>
           )}
         </div>
-        <button
-          onClick={() => void load(true)}
-          disabled={live !== true || refreshing}
-          className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 disabled:opacity-40 transition-colors"
-          title="Reload Stack Status"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-blue-600' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void runAutoRepair()}
+            disabled={live !== true || refreshing || repairing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 disabled:opacity-40 transition-colors shadow-2xs"
+            title="Diagnosa & perbaiki otomatis database dan service stack yang mati"
+          >
+            <Zap className={`w-3.5 h-3.5 text-amber-600 ${repairing ? 'animate-bounce' : ''}`} />
+            <span>{repairing ? 'Auto-Repairing…' : '⚡ Auto-Repair Stack'}</span>
+          </button>
+          <button
+            onClick={() => void load(true)}
+            disabled={live !== true || refreshing || repairing}
+            className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 disabled:opacity-40 transition-colors"
+            title="Reload Stack Status"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-blue-600' : ''}`} />
+          </button>
+        </div>
       </div>
+
+      {repairNotice && (
+        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-center justify-between animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>{repairNotice}</span>
+          </div>
+          <button onClick={() => setRepairNotice(null)} className="text-amber-600 hover:text-amber-800 p-1">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
         {([
@@ -891,11 +938,21 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         ) : detected?.available ? (
                           <div>
                             <span className="font-mono text-slate-600 text-xs">{active ? `v${active}` : '—'}</span>
-                            <div className="flex items-center gap-1.5 mt-0.5">
+                            <div className="flex items-center gap-2 mt-0.5">
                               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
                                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                                 Stopped ({detected.mode})
                               </span>
+                              <button
+                                type="button"
+                                onClick={() => void runAutoRepair()}
+                                disabled={repairing}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition-colors shadow-2xs cursor-pointer"
+                                title="Jalankan perbaikan otomatis dan hidupkan kembali service ini"
+                              >
+                                <Zap className="w-2.5 h-2.5 text-amber-600" />
+                                <span>Auto-Repair</span>
+                              </button>
                             </div>
                           </div>
                         ) : (

@@ -1021,6 +1021,11 @@ export const api = {
 
   stack: (refresh?: boolean) => request<StackStatus>(refresh ? '/system/stack?refresh=true' : '/system/stack'),
 
+  stackRepair: () =>
+    request<{ ok: boolean; actions: string[]; message: string }>('/system/stack/repair', {
+      method: 'POST',
+    }),
+
   setStackWebServer: (engine: string) =>
     request<StackStatus>('/system/stack/web-server', { method: 'PUT', body: JSON.stringify({ engine }) }),
 

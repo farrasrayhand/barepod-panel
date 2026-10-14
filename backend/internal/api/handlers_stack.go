@@ -280,3 +280,16 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 	stack.InvalidateCache()
 	writeJSON(w, http.StatusOK, stack.DetectCached(r.Context(), s.store, s.host, s.lookPath, true))
 }
+
+// handleStackRepair runs diagnostic auto-healing across core database and web server stack services.
+func (s *Server) handleStackRepair(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	actions := stack.AutoHeal(r.Context(), s.host.Runner)
+	stack.InvalidateCache()
+	_ = s.store.Audit(user.ID, "stack.auto_repair", strings.Join(actions, ", "), clientIP(r), "stack auto-repair completed")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"actions": actions,
+		"message": fmt.Sprintf("Auto-repair completed: %d action(s) performed.", len(actions)),
+	})
+}
+
