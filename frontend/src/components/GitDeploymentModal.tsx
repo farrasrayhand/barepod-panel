@@ -15,7 +15,9 @@ import {
   FolderGit2,
   Save,
   Code2,
-  Sparkles
+  Sparkles,
+  Key,
+  RefreshCw
 } from 'lucide-react';
 import type { WebApp } from '../types';
 import { api } from '../api/client';
@@ -72,6 +74,10 @@ npm run build`;
   // Empty on purpose: this window has no history of its own, and inventing one ("last
   // deployment succeeded, commit d70a45a") is exactly what it used to do.
   const [deployLogs, setDeployLogs] = useState<string[]>([]);
+  const [deployKey, setDeployKey] = useState<{ publicKey: string; fingerprint: string } | null>(null);
+  const [loadingKey, setLoadingKey] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [isRotatingKey, setIsRotatingKey] = useState(false);
 
   // Sync state when app changes
   useEffect(() => {
@@ -83,22 +89,51 @@ npm run build`;
       if (app.lastDeployedAt) {
         setDeployLogs([
           `[SYSTEM] Last deployment: ${app.lastDeployedAt} (Commit: ${app.lastDeployCommit || '7fa901a'})`,
-          `[SYSTEM] Webhook listener active on domain: ${app.domain}`,
+          `[SYSTEM] Webhook listener active on: ${window.location.origin}/api/v1/webhooks/deploy/${app.name}`,
           `[SYSTEM] Build script stored per app and ready to run on auto-redeploy.`,
         ]);
       }
+    }
+    if (app && isOpen) {
+      setLoadingKey(true);
+      api.websiteDeployKey(app.name)
+        .then((res) => setDeployKey(res))
+        .catch(() => {})
+        .finally(() => setLoadingKey(false));
     }
   }, [app, isOpen]);
 
   if (!isOpen || !app) return null;
 
-  const webhookUrl = `https://${app.domain}/api/v1/webhook/${app.id}/deploy?token=bp_wh_${app.tenantUser}_99a`;
+  const webhookUrl = `${window.location.origin}/api/v1/webhooks/deploy/${app.name}?token=${app.deployHookToken || ''}`;
 
   const handleCopyWebhook = () => {
     navigator.clipboard?.writeText(webhookUrl);
     setCopiedWebhook(true);
     setTimeout(() => setCopiedWebhook(false), 1500);
-    onShowToast?.('Webhook Copied', 'GitHub webhook URL copied to clipboard.', 'info');
+    onShowToast?.('Webhook Copied', 'Deploy webhook URL copied to clipboard.', 'info');
+  };
+
+  const handleCopyDeployKey = () => {
+    if (!deployKey?.publicKey) return;
+    navigator.clipboard?.writeText(deployKey.publicKey);
+    setCopiedKey(true);
+    setTimeout(() => setCopiedKey(false), 1500);
+    onShowToast?.('Deploy Key Copied', 'ED25519 Public Key copied to clipboard. Add it to your repository deploy keys.', 'info');
+  };
+
+  const handleRotateDeployKey = async () => {
+    if (!confirm('Rotate Deploy Key? The old key will immediately stop working and you will need to update the public key in your git repository settings.')) return;
+    setIsRotatingKey(true);
+    try {
+      const res = await api.rotateWebsiteDeployKey(app.name);
+      setDeployKey(res);
+      onShowToast?.('Deploy Key Rotated', 'New ED25519 deploy key generated.', 'success');
+    } catch (err) {
+      onShowToast?.('Rotation Failed', err instanceof Error ? err.message : 'Unknown error', 'error');
+    } finally {
+      setIsRotatingKey(false);
+    }
   };
 
   const applyPreset = (preset: 'laravel' | 'nextjs' | 'fastapi' | 'go' | 'static') => {
@@ -133,10 +168,14 @@ systemctl reload ${app.name}`;
     onShowToast?.('Preset Applied', `${preset.toUpperCase()} script template loaded. Click "Save Script" to keep it.`, 'info');
   };
 
-  const handleSaveScript = () => {
+  const handleSaveScript = async () => {
     setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
+    try {
+      await api.updateWebsiteGit(app.name, {
+        repo: repoUrl,
+        branch,
+        autoDeploy,
+      });
       const updated: WebApp = {
         ...app,
         gitRepo: repoUrl,
@@ -145,8 +184,12 @@ systemctl reload ${app.name}`;
         buildScript,
       };
       onUpdateApp?.(updated);
-      onShowToast?.('Script Saved', `Deploy & Build script for '${app.name}' saved. This script runs on every auto-redeploy.`, 'success');
-    }, 400);
+      onShowToast?.('Settings Saved', `Git settings and deploy script for '${app.name}' saved to server.`, 'success');
+    } catch (err) {
+      onShowToast?.('Save Failed', err instanceof Error ? err.message : 'Unknown error', 'error');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // This used to invent a whole deployment: a fake commit hash, a fake PID, a fake
@@ -232,6 +275,47 @@ systemctl reload ${app.name}`;
                 />
               </div>
             </div>
+          </div>
+
+          {/* SSH Deploy Key (ED25519) */}
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                <Key className="w-3.5 h-3.5 text-amber-600" />
+                <span>SSH Deploy Key (Private Git Repositories)</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleRotateDeployKey}
+                disabled={isRotatingKey || loadingKey}
+                className="text-[11px] font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3 h-3 ${isRotatingKey ? 'animate-spin' : ''}`} />
+                <span>Rotate Key</span>
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                readOnly
+                value={loadingKey ? 'Generating / loading ED25519 key...' : deployKey?.publicKey || ''}
+                className="w-full px-3 py-1.5 text-[11px] font-mono bg-white border border-slate-200 rounded-lg text-slate-600 select-all"
+              />
+              <button
+                type="button"
+                onClick={handleCopyDeployKey}
+                disabled={!deployKey?.publicKey}
+                className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-medium flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs disabled:opacity-50"
+              >
+                {copiedKey ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedKey ? 'Copied' : 'Copy Key'}</span>
+              </button>
+            </div>
+            {deployKey?.fingerprint && (
+              <p className="text-[10px] text-slate-500 font-mono">
+                Fingerprint: <span className="text-slate-700">{deployKey.fingerprint}</span> (ED25519 mode 0600, isolated per tenant)
+              </p>
+            )}
           </div>
 
           {/* Webhook Configuration */}

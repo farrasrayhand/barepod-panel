@@ -323,6 +323,30 @@ func nginxSecurityDirectives(b *strings.Builder, s Spec) {
 	}
 }
 
+func nginxTuningDirectives(b *strings.Builder, s Spec) {
+	b.WriteString("    # Optimization & Buffer Tuning\n")
+	b.WriteString("    client_max_body_size 128M;\n")
+	b.WriteString("    client_body_buffer_size 128k;\n")
+	b.WriteString("    sendfile on;\n")
+	b.WriteString("    tcp_nopush on;\n")
+	b.WriteString("    tcp_nodelay on;\n")
+	b.WriteString("    keepalive_timeout 65;\n\n")
+
+	b.WriteString("    # Gzip Compression\n")
+	b.WriteString("    gzip on;\n")
+	b.WriteString("    gzip_vary on;\n")
+	b.WriteString("    gzip_proxied any;\n")
+	b.WriteString("    gzip_comp_level 5;\n")
+	b.WriteString("    gzip_min_length 256;\n")
+	b.WriteString("    gzip_types text/plain text/css application/javascript application/json application/xml application/xml+rss text/javascript image/svg+xml;\n\n")
+
+	b.WriteString("    # Security Headers\n")
+	b.WriteString("    add_header X-Content-Type-Options \"nosniff\" always;\n")
+	b.WriteString("    add_header X-Frame-Options \"SAMEORIGIN\" always;\n")
+	b.WriteString("    add_header X-XSS-Protection \"1; mode=block\" always;\n")
+	b.WriteString("    add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;\n\n")
+}
+
 func nginxLocations(b *strings.Builder, s Spec) {
 	slugSafe := sanitizeSlug(s.Slug)
 	maintCheck := ""
@@ -378,6 +402,16 @@ func nginxLocations(b *strings.Builder, s Spec) {
 		b.WriteString("    }\n")
 	}
 
+	if s.Kind == "php" || s.Kind == "static" {
+		b.WriteString("\n    # Static Assets Browser Caching\n")
+		b.WriteString("    location ~* \\.(ico|css|js|gif|jpeg|jpg|png|webp|svg|woff|woff2|ttf|eot)$ {\n")
+		b.WriteString("        expires 30d;\n")
+		b.WriteString("        add_header Cache-Control \"public, no-transform\";\n")
+		b.WriteString("        access_log off;\n")
+		b.WriteString("        log_not_found off;\n")
+		b.WriteString("    }\n")
+	}
+
 	b.WriteString("\n    location ~ /\\.(?!well-known) {\n        deny all;\n    }\n")
 }
 
@@ -424,6 +458,7 @@ func nginxVhost(s Spec) string {
 		b.WriteString("\n")
 		fmt.Fprintf(&b, "    access_log /var/log/nginx/barepod-%s.access.log;\n", s.Slug)
 		fmt.Fprintf(&b, "    error_log  /var/log/nginx/barepod-%s.error.log;\n\n", s.Slug)
+		nginxTuningDirectives(&b, s)
 		b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
 		b.WriteString("        default_type \"text/plain\";\n")
 		b.WriteString("        root /var/lib/barepod/acme;\n")
@@ -457,6 +492,7 @@ func nginxVhost(s Spec) string {
 	}
 	fmt.Fprintf(&b, "    access_log /var/log/nginx/barepod-%s.access.log;\n", s.Slug)
 	fmt.Fprintf(&b, "    error_log  /var/log/nginx/barepod-%s.error.log;\n\n", s.Slug)
+	nginxTuningDirectives(&b, s)
 	b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
 	b.WriteString("        default_type \"text/plain\";\n")
 	b.WriteString("        root /var/lib/barepod/acme;\n")
@@ -501,6 +537,24 @@ func caddyVhost(s Spec) string {
 	}
 
 	fmt.Fprintf(&b, "\tlog {\n\t\toutput file /var/log/caddy/barepod-%s.access.log\n\t}\n\n", s.Slug)
+
+	// Optimization & Compression
+	b.WriteString("\t# Compression (Zstandard & Gzip)\n\tencode zstd gzip\n\n")
+
+	// Security Headers
+	b.WriteString("\t# Security Headers\n")
+	b.WriteString("\theader {\n")
+	b.WriteString("\t\tX-Content-Type-Options nosniff\n")
+	b.WriteString("\t\tX-Frame-Options SAMEORIGIN\n")
+	b.WriteString("\t\tReferrer-Policy strict-origin-when-cross-origin\n")
+	b.WriteString("\t}\n\n")
+
+	// Static Assets Browser Caching
+	if s.Kind == "php" || s.Kind == "static" {
+		b.WriteString("\t# Static Assets Browser Caching\n")
+		b.WriteString("\t@static path *.ico *.css *.js *.gif *.jpg *.jpeg *.png *.svg *.woff *.woff2 *.webp\n")
+		b.WriteString("\theader @static Cache-Control \"public, max-age=2592000, must-revalidate\"\n\n")
+	}
 
 	// 1. IP Access Control
 	if s.Security.IPRestrictionMode == "allowlist" && len(s.Security.IPRestrictionList) > 0 {
@@ -577,6 +631,42 @@ func apacheVhost(s Spec) string {
 	fmt.Fprintf(&b, "    CustomLog /var/log/apache2/barepod-%s.access.log combined\n", s.Slug)
 	fmt.Fprintf(&b, "    ErrorLog  /var/log/apache2/barepod-%s.error.log\n\n", s.Slug)
 
+	// Optimization & KeepAlive
+	b.WriteString("    # Optimization & KeepAlive\n")
+	b.WriteString("    KeepAlive On\n")
+	b.WriteString("    MaxKeepAliveRequests 100\n")
+	b.WriteString("    KeepAliveTimeout 5\n\n")
+
+	// Deflate (Gzip) Compression
+	b.WriteString("    # Deflate (Gzip) Compression\n")
+	b.WriteString("    <IfModule mod_deflate.c>\n")
+	b.WriteString("        AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json image/svg+xml\n")
+	b.WriteString("    </IfModule>\n\n")
+
+	// Security Headers
+	b.WriteString("    # Security Headers\n")
+	b.WriteString("    <IfModule mod_headers.c>\n")
+	b.WriteString("        Header always set X-Content-Type-Options \"nosniff\"\n")
+	b.WriteString("        Header always set X-Frame-Options \"SAMEORIGIN\"\n")
+	b.WriteString("        Header always set Referrer-Policy \"strict-origin-when-cross-origin\"\n")
+	b.WriteString("    </IfModule>\n\n")
+
+	// Static Assets Cache-Control
+	if s.Kind == "php" || s.Kind == "static" {
+		b.WriteString("    # Static Assets Browser Caching\n")
+		b.WriteString("    <IfModule mod_expires.c>\n")
+		b.WriteString("        ExpiresActive On\n")
+		b.WriteString("        ExpiresByType image/jpg \"access plus 1 month\"\n")
+		b.WriteString("        ExpiresByType image/jpeg \"access plus 1 month\"\n")
+		b.WriteString("        ExpiresByType image/gif \"access plus 1 month\"\n")
+		b.WriteString("        ExpiresByType image/png \"access plus 1 month\"\n")
+		b.WriteString("        ExpiresByType image/webp \"access plus 1 month\"\n")
+		b.WriteString("        ExpiresByType image/svg+xml \"access plus 1 month\"\n")
+		b.WriteString("        ExpiresByType text/css \"access plus 1 month\"\n")
+		b.WriteString("        ExpiresByType application/javascript \"access plus 1 month\"\n")
+		b.WriteString("    </IfModule>\n\n")
+	}
+
 	// Access control & Basic Auth for Apache
 	if s.Security.BasicAuthEnabled && s.Security.BasicAuthFile != "" {
 		realm := strings.TrimSpace(s.Security.BasicAuthRealm)
@@ -643,7 +733,11 @@ func openlitespeedVhost(s Spec) string {
 		fmt.Fprintf(&b, "keyFile                   %s\n", s.SSLKeyPath)
 		fmt.Fprintf(&b, "certFile                  %s\n", s.SSLCertPath)
 	}
-	b.WriteString("enableGzip                1\n\n")
+	b.WriteString("enableGzip                1\n")
+	b.WriteString("enableBr                  1\n")
+	b.WriteString("keepAliveTimeout          5\n")
+	b.WriteString("smartKeepAlive            1\n")
+	b.WriteString("maxKeepAliveReq           1000\n\n")
 
 	if s.Security.IPRestrictionMode == "allowlist" && len(s.Security.IPRestrictionList) > 0 {
 		b.WriteString("accessControl {\n")

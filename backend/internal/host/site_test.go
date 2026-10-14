@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -49,3 +50,78 @@ func TestMigrateLegacyTenants(t *testing.T) {
 		t.Errorf("SitePath = %q, want %q", got, want)
 	}
 }
+
+func TestEnsureDeployKeyGeneratesValidKey(t *testing.T) {
+	root := t.TempDir()
+	tenant := "deploy_user"
+	slug := "test-app"
+
+	h := &Host{Runner: &DryRunner{}, SitesRoot: root}
+	key1, err := h.EnsureDeployKey(context.Background(), tenant, slug)
+	if err != nil {
+		t.Fatalf("EnsureDeployKey failed: %v", err)
+	}
+	if key1.Algorithm != "ED25519" {
+		t.Errorf("expected algorithm ED25519, got %q", key1.Algorithm)
+	}
+	if !strings.HasPrefix(key1.PublicKey, "ssh-ed25519") {
+		t.Errorf("expected public key to start with ssh-ed25519, got %q", key1.PublicKey)
+	}
+	if !strings.HasPrefix(key1.Fingerprint, "SHA256:") {
+		t.Errorf("expected fingerprint to start with SHA256:, got %q", key1.Fingerprint)
+	}
+
+	// Calling EnsureDeployKey again returns the same key
+	key2, err := h.EnsureDeployKey(context.Background(), tenant, slug)
+	if err != nil {
+		t.Fatalf("second EnsureDeployKey failed: %v", err)
+	}
+	if key2.PublicKey != key1.PublicKey {
+		t.Errorf("expected identical public key, got %q vs %q", key2.PublicKey, key1.PublicKey)
+	}
+
+	// RotateDeployKey produces a new key
+	key3, err := h.RotateDeployKey(context.Background(), tenant, slug)
+	if err != nil {
+		t.Fatalf("RotateDeployKey failed: %v", err)
+	}
+	if key3.PublicKey == key1.PublicKey {
+		t.Errorf("expected rotated public key to differ from original")
+	}
+}
+
+func TestFetchSourceExistingGitRepoUsesFetchAndReset(t *testing.T) {
+	root := t.TempDir()
+	tenant := "repo_tenant"
+	slug := "my-repo"
+
+	runner := &DryRunner{}
+	h := &Host{Runner: runner, SitesRoot: root}
+	siteDir, err := h.EnsureSiteDir(context.Background(), tenant, slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate existing .git directory
+	gitDir := filepath.Join(siteDir, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := h.FetchSource(context.Background(), tenant, slug, "github", "https://github.com/org/repo.git", "main")
+	if err != nil {
+		t.Fatalf("FetchSource failed: %v", err)
+	}
+
+	joined := strings.Join(cmds, " ")
+	if strings.Contains(joined, "clone") {
+		t.Errorf("existing git repo should NOT clone again: %s", joined)
+	}
+	if !strings.Contains(joined, "fetch origin main") {
+		t.Errorf("expected git fetch origin main, got %s", joined)
+	}
+	if !strings.Contains(joined, "reset --hard origin/main") {
+		t.Errorf("expected git reset --hard origin/main, got %s", joined)
+	}
+}
+

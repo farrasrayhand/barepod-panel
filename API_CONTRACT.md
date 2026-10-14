@@ -8,7 +8,7 @@
 
 | Already served by the daemon | Contract only (planned) |
 |---|---|
-| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `system/guard` (+ `unban`) · `system/settings` · `system/ports` (panel/ssh) · **the Stack**: `system/stack` + `web-server` switch + allowlisted `install` (job + SSE) + dedicated uninstall modal · **accounts & packages**: `users` list/create/patch/delete + password reset + `provision`, `groups` list/create/`PATCH`/delete · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · **all 4 web servers (nginx, caddy, apache, openlitespeed vhosts & concurrent ports)** · **`runtime` (get/put) + `vhost/preview` + `php-fpm/reload`** · **PHP extensions toggle (`system/php/extensions`) & host tuning blueprint (`system/settings/php-defaults`)** · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**, plus **DbGate** as a per-database container), and a real logical **`export`** · **Domains & Automated SSL/TLS**: `domains` list/`POST`/`DELETE`, ACME Let's Encrypt automated issuance with preflight DNS check, self-signed local generator, custom cert upload, 301 Force HTTPS redirection, HSTS headers, and vhost hot-reload · **Website Telemetry & Traffic Map** (`GET /websites/:slug/telemetry` + SSE stream, implemented in code, pending live host verification) | Pods (Docker) · backups & migration · Cloudflare tunnels · **Universal Git Providers** (`/me/git/providers`) · **Deploy Keys** (`/websites/:slug/git/deploy-key`) · **Push-to-Deploy Webhooks** (`/webhooks/deploy/:slug`) · MCP server · per-app access control (503, basic auth, anti-brute-force) · per-site custom php.ini directive editor |
+| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `system/guard` (+ `unban`) · `system/settings` · `system/ports` (panel/ssh) · **the Stack**: `system/stack` + `web-server` switch + allowlisted `install` (job + SSE) + dedicated uninstall modal · **accounts & packages**: `users` list/create/patch/delete + password reset + `provision`, `groups` list/create/`PATCH`/delete · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · **all 4 web servers (nginx, caddy, apache, openlitespeed vhosts & concurrent ports)** · **`runtime` (get/put) + `vhost/preview` + `php-fpm/reload`** · **PHP extensions toggle (`system/php/extensions`) & host tuning blueprint (`system/settings/php-defaults`)** · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**, plus **DbGate** as a per-database container), and a real logical **`export`** · **Domains & Automated SSL/TLS**: `domains` list/`POST`/`DELETE`, ACME Let's Encrypt automated issuance with preflight DNS check, self-signed local generator, custom cert upload, 301 Force HTTPS redirection, HSTS headers, and vhost hot-reload · **Website Telemetry & Traffic Map** (`GET /websites/:slug/telemetry` + SSE stream, implemented in code, pending live host verification) · **Universal Git Providers & Deploy Keys** (`GET /websites/:slug/git/deploy-key`, rotate, `/git/providers`) · **Push-to-Deploy Webhooks** (`POST /api/v1/webhooks/deploy/:slug` & `/webhook/:slug/deploy`) · **Centralized Cron & Scheduled Tasks** (`GET|POST|PUT|DELETE /api/v1/cron/jobs`, `POST /api/v1/cron/jobs/:id/run`) | Pods (Docker) · backups & migration · Cloudflare tunnels · MCP server · per-app access control (503, basic auth, anti-brute-force) · per-site custom php.ini directive editor |
 
 `mode: "real" | "dry-run"` appears on every response that depends on privileged work — off Linux+systemd the daemon is in dry-run and says so instead of faking success.
 
@@ -428,6 +428,18 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `GET|POST /pods` (image / dockerfile / compose) · `GET|PATCH|DELETE /pods/:id`
 - `POST /pods/:id/start|stop|restart` · `GET /pods/:id/logs` (+ `WS: pod-logs`) · `GET /pods/:id/compose`
 
+### 4.14 Unified Cron Jobs & Scheduled Tasks (Settings & Website Modules)
+- **`GET /cron/jobs`** → `{ items: ApiCronJob[], systemJobs: SystemCronJob[] }`
+  Returns all website-scoped scheduled tasks (filtered by tenant for non-admins) as well as global host maintenance cron recommendations (`systemJobs`, e.g. SSL renewal, metric retention, logrotate, DB vacuum).
+- **`POST /cron/jobs`** → Body `{ websiteSlug: string, name: string, schedule: string, command: string, enabled?: boolean, timeoutSec?: number }` → `201 ApiCronJob`.
+  Validates standard 5-field cron syntax (`@yearly`, `@monthly`, `@weekly`, `@daily`, `@hourly`, or `* * * * *`). Checks website existence and tenant ownership.
+- **`PUT /cron/jobs/:id`** → Body `{ name?: string, schedule?: string, command?: string, enabled?: boolean, timeoutSec?: number }` → `200 ApiCronJob`.
+  Updates schedule, command, or pauses/resumes execution.
+- **`DELETE /cron/jobs/:id`** → `200 { status: "deleted", id }`.
+  Removes the scheduled job.
+- **`POST /cron/jobs/:id/run`** → `200 { status: "completed" | "failed", output: string, durationMs: number }`.
+  Manually triggers immediate execution. Runs isolated as the tenant UID/GID (`Runner.RunAs`) inside the website root directory (`/home/<tenant>/web/<slug>`). Captures stdout/stderr into `last_output` and updates `last_run_at` and `last_status`.
+
 ---
 
 ## 5. Screen → Endpoint Mapping (key examples)
@@ -450,7 +462,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 | `/profile` | `GET /profile`, `POST /profile/password`, `GET|DELETE /sessions` |
 | `/backup/*` | backup & migration endpoints |
 | `/users/*` | users & groups endpoints |
-| `/settings/*` | settings & system cleanup endpoints |
+| `/settings/*` | settings, system cleanup, PHP defaults, and cron (`GET|POST|PUT|DELETE /cron/jobs`, `POST /cron/jobs/:id/run`) |
 
 ---
 

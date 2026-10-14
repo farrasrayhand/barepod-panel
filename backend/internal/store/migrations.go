@@ -25,7 +25,45 @@ var migrations = []migration{
 	{version: 15, statements: schemaV15},
 	{version: 16, statements: schemaV16},
 	{version: 17, statements: schemaV17},
+	{version: 18, statements: schemaV18},
 }
+
+// schemaV18 adds deploy_hook_token and auto_deploy to websites, plus website_cron_jobs and user_git_providers.
+const schemaV18 = `
+ALTER TABLE websites ADD COLUMN deploy_hook_token TEXT NOT NULL DEFAULT '';
+ALTER TABLE websites ADD COLUMN auto_deploy INTEGER NOT NULL DEFAULT 1;
+
+UPDATE websites SET deploy_hook_token = 'bph_' || lower(hex(randomblob(16))) WHERE deploy_hook_token = '';
+
+CREATE TABLE IF NOT EXISTS website_cron_jobs (
+  id           TEXT PRIMARY KEY,
+  website_slug TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  schedule     TEXT NOT NULL,
+  command      TEXT NOT NULL,
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  timeout_sec  INTEGER NOT NULL DEFAULT 300,
+  last_run_at  TEXT NOT NULL DEFAULT '',
+  last_status  TEXT NOT NULL DEFAULT '',
+  last_output  TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_website_cron_site ON website_cron_jobs(website_slug);
+
+CREATE TABLE IF NOT EXISTS user_git_providers (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL,
+  provider     TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  api_url      TEXT NOT NULL DEFAULT '',
+  token_cipher TEXT NOT NULL DEFAULT '',
+  username     TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_user_git_providers_user ON user_git_providers(user_id);
+`
 
 // schemaV17 adds website_security table for per-app maintenance mode, HTTP basic auth, IP access rules, and rate limiting.
 const schemaV17 = `

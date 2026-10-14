@@ -99,7 +99,7 @@ func SourceKind(s string) bool {
 	switch strings.ToLower(s) {
 	// "default" has no code behind it: the panel writes one placeholder page, so a
 	// website can exist before its application does.
-	case "scaffold", "github", "upload", "existing", "default":
+	case "scaffold", "github", "gitlab", "bitbucket", "gitea", "custom", "git", "upload", "existing", "default":
 		return true
 	}
 	return false

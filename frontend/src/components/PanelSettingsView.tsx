@@ -36,6 +36,7 @@ import type { WebServerType } from '../types';
 import { useSubRoute } from '../hooks/useSubRoute';
 import { describeError } from '../utils/format';
 import { PhpExtensionsPanel } from './PhpExtensionsPanel';
+import { CronJobsManager } from './CronJobsManager';
 
 interface PanelSettingsViewProps {
   /** False hides controls a signed-in user may look at but not change — the daemon refuses them
@@ -52,7 +53,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   onShowToast,
   onOpenTerminal,
 }) => {
-  const [activeTab, setActiveTab] = useSubRoute<'general' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults' | 'maintenance'>('general');
+  const [activeTab, setActiveTab] = useSubRoute<'general' | 'cron' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults' | 'maintenance'>('general');
   const [isSaving, setIsSaving] = useState(false);
   // The address an external client should use. Unlike most of this screen it is real: the daemon
   // stores it and every connection snippet prefers it. It cannot be detected — behind NAT there is
@@ -427,6 +428,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
         <div className="border-b border-slate-200 bg-slate-50/70 px-4 pt-2 flex items-center gap-1.5 overflow-x-auto">
           {[
             { id: 'general', label: 'General & Defaults', icon: Settings },
+            { id: 'cron', label: 'Cron & Scheduled Tasks', icon: Clock },
             { id: 'monitoring', label: 'Monitoring Policy', icon: Activity },
             { id: 'security', label: 'Security & Auth', icon: ShieldCheck },
             { id: 'proxy', label: 'Reverse Proxy & SSL', icon: Globe },
@@ -633,6 +635,13 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </div>
               </div>
 
+            </div>
+          )}
+
+          {/* CRON & SCHEDULED TASKS */}
+          {activeTab === 'cron' && (
+            <div className="p-6">
+              <CronJobsManager onShowToast={onShowToast} />
             </div>
           )}
 

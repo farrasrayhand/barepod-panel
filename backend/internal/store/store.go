@@ -25,11 +25,42 @@ type Website struct {
 	DeployStatus string `json:"deployStatus"` // pending | building | ready | failed
 	SourceKind   string `json:"sourceKind"`   // scaffold | github | upload | existing
 	SourceRepo   string `json:"sourceRepo,omitempty"`
-	SourceBranch string `json:"sourceBranch,omitempty"`
-	SSL          bool   `json:"ssl"`
-	TunnelEnable bool   `json:"tunnelEnabled"`
-	Port         int    `json:"port"`
-	CreatedAt    string `json:"createdAt"`
+	SourceBranch    string `json:"sourceBranch,omitempty"`
+	DeployHookToken string `json:"deployHookToken,omitempty"`
+	AutoDeploy      bool   `json:"autoDeploy"`
+	SSL             bool   `json:"ssl"`
+	TunnelEnable    bool   `json:"tunnelEnabled"`
+	Port            int    `json:"port"`
+	CreatedAt       string `json:"createdAt"`
+}
+
+// WebsiteCronJob represents a scheduled task configured for a website running as its tenant.
+type WebsiteCronJob struct {
+	ID          string `json:"id"`
+	WebsiteSlug string `json:"websiteSlug"`
+	Name        string `json:"name"`
+	Schedule    string `json:"schedule"` // e.g. "* * * * *" or "*/5 * * * *"
+	Command     string `json:"command"`  // e.g. "php artisan schedule:run"
+	Enabled     bool   `json:"enabled"`
+	TimeoutSec  int    `json:"timeoutSec"`
+	LastRunAt   string `json:"lastRunAt,omitempty"`
+	LastStatus  string `json:"lastStatus,omitempty"` // success | failed | running
+	LastOutput  string `json:"lastOutput,omitempty"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
+}
+
+// UserGitProvider stores personal access credentials or OAuth tokens for git integrations.
+type UserGitProvider struct {
+	ID          string `json:"id"`
+	UserID      string `json:"userId"`
+	Provider    string `json:"provider"` // github | gitlab | bitbucket | gitea | custom
+	Name        string `json:"name"`
+	APIURL      string `json:"apiUrl,omitempty"`
+	TokenCipher string `json:"-"`
+	Username    string `json:"username,omitempty"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
 }
 
 // WebsiteDomain is a domain or alias mapped to a website, with its SSL/TLS state.

@@ -88,6 +88,53 @@ export interface ApiWebsite {
   tunnelEnabled: boolean;
   port: number;
   createdAt: string;
+  sourceKind?: string;
+  sourceRepo?: string;
+  sourceBranch?: string;
+  deployHookToken?: string;
+  autoDeploy?: boolean;
+}
+
+export interface ApiDeployKey {
+  algorithm: string;
+  publicKey: string;
+  fingerprint: string;
+  createdAt: string;
+}
+
+export interface ApiCronJob {
+  id: string;
+  websiteSlug: string;
+  name: string;
+  schedule: string;
+  command: string;
+  enabled: boolean;
+  timeoutSec: number;
+  lastRunAt?: string;
+  lastStatus?: string;
+  lastOutput?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface SystemCronJob {
+  id: string;
+  label: string;
+  desc: string;
+  schedule: string;
+  enabled: boolean;
+  category: string;
+}
+
+export interface UserGitProvider {
+  id: string;
+  userId: string;
+  provider: 'github' | 'gitlab' | 'bitbucket' | 'gitea' | 'custom' | string;
+  name: string;
+  apiUrl?: string;
+  username?: string;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface ApiDomain {
@@ -680,6 +727,62 @@ export const api = {
       `/websites/${slug}/redeploy`,
       { method: 'POST' },
     ),
+
+  /** Git Ingress & Deploy Keys */
+  websiteDeployKey: (slug: string) => request<ApiDeployKey>(`/websites/${slug}/git/deploy-key`),
+  rotateWebsiteDeployKey: (slug: string) =>
+    request<ApiDeployKey>(`/websites/${slug}/git/deploy-key/rotate`, { method: 'POST' }),
+  updateWebsiteGit: (slug: string, payload: { repo?: string; branch?: string; autoDeploy?: boolean }) =>
+    request<ApiWebsite>(`/websites/${slug}/git`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  /** Centralized & Per-Site Scheduled Tasks / Cron Jobs */
+  cronJobs: (websiteSlug?: string) =>
+    request<{ systemJobs: SystemCronJob[]; websiteJobs: ApiCronJob[] }>(
+      `/cron/jobs${websiteSlug ? `?websiteSlug=${encodeURIComponent(websiteSlug)}` : ''}`,
+    ),
+  createCronJob: (payload: {
+    websiteSlug: string;
+    name: string;
+    schedule: string;
+    command: string;
+    enabled?: boolean;
+    timeoutSec?: number;
+  }) =>
+    request<ApiCronJob>('/cron/jobs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateCronJob: (id: string, payload: Partial<ApiCronJob>) =>
+    request<ApiCronJob>(`/cron/jobs/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteCronJob: (id: string) =>
+    request<{ ok: boolean }>(`/cron/jobs/${id}`, { method: 'DELETE' }),
+  runCronJob: (id: string) =>
+    request<{ ok: boolean; status: string; output: string; durationMs: number; runAt: string }>(
+      `/cron/jobs/${id}/run`,
+      { method: 'POST' },
+    ),
+
+  /** User Git Providers */
+  userGitProviders: () => request<{ items: UserGitProvider[] }>('/git/providers'),
+  createUserGitProvider: (payload: {
+    provider: string;
+    name: string;
+    apiUrl?: string;
+    token?: string;
+    username?: string;
+  }) =>
+    request<UserGitProvider>('/git/providers', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  deleteUserGitProvider: (id: string) =>
+    request<{ ok: boolean }>(`/git/providers/${id}`, { method: 'DELETE' }),
 
   websiteAction: (slug: string, action: 'start' | 'stop' | 'restart') =>
     request<{ slug: string; action: string; status: string; mode: string }>(

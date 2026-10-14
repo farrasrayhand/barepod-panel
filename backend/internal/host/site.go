@@ -2,12 +2,18 @@ package host
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // ErrSiteMissing is returned when a source kind expects an existing directory.
@@ -258,25 +264,219 @@ func quoteEnv(v string) string {
 	return v
 }
 
+// DeployKeyInfo contains public key details for git repository deploy keys.
+type DeployKeyInfo struct {
+	Algorithm   string `json:"algorithm"`
+	PublicKey   string `json:"publicKey"`
+	Fingerprint string `json:"fingerprint"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+// DeployKeyPath returns the path to a website's private ED25519 deploy key.
+func (h *Host) DeployKeyPath(tenant, slug string) string {
+	return filepath.Join(h.SitesRoot, tenant, ".ssh", "id_ed25519_"+slug)
+}
+
+// EnsureDeployKey returns the existing deploy key or generates a new ED25519 keypair for the site.
+func (h *Host) EnsureDeployKey(ctx context.Context, tenant, slug string) (*DeployKeyInfo, error) {
+	privPath := h.DeployKeyPath(tenant, slug)
+	pubPath := privPath + ".pub"
+
+	if pubBytes, err := os.ReadFile(pubPath); err == nil {
+		pubStr := strings.TrimSpace(string(pubBytes))
+		pubKey, _, _, _, err := ssh.ParseAuthorizedKey(pubBytes)
+		fp := ""
+		if err == nil {
+			fp = ssh.FingerprintSHA256(pubKey)
+		}
+		stat, _ := os.Stat(pubPath)
+		created := ""
+		if stat != nil {
+			created = stat.ModTime().UTC().Format(time.RFC3339)
+		}
+		return &DeployKeyInfo{
+			Algorithm:   "ED25519",
+			PublicKey:   pubStr,
+			Fingerprint: fp,
+			CreatedAt:   created,
+		}, nil
+	}
+
+	return h.RotateDeployKey(ctx, tenant, slug)
+}
+
+// RotateDeployKey generates a brand new ED25519 keypair for the website deploy key.
+func (h *Host) RotateDeployKey(ctx context.Context, tenant, slug string) (*DeployKeyInfo, error) {
+	sshDir := filepath.Join(h.SitesRoot, tenant, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		return nil, fmt.Errorf("host: create .ssh dir: %w", err)
+	}
+
+	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("host: generate ed25519 key: %w", err)
+	}
+
+	pemBlock, err := ssh.MarshalPrivateKey(privKey, "barepod-"+slug)
+	if err != nil {
+		return nil, fmt.Errorf("host: marshal private key: %w", err)
+	}
+
+	privPath := h.DeployKeyPath(tenant, slug)
+	pubPath := privPath + ".pub"
+
+	privBytes := pem.EncodeToMemory(pemBlock)
+	if err := os.WriteFile(privPath, privBytes, 0o600); err != nil {
+		return nil, fmt.Errorf("host: write private key: %w", err)
+	}
+
+	sshPub, err := ssh.NewPublicKey(pubKey)
+	if err != nil {
+		return nil, fmt.Errorf("host: create ssh public key: %w", err)
+	}
+	authPub := ssh.MarshalAuthorizedKey(sshPub)
+	if err := os.WriteFile(pubPath, authPub, 0o644); err != nil {
+		return nil, fmt.Errorf("host: write public key: %w", err)
+	}
+
+	if h.Materialises() {
+		_, _ = h.Runner.Run(ctx, "", "chown", "-R", tenant+":"+tenant, sshDir)
+		_, _ = h.Runner.Run(ctx, "", "chmod", "700", sshDir)
+		_, _ = h.Runner.Run(ctx, "", "chmod", "600", privPath)
+		_, _ = h.Runner.Run(ctx, "", "chmod", "644", pubPath)
+	}
+
+	fp := ssh.FingerprintSHA256(sshPub)
+	return &DeployKeyInfo{
+		Algorithm:   "ED25519",
+		PublicKey:   strings.TrimSpace(string(authPub)),
+		Fingerprint: fp,
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
 // FetchSource materialises the chosen deployment source inside the site directory.
 func (h *Host) FetchSource(ctx context.Context, tenant, slug, kind, repo, branch string) ([]string, error) {
 	dir := h.SitePath(tenant, slug)
-	switch kind {
-	case "github":
+	switch strings.ToLower(kind) {
+	case "github", "gitlab", "bitbucket", "gitea", "custom", "git":
 		if repo == "" {
-			return nil, errors.New("host: a repository is required for a GitHub source")
+			return nil, errors.New("host: a repository is required for a git source")
 		}
 		if branch == "" {
 			branch = "main"
 		}
-		argv := []string{"git", "clone", "--depth", "1", "--branch", branch, repo, "."}
-		// Cloned code belongs to the tenant: a root-owned checkout could not be
-		// edited or pulled by the account that runs it.
-		out, err := h.Runner.RunAs(ctx, tenant, dir, argv[0], argv[1:]...)
-		if err != nil {
-			return nil, fmt.Errorf("host: git clone failed: %w (%s)", err, strings.TrimSpace(out))
+
+		keyPath := h.DeployKeyPath(tenant, slug)
+		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new", keyPath)
+		hasDeployKey := false
+		if _, err := os.Stat(keyPath); err == nil {
+			hasDeployKey = true
 		}
-		return []string{strings.Join(argv, " ")}, nil
+
+		gitDir := filepath.Join(dir, ".git")
+		isGitRepo := false
+		if fi, err := os.Stat(gitDir); err == nil && fi.IsDir() {
+			isGitRepo = true
+		}
+
+		var commands []string
+
+		if isGitRepo {
+			// Existing git repo: smart pull / reset
+			// 1. Update remote URL in case it changed
+			setRemote := []string{"git", "remote", "set-url", "origin", repo}
+			if _, err := h.Runner.RunAs(ctx, tenant, dir, setRemote[0], setRemote[1:]...); err != nil {
+				_, _ = h.Runner.RunAs(ctx, tenant, dir, "git", "remote", "add", "origin", repo)
+			}
+			commands = append(commands, strings.Join(setRemote, " "))
+
+			// 2. Fetch origin branch
+			fetchArgs := []string{"git"}
+			if hasDeployKey {
+				fetchArgs = append(fetchArgs, "-c", "core.sshCommand="+sshCmd)
+			}
+			fetchArgs = append(fetchArgs, "fetch", "origin", branch)
+			out, err := h.Runner.RunAs(ctx, tenant, dir, fetchArgs[0], fetchArgs[1:]...)
+			if err != nil {
+				return commands, fmt.Errorf("host: git fetch failed: %w (%s)", err, strings.TrimSpace(out))
+			}
+			commands = append(commands, strings.Join(fetchArgs, " "))
+
+			// 3. Checkout branch
+			checkoutArgs := []string{"git", "checkout", "-f", branch}
+			out, err = h.Runner.RunAs(ctx, tenant, dir, checkoutArgs[0], checkoutArgs[1:]...)
+			if err != nil {
+				checkoutArgs = []string{"git", "checkout", "-f", "-B", branch, "origin/" + branch}
+				out, err = h.Runner.RunAs(ctx, tenant, dir, checkoutArgs[0], checkoutArgs[1:]...)
+				if err != nil {
+					return commands, fmt.Errorf("host: git checkout failed: %w (%s)", err, strings.TrimSpace(out))
+				}
+			}
+			commands = append(commands, strings.Join(checkoutArgs, " "))
+
+			// 4. Reset hard to origin/branch (clean working tree)
+			resetArgs := []string{"git", "reset", "--hard", "origin/" + branch}
+			out, err = h.Runner.RunAs(ctx, tenant, dir, resetArgs[0], resetArgs[1:]...)
+			if err != nil {
+				return commands, fmt.Errorf("host: git reset failed: %w (%s)", err, strings.TrimSpace(out))
+			}
+			commands = append(commands, strings.Join(resetArgs, " "))
+
+			// 5. Update submodules if any
+			submArgs := []string{"git", "submodule", "update", "--init", "--recursive"}
+			_, _ = h.Runner.RunAs(ctx, tenant, dir, submArgs[0], submArgs[1:]...)
+
+			return commands, nil
+		}
+
+		// Fresh checkout: check if directory has files
+		entries, _ := os.ReadDir(dir)
+		hasFiles := len(entries) > 0
+
+		if !hasFiles {
+			cloneArgs := []string{"git"}
+			if hasDeployKey {
+				cloneArgs = append(cloneArgs, "-c", "core.sshCommand="+sshCmd)
+			}
+			cloneArgs = append(cloneArgs, "clone", "--depth", "1", "--branch", branch, repo, ".")
+			out, err := h.Runner.RunAs(ctx, tenant, dir, cloneArgs[0], cloneArgs[1:]...)
+			if err != nil {
+				return nil, fmt.Errorf("host: git clone failed: %w (%s)", err, strings.TrimSpace(out))
+			}
+			return []string{strings.Join(cloneArgs, " ")}, nil
+		}
+
+		// Non-empty directory: git init + fetch + checkout
+		initArgs := []string{"git", "init"}
+		if _, err := h.Runner.RunAs(ctx, tenant, dir, initArgs[0], initArgs[1:]...); err != nil {
+			return nil, fmt.Errorf("host: git init failed: %w", err)
+		}
+		commands = append(commands, strings.Join(initArgs, " "))
+
+		remoteArgs := []string{"git", "remote", "add", "origin", repo}
+		_, _ = h.Runner.RunAs(ctx, tenant, dir, remoteArgs[0], remoteArgs[1:]...)
+		commands = append(commands, strings.Join(remoteArgs, " "))
+
+		fetchArgs := []string{"git"}
+		if hasDeployKey {
+			fetchArgs = append(fetchArgs, "-c", "core.sshCommand="+sshCmd)
+		}
+		fetchArgs = append(fetchArgs, "fetch", "--depth", "1", "origin", branch)
+		out, err := h.Runner.RunAs(ctx, tenant, dir, fetchArgs[0], fetchArgs[1:]...)
+		if err != nil {
+			return commands, fmt.Errorf("host: git fetch failed: %w (%s)", err, strings.TrimSpace(out))
+		}
+		commands = append(commands, strings.Join(fetchArgs, " "))
+
+		coArgs := []string{"git", "checkout", "-f", "-B", branch, "origin/" + branch}
+		out, err = h.Runner.RunAs(ctx, tenant, dir, coArgs[0], coArgs[1:]...)
+		if err != nil {
+			return commands, fmt.Errorf("host: git checkout failed: %w (%s)", err, strings.TrimSpace(out))
+		}
+		commands = append(commands, strings.Join(coArgs, " "))
+
+		return commands, nil
 	case "existing":
 		if !h.SiteExists(tenant, slug) {
 			return nil, ErrSiteMissing
@@ -386,4 +586,13 @@ func (h *Host) ServiceAction(ctx context.Context, action, slug string) (string, 
 // EnableService enables and starts the website unit in one step.
 func (h *Host) EnableService(ctx context.Context, slug string) (string, error) {
 	return h.Runner.Run(ctx, "", "systemctl", "enable", "--now", "barepod-app@"+slug+".service")
+}
+
+// RunCronCommand executes a scheduled task command inside the website directory as the tenant user.
+func (h *Host) RunCronCommand(ctx context.Context, tenant, siteSlug, command string) (string, error) {
+	siteDir := h.SitePath(tenant, siteSlug)
+	if !h.SiteExists(tenant, siteSlug) {
+		return "", ErrSiteMissing
+	}
+	return h.Runner.RunAs(ctx, tenant, siteDir, "sh", "-c", command)
 }

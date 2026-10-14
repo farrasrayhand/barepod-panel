@@ -331,9 +331,9 @@ The platform a host runs is one admin screen, because these are **host-level** f
 
 - **Docker Pods & Container Hosting**: deploy from an image / Dockerfile / docker-compose, env vars, volume mounts, port mapping, web-domain routing, restart policy.
 - **Per-App Access Control**: HTTP 503 Maintenance Mode (with preview + IP bypass) and HTTP Basic Auth (`.htpasswd` + login simulator), plus **Anti-Brute Force** (max attempts + IP ban duration).
-- **System & Docker Cleanup**: prune system and Docker resource waste (dangling images, stopped containers, unused volumes, build cache) on a cron schedule; list of recommended default cronjobs (metric retention, SSL renewal, security updates, logrotate, DB maintenance, fstrim, S.M.A.R.T., service watchdog, disk alert).
+- **Unified Cron & Scheduled Tasks (Settings & Websites)**: centralized cron jobs management in Panel Settings (`/settings` -> Tab 'Cron & Scheduled Tasks'). Unifies both host-level system maintenance recommendations (SSL auto-renew, metric pruning, logrotate, DB maintenance, security checks) and website-scoped cron commands (Laravel `schedule:run`, WordPress `wp-cron.php`, Django, queue jobs). Website tasks run strictly isolated under tenant UID/GID (`Runner.RunAs`) within the website root directory with timeout protection and manual 'Run Now' execution with live stdout/stderr capture.
 - **RBAC & Groups**: tenant groups have a 10-capability matrix (deploy apps, file manager, terminal, databases, backups, domains, cloudflare tunnels, monitoring, user management, API tokens & automation).
-- **Panel Settings**: 9 tabs (general, monitoring policy, security, reverse proxy & SSL, backup policy, notifications, database defaults, PHP defaults, system & cleanup).
+- **Panel Settings**: 10 tabs (general, monitoring policy, security, reverse proxy & SSL, backup policy, notifications, database defaults, PHP defaults, system & cleanup, cron & scheduled tasks).
 - **Domains & SSL** as well as **Overview/VPS Dashboard**.
 - **URL routing per menu & deep-linking**: all menus and app sub-tabs are bookmark/refresh-safe; the production server must implement SPA fallback.
 - **Guided Deploy wizard & provision presets**: 5-step deploy flow with source selection (scaffold / GitHub / upload / existing) and per-framework install + automation steps (`src/data/frameworkProvision.ts`).

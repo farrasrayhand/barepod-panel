@@ -252,6 +252,27 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/websites/{slug}/maintenance/toggle", deploy(s.handleToggleMaintenance))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/basic-auth/toggle", deploy(s.handleToggleBasicAuth))
 
+	// Git Ingress, Deploy Keys & Webhooks
+	mux.HandleFunc("GET /api/v1/websites/{slug}/git/deploy-key", deploy(s.handleGetDeployKey))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/git/deploy-key/rotate", deploy(s.handleRotateDeployKey))
+	mux.HandleFunc("PATCH /api/v1/websites/{slug}/git", deploy(s.handleUpdateWebsiteGit))
+	mux.HandleFunc("POST /api/v1/webhooks/deploy/{slug}", s.handlePublicDeployWebhook)
+	mux.HandleFunc("POST /api/v1/webhook/{slug}/deploy", s.handlePublicDeployWebhook)
+
+	// User Git Providers
+	mux.HandleFunc("GET /api/v1/git/providers", s.requireAuth(s.handleListUserGitProviders))
+	mux.HandleFunc("POST /api/v1/git/providers", s.requireAuth(s.handleCreateUserGitProvider))
+	mux.HandleFunc("DELETE /api/v1/git/providers/{id}", s.requireAuth(s.handleDeleteUserGitProvider))
+
+	// Unified Cron Jobs (Settings & per-website)
+	mux.HandleFunc("GET /api/v1/cron/jobs", s.requireAuth(s.handleListCronJobs))
+	mux.HandleFunc("POST /api/v1/cron/jobs", s.requireAuth(s.handleCreateCronJob))
+	mux.HandleFunc("PUT /api/v1/cron/jobs/{id}", s.requireAuth(s.handleUpdateCronJob))
+	mux.HandleFunc("DELETE /api/v1/cron/jobs/{id}", s.requireAuth(s.handleDeleteCronJob))
+	mux.HandleFunc("POST /api/v1/cron/jobs/{id}/run", s.requireAuth(s.handleRunCronJob))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/cron", deploy(s.handleListCronJobs))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/cron", deploy(s.handleCreateCronJob))
+
 	for _, action := range []string{"start", "stop", "restart"} {
 		mux.HandleFunc("POST /api/v1/websites/{slug}/"+action, deploy(
 			func(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {

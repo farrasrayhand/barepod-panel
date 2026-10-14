@@ -179,7 +179,7 @@ func (s *Store) ListWebsites() ([]Website, error) {
 	rows, err := s.DB.Query(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
 		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
-		        source_kind, source_repo, source_branch
+		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy
 		 FROM websites ORDER BY created_at DESC, slug ASC`)
 	if err != nil {
 		return nil, err
@@ -191,7 +191,8 @@ func (s *Store) ListWebsites() ([]Website, error) {
 		var w Website
 		if err := rows.Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version,
 			&w.Framework, &w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable,
-			&w.Port, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch); err != nil {
+			&w.Port, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch,
+			&w.DeployHookToken, &w.AutoDeploy); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -204,7 +205,7 @@ func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
 	rows, err := s.DB.Query(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
 		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
-		        source_kind, source_repo, source_branch
+		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy
 		 FROM websites WHERE tenant_user = ? ORDER BY created_at DESC, slug ASC`, tenant)
 	if err != nil {
 		return nil, err
@@ -216,7 +217,8 @@ func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
 		var w Website
 		if err := rows.Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version,
 			&w.Framework, &w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable,
-			&w.Port, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch); err != nil {
+			&w.Port, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch,
+			&w.DeployHookToken, &w.AutoDeploy); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -237,11 +239,11 @@ func (s *Store) WebsiteBySlug(slug string) (*Website, error) {
 	err := s.DB.QueryRow(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
 		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
-		        source_kind, source_repo, source_branch
+		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy
 		 FROM websites WHERE slug = ?`, slug,
 	).Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version, &w.Framework,
 		&w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable, &w.Port, &w.CreatedAt,
-		&w.SourceKind, &w.SourceRepo, &w.SourceBranch)
+		&w.SourceKind, &w.SourceRepo, &w.SourceBranch, &w.DeployHookToken, &w.AutoDeploy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -259,14 +261,17 @@ func (s *Store) CreateWebsite(w *Website) error {
 	if w.CreatedAt == "" {
 		w.CreatedAt = now()
 	}
+	if w.DeployHookToken == "" {
+		w.DeployHookToken = "bph_" + id.Token(24)
+	}
 	_, err := s.DB.Exec(
 		`INSERT INTO websites (id, slug, domain, tenant_user, runtime, version, framework,
 		                       web_server, status, deploy_status, ssl, tunnel_enabled, port, created_at,
-		                       source_kind, source_repo, source_branch)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                       source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		w.ID, w.Slug, w.Domain, w.TenantUser, w.Runtime, w.Version, w.Framework,
 		w.WebServer, w.Status, w.DeployStatus, w.SSL, w.TunnelEnable, w.Port, w.CreatedAt,
-		w.SourceKind, w.SourceRepo, w.SourceBranch,
+		w.SourceKind, w.SourceRepo, w.SourceBranch, w.DeployHookToken, w.AutoDeploy,
 	)
 	if err != nil {
 		return err
@@ -278,6 +283,155 @@ func (s *Store) CreateWebsite(w *Website) error {
 		"dom_"+w.ID, w.Slug, w.Domain, w.SSL, w.CreatedAt,
 	)
 	return nil
+}
+
+// UpdateWebsiteGit updates repository URL, target branch, and auto_deploy setting.
+func (s *Store) UpdateWebsiteGit(slug, repo, branch string, autoDeploy bool) error {
+	_, err := s.DB.Exec(
+		`UPDATE websites SET source_repo = ?, source_branch = ?, auto_deploy = ? WHERE slug = ?`,
+		repo, branch, autoDeploy, slug,
+	)
+	return err
+}
+
+// --- Website Scheduled Tasks (Cron Jobs) ---
+
+// ListWebsiteCronJobs returns all scheduled tasks configured for a website.
+func (s *Store) ListWebsiteCronJobs(slug string) ([]WebsiteCronJob, error) {
+	rows, err := s.DB.Query(
+		`SELECT id, website_slug, name, schedule, command, enabled, timeout_sec,
+		        last_run_at, last_status, last_output, created_at, updated_at
+		 FROM website_cron_jobs WHERE website_slug = ? ORDER BY created_at ASC`, slug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []WebsiteCronJob{}
+	for rows.Next() {
+		var j WebsiteCronJob
+		if err := rows.Scan(&j.ID, &j.WebsiteSlug, &j.Name, &j.Schedule, &j.Command,
+			&j.Enabled, &j.TimeoutSec, &j.LastRunAt, &j.LastStatus, &j.LastOutput,
+			&j.CreatedAt, &j.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
+// WebsiteCronJobByID looks up a scheduled task by ID.
+func (s *Store) WebsiteCronJobByID(id string) (*WebsiteCronJob, error) {
+	var j WebsiteCronJob
+	err := s.DB.QueryRow(
+		`SELECT id, website_slug, name, schedule, command, enabled, timeout_sec,
+		        last_run_at, last_status, last_output, created_at, updated_at
+		 FROM website_cron_jobs WHERE id = ?`, id,
+	).Scan(&j.ID, &j.WebsiteSlug, &j.Name, &j.Schedule, &j.Command,
+		&j.Enabled, &j.TimeoutSec, &j.LastRunAt, &j.LastStatus, &j.LastOutput,
+		&j.CreatedAt, &j.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &j, nil
+}
+
+// CreateWebsiteCronJob adds a new scheduled task for a website.
+func (s *Store) CreateWebsiteCronJob(job *WebsiteCronJob) error {
+	if job.ID == "" {
+		job.ID = "cron_" + id.New()
+	}
+	if job.CreatedAt == "" {
+		job.CreatedAt = now()
+	}
+	if job.TimeoutSec <= 0 {
+		job.TimeoutSec = 300
+	}
+	_, err := s.DB.Exec(
+		`INSERT INTO website_cron_jobs (id, website_slug, name, schedule, command, enabled, timeout_sec,
+		                                last_run_at, last_status, last_output, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		job.ID, job.WebsiteSlug, job.Name, job.Schedule, job.Command, job.Enabled, job.TimeoutSec,
+		job.LastRunAt, job.LastStatus, job.LastOutput, job.CreatedAt, job.UpdatedAt,
+	)
+	return err
+}
+
+// UpdateWebsiteCronJob updates a scheduled task.
+func (s *Store) UpdateWebsiteCronJob(job *WebsiteCronJob) error {
+	job.UpdatedAt = now()
+	_, err := s.DB.Exec(
+		`UPDATE website_cron_jobs
+		 SET name = ?, schedule = ?, command = ?, enabled = ?, timeout_sec = ?, updated_at = ?
+		 WHERE id = ? AND website_slug = ?`,
+		job.Name, job.Schedule, job.Command, job.Enabled, job.TimeoutSec, job.UpdatedAt,
+		job.ID, job.WebsiteSlug,
+	)
+	return err
+}
+
+// DeleteWebsiteCronJob removes a scheduled task.
+func (s *Store) DeleteWebsiteCronJob(slug, id string) error {
+	_, err := s.DB.Exec(`DELETE FROM website_cron_jobs WHERE id = ? AND website_slug = ?`, id, slug)
+	return err
+}
+
+// RecordWebsiteCronRun updates the last execution status and output for a task.
+func (s *Store) RecordWebsiteCronRun(id, status, output string) error {
+	_, err := s.DB.Exec(
+		`UPDATE website_cron_jobs SET last_run_at = ?, last_status = ?, last_output = ? WHERE id = ?`,
+		now(), status, output, id,
+	)
+	return err
+}
+
+// --- User Git Providers ---
+
+// ListUserGitProviders returns all git provider integrations for a user.
+func (s *Store) ListUserGitProviders(userID string) ([]UserGitProvider, error) {
+	rows, err := s.DB.Query(
+		`SELECT id, user_id, provider, name, api_url, token_cipher, username, created_at, updated_at
+		 FROM user_git_providers WHERE user_id = ? ORDER BY created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []UserGitProvider{}
+	for rows.Next() {
+		var p UserGitProvider
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Provider, &p.Name, &p.APIURL,
+			&p.TokenCipher, &p.Username, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// CreateUserGitProvider records a new git provider credential.
+func (s *Store) CreateUserGitProvider(p *UserGitProvider) error {
+	if p.ID == "" {
+		p.ID = "git_" + id.New()
+	}
+	if p.CreatedAt == "" {
+		p.CreatedAt = now()
+	}
+	_, err := s.DB.Exec(
+		`INSERT INTO user_git_providers (id, user_id, provider, name, api_url, token_cipher, username, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.UserID, p.Provider, p.Name, p.APIURL, p.TokenCipher, p.Username, p.CreatedAt, p.UpdatedAt,
+	)
+	return err
+}
+
+// DeleteUserGitProvider removes a git provider configuration.
+func (s *Store) DeleteUserGitProvider(userID, id string) error {
+	_, err := s.DB.Exec(`DELETE FROM user_git_providers WHERE id = ? AND user_id = ?`, id, userID)
+	return err
 }
 
 // CountWebsites returns the number of website rows.

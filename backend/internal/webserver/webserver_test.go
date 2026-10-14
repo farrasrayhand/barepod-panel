@@ -21,6 +21,10 @@ func TestNginxPhpVhostSendsToFpm(t *testing.T) {
 		"fastcgi_pass unix:/home/alex/apps/shop/fpm.sock;",
 		"try_files $uri $uri/ /index.php?$query_string;",
 		"barepod-shop.access.log",
+		"client_max_body_size 128M;",
+		"gzip on;",
+		"add_header X-Content-Type-Options \"nosniff\" always;",
+		"add_header Cache-Control \"public, no-transform\";",
 	} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("nginx php vhost is missing %q:\n%s", want, cfg)
@@ -109,6 +113,9 @@ func TestCaddyVhosts(t *testing.T) {
 		"root * /home/alex/apps/shop",
 		"php_fastcgi unix//home/alex/apps/shop/fpm.sock",
 		"file_server",
+		"encode zstd gzip",
+		"X-Content-Type-Options nosniff",
+		`header @static Cache-Control "public, max-age=2592000, must-revalidate"`,
 	} {
 		if !strings.Contains(php, want) {
 			t.Errorf("caddy php vhost is missing %q:\n%s", want, php)
@@ -147,6 +154,9 @@ func TestApacheVhost(t *testing.T) {
 		"ServerName blog.example.com",
 		"DocumentRoot /home/alex/apps/blog",
 		"proxy:unix:/home/alex/apps/blog/fpm.sock|fcgi://localhost",
+		"KeepAlive On",
+		"AddOutputFilterByType DEFLATE",
+		"Header always set X-Content-Type-Options \"nosniff\"",
 	} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("apache php vhost missing %q:\n%s", want, cfg)
@@ -166,6 +176,9 @@ func TestOpenLiteSpeedVhost(t *testing.T) {
 		"docRoot                   /home/alex/apps/blog",
 		"extprocessor phpfpm {",
 		"unix:/home/alex/apps/blog/fpm.sock",
+		"enableGzip                1",
+		"enableBr                  1",
+		"maxKeepAliveReq           1000",
 	} {
 		if !strings.Contains(cfg, want) {
 			t.Errorf("openlitespeed php vhost missing %q:\n%s", want, cfg)
