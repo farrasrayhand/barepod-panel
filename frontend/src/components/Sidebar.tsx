@@ -1,5 +1,6 @@
 import { describeAddress } from '../utils/address';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { api, type TunnelStatusResponse } from '../api/client';
 import { 
   LayoutDashboard, 
   Layers, 
@@ -40,6 +41,8 @@ interface NavGroupItem {
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed, isAdmin = false, can }) => {
   const [copiedIp, setCopiedIp] = useState(false);
+  const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusResponse | null>(null);
+
   // The address this panel is being used on — the only one the panel can honestly name. Behind NAT
   // the public address is not discoverable from inside, and the sidebar used to hardcode one.
   const panelAddress = typeof window !== 'undefined' ? window.location.hostname : '';
@@ -47,9 +50,30 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
 
   const canDo = (perm: string) => isAdmin || (can ? can(perm) : false);
 
+  useEffect(() => {
+    let mounted = true;
+    const fetchStatus = async () => {
+      try {
+        const res = await api.tunnelStatus();
+        if (mounted) {
+          setTunnelStatus(res);
+        }
+      } catch (err) {
+        // Silently ignore if not authorized or network unavailable
+      }
+    };
+
+    fetchStatus();
+    const timer = setInterval(fetchStatus, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, []);
+
   const handleCopyIp = (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText('103.147.154.82');
+    navigator.clipboard.writeText(panelAddress);
     setCopiedIp(true);
     setTimeout(() => setCopiedIp(false), 2000);
   };
@@ -176,13 +200,41 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
               <CloudRain className="w-3.5 h-3.5 text-amber-500" />
               <span>CF Tunnel:</span>
             </span>
-            <span
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 group-hover:bg-slate-200 transition-colors"
-              title="No tunnel is configured in the daemon yet — this badge used to claim a connection that was never checked."
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-              Not configured
-            </span>
+            {tunnelStatus?.hasToken ? (
+              tunnelStatus.status === 'connected' ? (
+                <span
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 group-hover:bg-emerald-100 transition-colors shadow-2xs"
+                  title={`Tunnel active with ${tunnelStatus.routes?.length || 0} route(s) connected`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Connected
+                </span>
+              ) : tunnelStatus.status === 'configuring' ? (
+                <span
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 group-hover:bg-amber-100 transition-colors"
+                  title="Tunnel daemon is activating or configuring..."
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                  Configuring
+                </span>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 group-hover:bg-rose-100 transition-colors"
+                  title="Tunnel token is configured, but daemon is currently stopped"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                  Stopped
+                </span>
+              )
+            ) : (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 group-hover:bg-slate-200 transition-colors"
+                title="No tunnel token is configured in the daemon yet."
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                Not configured
+              </span>
+            )}
           </div>
         </div>
       )}

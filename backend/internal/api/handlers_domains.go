@@ -107,7 +107,19 @@ func (s *Server) handleDeleteDomain(w http.ResponseWriter, r *http.Request, user
 	}
 
 	site, err := s.store.WebsiteBySlug(d.WebsiteSlug)
-	if err != nil || !canManageSite(user, site) {
+	if err != nil {
+		if err == store.ErrNotFound {
+			// Orphaned domain whose website was already deleted; allow deleting the orphan
+			_ = s.store.DeleteDomain(id)
+			_ = s.store.Audit(user.ID, "domain.delete_orphan", d.Domain, clientIP(r), "orphan_site="+d.WebsiteSlug)
+			writeJSON(w, http.StatusOK, map[string]any{"status": "deleted", "id": id, "domain": d.Domain})
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal", "Failed to retrieve website: "+err.Error())
+		return
+	}
+
+	if !canManageSite(user, site) {
 		writeError(w, http.StatusNotFound, "not_found", "Website not found")
 		return
 	}
