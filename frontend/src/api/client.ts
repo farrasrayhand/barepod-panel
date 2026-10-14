@@ -90,6 +90,24 @@ export interface ApiWebsite {
   createdAt: string;
 }
 
+export interface ApiDomain {
+  id: string;
+  websiteSlug: string;
+  domain: string;
+  isPrimary: boolean;
+  sslEnabled: boolean;
+  sslProvider: 'letsencrypt' | 'self_signed' | 'custom' | 'none' | string;
+  sslStatus: 'active' | 'issuing' | 'expired' | 'error' | 'none' | string;
+  sslCertPath: string;
+  sslKeyPath: string;
+  sslIssuer: string;
+  sslExpiresAt: string;
+  forceHttps: boolean;
+  hstsEnabled: boolean;
+  autoRenew: boolean;
+  createdAt: string;
+}
+
 export interface DeployJob {
   id: string;
   slug: string;
@@ -646,6 +664,67 @@ export const api = {
       `/websites/${slug}/${action}`,
       { method: 'POST' },
     ),
+
+  /** Domains & SSL API */
+  domains: (websiteSlug?: string) =>
+    request<{ items: ApiDomain[] }>(`/domains${websiteSlug ? `?websiteSlug=${encodeURIComponent(websiteSlug)}` : ''}`),
+
+  addDomain: (payload: { websiteSlug: string; domain: string }) =>
+    request<ApiDomain>('/domains', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteDomain: (id: string) =>
+    request<{ status: string; id: string; domain: string }>(`/domains/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+
+  issueSsl: (
+    id: string,
+    payload?: { provider?: string; forceHTTPS?: boolean; hsts?: boolean; email?: string }
+  ) =>
+    request<{
+      status: string;
+      provider: string;
+      domain: string;
+      issuer: string;
+      expiresAt: string;
+      daysLeft: number;
+      forceHTTPS: boolean;
+      hstsEnabled: boolean;
+      warning?: string;
+    }>(`/domains/${encodeURIComponent(id)}/ssl/issue`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+
+  uploadCustomSsl: (
+    id: string,
+    payload: { certificate: string; privateKey: string; forceHTTPS?: boolean; hsts?: boolean }
+  ) =>
+    request<{
+      status: string;
+      provider: string;
+      domain: string;
+      issuer: string;
+      expiresAt: string;
+      daysLeft: number;
+      forceHTTPS: boolean;
+      hstsEnabled: boolean;
+    }>(`/domains/${encodeURIComponent(id)}/ssl/custom`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  toggleSsl: (
+    id: string,
+    payload: { forceHTTPS?: boolean; hsts?: boolean; autoRenew?: boolean }
+  ) =>
+    request<ApiDomain>(`/domains/${encodeURIComponent(id)}/ssl/toggle`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   prepareDirectory: (body: { slug: string; tenantUser: string }) =>
     request<PrepareDirectoryResult>('/websites/prepare-directory', {

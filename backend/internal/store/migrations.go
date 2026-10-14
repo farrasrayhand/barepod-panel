@@ -23,7 +23,34 @@ var migrations = []migration{
 	{version: 13, statements: schemaV13},
 	{version: 14, statements: schemaV14},
 	{version: 15, statements: schemaV15},
+	{version: 16, statements: schemaV16},
 }
+
+// schemaV16 adds website_domains table for multi-domain mapping, aliases, and SSL/TLS tracking.
+const schemaV16 = `
+CREATE TABLE IF NOT EXISTS website_domains (
+  id              TEXT PRIMARY KEY,
+  website_slug    TEXT NOT NULL,
+  domain          TEXT NOT NULL UNIQUE,
+  is_primary      INTEGER NOT NULL DEFAULT 0,
+  ssl_enabled     INTEGER NOT NULL DEFAULT 1,
+  ssl_provider    TEXT NOT NULL DEFAULT 'self-signed',
+  ssl_status      TEXT NOT NULL DEFAULT 'active',
+  ssl_cert_path   TEXT NOT NULL DEFAULT '',
+  ssl_key_path    TEXT NOT NULL DEFAULT '',
+  ssl_issuer      TEXT NOT NULL DEFAULT '',
+  ssl_expires_at  TEXT NOT NULL DEFAULT '',
+  force_https     INTEGER NOT NULL DEFAULT 1,
+  hsts_enabled    INTEGER NOT NULL DEFAULT 0,
+  auto_renew      INTEGER NOT NULL DEFAULT 1,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_domains_site ON website_domains(website_slug);
+CREATE INDEX IF NOT EXISTS idx_domains_domain ON website_domains(domain);
+
+INSERT OR IGNORE INTO website_domains (id, website_slug, domain, is_primary, ssl_enabled, ssl_provider, ssl_status, created_at)
+SELECT 'dom_' || id, slug, domain, 1, ssl, 'self-signed', 'active', created_at FROM websites;
+`
 
 // schemaV15 renames two built-in packages to the names the panel uses now. The
 // names are stored data (groups.name AND users.group_name), so a rename is a

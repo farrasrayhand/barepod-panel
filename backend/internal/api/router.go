@@ -357,6 +357,17 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/caches/{id}/exposure", databases(s.handleSetExposure(store.KindCache)))
 	mux.HandleFunc("GET /api/v1/caches/{id}/log", databases(s.handleDatabaseLog(store.KindCache)))
 
+	// Domains & SSL — "domains" capability
+	domains := func(h authedHandler) http.HandlerFunc {
+		return s.requireAuth(s.requireCapability(rbac.CapDomains, h))
+	}
+	mux.HandleFunc("GET /api/v1/domains", domains(s.handleListDomains))
+	mux.HandleFunc("POST /api/v1/domains", domains(s.handleAddDomain))
+	mux.HandleFunc("DELETE /api/v1/domains/{id}", domains(s.handleDeleteDomain))
+	mux.HandleFunc("POST /api/v1/domains/{id}/ssl/issue", domains(s.handleIssueSSL))
+	mux.HandleFunc("POST /api/v1/domains/{id}/ssl/custom", domains(s.handleUploadCustomSSL))
+	mux.HandleFunc("POST /api/v1/domains/{id}/ssl/toggle", domains(s.handleToggleSSL))
+
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)
 

@@ -32,6 +32,25 @@ type Website struct {
 	CreatedAt    string `json:"createdAt"`
 }
 
+// WebsiteDomain is a domain or alias mapped to a website, with its SSL/TLS state.
+type WebsiteDomain struct {
+	ID           string `json:"id"`
+	WebsiteSlug  string `json:"websiteSlug"`
+	Domain       string `json:"domain"`
+	IsPrimary    bool   `json:"isPrimary"`
+	SSLEnabled   bool   `json:"sslEnabled"`
+	SSLProvider  string `json:"sslProvider"` // letsencrypt | zerossl | custom | self-signed | none
+	SSLStatus    string `json:"sslStatus"`   // active | issuing | expired | error | none
+	SSLCertPath  string `json:"sslCertPath"`
+	SSLKeyPath   string `json:"sslKeyPath"`
+	SSLIssuer    string `json:"sslIssuer"`
+	SSLExpiresAt string `json:"sslExpiresAt"`
+	ForceHTTPS   bool   `json:"forceHttps"`
+	HSTSEnabled  bool   `json:"hstsEnabled"`
+	AutoRenew    bool   `json:"autoRenew"`
+	CreatedAt    string `json:"createdAt"`
+}
+
 // User is a panel account.
 type User struct {
 	ID           string `json:"id"`

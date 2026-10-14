@@ -99,12 +99,52 @@ func InstallHint(engine string) string {
 
 // Spec describes one website's vhost.
 type Spec struct {
-	Slug    string
-	Domain  string
-	Kind    string // php | static | proxy | nodejs | python | go | ruby | rust
-	DocRoot string // the directory nginx serves (or hands to PHP)
-	Socket  string // php-fpm unix socket, when Kind is php
-	Port    int    // the site's own port, for everything but php and static
+	Slug        string
+	Domain      string
+	Aliases     []string
+	Kind        string // php | static | proxy | nodejs | python | go | ruby | rust
+	DocRoot     string // the directory nginx serves (or hands to PHP)
+	Socket      string // php-fpm unix socket, when Kind is php
+	Port        int    // the site's own port, for everything but php and static
+	SSLEnabled  bool
+	SSLCertPath string
+	SSLKeyPath  string
+	ForceHTTPS  bool
+	HSTS        bool
+}
+
+// AllDomains returns the primary domain plus any unique non-empty aliases.
+func (s Spec) AllDomains() []string {
+	var out []string
+	if d := strings.TrimSpace(s.Domain); d != "" {
+		out = append(out, d)
+	}
+	for _, a := range s.Aliases {
+		a = strings.TrimSpace(a)
+		if a != "" && a != s.Domain {
+			out = append(out, a)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"_"}
+	}
+	return out
+}
+
+// ServerName returns all domains space-separated for server_name directives.
+func (s Spec) ServerName() string {
+	return strings.Join(s.AllDomains(), " ")
+}
+
+// WithSSL returns a copy of Spec configured with SSL and alias options.
+func (s Spec) WithSSL(aliases []string, certPath, keyPath string, sslEnabled, forceHTTPS, hsts bool) Spec {
+	s.Aliases = aliases
+	s.SSLCertPath = certPath
+	s.SSLKeyPath = keyPath
+	s.SSLEnabled = sslEnabled
+	s.ForceHTTPS = forceHTTPS
+	s.HSTS = hsts
+	return s
 }
 
 // FileName is the panel-owned vhost file for a site (prefixed so it cannot collide
@@ -190,40 +230,29 @@ docRoot /var/www/html
 
 // --- nginx ---
 
-func nginxVhost(s Spec) string {
-	var b strings.Builder
-	b.WriteString("# Managed by BarePod Panel — do not edit by hand (" + FileName(Nginx, s.Slug) + ").\n")
-	b.WriteString("server {\n")
-	b.WriteString("    listen 80;\n")
-	b.WriteString("    listen [::]:80;\n")
-	fmt.Fprintf(&b, "    server_name %s;\n", s.Domain)
-	b.WriteString("\n")
-	fmt.Fprintf(&b, "    access_log /var/log/nginx/barepod-%s.access.log;\n", s.Slug)
-	fmt.Fprintf(&b, "    error_log  /var/log/nginx/barepod-%s.error.log;\n", s.Slug)
-	b.WriteString("\n")
-
+func nginxLocations(b *strings.Builder, s Spec) {
 	switch s.Kind {
 	case "php":
-		fmt.Fprintf(&b, "    root %s;\n", s.DocRoot)
+		fmt.Fprintf(b, "    root %s;\n", s.DocRoot)
 		b.WriteString("    index index.php index.html index.htm;\n\n")
 		b.WriteString("    location / {\n")
 		b.WriteString("        try_files $uri $uri/ /index.php?$query_string;\n")
 		b.WriteString("    }\n\n")
 		b.WriteString("    location ~ \\.php$ {\n")
 		b.WriteString("        include fastcgi_params;\n")
-		fmt.Fprintf(&b, "        fastcgi_pass unix:%s;\n", s.Socket)
+		fmt.Fprintf(b, "        fastcgi_pass unix:%s;\n", s.Socket)
 		b.WriteString("        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n")
 		b.WriteString("        fastcgi_param DOCUMENT_ROOT $document_root;\n")
 		b.WriteString("    }\n")
 	case "static":
-		fmt.Fprintf(&b, "    root %s;\n", s.DocRoot)
+		fmt.Fprintf(b, "    root %s;\n", s.DocRoot)
 		b.WriteString("    index index.html index.htm;\n\n")
 		b.WriteString("    location / {\n")
 		b.WriteString("        try_files $uri $uri/ =404;\n")
 		b.WriteString("    }\n")
 	default:
 		b.WriteString("    location / {\n")
-		fmt.Fprintf(&b, "        proxy_pass http://127.0.0.1:%d;\n", s.Port)
+		fmt.Fprintf(b, "        proxy_pass http://127.0.0.1:%d;\n", s.Port)
 		b.WriteString("        proxy_http_version 1.1;\n")
 		b.WriteString("        proxy_set_header Host $host;\n")
 		b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
@@ -235,6 +264,85 @@ func nginxVhost(s Spec) string {
 	}
 
 	b.WriteString("\n    location ~ /\\.(?!well-known) {\n        deny all;\n    }\n")
+}
+
+func nginxVhost(s Spec) string {
+	var b strings.Builder
+	b.WriteString("# Managed by BarePod Panel — do not edit by hand (" + FileName(Nginx, s.Slug) + ").\n")
+
+	serverName := s.ServerName()
+	hasSSL := s.SSLEnabled && s.SSLCertPath != "" && s.SSLKeyPath != ""
+
+	if hasSSL && s.ForceHTTPS {
+		// Port 80: ACME challenge support + permanent redirect to HTTPS
+		b.WriteString("server {\n")
+		b.WriteString("    listen 80;\n")
+		b.WriteString("    listen [::]:80;\n")
+		fmt.Fprintf(&b, "    server_name %s;\n\n", serverName)
+		b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
+		b.WriteString("        default_type \"text/plain\";\n")
+		b.WriteString("        root /var/lib/barepod/acme;\n")
+		b.WriteString("    }\n\n")
+		b.WriteString("    location / {\n")
+		b.WriteString("        return 301 https://$host$request_uri;\n")
+		b.WriteString("    }\n")
+		b.WriteString("}\n\n")
+
+		// Port 443: SSL Vhost
+		b.WriteString("server {\n")
+		b.WriteString("    listen 443 ssl;\n")
+		b.WriteString("    listen [::]:443 ssl;\n")
+		fmt.Fprintf(&b, "    server_name %s;\n\n", serverName)
+		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.SSLCertPath)
+		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.SSLKeyPath)
+		b.WriteString("    ssl_protocols TLSv1.2 TLSv1.3;\n")
+		b.WriteString("    ssl_ciphers HIGH:!aNULL:!MD5;\n")
+		b.WriteString("    ssl_prefer_server_ciphers on;\n")
+		b.WriteString("    ssl_session_cache shared:SSL:10m;\n")
+		b.WriteString("    ssl_session_timeout 10m;\n")
+		if s.HSTS {
+			b.WriteString("    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;\n")
+		}
+		b.WriteString("\n")
+		fmt.Fprintf(&b, "    access_log /var/log/nginx/barepod-%s.access.log;\n", s.Slug)
+		fmt.Fprintf(&b, "    error_log  /var/log/nginx/barepod-%s.error.log;\n\n", s.Slug)
+		b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
+		b.WriteString("        default_type \"text/plain\";\n")
+		b.WriteString("        root /var/lib/barepod/acme;\n")
+		b.WriteString("    }\n\n")
+		nginxLocations(&b, s)
+		b.WriteString("}\n")
+		return b.String()
+	}
+
+	b.WriteString("server {\n")
+	b.WriteString("    listen 80;\n")
+	b.WriteString("    listen [::]:80;\n")
+	if hasSSL {
+		b.WriteString("    listen 443 ssl;\n")
+		b.WriteString("    listen [::]:443 ssl;\n")
+	}
+	fmt.Fprintf(&b, "    server_name %s;\n\n", serverName)
+	if hasSSL {
+		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.SSLCertPath)
+		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.SSLKeyPath)
+		b.WriteString("    ssl_protocols TLSv1.2 TLSv1.3;\n")
+		b.WriteString("    ssl_ciphers HIGH:!aNULL:!MD5;\n")
+		b.WriteString("    ssl_prefer_server_ciphers on;\n")
+		b.WriteString("    ssl_session_cache shared:SSL:10m;\n")
+		b.WriteString("    ssl_session_timeout 10m;\n")
+		if s.HSTS {
+			b.WriteString("    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;\n")
+		}
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "    access_log /var/log/nginx/barepod-%s.access.log;\n", s.Slug)
+	fmt.Fprintf(&b, "    error_log  /var/log/nginx/barepod-%s.error.log;\n\n", s.Slug)
+	b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
+	b.WriteString("        default_type \"text/plain\";\n")
+	b.WriteString("        root /var/lib/barepod/acme;\n")
+	b.WriteString("    }\n\n")
+	nginxLocations(&b, s)
 	b.WriteString("}\n")
 	return b.String()
 }
@@ -244,9 +352,20 @@ func nginxVhost(s Spec) string {
 func caddyVhost(s Spec) string {
 	var b strings.Builder
 	b.WriteString("# Managed by BarePod Panel — do not edit by hand (" + FileName(Caddy, s.Slug) + ").\n")
-	// :80 explicitly: the panel serves HTTP first and owns no certificates yet, so a
-	// site must not send Caddy off to obtain one (that lands with the TLS phase).
-	fmt.Fprintf(&b, "%s:80 {\n", s.Domain)
+	allDomains := s.AllDomains()
+	hasSSL := s.SSLEnabled && s.SSLCertPath != "" && s.SSLKeyPath != ""
+
+	if hasSSL {
+		fmt.Fprintf(&b, "%s {\n", strings.Join(allDomains, ", "))
+		fmt.Fprintf(&b, "\ttls %s %s\n", s.SSLCertPath, s.SSLKeyPath)
+	} else {
+		var domainsWith80 []string
+		for _, d := range allDomains {
+			domainsWith80 = append(domainsWith80, d+":80")
+		}
+		fmt.Fprintf(&b, "%s {\n", strings.Join(domainsWith80, ", "))
+	}
+
 	switch s.Kind {
 	case "php":
 		fmt.Fprintf(&b, "\troot * %s\n", s.DocRoot)
@@ -269,6 +388,14 @@ func apacheVhost(s Spec) string {
 	b.WriteString("# Managed by BarePod Panel — do not edit by hand (" + FileName(Apache, s.Slug) + ").\n")
 	b.WriteString("<VirtualHost 127.0.0.1:8080>\n")
 	fmt.Fprintf(&b, "    ServerName %s\n", s.Domain)
+	if len(s.Aliases) > 0 {
+		fmt.Fprintf(&b, "    ServerAlias %s\n", strings.Join(s.Aliases, " "))
+	}
+	if s.SSLEnabled && s.SSLCertPath != "" && s.SSLKeyPath != "" {
+		b.WriteString("    SSLEngine on\n")
+		fmt.Fprintf(&b, "    SSLCertificateFile %s\n", s.SSLCertPath)
+		fmt.Fprintf(&b, "    SSLCertificateKeyFile %s\n", s.SSLKeyPath)
+	}
 	if s.DocRoot != "" {
 		fmt.Fprintf(&b, "    DocumentRoot %s\n", s.DocRoot)
 	}
@@ -308,6 +435,13 @@ func openlitespeedVhost(s Spec) string {
 	var b strings.Builder
 	b.WriteString("# Managed by BarePod Panel — do not edit by hand (" + FileName(OpenLiteSpeed, s.Slug) + ").\n")
 	fmt.Fprintf(&b, "docRoot                   %s\n", s.DocRoot)
+	if len(s.Aliases) > 0 {
+		fmt.Fprintf(&b, "vhAliases                 %s\n", strings.Join(s.Aliases, ", "))
+	}
+	if s.SSLEnabled && s.SSLCertPath != "" && s.SSLKeyPath != "" {
+		fmt.Fprintf(&b, "keyFile                   %s\n", s.SSLKeyPath)
+		fmt.Fprintf(&b, "certFile                  %s\n", s.SSLCertPath)
+	}
 	b.WriteString("enableGzip                1\n\n")
 
 	switch s.Kind {

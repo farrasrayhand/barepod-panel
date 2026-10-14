@@ -577,6 +577,23 @@ func stepWriteVhost(ctx context.Context, s *state) error {
 		s.log("stdout", "note: the catch-all vhost was not written: "+err.Error())
 	}
 	spec := webserver.SpecFor(s.req.Slug, s.req.Domain, s.req.Runtime, s.siteDir, s.req.Port)
+	if domains, err := s.m.store.ListDomainsForSite(s.req.Slug); err == nil && len(domains) > 0 {
+		var aliases []string
+		var certPath, keyPath string
+		var sslEnabled, forceHTTPS, hsts bool
+		for _, d := range domains {
+			if !d.IsPrimary {
+				aliases = append(aliases, d.Domain)
+			} else {
+				certPath = d.SSLCertPath
+				keyPath = d.SSLKeyPath
+				sslEnabled = d.SSLEnabled
+				forceHTTPS = d.ForceHTTPS
+				hsts = d.HSTSEnabled
+			}
+		}
+		spec = spec.WithSSL(aliases, certPath, keyPath, sslEnabled, forceHTTPS, hsts)
+	}
 	path, err := webserver.Apply(ctx, engine, dir, s.m.host, spec)
 	if err != nil {
 		return err

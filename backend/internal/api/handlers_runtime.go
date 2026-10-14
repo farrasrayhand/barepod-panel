@@ -92,6 +92,23 @@ func (s *Server) applyVhost(r *http.Request, site *store.Website) error {
 		return err
 	}
 	spec := webserver.SpecFor(site.Slug, site.Domain, site.Runtime, siteDir, site.Port)
+	if domains, err := s.store.ListDomainsForSite(site.Slug); err == nil && len(domains) > 0 {
+		var aliases []string
+		var certPath, keyPath string
+		var sslEnabled, forceHTTPS, hsts bool
+		for _, d := range domains {
+			if !d.IsPrimary {
+				aliases = append(aliases, d.Domain)
+			} else {
+				certPath = d.SSLCertPath
+				keyPath = d.SSLKeyPath
+				sslEnabled = d.SSLEnabled
+				forceHTTPS = d.ForceHTTPS
+				hsts = d.HSTSEnabled
+			}
+		}
+		spec = spec.WithSSL(aliases, certPath, keyPath, sslEnabled, forceHTTPS, hsts)
+	}
 	_, err := webserver.Apply(r.Context(), engine, s.host.VhostsFor(engine), s.host, spec)
 	return err
 }
@@ -108,11 +125,28 @@ func (s *Server) handleVhostPreview(w http.ResponseWriter, r *http.Request, user
 		engine = s.deploy.ActiveEngine()
 	}
 	if !webserver.Supported(engine) {
-		writeError(w, http.StatusNotImplemented, "not_supported_yet", engine+" is not supported yet — only nginx and caddy are implemented")
+		writeError(w, http.StatusNotImplemented, "not_supported_yet", engine+" is not supported yet — only nginx, caddy, apache, openlitespeed are implemented")
 		return
 	}
 	siteDir := s.host.SitePath(site.TenantUser, site.Slug)
 	spec := webserver.SpecFor(site.Slug, site.Domain, site.Runtime, siteDir, site.Port)
+	if domains, err := s.store.ListDomainsForSite(site.Slug); err == nil && len(domains) > 0 {
+		var aliases []string
+		var certPath, keyPath string
+		var sslEnabled, forceHTTPS, hsts bool
+		for _, d := range domains {
+			if !d.IsPrimary {
+				aliases = append(aliases, d.Domain)
+			} else {
+				certPath = d.SSLCertPath
+				keyPath = d.SSLKeyPath
+				sslEnabled = d.SSLEnabled
+				forceHTTPS = d.ForceHTTPS
+				hsts = d.HSTSEnabled
+			}
+		}
+		spec = spec.WithSSL(aliases, certPath, keyPath, sslEnabled, forceHTTPS, hsts)
+	}
 	config, err := webserver.Render(engine, spec)
 	if err != nil {
 		writeError(w, http.StatusNotImplemented, "not_supported_yet", err.Error())

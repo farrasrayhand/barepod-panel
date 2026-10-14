@@ -26,6 +26,9 @@ const DefaultCaddyDir = "/etc/caddy"
 // DefaultWebUser is the user nginx runs as on Debian/Ubuntu.
 const DefaultWebUser = "www-data"
 
+// DefaultSSLDir is where custom and self-signed certificates live.
+const DefaultSSLDir = "/etc/barepod/ssl"
+
 // Host owns the on-disk layout and the service lifecycle of websites.
 type Host struct {
 	Runner    Runner
@@ -39,6 +42,8 @@ type Host struct {
 	WebUser string
 	// CaddyConfigDir is where Caddy's Caddyfile lives (default /etc/caddy).
 	CaddyConfigDir string
+	// SSLDir is where custom & self-signed certificates live (default /etc/barepod/ssl).
+	SSLDir string
 }
 
 // VhostsFor returns the configured vhost directory, or the engine's default.
@@ -58,6 +63,14 @@ func (h *Host) CaddyDir() string {
 		return h.CaddyConfigDir
 	}
 	return DefaultCaddyDir
+}
+
+// SSLDirFor returns the configured SSL directory or DefaultSSLDir.
+func (h *Host) SSLDirFor() string {
+	if h.SSLDir != "" {
+		return h.SSLDir
+	}
+	return DefaultSSLDir
 }
 
 // EffectiveWebUser returns the configured web-server user, or the default.

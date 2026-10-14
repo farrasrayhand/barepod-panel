@@ -129,7 +129,7 @@ func Load(args []string) (Config, error) {
 	tlsCert := fs.String("tls-cert", env("BAREPOD_TLS_CERT", ""), "TLS certificate path (default: a self-signed pair beside the panel database)")
 	tlsKey := fs.String("tls-key", env("BAREPOD_TLS_KEY", ""), "TLS private key path")
 	httpListen := fs.String("http-listen", env("BAREPOD_HTTP_LISTEN", ":80"), "plain-HTTP address that serves the server's default page (empty disables it); the web-server module will take this port over")
-	httpsListen := fs.String("https-listen", env("BAREPOD_HTTPS_LISTEN", ":443"), "HTTPS address that serves the same default page over TLS (empty disables it)")
+	httpsListen := fs.String("https-listen", env("BAREPOD_HTTPS_LISTEN", ""), "HTTPS address that serves the same default page over TLS (empty disables it); edge web server owns port 443")
 	dbPath := fs.String("db", DefaultDBPath(), "path to the panel SQLite database")
 	keyPath := fs.String("key", DefaultKeyPath(), "path to the secrets encryption key")
 	staticDir := fs.String("static", env("BAREPOD_STATIC", "./dist"), "path to the built frontend (SPA)")

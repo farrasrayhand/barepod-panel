@@ -73,7 +73,7 @@ func newTestPanel(t *testing.T) *testPanel {
 	}
 
 	runner := &host.DryRunner{}
-	h := &host.Host{Runner: runner, SitesRoot: filepath.Join(dir, "home"), UnitsDir: filepath.Join(dir, "units"), VHostsDir: filepath.Join(dir, "vhosts")}
+	h := &host.Host{Runner: runner, SitesRoot: filepath.Join(dir, "home"), UnitsDir: filepath.Join(dir, "units"), VHostsDir: filepath.Join(dir, "vhosts"), SSLDir: filepath.Join(dir, "ssl")}
 	key := make([]byte, 32)
 
 	sites := []store.Website{

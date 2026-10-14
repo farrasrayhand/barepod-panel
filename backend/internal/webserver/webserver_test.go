@@ -38,6 +38,64 @@ func TestNginxRuntimeVhostProxiesToItsPort(t *testing.T) {
 	}
 }
 
+func TestNginxSSLAndForceHTTPS(t *testing.T) {
+	s := Spec{
+		Slug:        "app",
+		Domain:      "app.example.com",
+		Aliases:     []string{"www.app.example.com"},
+		Kind:        "static",
+		DocRoot:     "/var/www/app",
+		SSLEnabled:  true,
+		SSLCertPath: "/etc/barepod/ssl/app.example.com/cert.pem",
+		SSLKeyPath:  "/etc/barepod/ssl/app.example.com/key.pem",
+		ForceHTTPS:  true,
+		HSTS:        true,
+	}
+	cfg, err := Render(Nginx, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"server_name app.example.com www.app.example.com;",
+		"return 301 https://$host$request_uri;",
+		"listen 443 ssl;",
+		"ssl_certificate /etc/barepod/ssl/app.example.com/cert.pem;",
+		"ssl_certificate_key /etc/barepod/ssl/app.example.com/key.pem;",
+		"Strict-Transport-Security",
+		"location ^~ /.well-known/acme-challenge/",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("nginx SSL vhost is missing %q:\n%s", want, cfg)
+		}
+	}
+}
+
+func TestCaddySSL(t *testing.T) {
+	s := Spec{
+		Slug:        "app",
+		Domain:      "app.example.com",
+		Aliases:     []string{"www.app.example.com"},
+		Kind:        "static",
+		DocRoot:     "/var/www/app",
+		SSLEnabled:  true,
+		SSLCertPath: "/etc/barepod/ssl/app.example.com/cert.pem",
+		SSLKeyPath:  "/etc/barepod/ssl/app.example.com/key.pem",
+	}
+	cfg, err := Render(Caddy, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"app.example.com, www.app.example.com {",
+		"tls /etc/barepod/ssl/app.example.com/cert.pem /etc/barepod/ssl/app.example.com/key.pem",
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("caddy SSL vhost is missing %q:\n%s", want, cfg)
+		}
+	}
+}
+
+
 func TestCaddyVhosts(t *testing.T) {
 	php, err := Render(Caddy, Spec{
 		Slug: "shop", Domain: "shop.example.com", Kind: "php",

@@ -268,7 +268,16 @@ func (s *Store) CreateWebsite(w *Website) error {
 		w.WebServer, w.Status, w.DeployStatus, w.SSL, w.TunnelEnable, w.Port, w.CreatedAt,
 		w.SourceKind, w.SourceRepo, w.SourceBranch,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	// Auto-create primary domain row
+	_, _ = s.DB.Exec(
+		`INSERT OR IGNORE INTO website_domains (id, website_slug, domain, is_primary, ssl_enabled, ssl_provider, ssl_status, created_at)
+		 VALUES (?, ?, ?, 1, ?, 'self-signed', 'active', ?)`,
+		"dom_"+w.ID, w.Slug, w.Domain, w.SSL, w.CreatedAt,
+	)
+	return nil
 }
 
 // CountWebsites returns the number of website rows.
@@ -454,4 +463,218 @@ func (s *Store) SetTrustedAddresses(addresses []string) error {
 		}
 	}
 	return s.SavePanelSetting(trustedAddressesKey, strings.Join(clean, ","))
+}
+
+// --- Website Domains ---
+
+func scanDomain(row interface{ Scan(...any) error }) (*WebsiteDomain, error) {
+	var d WebsiteDomain
+	var isPrimary, sslEnabled, forceHTTPS, hstsEnabled, autoRenew int
+	err := row.Scan(
+		&d.ID, &d.WebsiteSlug, &d.Domain, &isPrimary, &sslEnabled,
+		&d.SSLProvider, &d.SSLStatus, &d.SSLCertPath, &d.SSLKeyPath,
+		&d.SSLIssuer, &d.SSLExpiresAt, &forceHTTPS, &hstsEnabled, &autoRenew,
+		&d.CreatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	d.IsPrimary = isPrimary == 1
+	d.SSLEnabled = sslEnabled == 1
+	d.ForceHTTPS = forceHTTPS == 1
+	d.HSTSEnabled = hstsEnabled == 1
+	d.AutoRenew = autoRenew == 1
+	return &d, nil
+}
+
+// CreateDomain inserts a new domain alias for a website.
+func (s *Store) CreateDomain(websiteSlug, domain string, isPrimary bool) (*WebsiteDomain, error) {
+	d := &WebsiteDomain{
+		ID:          id.New(),
+		WebsiteSlug: websiteSlug,
+		Domain:      strings.ToLower(strings.TrimSpace(domain)),
+		IsPrimary:   isPrimary,
+		SSLEnabled:  true,
+		SSLProvider: "self-signed",
+		SSLStatus:   "active",
+		ForceHTTPS:  true,
+		HSTSEnabled: false,
+		AutoRenew:   true,
+		CreatedAt:   now(),
+	}
+	isPrimInt := 0
+	if isPrimary {
+		isPrimInt = 1
+	}
+	_, err := s.DB.Exec(
+		`INSERT INTO website_domains (id, website_slug, domain, is_primary, ssl_enabled, ssl_provider,
+		                              ssl_status, ssl_cert_path, ssl_key_path, ssl_issuer, ssl_expires_at,
+		                              force_https, hsts_enabled, auto_renew, created_at)
+		 VALUES (?, ?, ?, ?, 1, 'self-signed', 'active', '', '', '', '', 1, 0, 1, ?)`,
+		d.ID, d.WebsiteSlug, d.Domain, isPrimInt, d.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// GetDomain looks up a domain row by its ID.
+func (s *Store) GetDomain(domainID string) (*WebsiteDomain, error) {
+	return scanDomain(s.DB.QueryRow(
+		`SELECT id, website_slug, domain, is_primary, ssl_enabled, ssl_provider, ssl_status,
+		        ssl_cert_path, ssl_key_path, ssl_issuer, ssl_expires_at, force_https, hsts_enabled,
+		        auto_renew, created_at
+		 FROM website_domains WHERE id = ?`, domainID))
+}
+
+// GetDomainByName looks up a domain row by its domain name.
+func (s *Store) GetDomainByName(domain string) (*WebsiteDomain, error) {
+	return scanDomain(s.DB.QueryRow(
+		`SELECT id, website_slug, domain, is_primary, ssl_enabled, ssl_provider, ssl_status,
+		        ssl_cert_path, ssl_key_path, ssl_issuer, ssl_expires_at, force_https, hsts_enabled,
+		        auto_renew, created_at
+		 FROM website_domains WHERE domain = ?`, strings.ToLower(strings.TrimSpace(domain))))
+}
+
+// ListDomains returns all domains, optionally filtered by tenant.
+func (s *Store) ListDomains(tenantUser string) ([]*WebsiteDomain, error) {
+	var rows *sql.Rows
+	var err error
+	if tenantUser != "" {
+		rows, err = s.DB.Query(
+			`SELECT d.id, d.website_slug, d.domain, d.is_primary, d.ssl_enabled, d.ssl_provider, d.ssl_status,
+			        d.ssl_cert_path, d.ssl_key_path, d.ssl_issuer, d.ssl_expires_at, d.force_https, d.hsts_enabled,
+			        d.auto_renew, d.created_at
+			 FROM website_domains d
+			 JOIN websites w ON d.website_slug = w.slug
+			 WHERE w.tenant_user = ?
+			 ORDER BY d.is_primary DESC, d.domain ASC`, tenantUser)
+	} else {
+		rows, err = s.DB.Query(
+			`SELECT id, website_slug, domain, is_primary, ssl_enabled, ssl_provider, ssl_status,
+			        ssl_cert_path, ssl_key_path, ssl_issuer, ssl_expires_at, force_https, hsts_enabled,
+			        auto_renew, created_at
+			 FROM website_domains
+			 ORDER BY is_primary DESC, domain ASC`)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []*WebsiteDomain{}
+	for rows.Next() {
+		d, err := scanDomain(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// ListDomainsForSite returns all domains mapped to a specific website slug.
+func (s *Store) ListDomainsForSite(slug string) ([]*WebsiteDomain, error) {
+	rows, err := s.DB.Query(
+		`SELECT id, website_slug, domain, is_primary, ssl_enabled, ssl_provider, ssl_status,
+		        ssl_cert_path, ssl_key_path, ssl_issuer, ssl_expires_at, force_https, hsts_enabled,
+		        auto_renew, created_at
+		 FROM website_domains WHERE website_slug = ?
+		 ORDER BY is_primary DESC, domain ASC`, slug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []*WebsiteDomain{}
+	for rows.Next() {
+		d, err := scanDomain(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// UpdateDomainSSL updates SSL configuration, paths, and status for a domain.
+func (s *Store) UpdateDomainSSL(id, provider, status, certPath, keyPath, issuer, expiresAt string, forceHTTPS, hsts, autoRenew bool) error {
+	forceInt := 0
+	if forceHTTPS {
+		forceInt = 1
+	}
+	hstsInt := 0
+	if hsts {
+		hstsInt = 1
+	}
+	autoInt := 0
+	if autoRenew {
+		autoInt = 1
+	}
+	sslEnabledInt := 0
+	if status == "active" || status == "valid" {
+		sslEnabledInt = 1
+	}
+	res, err := s.DB.Exec(
+		`UPDATE website_domains
+		 SET ssl_enabled = ?, ssl_provider = ?, ssl_status = ?, ssl_cert_path = ?, ssl_key_path = ?,
+		     ssl_issuer = ?, ssl_expires_at = ?, force_https = ?, hsts_enabled = ?, auto_renew = ?
+		 WHERE id = ?`,
+		sslEnabledInt, provider, status, certPath, keyPath, issuer, expiresAt, forceInt, hstsInt, autoInt, id,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateDomainToggles updates force_https, hsts_enabled, and auto_renew flags.
+func (s *Store) UpdateDomainToggles(id string, forceHTTPS, hsts, autoRenew bool) error {
+	forceInt := 0
+	if forceHTTPS {
+		forceInt = 1
+	}
+	hstsInt := 0
+	if hsts {
+		hstsInt = 1
+	}
+	autoInt := 0
+	if autoRenew {
+		autoInt = 1
+	}
+	res, err := s.DB.Exec(
+		`UPDATE website_domains
+		 SET force_https = ?, hsts_enabled = ?, auto_renew = ?
+		 WHERE id = ?`,
+		forceInt, hstsInt, autoInt, id,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteDomain deletes an alias domain row.
+func (s *Store) DeleteDomain(domainID string) error {
+	res, err := s.DB.Exec(`DELETE FROM website_domains WHERE id = ?`, domainID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
