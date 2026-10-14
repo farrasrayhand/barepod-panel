@@ -12,18 +12,21 @@ import (
 // DetectedFramework holds framework, runtime, build, and infrastructure recommendations
 // inferred from project files (composer.json, package.json, requirements.txt, etc.).
 type DetectedFramework struct {
-	Name           string `json:"name"`           // e.g. "laravel", "nextjs", "vite", "astro", "express", "django", "fastapi", "static"
-	Title          string `json:"title"`          // e.g. "Laravel 12", "Next.js", "Vite (React/Vue SPA)"
-	Runtime        string `json:"runtime"`        // "php" | "nodejs" | "python" | "static" | "go"
-	Version        string `json:"version"`        // e.g. "8.4" for PHP, "22" for Node, "3.12" for Python
-	PackageManager string `json:"packageManager"` // "npm", "pnpm", "yarn", "bun", "composer", "pip"
-	DocRoot        string `json:"docRoot"`        // "public", "dist", "build", "."
-	BuildCommand   string `json:"buildCommand"`   // e.g. "composer install..." or "npm run build"
-	StartCommand   string `json:"startCommand"`   // e.g. "npm start"
-	Port           int    `json:"port"`           // e.g. 3000, 5000, 8001
-	DatabaseEngine string `json:"databaseEngine"` // "mariadb", "postgres", "sqlite", ""
-	CacheEngine    string `json:"cacheEngine"`    // "redis", ""
-	IsProxy        bool   `json:"isProxy"`        // true if node/python service behind reverse proxy
+	Name             string   `json:"name"`                      // e.g. "laravel", "nextjs", "vite", "astro", "express", "django", "fastapi", "static"
+	Title            string   `json:"title"`                     // e.g. "Laravel 12", "Next.js", "Vite (React/Vue SPA)"
+	FrameworkVersion string   `json:"frameworkVersion,omitempty"` // e.g. "12.70.0" or "12"
+	MinPHPVersion    string   `json:"minPhpVersion,omitempty"`    // e.g. "8.2"
+	CompatiblePHP    []string `json:"compatiblePhp,omitempty"`    // e.g. ["8.2", "8.3", "8.4"]
+	Runtime          string   `json:"runtime"`                   // "php" | "nodejs" | "python" | "static" | "go"
+	Version          string   `json:"version"`                   // e.g. "8.4" for PHP, "22" for Node, "3.12" for Python
+	PackageManager   string   `json:"packageManager"`            // "npm", "pnpm", "yarn", "bun", "composer", "pip"
+	DocRoot          string   `json:"docRoot"`                   // "public", "dist", "build", "."
+	BuildCommand     string   `json:"buildCommand"`              // e.g. "composer install..." or "npm run build"
+	StartCommand     string   `json:"startCommand"`              // e.g. "npm start"
+	Port             int      `json:"port"`                      // e.g. 3000, 5000, 8001
+	DatabaseEngine   string   `json:"databaseEngine"`            // "mariadb", "postgres", "sqlite", ""
+	CacheEngine      string   `json:"cacheEngine"`               // "redis", ""
+	IsProxy          bool     `json:"isProxy"`                   // true if node/python service behind reverse proxy
 }
 
 type composerJSON struct {
@@ -53,15 +56,33 @@ func Detect(dir string) *DetectedFramework {
 
 	// 2. Check WordPress wp-config.php if no composer
 	if _, err := os.Stat(filepath.Join(dir, "wp-config.php")); err == nil {
+		wpVer := ""
+		if verBytes, err := os.ReadFile(filepath.Join(dir, "wp-includes", "version.php")); err == nil {
+			for _, line := range strings.Split(string(verBytes), "\n") {
+				if strings.Contains(line, "$wp_version =") {
+					parts := strings.Split(line, "'")
+					if len(parts) >= 2 {
+						wpVer = parts[1]
+					}
+				}
+			}
+		}
+		title := "WordPress"
+		if wpVer != "" {
+			title = "WordPress " + wpVer
+		}
 		return &DetectedFramework{
-			Name:           "wordpress",
-			Title:          "WordPress",
-			Runtime:        "php",
-			Version:        "8.3",
-			PackageManager: "composer",
-			DocRoot:        ".",
-			DatabaseEngine: "mariadb",
-			Port:           8001,
+			Name:             "wordpress",
+			Title:            title,
+			FrameworkVersion: wpVer,
+			MinPHPVersion:    "7.4",
+			CompatiblePHP:    []string{"7.4", "8.0", "8.1", "8.2", "8.3", "8.4"},
+			Runtime:          "php",
+			Version:          "8.3",
+			PackageManager:   "composer",
+			DocRoot:          ".",
+			DatabaseEngine:   "mariadb",
+			Port:             8001,
 		}
 	}
 
@@ -239,6 +260,45 @@ func detectPackageManager(dir string) string {
 	return "npm"
 }
 
+func extractComposerPackageVersion(dir string, c *composerJSON, pkgName string) (fullVer, majorVer string) {
+	if dir != "" {
+		lockPath := filepath.Join(dir, "composer.lock")
+		if lockBytes, err := os.ReadFile(lockPath); err == nil {
+			var lock struct {
+				Packages []struct {
+					Name    string `json:"name"`
+					Version string `json:"version"`
+				} `json:"packages"`
+			}
+			if err := json.Unmarshal(lockBytes, &lock); err == nil {
+				for _, p := range lock.Packages {
+					if strings.EqualFold(p.Name, pkgName) {
+						v := strings.TrimPrefix(p.Version, "v")
+						fullVer = v
+						parts := strings.Split(v, ".")
+						if len(parts) > 0 {
+							majorVer = parts[0]
+						}
+						return fullVer, majorVer
+					}
+				}
+			}
+		}
+	}
+	if c != nil && c.Require != nil {
+		if reqVer, ok := c.Require[pkgName]; ok {
+			clean := strings.TrimLeft(reqVer, "^~>=<v ")
+			parts := strings.Split(clean, ".")
+			if len(parts) > 0 && parts[0] != "" {
+				majorVer = parts[0]
+				fullVer = clean
+				return fullVer, majorVer
+			}
+		}
+	}
+	return "", ""
+}
+
 func detectFromComposer(data []byte, dir string) *DetectedFramework {
 	var c composerJSON
 	if err := json.Unmarshal(data, &c); err != nil {
@@ -267,17 +327,50 @@ func detectFromComposer(data []byte, dir string) *DetectedFramework {
 	}
 
 	if allDeps["laravel/framework"] {
+		fullVer, majorVer := extractComposerPackageVersion(dir, &c, "laravel/framework")
+		title := "Laravel"
+		if majorVer != "" {
+			title = "Laravel " + majorVer
+		}
+		minPhp := "8.2"
+		compatible := []string{"8.2", "8.3", "8.4"}
+		if majorVer == "10" {
+			minPhp = "8.1"
+			compatible = []string{"8.1", "8.2", "8.3", "8.4"}
+		} else if majorVer == "9" {
+			minPhp = "8.0"
+			compatible = []string{"8.0", "8.1", "8.2"}
+		} else if majorVer == "8" {
+			minPhp = "7.3"
+			compatible = []string{"7.3", "7.4", "8.0", "8.1"}
+		} else if majorVer != "" && (majorVer == "7" || majorVer == "6" || majorVer == "5") {
+			minPhp = "7.1"
+			compatible = []string{"7.1", "7.2", "7.3", "7.4"}
+		}
+		if req, ok := c.Require["php"]; ok {
+			if strings.Contains(req, "8.2") || strings.Contains(req, "8.3") || strings.Contains(req, "8.4") {
+				minPhp = "8.2"
+				compatible = []string{"8.2", "8.3", "8.4"}
+			} else if strings.Contains(req, "8.1") {
+				minPhp = "8.1"
+				compatible = []string{"8.1", "8.2", "8.3", "8.4"}
+			}
+		}
+
 		return &DetectedFramework{
-			Name:           "laravel",
-			Title:          "Laravel",
-			Runtime:        "php",
-			Version:        phpVer,
-			PackageManager: "composer",
-			DocRoot:        "public",
-			BuildCommand:   "composer install --no-dev --optimize-autoloader && php artisan config:cache && php artisan route:cache && php artisan view:cache && php artisan migrate --force",
-			DatabaseEngine: "mariadb",
-			CacheEngine:    "redis",
-			Port:           8001,
+			Name:             "laravel",
+			Title:            title,
+			FrameworkVersion: fullVer,
+			MinPHPVersion:    minPhp,
+			CompatiblePHP:    compatible,
+			Runtime:          "php",
+			Version:          phpVer,
+			PackageManager:   "composer",
+			DocRoot:          "public",
+			BuildCommand:     "composer install --no-dev --optimize-autoloader && php artisan config:cache && php artisan route:cache && php artisan view:cache && php artisan migrate --force",
+			DatabaseEngine:   "mariadb",
+			CacheEngine:      "redis",
+			Port:             8001,
 		}
 	}
 

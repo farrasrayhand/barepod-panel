@@ -105,6 +105,9 @@ export interface ApiDeployKey {
 export interface DetectedFramework {
   name: string;
   title: string;
+  frameworkVersion?: string;
+  minPhpVersion?: string;
+  compatiblePhp?: string[];
   runtime: 'php' | 'nodejs' | 'python' | 'static' | 'go';
   version: string;
   packageManager: string;
