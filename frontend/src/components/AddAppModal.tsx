@@ -72,12 +72,6 @@ export const getSupportedDbEngines = (runtime: RuntimeType, framework: string): 
       { engine: 'mariadb', label: 'MariaDB / MySQL', recommended: true, badge: 'Standard PHP' },
       { engine: 'postgres', label: 'PostgreSQL', badge: 'Relational' },
       { engine: 'sqlite', label: 'SQLite', badge: 'Embedded' },
-      { 
-        engine: 'mongodb', 
-        label: 'MongoDB (ODM)', 
-        badge: 'NoSQL', 
-        warning: 'Laravel butuh package pihak ketiga (mongodb/laravel-mongodb) & ekstensi PHP mongodb. Migrasi skema SQL relasional standar tidak didukung.' 
-      },
     ];
   }
 
@@ -85,7 +79,6 @@ export const getSupportedDbEngines = (runtime: RuntimeType, framework: string): 
   if (runtime === 'nodejs') {
     return [
       { engine: 'postgres', label: 'PostgreSQL', recommended: true, badge: 'Prisma / Drizzle' },
-      { engine: 'mongodb', label: 'MongoDB', badge: 'Mongoose / NoSQL' },
       { engine: 'mariadb', label: 'MariaDB / MySQL' },
       { engine: 'sqlite', label: 'SQLite' },
     ];
@@ -97,7 +90,6 @@ export const getSupportedDbEngines = (runtime: RuntimeType, framework: string): 
       { engine: 'postgres', label: 'PostgreSQL', recommended: true, badge: 'SQLAlchemy / Django' },
       { engine: 'mariadb', label: 'MariaDB / MySQL' },
       { engine: 'sqlite', label: 'SQLite' },
-      { engine: 'mongodb', label: 'MongoDB', badge: 'PyMongo / Motor' },
     ];
   }
 
@@ -1011,7 +1003,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
 
               {createDb && (
                 <div className="pl-5 space-y-4">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {supportedDbEngines.map((item) => {
                       const engineId = item.engine;
                       const DbIcon = dbIcon[engineId] ?? Database;
@@ -1037,15 +1029,9 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     })}
                   </div>
 
-                  {selectedEngineMeta?.warning && (
-                    <div className="p-2.5 rounded-lg border border-amber-200 bg-amber-50 text-[11px] text-amber-800 flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <span className="font-semibold">Catatan Kompatibilitas: </span>
-                        <span>{selectedEngineMeta.warning}</span>
-                      </div>
-                    </div>
-                  )}
+                  <p className="text-[11px] text-slate-400">
+                    Hanya database SQL relasional &amp; embedded untuk website. Untuk MongoDB atau klaster database khusus, tambahkan terpisah melalui menu <strong>Databases</strong>.
+                  </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
