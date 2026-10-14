@@ -1089,6 +1089,23 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
           ? `git pull origin ${gitBranch || 'main'}\n${plan.steps.join('\n')}`
           : plan.steps.join('\n');
 
+    const extraEnvMap: Record<string, string> = {};
+    if (autoEnv && envPreview) {
+      envPreview.split('\n').forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const idx = trimmed.indexOf('=');
+        if (idx !== -1) {
+          const k = trimmed.slice(0, idx).trim();
+          let v = trimmed.slice(idx + 1).trim();
+          if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+            v = v.slice(1, -1);
+          }
+          if (k) extraEnvMap[k] = v;
+        }
+      });
+    }
+
     setIsSubmitting(true);
     setSubmitError(null);
     try {
@@ -1119,6 +1136,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
         cacheAutoProvision: !isStaticSite && effectiveCreateCache,
         cacheEngine: (!isStaticSite && effectiveCreateCache) ? 'redis' : undefined,
         autoEnv: isStaticSite ? false : autoEnv,
+        env: Object.keys(extraEnvMap).length > 0 ? extraEnvMap : undefined,
         sourceKind: effectiveSource,
         provisionMode: effectiveSource === 'scaffold' ? 'download' : 'generic',
         automationSteps: plan.steps.length ? plan.steps : undefined,

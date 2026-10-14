@@ -74,6 +74,8 @@ type Request struct {
 	BuildScript      string
 	// Redeploy keeps the existing database and cache instead of provisioning them.
 	Redeploy bool
+	// Env contains custom or wizard-generated environment variables to seed into .env
+	Env map[string]string
 }
 
 // Manager owns the deploy pipeline.
@@ -405,30 +407,72 @@ func (s *state) writeStarterFiles(ctx context.Context) error {
 	return nil
 }
 
-func readExistingEnv(path, key string) string {
+func readEnvFileMap(path string) map[string]string {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return nil
 	}
-	prefix := key + "="
+	res := map[string]string{}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, prefix) {
-			val := strings.TrimPrefix(line, prefix)
-			return strings.Trim(val, `"' `)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			k := strings.TrimSpace(parts[0])
+			v := strings.Trim(strings.TrimSpace(parts[1]), `"' `)
+			if k != "" {
+				res[k] = v
+			}
 		}
 	}
-	return ""
+	return res
 }
 
 func stepWriteEnv(ctx context.Context, s *state) error {
-	env := provision.EnvFileLines(s.req.Slug, s.req.Domain, s.req.Port, nil)
-	if existing := readExistingEnv(filepath.Join(s.siteDir, ".env"), "APP_KEY"); existing != "" && strings.HasPrefix(existing, "base64:") && len(existing) >= 50 {
-		env["APP_KEY"] = existing
+	existingPath := filepath.Join(s.siteDir, ".env")
+	examplePath := filepath.Join(s.siteDir, ".env.example")
+
+	// 1. Seed base map from existing .env if present, otherwise .env.example template
+	env := make(map[string]string)
+	if existingEnv := readEnvFileMap(existingPath); len(existingEnv) > 0 {
+		for k, v := range existingEnv {
+			env[k] = v
+		}
+	} else if exampleEnv := readEnvFileMap(examplePath); len(exampleEnv) > 0 {
+		for k, v := range exampleEnv {
+			env[k] = v
+		}
+	}
+
+	// 2. Standard application defaults
+	env["APP_NAME"] = s.req.Slug
+	env["APP_DOMAIN"] = s.req.Domain
+	env["APP_URL"] = "https://" + s.req.Domain
+	env["PORT"] = strconv.Itoa(s.req.Port)
+	if _, ok := env["APP_ENV"]; !ok || env["APP_ENV"] == "local" || env["APP_ENV"] == "" {
+		env["APP_ENV"] = "production"
+	}
+	if _, ok := env["APP_DEBUG"]; !ok {
+		env["APP_DEBUG"] = "false"
+	}
+
+	// 3. Ensure valid 32-byte base64 APP_KEY
+	if existingKey := env["APP_KEY"]; existingKey != "" && strings.HasPrefix(existingKey, "base64:") && len(existingKey) >= 50 {
+		// Keep existing valid APP_KEY
 	} else {
 		env["APP_KEY"] = "base64:" + id.Base64(32)
 	}
 
+	// 4. Custom/extra env variables passed from wizard request
+	for k, v := range s.req.Env {
+		if k != "" {
+			env[k] = v
+		}
+	}
+
+	// 5. Database configuration
 	if db := s.req.Database; db != nil {
 		engine := strings.ToLower(db.Engine)
 		raw := db.Name
@@ -437,55 +481,86 @@ func stepWriteEnv(ctx context.Context, s *state) error {
 		}
 		if engine == "sqlite" {
 			path := filepath.Join(s.siteDir, raw+".sqlite")
-			if err := os.WriteFile(path, nil, 0o600); err != nil {
-				return err
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				if err := os.WriteFile(path, nil, 0o600); err != nil {
+					return err
+				}
+				s.log("stdout", "sqlite file created inside the site directory: "+path)
 			}
 			s.dbName = raw
-			s.log("stdout", "sqlite file created inside the site directory: "+path)
 			env["DATABASE_URL"] = provision.DatabaseURL("sqlite", "", "", raw, "", 0, path)
 			env["DB_CONNECTION"] = "sqlite"
 			env["DB_DATABASE"] = path
 		} else {
-			// Shared-daemon isolation: names are prefixed with the tenant.
 			s.dbName = s.req.Tenant + "_" + raw
 			s.dbUser = s.req.Tenant + "_" + raw
-			s.dbPass = id.Token(18)
 
-			enc, err := secrets.Encrypt(s.m.key, s.dbPass)
-			if err != nil {
-				return err
+			// Re-use existing secret if present
+			if sec, err := s.m.store.WebsiteSecret(s.req.Slug, "database_password"); err == nil && sec != "" {
+				if dec, err := secrets.Decrypt(s.m.key, sec); err == nil && dec != "" {
+					s.dbPass = dec
+				}
 			}
-			if err := s.m.store.PutWebsiteSecret(s.req.Slug, "database_password", enc); err != nil {
-				return err
+			if s.dbPass == "" {
+				s.dbPass = id.Token(18)
+				if enc, err := secrets.Encrypt(s.m.key, s.dbPass); err == nil {
+					_ = s.m.store.PutWebsiteSecret(s.req.Slug, "database_password", enc)
+				}
 			}
 
 			dbPort := provision.DefaultDBPort(engine)
 			env["DATABASE_URL"] = provision.DatabaseURL(engine, s.dbUser, s.dbPass, s.dbName, "127.0.0.1", dbPort, "")
-			if strings.EqualFold(s.req.Runtime, "php") {
+
+			// Framework and runtime-specific DB variables
+			if engine == "mysql" || engine == "mariadb" {
+				env["DB_CONNECTION"] = "mysql"
+			} else if engine == "postgres" || engine == "postgresql" {
+				env["DB_CONNECTION"] = "pgsql"
+			} else {
 				env["DB_CONNECTION"] = engine
-				env["DB_HOST"] = "127.0.0.1"
-				env["DB_PORT"] = strconv.Itoa(dbPort)
-				env["DB_DATABASE"] = s.dbName
-				env["DB_USERNAME"] = s.dbUser
-				env["DB_PASSWORD"] = s.dbPass
 			}
+			env["DB_HOST"] = "127.0.0.1"
+			env["DB_PORT"] = strconv.Itoa(dbPort)
+			env["DB_DATABASE"] = s.dbName
+			env["DB_USERNAME"] = s.dbUser
+			env["DB_PASSWORD"] = s.dbPass
+
 			s.log("stdout", "database name/user: "+s.dbName+" (tenant-prefixed to avoid shared-daemon collisions)")
-			s.log("stdout", "database password generated and stored encrypted (AES-256-GCM)")
+			s.log("stdout", "database password stored encrypted (AES-256-GCM)")
 		}
 	}
 
+	// 6. Cache & Redis configuration
 	if cache := s.req.Cache; cache != nil {
 		engine := strings.ToLower(cache.Engine)
-		pass := id.Token(18)
-		enc, err := secrets.Encrypt(s.m.key, pass)
-		if err != nil {
-			return err
+		pass := ""
+		if sec, err := s.m.store.WebsiteSecret(s.req.Slug, "cache_password"); err == nil && sec != "" {
+			if dec, err := secrets.Decrypt(s.m.key, sec); err == nil && dec != "" {
+				pass = dec
+			}
 		}
-		if err := s.m.store.PutWebsiteSecret(s.req.Slug, "cache_password", enc); err != nil {
-			return err
+		if pass == "" {
+			pass = id.Token(18)
+			if enc, err := secrets.Encrypt(s.m.key, pass); err == nil {
+				_ = s.m.store.PutWebsiteSecret(s.req.Slug, "cache_password", enc)
+			}
 		}
-		env["CACHE_URL"] = provision.DatabaseURL(engine, "default", pass, "", "127.0.0.1", provision.DefaultDBPort(engine), "")
-		s.log("stdout", "cache ("+engine+") password generated and stored encrypted (AES-256-GCM)")
+
+		dbPort := provision.DefaultDBPort(engine)
+		env["CACHE_URL"] = provision.DatabaseURL(engine, "default", pass, "", "127.0.0.1", dbPort, "")
+		if engine == "redis" {
+			env["CACHE_STORE"] = "redis"
+			env["CACHE_DRIVER"] = "redis"
+			env["SESSION_DRIVER"] = "redis"
+			env["QUEUE_CONNECTION"] = "redis"
+			env["REDIS_CLIENT"] = "phpredis"
+			env["REDIS_HOST"] = "127.0.0.1"
+			env["REDIS_PORT"] = strconv.Itoa(dbPort)
+			if pass != "" {
+				env["REDIS_PASSWORD"] = pass
+			}
+		}
+		s.log("stdout", "cache ("+engine+") configured in environment file")
 	}
 
 	path, err := s.m.host.WriteEnvFile(ctx, s.req.Tenant, s.req.Slug, env)

@@ -90,6 +90,7 @@ export interface WebApp {
   sourceKind?: 'scaffold' | 'github' | 'upload' | 'existing' | 'default';
   provisionMode?: 'download' | 'generic';
   automationSteps?: string[];
+  env?: Record<string, string>;
 }
 
 export type DatabaseEngine = 'postgres' | 'mysql' | 'mariadb' | 'mongodb' | 'redis' | 'sqlite';

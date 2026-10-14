@@ -67,7 +67,7 @@ import { runtimeIcon, frameworkIcon } from '../utils/brandIcons';
 import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
-import { api, apiReachable, subscribeDeploy, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey, type DeployJob } from '../api/client';
+import { api, apiReachable, subscribeDeploy, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey, type DeployJob, type DetectedFramework } from '../api/client';
 import { describeError } from '../utils/format';
 
 export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'domains' | 'routing' | 'files' | 'env' | 'php' | 'runtime' | 'security' | 'deploy';
@@ -294,6 +294,96 @@ npm run build`;
       })
       .finally(() => setLoadingGitStatus(false));
   }, [app.name, app.gitRepo, app.gitBranch, app.autoDeploy, app.buildScript]);
+
+  // Detected framework metadata from live host inspection
+  const [detectedFramework, setDetectedFramework] = useState<DetectedFramework | null>(null);
+  const [frameworkCmd, setFrameworkCmd] = useState('');
+  const [isRunningFrameworkCmd, setIsRunningFrameworkCmd] = useState(false);
+  const [frameworkCmdOutput, setFrameworkCmdOutput] = useState<{
+    command: string;
+    output: string;
+    ok: boolean;
+    durationMs: number;
+  } | null>(null);
+
+  useEffect(() => {
+    api.detectWebsiteFramework(app.name)
+      .then((res) => {
+        if (res.ok && res.framework) {
+          setDetectedFramework(res.framework);
+        }
+      })
+      .catch(() => {});
+  }, [app.name]);
+
+  const effectiveFwName = (detectedFramework?.name || gitStatus?.framework?.name || app.framework || '').toLowerCase();
+  const effectiveFwTitle = detectedFramework?.title || gitStatus?.framework?.title || (app.framework && app.framework.toLowerCase() !== 'generic' ? app.framework : '');
+
+  const getRuntimeTabTitle = () => {
+    const fw = effectiveFwTitle;
+    if (app.runtime === 'php') {
+      return fw ? `PHP & ${fw}` : 'PHP & Extensions';
+    }
+    if (app.runtime === 'python') {
+      return fw ? `Python & ${fw}` : 'Python Studio';
+    }
+    if (app.runtime === 'nodejs') {
+      return fw ? `Node.js & ${fw}` : 'Node.js Studio';
+    }
+    if (app.runtime === 'ruby') {
+      return fw ? `Ruby & ${fw}` : 'Ruby Studio';
+    }
+    if (app.runtime === 'go') {
+      return fw ? `Go & ${fw}` : 'Go Runtime';
+    }
+    if (app.runtime === 'rust') {
+      return fw ? `Rust & ${fw}` : 'Rust Runtime';
+    }
+    if (app.runtime === 'static') {
+      return fw ? `Static (${fw})` : 'Static & SPA';
+    }
+    return `${app.runtime.toUpperCase()} Studio`;
+  };
+
+  const getRuntimeBadge = () => {
+    if (app.runtime === 'php') {
+      return effectiveFwTitle ? `PHP ${app.version || '8.3'} • ${effectiveFwTitle}` : `PHP ${app.version || '8.3'}`;
+    }
+    if (app.runtime === 'python') {
+      return effectiveFwTitle ? `Py ${app.version || '3.12'} • ${effectiveFwTitle}` : `Python ${app.version || '3.12'}`;
+    }
+    if (app.runtime === 'nodejs') {
+      return effectiveFwTitle ? `Node ${app.version || '22'} • ${effectiveFwTitle}` : `Node ${app.version || '22'}`;
+    }
+    if (app.runtime === 'ruby') {
+      return effectiveFwTitle ? `Ruby ${app.version || '3.3'} • ${effectiveFwTitle}` : `Ruby ${app.version || '3.3'}`;
+    }
+    return app.version ? `${app.runtime.toUpperCase()} ${app.version}` : app.runtime.toUpperCase();
+  };
+
+  const handleExecuteFrameworkCommand = async (cmd: string) => {
+    if (!cmd.trim() || isRunningFrameworkCmd) return;
+    setIsRunningFrameworkCmd(true);
+    try {
+      const res = await api.execWebsiteCommand(app.name, cmd.trim());
+      setFrameworkCmdOutput(res);
+      if (res.ok) {
+        onShowToast?.('Command Completed', `${cmd.trim()} executed in ${res.durationMs}ms`, 'success');
+      } else {
+        onShowToast?.('Command Failed', `${cmd.trim()} exited with error`, 'error');
+      }
+    } catch (err: any) {
+      setFrameworkCmdOutput({
+        command: cmd.trim(),
+        output: err instanceof Error ? err.message : String(err),
+        ok: false,
+        durationMs: 0,
+      });
+      onShowToast?.('Execution Error', describeError(err), 'error');
+    } finally {
+      setIsRunningFrameworkCmd(false);
+    }
+  };
 
   // Extension counts come from the panel below, which reads them from the host.
   const [extensionCounts, setExtensionCounts] = useState({ enabled: 0, total: 0 });
@@ -1641,6 +1731,23 @@ QUEUE_CONNECTION=redis`;
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" />
         </button>
 
+        {app.runtime !== 'proxy' && (
+          <button
+            onClick={() => setActiveTab('php')}
+            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+              activeTab === 'php' || activeTab === 'runtime'
+                ? 'border-purple-600 text-purple-700 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Layers className="w-4 h-4 text-purple-600" />
+            <span>{getRuntimeTabTitle()}</span>
+            <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
+              {getRuntimeBadge()}
+            </span>
+          </button>
+        )}
+
         <button
           onClick={() => setActiveTab('logs')}
           className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
@@ -1743,53 +1850,6 @@ QUEUE_CONNECTION=redis`;
           >
             <Folder className="w-4 h-4" />
             <span>File Manager</span>
-          </button>
-        )}
-
-        {app.runtime !== 'proxy' && (
-          <button
-            onClick={() => setActiveTab('php')}
-            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-              activeTab === 'php' || activeTab === 'runtime'
-                ? 'border-purple-600 text-purple-700 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            <span>
-              {app.runtime === 'php'
-                ? 'PHP & Extensions'
-                : app.runtime === 'nodejs'
-                ? 'Node.js Studio'
-                : app.runtime === 'python'
-                ? 'Python Studio'
-                : app.runtime === 'ruby'
-                ? 'Ruby Studio'
-                : app.runtime === 'go'
-                ? 'Go Runtime'
-                : app.runtime === 'rust'
-                ? 'Rust Runtime'
-                : app.runtime === 'static'
-                ? 'Static & SPA'
-                : `${app.runtime.toUpperCase()} Studio`}
-            </span>
-            <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
-              {app.runtime === 'php'
-                ? `PHP ${app.version || '8.3'}`
-                : app.runtime === 'nodejs'
-                ? `Node ${app.version || '22'}`
-                : app.runtime === 'python'
-                ? `Python ${app.version || '3.12'}`
-                : app.runtime === 'ruby'
-                ? `Ruby ${app.version || '3.3'}`
-                : app.runtime === 'go'
-                ? `Go ${app.version || '1.22'}`
-                : app.runtime === 'rust'
-                ? `Rust ${app.version || 'stable'}`
-                : app.runtime === 'static'
-                ? 'Static'
-                : app.runtime}
-            </span>
           </button>
         )}
 
@@ -3421,6 +3481,524 @@ QUEUE_CONNECTION=redis`}
                   TasksMax: {runtimeConfigData?.limits?.tasksMax || 256}
                 </span>
               </div>
+            </div>
+
+            {/* FRAMEWORK OPERATIONS & ARTISAN / MANAGE.PY / NPM STUDIO */}
+            <div className="p-5 rounded-2xl border border-purple-200 bg-gradient-to-br from-white via-purple-50/20 to-indigo-50/30 shadow-xs space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-purple-100">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-purple-600 text-white shadow-xs">
+                    <Terminal className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-slate-900 text-sm">
+                        {effectiveFwName.includes('laravel')
+                          ? `${effectiveFwTitle || 'Laravel'} Artisan & Operations Studio`
+                          : effectiveFwName.includes('wordpress')
+                          ? 'WordPress WP-CLI & Maintenance Studio'
+                          : effectiveFwName.includes('django')
+                          ? `${effectiveFwTitle || 'Django'} Management & Migration Studio`
+                          : app.runtime === 'python'
+                          ? `Python & ${effectiveFwTitle || 'Virtualenv'} Studio`
+                          : app.runtime === 'nodejs'
+                          ? `Node.js & ${effectiveFwTitle || 'NPM'} Operations Studio`
+                          : `${effectiveFwTitle || app.runtime.toUpperCase()} Operations & CLI Studio`}
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                        {effectiveFwTitle || app.runtime.toUpperCase()}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Run framework tasks, migrations, and CLI utilities directly inside <code className="font-mono text-purple-700 bg-purple-50 px-1 py-0.2 rounded">/home/{app.tenantUser}/web/{app.name}</code>.
+                    </p>
+                  </div>
+                </div>
+
+                {isRunningFrameworkCmd && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold animate-pulse">
+                    <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                    <span>Executing Command...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 1-Click Operations Presets */}
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Quick Framework Operations
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {effectiveFwName.includes('laravel') ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('php artisan optimize:clear')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Clear All Caches
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">optimize:clear</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('php artisan config:cache && php artisan route:cache && php artisan view:cache')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Cache Config & Routes
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">config & route:cache</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('php artisan migrate --force')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50 hover:border-emerald-300 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-emerald-900 flex items-center justify-between">
+                          Run DB Migrations
+                          <Play className="w-3 h-3 text-emerald-600" />
+                        </span>
+                        <span className="text-[10px] text-emerald-700 font-mono mt-1">migrate --force</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('php artisan db:seed --force')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Seed Database
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">db:seed --force</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('php artisan storage:link')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Link Public Storage
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">storage:link</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('php artisan queue:restart')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Restart Queues
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">queue:restart</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('composer dump-autoload -o')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Optimize Autoload
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">dump-autoload -o</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('php artisan about')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Artisan Audit
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">php artisan about</span>
+                      </button>
+                    </>
+                  ) : effectiveFwName.includes('wordpress') ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('wp cache flush')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Flush Object Cache
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">wp cache flush</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('wp plugin list')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          List Plugins
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">wp plugin list</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('wp theme list')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          List Themes
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">wp theme list</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('wp core verify-checksums')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Verify Checksums
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">core verify-checksums</span>
+                      </button>
+                    </>
+                  ) : effectiveFwName.includes('django') ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('python3 manage.py migrate')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50 hover:border-emerald-300 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-emerald-900 flex items-center justify-between">
+                          Run DB Migrations
+                          <Play className="w-3 h-3 text-emerald-600" />
+                        </span>
+                        <span className="text-[10px] text-emerald-700 font-mono mt-1">manage.py migrate</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('python3 manage.py collectstatic --noinput')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Collect Static Assets
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">manage.py collectstatic</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('python3 manage.py check')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          System Check
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">manage.py check</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('pip install -r requirements.txt')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Install Requirements
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">pip install -r</span>
+                      </button>
+                    </>
+                  ) : app.runtime === 'python' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('pip install -r requirements.txt')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-purple-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Install Requirements
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">pip install -r</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('pip list')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          List Installed Packages
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">pip list</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('python3 -m unittest')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Run Tests
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">python3 -m unittest</span>
+                      </button>
+                    </>
+                  ) : app.runtime === 'nodejs' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('npm run build')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-emerald-200 bg-emerald-50/40 hover:bg-emerald-50 hover:border-emerald-300 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-emerald-900 flex items-center justify-between">
+                          Build Production Assets
+                          <Play className="w-3 h-3 text-emerald-600" />
+                        </span>
+                        <span className="text-[10px] text-emerald-700 font-mono mt-1">npm run build</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('npm install')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Install NPM Packages
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">npm install</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('npm test')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Run Test Suite
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">npm test</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('npm audit')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          Security Audit
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">npm audit</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleExecuteFrameworkCommand('ls -la')}
+                        disabled={isRunningFrameworkCmd}
+                        className="flex flex-col text-left p-3 rounded-xl border border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50 shadow-2xs transition-all disabled:opacity-50 group cursor-pointer"
+                      >
+                        <span className="text-xs font-bold text-slate-900 group-hover:text-purple-700 flex items-center justify-between">
+                          List Workspace Files
+                          <Play className="w-3 h-3 text-slate-400 group-hover:text-purple-600" />
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-1">ls -la</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Interactive Framework CLI Input */}
+              <div className="space-y-2 pt-2 border-t border-purple-100">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  Custom Command Runner
+                </span>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!frameworkCmd.trim()) return;
+                    let full = frameworkCmd.trim();
+                    if (effectiveFwName.includes('laravel') && !full.startsWith('php ') && !full.startsWith('composer ')) {
+                      if (!full.startsWith('artisan ')) {
+                        full = `php artisan ${full}`;
+                      } else {
+                        full = `php ${full}`;
+                      }
+                    } else if (effectiveFwName.includes('wordpress') && !full.startsWith('wp ') && !full.startsWith('php ')) {
+                      full = `wp ${full}`;
+                    } else if (effectiveFwName.includes('django') && !full.startsWith('python3 ') && !full.startsWith('pip ')) {
+                      if (!full.startsWith('manage.py ')) {
+                        full = `python3 manage.py ${full}`;
+                      } else {
+                        full = `python3 ${full}`;
+                      }
+                    }
+                    handleExecuteFrameworkCommand(full);
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <div className="relative flex-1 flex items-center">
+                    <span className="absolute left-3 font-mono text-xs font-bold text-purple-700 select-none">
+                      {effectiveFwName.includes('laravel')
+                        ? 'php artisan'
+                        : effectiveFwName.includes('wordpress')
+                        ? 'wp'
+                        : effectiveFwName.includes('django')
+                        ? 'python3 manage.py'
+                        : app.runtime === 'python'
+                        ? 'python3'
+                        : app.runtime === 'nodejs'
+                        ? 'npm'
+                        : '$'}
+                    </span>
+                    <input
+                      type="text"
+                      value={frameworkCmd}
+                      onChange={(e) => setFrameworkCmd(e.target.value)}
+                      placeholder={
+                        effectiveFwName.includes('laravel')
+                          ? 'route:list, migrate:status, make:model Post, tinker...'
+                          : effectiveFwName.includes('wordpress')
+                          ? 'option get home, user list, plugin update --all...'
+                          : effectiveFwName.includes('django')
+                          ? 'showmigrations, test, check --deploy...'
+                          : app.runtime === 'python'
+                          ? 'app.py or pip install package...'
+                          : app.runtime === 'nodejs'
+                          ? 'run build, test, install package...'
+                          : 'command...'
+                      }
+                      className={`w-full py-2.5 pr-3 text-xs font-mono bg-white border border-purple-200 rounded-xl focus:outline-hidden focus:border-purple-600 focus:ring-1 focus:ring-purple-500 shadow-2xs ${
+                        effectiveFwName.includes('laravel')
+                          ? 'pl-26'
+                          : effectiveFwName.includes('wordpress')
+                          ? 'pl-12'
+                          : effectiveFwName.includes('django')
+                          ? 'pl-38'
+                          : app.runtime === 'python' || app.runtime === 'nodejs'
+                          ? 'pl-18'
+                          : 'pl-8'
+                      }`}
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={!frameworkCmd.trim() || isRunningFrameworkCmd}
+                    className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl shadow-2xs transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {isRunningFrameworkCmd ? (
+                      <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                    )}
+                    <span>Run</span>
+                  </button>
+                </form>
+              </div>
+
+              {/* Execution Console Output */}
+              {frameworkCmdOutput && (
+                <div className="rounded-xl border border-slate-800 bg-slate-950 overflow-hidden shadow-md animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between px-3 py-2 bg-slate-900 border-b border-slate-800 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                      </div>
+                      <span className="font-mono text-[11px] text-slate-300 ml-2">
+                        $ {frameworkCmdOutput.command}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                        frameworkCmdOutput.ok
+                          ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                          : 'bg-rose-950 text-rose-400 border border-rose-800'
+                      }`}>
+                        {frameworkCmdOutput.ok ? 'Exit Code 0' : 'Exit Code Error'}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        {frameworkCmdOutput.durationMs}ms
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(frameworkCmdOutput.output);
+                          onShowToast?.('Copied', 'Command output copied to clipboard', 'info');
+                        }}
+                        className="p-1 text-slate-400 hover:text-slate-200 rounded hover:bg-slate-800 transition-colors"
+                        title="Copy Output"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFrameworkCmdOutput(null)}
+                        className="p-1 text-slate-400 hover:text-slate-200 rounded hover:bg-slate-800 transition-colors"
+                        title="Clear Console"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <pre className="p-4 text-xs font-mono text-emerald-300 overflow-x-auto max-h-80 whitespace-pre-wrap leading-relaxed select-text">
+                    {frameworkCmdOutput.output || '(No output returned)'}
+                  </pre>
+                </div>
+              )}
             </div>
 
             {/* PHP SPECIFIC EXTENSION TOGGLE PANEL */}

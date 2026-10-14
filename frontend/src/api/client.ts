@@ -452,6 +452,7 @@ export interface CreateWebsitePayload {
   autoEnv?: boolean;
   automationSteps?: string[];
   deployScript?: string;
+  env?: Record<string, string>;
 }
 
 export interface CreateDatabasePayload {
@@ -763,6 +764,13 @@ export const api = {
     request<{ slug: string; deployId: string; mode: string; status: string; totalSteps?: number }>(
       `/websites/${slug}/redeploy`,
       { method: 'POST' },
+    ),
+
+  /** Run a framework CLI command in the website directory (e.g. php artisan, manage.py). */
+  execWebsiteCommand: (slug: string, command: string) =>
+    request<{ ok: boolean; command: string; output: string; durationMs: number }>(
+      `/websites/${slug}/exec`,
+      { method: 'POST', body: JSON.stringify({ command }) },
     ),
 
   /** Get latest deploy job status and error info. */

@@ -52,8 +52,9 @@ type createWebsiteRequest struct {
 	Source           sourcePayload    `json:"source"`
 	Database         *databasePayload `json:"database"`
 	Cache            *cachePayload    `json:"cache"`
-	AutomationSteps  []string         `json:"automationSteps"`
-	DeployScript     string           `json:"deployScript"`
+	AutomationSteps  []string          `json:"automationSteps"`
+	DeployScript     string            `json:"deployScript"`
+	Env              map[string]string `json:"env"`
 }
 
 var slugSanitizer = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -250,6 +251,7 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		Cache:            toCacheSpec(req.Cache),
 		Automation:       req.AutomationSteps,
 		BuildScript:      req.DeployScript,
+		Env:              req.Env,
 	})
 	if err != nil {
 		_ = s.store.SetWebsiteRuntimeState(req.Slug, "error", "failed")
@@ -713,5 +715,50 @@ func (s *Server) handleRevealSecret(w http.ResponseWriter, r *http.Request, user
 		"name":      name,
 		"value":     plain,
 		"expiresIn": 60,
+	})
+}
+
+type execCommandRequest struct {
+	Command string `json:"command"`
+}
+
+// handleWebsiteExecCommand runs a framework/artisan/npm/pip command inside the site directory as the tenant.
+func (s *Server) handleWebsiteExecCommand(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	slug := r.PathValue("slug")
+	site, err := s.store.WebsiteBySlug(slug)
+	if err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+
+	var req execCommandRequest
+	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Command) == "" {
+		writeError(w, http.StatusBadRequest, "bad_request", "Command is required")
+		return
+	}
+
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+
+	out, err := s.host.RunCronCommand(ctx, site.TenantUser, site.Slug, req.Command)
+	duration := time.Since(start)
+
+	ok := err == nil
+	if err != nil {
+		if out == "" {
+			out = err.Error()
+		} else {
+			out = out + "\n" + err.Error()
+		}
+	}
+
+	_ = s.store.Audit(user.ID, "website.exec", slug, clientIP(r), "command="+req.Command)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         ok,
+		"command":    req.Command,
+		"output":     out,
+		"durationMs": duration.Milliseconds(),
 	})
 }

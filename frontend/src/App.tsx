@@ -477,6 +477,7 @@ export function App() {
               : undefined,
           cache: newApp.cacheAutoProvision ? { engine: 'redis' } : undefined,
           autoEnv: newApp.autoEnv,
+          env: newApp.env,
           deployScript: newApp.buildScript,
         });
         // An "Upload Archive" source has to actually arrive: the bytes go to the site,
