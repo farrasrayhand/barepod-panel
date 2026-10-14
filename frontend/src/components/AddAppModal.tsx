@@ -47,8 +47,32 @@ interface AddAppModalProps {
   isAdmin?: boolean;
 }
 
-type WizardStep = 'basics' | 'engine' | 'source' | 'database' | 'upstream' | 'review';
+type WizardStep = 'basics' | 'source' | 'engine' | 'database' | 'upstream' | 'review';
 type SourceKind = 'scaffold' | 'github' | 'upload' | 'existing' | 'default';
+
+export interface ScaffoldPreset {
+  id: string;
+  name: string;
+  runtime: RuntimeType;
+  version: string;
+  category: string;
+  desc: string;
+  databaseEngine?: DatabaseEngine;
+  cacheEngine?: string;
+}
+
+export const POPULAR_SCAFFOLDS: ScaffoldPreset[] = [
+  { id: 'laravel-12', name: 'Laravel 12', runtime: 'php', version: '8.4', category: 'PHP', desc: 'Modern PHP web framework with artisan, migrations, queue', databaseEngine: 'mariadb', cacheEngine: 'redis' },
+  { id: 'wordpress', name: 'WordPress', runtime: 'php', version: '8.3', category: 'PHP', desc: 'World most popular CMS with WP-CLI auto-setup', databaseEngine: 'mariadb' },
+  { id: 'woocommerce', name: 'WooCommerce', runtime: 'php', version: '8.3', category: 'PHP', desc: 'E-commerce platform for WordPress', databaseEngine: 'mariadb' },
+  { id: 'nextjs', name: 'Next.js', runtime: 'nodejs', version: '20', category: 'Node.js', desc: 'React framework with SSR & API routes', databaseEngine: 'postgres' },
+  { id: 'fastapi', name: 'FastAPI', runtime: 'python', version: '3.11', category: 'Python', desc: 'Modern high performance Python async API', databaseEngine: 'postgres' },
+  { id: 'express', name: 'Express', runtime: 'nodejs', version: '20', category: 'Node.js', desc: 'Minimalist & flexible Node.js web server', databaseEngine: 'postgres' },
+  { id: 'django', name: 'Django', runtime: 'python', version: '3.11', category: 'Python', desc: 'The web framework for perfectionists with deadlines', databaseEngine: 'postgres', cacheEngine: 'redis' },
+  { id: 'symfony-7', name: 'Symfony 7', runtime: 'php', version: '8.3', category: 'PHP', desc: 'Enterprise-grade PHP web framework', databaseEngine: 'mariadb' },
+  { id: 'gin', name: 'Gin', runtime: 'go', version: '1.23', category: 'Go', desc: 'High-performance HTTP web framework for Go', databaseEngine: 'postgres' },
+  { id: 'rails', name: 'Ruby on Rails', runtime: 'ruby', version: '3.3', category: 'Ruby', desc: 'Full-stack framework for developer happiness', databaseEngine: 'postgres', cacheEngine: 'redis' },
+];
 
 export interface SupportedDbEngine {
   engine: DatabaseEngine;
@@ -159,16 +183,16 @@ const stepsForMode = (
   if (isStatic) {
     return [
       { id: 'basics', label: 'Basics' },
-      { id: 'engine', label: 'Engine' },
       { id: 'source', label: 'Source' },
+      { id: 'engine', label: 'Engine' },
       { id: 'review', label: 'Review' },
     ];
   }
   const hasCache = supportsCacheFor(runtime, framework);
   return [
     { id: 'basics', label: 'Basics' },
+    { id: 'source', label: 'Source (Auto-Detect)' },
     { id: 'engine', label: 'Engine & Runtime' },
-    { id: 'source', label: 'Source' },
     { id: 'database', label: hasCache ? 'Database & Cache' : 'Database' },
     { id: 'review', label: 'Review' },
   ];
@@ -472,19 +496,34 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const effectiveSource: SourceKind = appMode === 'static' && sourceKind === 'scaffold' ? 'upload' : sourceKind;
   const domainValid = isValidDomain(domain.trim());
 
-  // Templates without an automated download can't use the Scaffold source
+  // Keep the selected template inside the available list if current framework isn't custom
   useEffect(() => {
-    if (plan.mode !== 'download' && sourceKind === 'scaffold') setSourceKind('github');
-  }, [plan.mode, sourceKind]);
-
-  // Keep the selected template inside the available list
-  useEffect(() => {
-    if (!availableFrameworks.includes(framework)) setFramework(availableFrameworks[0]);
+    if (!availableFrameworks.includes(framework) && !POPULAR_SCAFFOLDS.some(s => s.name === framework)) {
+      setFramework(availableFrameworks[0]);
+    }
   }, [availableFrameworks, framework]);
+
+  const handleSelectScaffold = (s: ScaffoldPreset) => {
+    setFramework(s.name);
+    setRuntime(s.runtime);
+    setVersion(s.version);
+    if (s.databaseEngine) {
+      setCreateDb(true);
+      setDbType(s.databaseEngine);
+    }
+    if (s.cacheEngine === 'redis') {
+      setCreateCache(true);
+    } else {
+      setCreateCache(false);
+    }
+  };
+
+  const expectedRuntime = detectedFw?.runtime;
+  const isRuntimeMismatch = Boolean(expectedRuntime && expectedRuntime !== runtime);
 
   const sourceValid =
     effectiveSource === 'scaffold'
-      ? plan.mode === 'download'
+      ? (framework.trim() !== '' && !isGenericFramework)
       : effectiveSource === 'github'
         ? gitRepo.trim() !== ''
         : effectiveSource === 'upload'
@@ -909,150 +948,18 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
             </>
           )}
 
-          {/* STEP: ENGINE & RUNTIME */}
-          {currentStepId === 'engine' && (
-            <>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-2">Web Server Engine</label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {[
-                    { id: 'nginx' as WebServerType, label: 'Nginx', desc: 'High Concurrency' },
-                    { id: 'openlitespeed' as WebServerType, label: 'OpenLiteSpeed', desc: 'OLS + LSCache' },
-                    { id: 'caddy' as WebServerType, label: 'Caddy', desc: 'Auto-HTTPS & HTTP/3' },
-                    { id: 'apache' as WebServerType, label: 'Apache 2.4', desc: '.htaccess & MPM' },
-                  ].map((ws) => {
-                    const isInstalled = stackStatus?.webServer?.installed?.some((s) => s.engine === ws.id) ||
-                                        stackStatus?.webServer?.managedInstalled?.some((s) => s.engine === ws.id) ||
-                                        ws.id === 'nginx';
-                    return (
-                      <button
-                        key={ws.id}
-                        type="button"
-                        onClick={() => setWebServer(ws.id)}
-                        className={`p-2.5 rounded-xl border text-left transition-all ${cardChoice(webServer === ws.id)}`}
-                      >
-                        <span className="text-xs font-bold block">{ws.label}</span>
-                        <span className="text-[10px] text-slate-400 block mt-0.5">{ws.desc}</span>
-                        {isInstalled && (
-                          <span className="inline-block mt-1 text-[9px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
-                            Ready
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Choose which web server engine powers your application. Edge ingress transparently routes traffic to your selected engine.
-                </p>
-              </div>
-
-              {appMode === 'standard' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-2">Language &amp; Runtime</label>
-                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                      {[
-                        { id: 'python' as RuntimeType, label: 'Python' },
-                        { id: 'php' as RuntimeType, label: 'PHP' },
-                        { id: 'nodejs' as RuntimeType, label: 'Node.js' },
-                        { id: 'go' as RuntimeType, label: 'Golang' },
-                        { id: 'rust' as RuntimeType, label: 'Rust' },
-                        { id: 'ruby' as RuntimeType, label: 'Ruby' },
-                      ].map((item) => {
-                        const RuntimeIcon = runtimeIcon[item.id] ?? Code2;
-                        const active = runtime === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => handleRuntimeChange(item.id)}
-                            className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all ${cardChoice(active)}`}
-                          >
-                            <RuntimeIcon className="w-4 h-4" />
-                            <span className="text-[11px]">{item.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">Framework / Template</label>
-                      <select value={framework} onChange={(e) => setFramework(e.target.value)} className={inputClass}>
-                        {availableFrameworks.map((fw) => (
-                          <option key={fw} value={fw}>{fw}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Runtime Version <span className="text-slate-400 font-normal">({runtime.toUpperCase()})</span>
-                      </label>
-                      <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass}>
-                        {runtimeConfigs[runtime].versions.map((ver) => (
-                          <option key={ver} value={ver}>{ver}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {isGenericFramework ? (
-                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs text-slate-600 flex items-start gap-2">
-                      <FolderOpen className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-                      <span>Bring your own code — choose GitHub, Upload or Existing files in the next step.</span>
-                    </div>
-                  ) : (
-                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs space-y-1.5">
-                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                        <Download className="w-3.5 h-3.5 text-slate-500" />
-                        {plan.mode === 'download' ? 'This template will be downloaded' : 'No automatic download'}
-                      </span>
-                      {plan.install && <code className="block font-mono text-[11px] text-blue-700 bg-white border border-slate-200 rounded px-2 py-1">{plan.install}</code>}
-                      <p className="text-[11px] text-slate-500">{plan.note}</p>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {appMode === 'static' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Static Template</label>
-                    <select value={framework} onChange={(e) => setFramework(e.target.value)} className={inputClass}>
-                      {runtimeConfigs.static.frameworks.map((fw) => (
-                        <option key={fw} value={fw}>{fw}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Build Tool Version</label>
-                    <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass}>
-                      {runtimeConfigs.static.versions.map((ver) => (
-                        <option key={ver} value={ver}>{ver}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
           {/* STEP: SOURCE */}
           {currentStepId === 'source' && (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                 {[
-                  ...(plan.mode === 'download'
-                    ? [{ id: 'scaffold' as SourceKind, label: 'Scaffold / Download', icon: Download }]
+                  ...(appMode === 'standard'
+                    ? [{ id: 'scaffold' as SourceKind, label: 'Scaffold Template', icon: Download }]
                     : []),
-                  { id: 'github' as SourceKind, label: 'GitHub Repository', icon: GitBranch },
                   { id: 'upload' as SourceKind, label: 'Upload Archive', icon: Upload },
+                  { id: 'github' as SourceKind, label: 'GitHub Repository', icon: GitBranch },
                   { id: 'existing' as SourceKind, label: 'Existing Files', icon: FolderOpen },
-                  // A website with nothing behind it yet: the daemon writes one placeholder
-                  // page, so the address answers something useful before the code exists.
-                  { id: 'default' as SourceKind, label: 'Default page', icon: Globe },
+                  { id: 'default' as SourceKind, label: 'Default Page', icon: Globe },
                 ].map((opt) => {
                   const Icon = opt.icon;
                   const active = effectiveSource === opt.id;
@@ -1071,15 +978,83 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               </div>
 
               {effectiveSource === 'scaffold' && (
-                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs space-y-1.5">
-                  <p className="text-slate-600">
-                    The panel downloads <strong>{framework}</strong> ({version}) into <code className="font-mono">/home/{tenantUser}/web/{name || '<website>'}</code>.
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-slate-700">Choose Starter Template</label>
+                    <span className="text-[10px] text-slate-400">Pre-configures runtime, web server &amp; database</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1">
+                    {POPULAR_SCAFFOLDS.map((s) => {
+                      const isSelected = framework === s.name;
+                      const SIcon = runtimeIcon[s.runtime] ?? Code2;
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => handleSelectScaffold(s)}
+                          className={`p-2.5 rounded-xl border text-left flex items-start gap-2.5 transition-all ${
+                            isSelected
+                              ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-500/15'
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                            <SIcon className="w-4 h-4" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-bold text-slate-900 truncate">{s.name}</span>
+                              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 uppercase">
+                                {s.category}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">{s.desc}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="p-3 rounded-xl border border-blue-200 bg-blue-50/50 text-xs text-blue-900 flex items-center justify-between">
+                    <div>
+                      <span className="font-semibold">Selected: {framework} ({version})</span>
+                      <p className="text-[11px] text-blue-700 mt-0.5">
+                        Target directory: <code className="font-mono">/home/{tenantUser}/web/{name || '<website>'}</code>
+                      </p>
+                    </div>
+                    {plan.install && (
+                      <span className="text-[10px] font-mono px-2 py-1 bg-white rounded border border-blue-200 text-blue-800">
+                        {plan.install}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {effectiveSource === 'upload' && (
+                <div className="p-5 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/60 text-center space-y-2">
+                  <Upload className="w-6 h-6 text-slate-400 mx-auto" />
+                  <p className="text-xs text-slate-600">Drop a <code className="font-mono">.zip</code> / <code className="font-mono">.tar.gz</code> archive (or upload it later in File Manager).</p>
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer shadow-xs">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{isDetecting ? 'Analyzing archive…' : (uploadFile ? uploadFile : 'Choose archive')}</span>
+                    <input
+                      type="file"
+                      accept=".zip,.tar,.gz,.tgz"
+                      className="hidden"
+                      onChange={(e) => {
+                        const picked = e.target.files?.[0] ?? null;
+                        if (picked) {
+                          void handleArchiveSelect(picked);
+                        } else {
+                          setUploadArchive(null);
+                          setUploadFile(null);
+                        }
+                      }}
+                    />
+                  </label>
+                  <p className="text-[10px] text-slate-400">
+                    The archive is automatically analyzed to detect runtime &amp; framework presets.
                   </p>
-                  {plan.install ? (
-                    <code className="block font-mono text-[11px] text-blue-700 bg-white border border-slate-200 rounded px-2 py-1">{plan.install}</code>
-                  ) : (
-                    <p className="text-amber-700">No automated download for this template — use GitHub or Upload instead.</p>
-                  )}
                 </div>
               )}
 
@@ -1099,32 +1074,6 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       <span className="font-semibold text-slate-700">Auto-deploy on push (webhook)</span>
                     </label>
                   </div>
-                </div>
-              )}
-
-              {effectiveSource === 'upload' && (
-                <div className="p-5 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/60 text-center space-y-2">
-                  <Upload className="w-6 h-6 text-slate-400 mx-auto" />
-                  <p className="text-xs text-slate-600">Drop a <code className="font-mono">.zip</code> / <code className="font-mono">.tar.gz</code> archive (or upload it later in File Manager).</p>
-                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer">
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>{isDetecting ? 'Analyzing archive…' : (uploadFile ? uploadFile : 'Choose archive')}</span>
-                    <input
-                      type="file"
-                      accept=".zip,.tar,.gz,.tgz"
-                      className="hidden"
-                      onChange={(e) => {
-                        const picked = e.target.files?.[0] ?? null;
-                        if (picked) {
-                          void handleArchiveSelect(picked);
-                        } else {
-                          setUploadArchive(null);
-                          setUploadFile(null);
-                        }
-                      }}
-                    />
-                  </label>
-                  <p className="text-[10px] text-slate-400">The archive is auto-detected and extracted into the website directory on deploy.</p>
                 </div>
               )}
 
@@ -1177,6 +1126,183 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       Create the directory first — the deploy cannot continue while it is missing or empty.
                     </p>
                   )}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* STEP: ENGINE & RUNTIME */}
+          {currentStepId === 'engine' && (
+            <>
+              {/* Mismatch Warning or Detected Status */}
+              {isRuntimeMismatch && detectedFw && (
+                <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-3 animate-in fade-in">
+                  <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+                  <div className="flex-1 text-xs">
+                    <span className="font-bold text-amber-900 flex items-center gap-1.5">
+                      Peringatan: Runtime Mismatch Terdeteksi
+                    </span>
+                    <p className="text-amber-800 mt-1 leading-relaxed">
+                      Sumber kode Anda terdeteksi sebagai <strong>{detectedFw.title} ({expectedRuntime?.toUpperCase()})</strong>, namun Anda memilih runtime <strong>{runtime.toUpperCase()}</strong>.
+                      Aplikasi kemungkinan besar tidak akan dapat dijalankan atau gagal build karena runtime tidak cocok dengan kode sumber.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (detectedFw.runtime) {
+                          handleRuntimeChange(detectedFw.runtime);
+                          applyDetectedFramework(detectedFw);
+                        }
+                      }}
+                      className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors shadow-xs"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      Kembalikan ke {expectedRuntime?.toUpperCase()} ({detectedFw.title})
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-2">Web Server Engine</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    { id: 'nginx' as WebServerType, label: 'Nginx', desc: 'High Concurrency', badge: 'Standard' },
+                    { id: 'openlitespeed' as WebServerType, label: 'OpenLiteSpeed', desc: 'OLS + LSCache', badge: runtime === 'php' ? 'Recommended (PHP)' : undefined },
+                    { id: 'caddy' as WebServerType, label: 'Caddy', desc: 'Auto-HTTPS & HTTP/3', badge: 'Auto SSL' },
+                    { id: 'apache' as WebServerType, label: 'Apache 2.4', desc: '.htaccess & MPM', badge: runtime === 'php' ? '.htaccess' : undefined },
+                  ].map((ws) => {
+                    const isInstalled = stackStatus?.webServer?.installed?.some((s) => s.engine === ws.id) ||
+                                        stackStatus?.webServer?.managedInstalled?.some((s) => s.engine === ws.id) ||
+                                        ws.id === 'nginx';
+                    return (
+                      <button
+                        key={ws.id}
+                        type="button"
+                        onClick={() => setWebServer(ws.id)}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${cardChoice(webServer === ws.id)}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold block">{ws.label}</span>
+                          {ws.badge && (
+                            <span className="text-[9px] font-medium px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded">
+                              {ws.badge}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400 block mt-0.5">{ws.desc}</span>
+                        {isInstalled && (
+                          <span className="inline-block mt-1 text-[9px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+                            Ready
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Choose which web server engine powers your application. Edge ingress transparently routes traffic to your selected engine.
+                </p>
+              </div>
+
+              {appMode === 'standard' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-2">Language &amp; Runtime</label>
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                      {[
+                        { id: 'python' as RuntimeType, label: 'Python' },
+                        { id: 'php' as RuntimeType, label: 'PHP' },
+                        { id: 'nodejs' as RuntimeType, label: 'Node.js' },
+                        { id: 'go' as RuntimeType, label: 'Golang' },
+                        { id: 'rust' as RuntimeType, label: 'Rust' },
+                        { id: 'ruby' as RuntimeType, label: 'Ruby' },
+                      ].map((item) => {
+                        const RuntimeIcon = runtimeIcon[item.id] ?? Code2;
+                        const active = runtime === item.id;
+                        const isDetected = expectedRuntime === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => handleRuntimeChange(item.id)}
+                            className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border relative transition-all ${cardChoice(active)}`}
+                          >
+                            <RuntimeIcon className="w-4 h-4" />
+                            <span className="text-[11px] font-medium">{item.label}</span>
+                            {isDetected && (
+                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded-full">
+                                ✨ Detected
+                              </span>
+                            )}
+                            {active && isRuntimeMismatch && (
+                              <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded-full">
+                                ⚠️ Mismatch
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Framework / Template</label>
+                      <select value={framework} onChange={(e) => setFramework(e.target.value)} className={inputClass}>
+                        {availableFrameworks.map((fw) => (
+                          <option key={fw} value={fw}>{fw}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Runtime Version <span className="text-slate-400 font-normal">({runtime.toUpperCase()})</span>
+                      </label>
+                      <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass}>
+                        {runtimeConfigs[runtime].versions.map((ver) => (
+                          <option key={ver} value={ver}>{ver}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {isGenericFramework ? (
+                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs text-slate-600 flex items-start gap-2">
+                      <FolderOpen className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                      <span>Bring your own code — code has been provided in the Source step.</span>
+                    </div>
+                  ) : (
+                    <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs space-y-1.5">
+                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                        <Download className="w-3.5 h-3.5 text-slate-500" />
+                        {plan.mode === 'download' ? 'Template scaffold configured' : 'Custom template'}
+                      </span>
+                      {plan.install && <code className="block font-mono text-[11px] text-blue-700 bg-white border border-slate-200 rounded px-2 py-1">{plan.install}</code>}
+                      <p className="text-[11px] text-slate-500">{plan.note}</p>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {appMode === 'static' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Static Template</label>
+                    <select value={framework} onChange={(e) => setFramework(e.target.value)} className={inputClass}>
+                      {runtimeConfigs.static.frameworks.map((fw) => (
+                        <option key={fw} value={fw}>{fw}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Build Tool Version</label>
+                    <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass}>
+                      {runtimeConfigs.static.versions.map((ver) => (
+                        <option key={ver} value={ver}>{ver}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               )}
             </>
@@ -1408,6 +1534,15 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
           {/* STEP: REVIEW */}
           {currentStepId === 'review' && (
             <>
+              {isRuntimeMismatch && detectedFw && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center gap-2.5 text-xs text-amber-900 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    Perhatian: Anda mendeploy dengan runtime <strong>{runtime.toUpperCase()}</strong> padahal sumber kode terdeteksi sebagai <strong>{detectedFw.title} ({expectedRuntime?.toUpperCase()})</strong>.
+                  </span>
+                </div>
+              )}
+
               <div className="rounded-xl border border-slate-200 divide-y divide-slate-100 text-xs">
                 {[
                   ['Type', appMode === 'proxy' ? 'Reverse proxy' : appMode === 'static' ? 'Static / SPA' : 'Full web app'],

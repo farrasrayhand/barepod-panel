@@ -286,6 +286,12 @@ func runServe(args []string) error {
 	deploys := deploy.NewManager(st, h, key)
 	tenants := tenant.New(runner, cfg.SitesRoot, caps)
 
+	// Self-healing watchdog: auto-enables and auto-recovers database engines (MariaDB, Redis, Postgres)
+	// after host reboots, power cuts, or crash events.
+	if !dryRun {
+		stack.StartAutoHealWatchdog(context.Background(), runner, 60*time.Second)
+	}
+
 	// On-demand database managers (pgweb). A previous daemon may have left one
 	// running and nothing knows how long it has been idle, so leftovers are
 	// cleared at start; a sweeper then stops the ones that go idle.
