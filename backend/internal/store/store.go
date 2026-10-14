@@ -28,6 +28,7 @@ type Website struct {
 	SourceBranch    string `json:"sourceBranch,omitempty"`
 	DeployHookToken string `json:"deployHookToken,omitempty"`
 	AutoDeploy      bool   `json:"autoDeploy"`
+	DeployScript    string `json:"deployScript,omitempty"`
 	SSL             bool   `json:"ssl"`
 	TunnelEnable    bool   `json:"tunnelEnabled"`
 	Port            int    `json:"port"`

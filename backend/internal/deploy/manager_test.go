@@ -125,8 +125,8 @@ func TestPipelineDryRunSucceeds(t *testing.T) {
 		}
 		t.Fatalf("job status = %q, error = %q\n%s", finished.Status, finished.Error, b.String())
 	}
-	if finished.Step != finished.TotalSteps || finished.TotalSteps != 10 {
-		t.Fatalf("finished at step %d/%d, want 10/10", finished.Step, finished.TotalSteps)
+	if finished.Step != finished.TotalSteps || finished.TotalSteps != 11 {
+		t.Fatalf("finished at step %d/%d, want 11/11", finished.Step, finished.TotalSteps)
 	}
 
 	logs, err := st.DeployLogs(job.ID, 0)
@@ -139,15 +139,15 @@ func TestPipelineDryRunSucceeds(t *testing.T) {
 		if l.Stream == "step" {
 			stepCount++
 		}
-		if strings.Contains(l.Line, "[10/10]") {
+		if strings.Contains(l.Line, "[11/11]") {
 			sawLastStep = true
 		}
 		if strings.Contains(l.Line, "[dry-run]") {
 			sawDryRunNote = true
 		}
 	}
-	if stepCount != 10 {
-		t.Errorf("step lines = %d, want 10", stepCount)
+	if stepCount != 11 {
+		t.Errorf("step lines = %d, want 11", stepCount)
 	}
 	if !sawLastStep {
 		t.Error("log does not reach the final step")

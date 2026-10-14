@@ -380,9 +380,17 @@ Normative: a client must not offer a control the site type cannot use, and the s
   `{ fullName, defaultBranch, isPrivate, cloneUrl, sshUrl, description? }`.
 - **`GET /websites/:slug/git`** → `200 WebsiteGitStatus`.
   Auto-detects live repository status from server disk (`/home/<tenant>/web/<slug>/.git`):
-  `{ repo, branch, commit, commitMessage, detected: bool, autoDeploy: bool, deployHookToken, webhookUrl, deployKey?: ApiDeployKey }`.
+  `{ repo, branch, commit, commitMessage, detected: bool, autoDeploy: bool, deployHookToken, webhookUrl, deployKey?: ApiDeployKey, deployScript?: string, framework?: DetectedFramework }`.
 - **`PUT /websites/:slug/git`** → Body `{ repoUrl?: string, branch?: string, deployScript?: string, autoDeploy?: bool }` → `200 { status: "updated", ... }`.
   Updates Git configuration, deployment build script, or toggles auto-deploy on push.
+- **`GET /websites/:slug/detect-framework`** → `200 DetectedFramework`.
+  Inspects existing site directory on disk (`composer.json`, `package.json`, `requirements.txt`, `go.mod`, etc.) and returns auto-detected runtime, framework, docRoot, and recommended CI/CD build script.
+- **`POST /websites/detect-framework`** → `200 DetectedFramework`.
+  Vercel-style zero-config project inspection. Supports:
+  1. `multipart/form-data` with `archive` file (inspects uploaded `.zip` in memory without writing to disk).
+  2. `application/json` with `{ tenant, slug }` (inspects prepared directory on host).
+  Returns:
+  `{ framework: string, title: string, runtime: string, version: string, docRoot: string, buildCommand: string, packageManager: string, databaseEngine: string }`.
 - **`GET /websites/:slug/git/deploy-key`** → `200 ApiDeployKey`.
   Returns the website's dedicated ED25519 deploy key:
   `{ publicKey: string, fingerprint: string, algorithm: "ED25519", createdAt: string }`.
@@ -393,7 +401,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
   Universal inbound push webhook for GitHub, GitLab, Gitea, or custom Git triggers. Public endpoint (no cookie/session required; authenticated strictly via URL query `token`).
   - Verifies `token` against the website's vaulted `deployHookToken`.
   - Checks if `autoDeploy` is enabled (`site.AutoDeploy`). If disabled, safely ignores webhook execution.
-  - When enabled, dispatches an asynchronous deployment job (`internal/deploy`): executes `git fetch` and `git checkout <branch>` as the tenant UID/GID, runs framework build/migration steps, updates cgroup limits, and hot-reloads the service.
+  - When enabled, dispatches an asynchronous deployment job (`internal/deploy`): executes `git fetch` and `git checkout <branch>` as the tenant UID/GID, runs framework build/migration steps (`stepRunBuildScript`), updates cgroup limits, and hot-reloads the service.
   - Streaming build logs available at `GET /websites/:slug/deploy/stream?id=<deployId>`.
 
 ### 4.9 Users, Groups & RBAC

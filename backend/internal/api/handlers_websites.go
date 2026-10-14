@@ -1,8 +1,12 @@
 package api
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/framework"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/sysinfo"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/terminal"
@@ -61,4 +65,67 @@ func (s *Server) handleGetWebsite(w http.ResponseWriter, r *http.Request, user *
 		return
 	}
 	writeJSON(w, http.StatusOK, site)
+}
+
+// handleDetectWebsiteFramework inspects an existing site directory and returns detected framework info.
+func (s *Server) handleDetectWebsiteFramework(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	slug := r.PathValue("slug")
+	site, err := s.store.WebsiteBySlug(slug)
+	if err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+
+	fw := s.host.DetectFramework(site.TenantUser, site.Slug)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":        true,
+		"framework": fw,
+	})
+}
+
+// handleDetectFrameworkFromSource inspects an uploaded ZIP archive or an existing folder on server.
+func (s *Server) handleDetectFrameworkFromSource(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	// 1. Check if multipart archive was uploaded
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		if err := r.ParseMultipartForm(64 * 1024 * 1024); err == nil && r.MultipartForm != nil {
+			if files, ok := r.MultipartForm.File["archive"]; ok && len(files) > 0 {
+				fh := files[0]
+				file, err := fh.Open()
+				if err == nil {
+					defer file.Close()
+					if ra, ok := file.(io.ReaderAt); ok {
+						fw := framework.DetectArchive(ra, fh.Size)
+						writeJSON(w, http.StatusOK, map[string]any{
+							"ok":        true,
+							"framework": fw,
+						})
+						return
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Check JSON payload for existing directory
+	var payload struct {
+		Tenant string `json:"tenant"`
+		Slug   string `json:"slug"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err == nil && payload.Slug != "" {
+		tenant := payload.Tenant
+		if tenant == "" || user.Role != "admin" {
+			tenant = user.Username
+		}
+		fw := s.host.DetectFramework(tenant, payload.Slug)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":        true,
+			"framework": fw,
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":        false,
+		"framework": nil,
+	})
 }

@@ -102,6 +102,21 @@ export interface ApiDeployKey {
   createdAt: string;
 }
 
+export interface DetectedFramework {
+  name: string;
+  title: string;
+  runtime: 'php' | 'nodejs' | 'python' | 'static' | 'go';
+  version: string;
+  packageManager: string;
+  docRoot: string;
+  buildCommand?: string;
+  startCommand?: string;
+  port?: number;
+  databaseEngine?: string;
+  cacheEngine?: string;
+  isProxy?: boolean;
+}
+
 export interface ApiWebsiteGitStatus {
   detected: boolean;
   repo: string;
@@ -111,6 +126,8 @@ export interface ApiWebsiteGitStatus {
   autoDeploy: boolean;
   deployHookToken: string;
   webhookUrl: string;
+  deployScript?: string;
+  framework?: DetectedFramework;
   deployKey?: ApiDeployKey;
 }
 
@@ -433,6 +450,7 @@ export interface CreateWebsitePayload {
   cache?: { engine: string };
   autoEnv?: boolean;
   automationSteps?: string[];
+  deployScript?: string;
 }
 
 export interface CreateDatabasePayload {
@@ -745,10 +763,24 @@ export const api = {
   websiteDeployKey: (slug: string) => request<ApiDeployKey>(`/websites/${slug}/git/deploy-key`),
   rotateWebsiteDeployKey: (slug: string) =>
     request<ApiDeployKey>(`/websites/${slug}/git/deploy-key/rotate`, { method: 'POST' }),
-  updateWebsiteGit: (slug: string, payload: { repo?: string; branch?: string; autoDeploy?: boolean }) =>
+  updateWebsiteGit: (slug: string, payload: { repo?: string; branch?: string; autoDeploy?: boolean; deployScript?: string }) =>
     request<ApiWebsite>(`/websites/${slug}/git`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    }),
+
+  /** Framework CI/CD Auto-Detection */
+  detectWebsiteFramework: (slug: string) =>
+    request<{ ok: boolean; framework?: DetectedFramework }>(`/websites/${slug}/detect-framework`),
+  detectFrameworkFromArchive: (file: File) => {
+    const form = new FormData();
+    form.append('archive', file, file.name);
+    return uploadForm<{ ok: boolean; framework?: DetectedFramework }>('/websites/detect-framework', form);
+  },
+  detectFrameworkFromExisting: (tenant: string, slug: string) =>
+    request<{ ok: boolean; framework?: DetectedFramework }>('/websites/detect-framework', {
+      method: 'POST',
+      body: JSON.stringify({ tenant, slug }),
     }),
 
   /** Centralized & Per-Site Scheduled Tasks / Cron Jobs */
@@ -1314,21 +1346,25 @@ const fileScopeQuery = (scope: FileScope): string =>
 async function uploadTo(url: string, files: File[]): Promise<{ uploaded: string[] }> {
   const form = new FormData();
   files.forEach((file) => form.append('files', file, file.name));
+  return uploadForm<{ uploaded: string[] }>(url, form);
+}
+
+async function uploadForm<T>(url: string, form: FormData): Promise<T> {
   const headers = new Headers();
   if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
-
-  const response = await fetch(url, { method: 'POST', body: form, headers, credentials: 'include' });
+  const targetUrl = url.startsWith('http') ? url : `/api/v1${url.startsWith('/') ? url : `/${url}`}`;
+  const response = await fetch(targetUrl, { method: 'POST', body: form, headers, credentials: 'include' });
   if (!response.ok) {
-    let message = `Upload failed (${response.status})`;
+    let message = `Request failed (${response.status})`;
     try {
       const payload = (await response.json()) as { error?: { message?: string } };
       if (payload?.error?.message) message = payload.error.message;
     } catch {
-      // keep the generic message
+      // keep generic message
     }
     throw new ApiError(message, response.status);
   }
-  return (await response.json()) as { uploaded: string[] };
+  return (await response.json()) as T;
 }
 
 export interface SessionRow {

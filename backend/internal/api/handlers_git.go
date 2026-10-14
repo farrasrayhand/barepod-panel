@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/framework"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
@@ -159,21 +160,23 @@ func (s *Server) handleRotateDeployKey(w http.ResponseWriter, r *http.Request, u
 
 // WebsiteGitStatus holds comprehensive git status for a website, combining
 // stored repository metadata, auto-detected disk repository info, auto-deploy toggle,
-// webhook URL, and deploy key.
+// webhook URL, detected framework CI/CD recommendations, and deploy key.
 type WebsiteGitStatus struct {
-	Detected        bool                `json:"detected"`
-	Repo            string              `json:"repo"`
-	Branch          string              `json:"branch"`
-	Commit          string              `json:"commit,omitempty"`
-	CommitMessage   string              `json:"commitMessage,omitempty"`
-	AutoDeploy      bool                `json:"autoDeploy"`
-	DeployHookToken string              `json:"deployHookToken"`
-	WebhookURL      string              `json:"webhookUrl"`
-	DeployKey       *host.DeployKeyInfo `json:"deployKey,omitempty"`
+	Detected        bool                         `json:"detected"`
+	Repo            string                       `json:"repo"`
+	Branch          string                       `json:"branch"`
+	Commit          string                       `json:"commit,omitempty"`
+	CommitMessage   string                       `json:"commitMessage,omitempty"`
+	AutoDeploy      bool                         `json:"autoDeploy"`
+	DeployHookToken string                       `json:"deployHookToken"`
+	WebhookURL      string                       `json:"webhookUrl"`
+	DeployScript    string                       `json:"deployScript,omitempty"`
+	Framework       *framework.DetectedFramework `json:"framework,omitempty"`
+	DeployKey       *host.DeployKeyInfo          `json:"deployKey,omitempty"`
 }
 
 // handleGetWebsiteGit returns the full git status, auto-detected repository,
-// webhook URL, and deploy key.
+// webhook URL, detected framework, and deploy key.
 func (s *Server) handleGetWebsiteGit(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	slug := r.PathValue("slug")
 	site, err := s.store.WebsiteBySlug(slug)
@@ -211,6 +214,8 @@ func (s *Server) handleGetWebsiteGit(w http.ResponseWriter, r *http.Request, use
 	}
 	webhookURL := fmt.Sprintf("%s://%s/api/v1/webhooks/deploy/%s?token=%s", scheme, r.Host, site.Slug, site.DeployHookToken)
 
+	detectedFw := s.host.DetectFramework(site.TenantUser, site.Slug)
+
 	status := WebsiteGitStatus{
 		Detected:        detectedInfo.Detected || activeRepo != "",
 		Repo:            activeRepo,
@@ -220,6 +225,8 @@ func (s *Server) handleGetWebsiteGit(w http.ResponseWriter, r *http.Request, use
 		AutoDeploy:      site.AutoDeploy,
 		DeployHookToken: site.DeployHookToken,
 		WebhookURL:      webhookURL,
+		DeployScript:    site.DeployScript,
+		Framework:       detectedFw,
 		DeployKey:       keyInfo,
 	}
 
@@ -227,12 +234,13 @@ func (s *Server) handleGetWebsiteGit(w http.ResponseWriter, r *http.Request, use
 }
 
 type updateGitPayload struct {
-	Repo       *string `json:"repo"`
-	Branch     *string `json:"branch"`
-	AutoDeploy *bool   `json:"autoDeploy"`
+	Repo         *string `json:"repo"`
+	Branch       *string `json:"branch"`
+	AutoDeploy   *bool   `json:"autoDeploy"`
+	DeployScript *string `json:"deployScript"`
 }
 
-// handleUpdateWebsiteGit updates repository, branch, and auto_deploy settings.
+// handleUpdateWebsiteGit updates repository, branch, auto_deploy settings, and deploy_script.
 func (s *Server) handleUpdateWebsiteGit(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	slug := r.PathValue("slug")
 	site, err := s.store.WebsiteBySlug(slug)
@@ -266,6 +274,10 @@ func (s *Server) handleUpdateWebsiteGit(w http.ResponseWriter, r *http.Request, 
 	if err := s.store.UpdateWebsiteGit(site.Slug, newRepo, newBranch, autoDeploy); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Could not save git settings")
 		return
+	}
+
+	if req.DeployScript != nil {
+		_ = s.store.UpdateWebsiteDeployScript(site.Slug, *req.DeployScript)
 	}
 
 	updated, err := s.store.WebsiteBySlug(site.Slug)

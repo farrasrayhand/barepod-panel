@@ -26,7 +26,13 @@ var migrations = []migration{
 	{version: 16, statements: schemaV16},
 	{version: 17, statements: schemaV17},
 	{version: 18, statements: schemaV18},
+	{version: 19, statements: schemaV19},
 }
+
+// schemaV19 adds deploy_script column to websites for custom or auto-detected CI/CD pipelines.
+const schemaV19 = `
+ALTER TABLE websites ADD COLUMN deploy_script TEXT NOT NULL DEFAULT '';
+`
 
 // schemaV18 adds deploy_hook_token and auto_deploy to websites, plus website_cron_jobs and user_git_providers.
 const schemaV18 = `

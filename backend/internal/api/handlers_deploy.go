@@ -53,6 +53,7 @@ type createWebsiteRequest struct {
 	Database         *databasePayload `json:"database"`
 	Cache            *cachePayload    `json:"cache"`
 	AutomationSteps  []string         `json:"automationSteps"`
+	DeployScript     string           `json:"deployScript"`
 }
 
 var slugSanitizer = regexp.MustCompile(`[^a-z0-9-]+`)
@@ -213,6 +214,7 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		SourceKind:   req.Source.Kind,
 		SourceRepo:   req.Source.Repo,
 		SourceBranch: req.Source.Branch,
+		DeployScript: req.DeployScript,
 	}
 	if err := s.store.CreateWebsite(site); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Could not record the website")
@@ -235,6 +237,7 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		Database:         toDatabaseSpec(req.Database),
 		Cache:            toCacheSpec(req.Cache),
 		Automation:       req.AutomationSteps,
+		BuildScript:      req.DeployScript,
 	})
 	if err != nil {
 		_ = s.store.SetWebsiteRuntimeState(req.Slug, "error", "failed")

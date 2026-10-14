@@ -285,6 +285,7 @@ npm run build`;
         if (res.repo) setGitRepo(res.repo);
         if (res.branch) setGitBranch(res.branch);
         setAutoDeploy(res.autoDeploy);
+        if (res.deployScript) setBuildScript(res.deployScript);
         if (res.deployKey) setDeployKeyInfo(res.deployKey);
       })
       .catch(() => {
@@ -664,6 +665,7 @@ systemctl reload ${app.name}`;
         repo: gitRepo,
         branch: gitBranch,
         autoDeploy,
+        deployScript: buildScript,
       });
       const updated: WebApp = {
         ...app,
@@ -4511,6 +4513,47 @@ QUEUE_CONNECTION=redis`}
                     Branch: {gitStatus.branch || gitBranch}
                   </span>
                 </div>
+              </div>
+            )}
+
+            {/* Auto-detected Framework & Vercel-style CI/CD Banner */}
+            {gitStatus?.framework && (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 bg-gradient-to-r from-indigo-50/90 via-purple-50/90 to-blue-50/90 border border-indigo-200/90 rounded-2xl shadow-2xs">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <Zap className="w-5 h-5 text-amber-300" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-bold text-slate-900">
+                        Auto-Detected Framework: {gitStatus.framework.title}
+                      </h4>
+                      <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full font-mono border border-indigo-200">
+                        Vercel-Style CI/CD
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                      Runtime: <span className="font-semibold text-indigo-700">{gitStatus.framework.runtime.toUpperCase()} {gitStatus.framework.version || ''}</span> ·
+                      Package Manager: <span className="font-semibold text-slate-800">{gitStatus.framework.packageManager}</span>
+                      {gitStatus.framework.docRoot && <> · Web Root: <code className="font-mono bg-white px-1.5 py-0.5 rounded border border-indigo-200 text-emerald-700">/{gitStatus.framework.docRoot}</code></>}
+                      {gitStatus.framework.databaseEngine && <> · Recommended DB: <span className="font-semibold text-amber-700">{gitStatus.framework.databaseEngine}</span></>}
+                    </p>
+                  </div>
+                </div>
+
+                {gitStatus.framework.buildCommand && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBuildScript(gitStatus.framework?.buildCommand || '');
+                      onShowToast?.('Framework Preset Loaded', `Loaded recommended CI/CD build script for ${gitStatus.framework?.title}. Click 'Save Deploy Configuration' below to apply.`, 'success');
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs shrink-0 whitespace-nowrap transition-all cursor-pointer"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>Apply Framework Preset</span>
+                  </button>
+                )}
               </div>
             )}
 

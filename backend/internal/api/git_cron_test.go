@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGitAndDeployKeyEndpoints(t *testing.T) {
@@ -96,6 +97,7 @@ func TestGitAndDeployKeyEndpoints(t *testing.T) {
 	if pushResp.StatusCode != http.StatusAccepted {
 		t.Errorf("webhook push status = %d, want 202", pushResp.StatusCode)
 	}
+	time.Sleep(100 * time.Millisecond)
 }
 
 func TestUnifiedCronJobLifecycle(t *testing.T) {

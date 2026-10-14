@@ -229,6 +229,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/websites", deploy(s.handleCreateWebsite))
 	mux.HandleFunc("POST /api/v1/websites/prepare-directory", deploy(s.handlePrepareDirectory))
 	mux.HandleFunc("GET /api/v1/websites/{slug}", deploy(s.handleGetWebsite))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/detect-framework", deploy(s.handleDetectWebsiteFramework))
+	mux.HandleFunc("POST /api/v1/websites/detect-framework", deploy(s.handleDetectFrameworkFromSource))
 	mux.HandleFunc("DELETE /api/v1/websites/{slug}", deploy(s.handleDeleteWebsite))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/redeploy", deploy(s.handleRedeployWebsite))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy", deploy(s.handleLatestDeploy))
@@ -257,6 +259,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/websites/{slug}/git/deploy-key", deploy(s.handleGetDeployKey))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/git/deploy-key/rotate", deploy(s.handleRotateDeployKey))
 	mux.HandleFunc("PATCH /api/v1/websites/{slug}/git", deploy(s.handleUpdateWebsiteGit))
+	mux.HandleFunc("PUT /api/v1/websites/{slug}/git", deploy(s.handleUpdateWebsiteGit))
 	mux.HandleFunc("POST /api/v1/webhooks/deploy/{slug}", s.handlePublicDeployWebhook)
 	mux.HandleFunc("POST /api/v1/webhook/{slug}/deploy", s.handlePublicDeployWebhook)
 

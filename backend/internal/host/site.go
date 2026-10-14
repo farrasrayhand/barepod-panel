@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/framework"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -651,3 +652,10 @@ func (h *Host) DetectGit(ctx context.Context, tenant, slug string) (*GitDetectIn
 
 	return info, nil
 }
+
+// DetectFramework inspects a website's working directory on disk and returns the detected framework.
+func (h *Host) DetectFramework(tenant, slug string) *framework.DetectedFramework {
+	dir := h.SitePath(tenant, slug)
+	return framework.Detect(dir)
+}
+

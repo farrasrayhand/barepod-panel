@@ -32,7 +32,7 @@ import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../type
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
 import { AVAILABLE_ENGINE_VERSIONS, ENGINE_LABELS } from '../data/databaseEngines';
 import { getProvisionPlan } from '../data/frameworkProvision';
-import { api, apiReachable, ApiError, type StackStatus } from '../api/client';
+import { api, apiReachable, ApiError, type StackStatus, type DetectedFramework } from '../api/client';
 
 interface AddAppModalProps {
   isOpen: boolean;
@@ -203,11 +203,70 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   // The archive itself, not only its name: the deploy has to send these bytes (the name
   // used to be a validity gate and a Review label, and nothing was ever uploaded).
   const [uploadArchive, setUploadArchive] = useState<File | null>(null);
+  const [detectedFw, setDetectedFw] = useState<DetectedFramework | null>(null);
+  const [isDetecting, setIsDetecting] = useState(false);
   const [dirCheck, setDirCheck] = useState<'idle' | 'checking' | 'ok' | 'created' | 'error'>('idle');
   const [dirPath, setDirPath] = useState<string | null>(null);
   const [dirError, setDirError] = useState('');
   const KNOWN_EXISTING_APPS = ['flask-sentiment-api', 'larastore-commerce', 'billing-backend-api', 'fastapi-ai-service', 'legacy-news-portal', 'internal-n8n-proxy'];
   const existingPath = `/home/${tenantUser}/web/${name || '<website>'}`;
+
+  const applyDetectedFramework = (fw: DetectedFramework) => {
+    setDetectedFw(fw);
+    if (fw.runtime) {
+      setRuntime(fw.runtime);
+      if (fw.runtime === 'static') {
+        setAppMode('static');
+      } else {
+        setAppMode('standard');
+      }
+    }
+    if (fw.version) {
+      setVersion(fw.version);
+    }
+    if (fw.title) {
+      setFramework(fw.title);
+    }
+    if (fw.databaseEngine) {
+      setCreateDb(true);
+      setDbType(fw.databaseEngine as DatabaseEngine);
+    }
+    if (fw.cacheEngine === 'redis') {
+      setCreateCache(true);
+    } else {
+      setCreateCache(false);
+    }
+  };
+
+  const handleArchiveSelect = async (file: File) => {
+    setUploadArchive(file);
+    setUploadFile(file.name);
+    setIsDetecting(true);
+    try {
+      const res = await api.detectFrameworkFromArchive(file);
+      if (res.ok && res.framework) {
+        applyDetectedFramework(res.framework);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsDetecting(false);
+    }
+  };
+
+  const checkExistingFramework = async (tenant: string, slug: string) => {
+    setIsDetecting(true);
+    try {
+      const res = await api.detectFrameworkFromExisting(tenant, slug);
+      if (res.ok && res.framework) {
+        applyDetectedFramework(res.framework);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsDetecting(false);
+    }
+  };
 
   /**
    * Tenants have no shell on the server, so the panel creates the directory.
@@ -227,6 +286,9 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
       const result = await api.prepareDirectory({ slug, tenantUser });
       setDirPath(result.path);
       setDirCheck(result.existed ? 'ok' : 'created');
+      if (result.existed) {
+        void checkExistingFramework(tenantUser, slug);
+      }
     } catch (err) {
       const message = err instanceof ApiError ? (err.fields?.slug ?? err.message) : 'Could not reach the daemon';
       setDirError(message);
@@ -593,9 +655,11 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
       : defaultPortFor(runtime);
 
     const buildScript =
-      effectiveSource === 'github'
-        ? `git pull origin ${gitBranch || 'main'}\n${plan.steps.join('\n')}`
-        : plan.steps.join('\n');
+      detectedFw?.buildCommand
+        ? detectedFw.buildCommand
+        : effectiveSource === 'github'
+          ? `git pull origin ${gitBranch || 'main'}\n${plan.steps.join('\n')}`
+          : plan.steps.join('\n');
 
     onAddApp({
       name,
@@ -694,6 +758,39 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
 
         {/* Body */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
+          {detectedFw && (
+            <div className="p-3.5 bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-emerald-500/10 border border-purple-500/30 rounded-xl flex items-start gap-3">
+              <div className="p-2 bg-purple-500/20 text-purple-600 rounded-lg shrink-0 mt-0.5">
+                <Zap className="w-4 h-4 text-purple-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-900">Project Auto-Detected: {detectedFw.title}</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full border border-purple-200 font-semibold">
+                    Vercel-Style Auto-Preset
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                  Runtime set to <span className="text-indigo-700 font-semibold">{detectedFw.runtime.toUpperCase()} {detectedFw.version || ''}</span>
+                  {detectedFw.docRoot && <>, Web Root <span className="text-emerald-700 font-mono font-semibold">/{detectedFw.docRoot}</span></>}
+                  {detectedFw.databaseEngine && <>, Database <span className="text-amber-700 font-semibold">{detectedFw.databaseEngine.toUpperCase()}</span></>}.
+                  {detectedFw.buildCommand && (
+                    <span className="block text-[11px] text-slate-500 font-mono mt-1 bg-slate-100 p-1.5 rounded truncate">
+                      Build: {detectedFw.buildCommand}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetectedFw(null)}
+                className="text-[11px] text-slate-400 hover:text-slate-600 font-medium px-2 py-1"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
           {/* STEP: BASICS */}
           {currentStepId === 'basics' && (
             <>
@@ -965,19 +1062,23 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   <p className="text-xs text-slate-600">Drop a <code className="font-mono">.zip</code> / <code className="font-mono">.tar.gz</code> archive (or upload it later in File Manager).</p>
                   <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer">
                     <Upload className="w-3.5 h-3.5" />
-                    <span>{uploadFile ? uploadFile : 'Choose archive'}</span>
+                    <span>{isDetecting ? 'Analyzing archive…' : (uploadFile ? uploadFile : 'Choose archive')}</span>
                     <input
                       type="file"
                       accept=".zip,.tar,.gz,.tgz"
                       className="hidden"
                       onChange={(e) => {
                         const picked = e.target.files?.[0] ?? null;
-                        setUploadArchive(picked);
-                        setUploadFile(picked?.name ?? null);
+                        if (picked) {
+                          void handleArchiveSelect(picked);
+                        } else {
+                          setUploadArchive(null);
+                          setUploadFile(null);
+                        }
                       }}
                     />
                   </label>
-                  <p className="text-[10px] text-slate-400">The archive is extracted into the website directory on deploy.</p>
+                  <p className="text-[10px] text-slate-400">The archive is auto-detected and extracted into the website directory on deploy.</p>
                 </div>
               )}
 

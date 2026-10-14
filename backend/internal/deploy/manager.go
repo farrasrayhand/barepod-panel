@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/framework"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/phpfpm"
@@ -70,6 +71,7 @@ type Request struct {
 	Database         *DatabaseSpec
 	Cache            *CacheSpec
 	Automation       []string
+	BuildScript      string
 	// Redeploy keeps the existing database and cache instead of provisioning them.
 	Redeploy bool
 }
@@ -137,6 +139,7 @@ func plan() []step {
 		{"Write environment file", stepWriteEnv},
 		{"Provision database", stepProvisionDatabase},
 		{"Provision cache", stepProvisionCache},
+		{"Build automation", stepRunBuildScript},
 		{"Write PHP-FPM pool", stepWritePhpPool},
 		{"Write web-server vhost", stepWriteVhost},
 		{"Render service unit", stepRenderUnit},
@@ -509,6 +512,43 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 	if !s.m.host.Materialises() {
 		s.log("stdout", "[dry-run] no cache daemon was contacted")
 	}
+	return nil
+}
+
+func stepRunBuildScript(ctx context.Context, s *state) error {
+	script := strings.TrimSpace(s.req.BuildScript)
+	if script == "" {
+		if site, err := s.m.store.WebsiteBySlug(s.req.Slug); err == nil && strings.TrimSpace(site.DeployScript) != "" {
+			script = strings.TrimSpace(site.DeployScript)
+		} else if fw := framework.Detect(s.siteDir); fw != nil && strings.TrimSpace(fw.BuildCommand) != "" {
+			script = strings.TrimSpace(fw.BuildCommand)
+			s.log("stdout", fmt.Sprintf("auto-detected framework: %s (running recommended build pipeline)", fw.Title))
+		}
+	}
+
+	if script == "" {
+		s.log("stdout", "skipped: no build automation configured or required for this project")
+		return nil
+	}
+
+	s.log("stdout", "running build script as tenant "+s.req.Tenant+":")
+	for _, line := range strings.Split(script, "\n") {
+		if strings.TrimSpace(line) != "" {
+			s.log("stdout", "> "+line)
+		}
+	}
+
+	if !s.m.host.Materialises() {
+		s.log("stdout", "[dry-run] build script execution simulated successfully")
+		return nil
+	}
+
+	out, err := s.m.host.RunInSite(ctx, s.req.Tenant, s.req.Slug, []string{"sh", "-c", script})
+	s.logOutput(out)
+	if err != nil {
+		return fmt.Errorf("build script failed: %w", err)
+	}
+	s.log("stdout", "build automation completed successfully")
 	return nil
 }
 

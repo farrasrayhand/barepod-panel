@@ -179,7 +179,7 @@ func (s *Store) ListWebsites() ([]Website, error) {
 	rows, err := s.DB.Query(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
 		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
-		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy
+		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
 		 FROM websites ORDER BY created_at DESC, slug ASC`)
 	if err != nil {
 		return nil, err
@@ -192,7 +192,7 @@ func (s *Store) ListWebsites() ([]Website, error) {
 		if err := rows.Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version,
 			&w.Framework, &w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable,
 			&w.Port, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch,
-			&w.DeployHookToken, &w.AutoDeploy); err != nil {
+			&w.DeployHookToken, &w.AutoDeploy, &w.DeployScript); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -205,7 +205,7 @@ func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
 	rows, err := s.DB.Query(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
 		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
-		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy
+		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
 		 FROM websites WHERE tenant_user = ? ORDER BY created_at DESC, slug ASC`, tenant)
 	if err != nil {
 		return nil, err
@@ -218,7 +218,7 @@ func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
 		if err := rows.Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version,
 			&w.Framework, &w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable,
 			&w.Port, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch,
-			&w.DeployHookToken, &w.AutoDeploy); err != nil {
+			&w.DeployHookToken, &w.AutoDeploy, &w.DeployScript); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -239,11 +239,11 @@ func (s *Store) WebsiteBySlug(slug string) (*Website, error) {
 	err := s.DB.QueryRow(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
 		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
-		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy
+		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
 		 FROM websites WHERE slug = ?`, slug,
 	).Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version, &w.Framework,
 		&w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable, &w.Port, &w.CreatedAt,
-		&w.SourceKind, &w.SourceRepo, &w.SourceBranch, &w.DeployHookToken, &w.AutoDeploy)
+		&w.SourceKind, &w.SourceRepo, &w.SourceBranch, &w.DeployHookToken, &w.AutoDeploy, &w.DeployScript)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -267,11 +267,11 @@ func (s *Store) CreateWebsite(w *Website) error {
 	_, err := s.DB.Exec(
 		`INSERT INTO websites (id, slug, domain, tenant_user, runtime, version, framework,
 		                       web_server, status, deploy_status, ssl, tunnel_enabled, port, created_at,
-		                       source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                       source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		w.ID, w.Slug, w.Domain, w.TenantUser, w.Runtime, w.Version, w.Framework,
 		w.WebServer, w.Status, w.DeployStatus, w.SSL, w.TunnelEnable, w.Port, w.CreatedAt,
-		w.SourceKind, w.SourceRepo, w.SourceBranch, w.DeployHookToken, w.AutoDeploy,
+		w.SourceKind, w.SourceRepo, w.SourceBranch, w.DeployHookToken, w.AutoDeploy, w.DeployScript,
 	)
 	if err != nil {
 		return err
@@ -290,6 +290,15 @@ func (s *Store) UpdateWebsiteGit(slug, repo, branch string, autoDeploy bool) err
 	_, err := s.DB.Exec(
 		`UPDATE websites SET source_repo = ?, source_branch = ?, auto_deploy = ? WHERE slug = ?`,
 		repo, branch, autoDeploy, slug,
+	)
+	return err
+}
+
+// UpdateWebsiteDeployScript updates the CI/CD build script.
+func (s *Store) UpdateWebsiteDeployScript(slug, script string) error {
+	_, err := s.DB.Exec(
+		`UPDATE websites SET deploy_script = ? WHERE slug = ?`,
+		script, slug,
 	)
 	return err
 }
