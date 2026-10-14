@@ -145,18 +145,31 @@ func (s *Server) handlePutRuntime(w http.ResponseWriter, r *http.Request, user *
 	}
 
 	engine := strings.ToLower(strings.TrimSpace(req.Engine))
-	if engine != "" && !webserver.Supported(engine) {
-		writeError(w, http.StatusBadRequest, "unsupported_web_server",
-			engine+" is not supported — choose nginx, caddy, apache, or openlitespeed")
-		return
+	if engine != "" && engine != strings.ToLower(site.WebServer) {
+		if !webserver.Supported(engine) {
+			writeError(w, http.StatusBadRequest, "unsupported_web_server",
+				engine+" is not supported — choose caddy, nginx, openlitespeed, or apache")
+			return
+		}
+		if err := s.store.SetWebsiteWebServer(site.Slug, engine); err != nil {
+			writeError(w, http.StatusInternalServerError, "store_error", "Failed to update web server: "+err.Error())
+			return
+		}
+		site.WebServer = engine
+		_ = s.applyVhost(r, site)
+		_ = s.store.Audit(user.ID, "website.webserver_change", site.Slug, clientIP(r), "new_engine="+engine)
 	}
+
 	writeJSON(w, http.StatusOK, s.siteRuntime(site))
 }
 
 // applyVhost writes the site's vhost with the active engine, validating it before it
 // goes live.
 func (s *Server) applyVhost(r *http.Request, site *store.Website) error {
-	engine := s.deploy.ActiveEngine()
+	engine := site.WebServer
+	if engine == "" || !webserver.Supported(engine) {
+		engine = s.deploy.ActiveEngine()
+	}
 	siteDir := s.host.SitePath(site.TenantUser, site.Slug)
 	home := filepath.Join(s.host.SitesRoot, site.TenantUser)
 	if err := webserver.GrantRead(r.Context(), s.host, home, siteDir, webserver.WebUser(engine)); err != nil {

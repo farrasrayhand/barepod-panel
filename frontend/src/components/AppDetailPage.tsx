@@ -346,19 +346,20 @@ npm run build`;
   };
 
   const getRuntimeBadge = () => {
+    const ws = (app.webServer || 'caddy').toUpperCase();
     if (app.runtime === 'php') {
-      return effectiveFwTitle ? `PHP ${app.version || '8.3'} • ${effectiveFwTitle}` : `PHP ${app.version || '8.3'}`;
+      return `${ws} • PHP ${app.version || '8.3'}${effectiveFwTitle ? ' • ' + effectiveFwTitle : ''}`;
     }
     if (app.runtime === 'python') {
-      return effectiveFwTitle ? `Py ${app.version || '3.12'} • ${effectiveFwTitle}` : `Python ${app.version || '3.12'}`;
+      return `${ws} • Python ${app.version || '3.12'}${effectiveFwTitle ? ' • ' + effectiveFwTitle : ''}`;
     }
     if (app.runtime === 'nodejs') {
-      return effectiveFwTitle ? `Node ${app.version || '22'} • ${effectiveFwTitle}` : `Node ${app.version || '22'}`;
+      return `${ws} • Node ${app.version || '22'}${effectiveFwTitle ? ' • ' + effectiveFwTitle : ''}`;
     }
     if (app.runtime === 'ruby') {
-      return effectiveFwTitle ? `Ruby ${app.version || '3.3'} • ${effectiveFwTitle}` : `Ruby ${app.version || '3.3'}`;
+      return `${ws} • Ruby ${app.version || '3.3'}${effectiveFwTitle ? ' • ' + effectiveFwTitle : ''}`;
     }
-    return app.version ? `${app.runtime.toUpperCase()} ${app.version}` : app.runtime.toUpperCase();
+    return `${ws} • ${app.runtime.toUpperCase()} ${app.version || ''}${effectiveFwTitle ? ' • ' + effectiveFwTitle : ''}`;
   };
 
   const handleExecuteFrameworkCommand = async (cmd: string) => {
@@ -1117,6 +1118,24 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     }
   };
 
+  const [isSwitchingWebServer, setIsSwitchingWebServer] = useState(false);
+
+  const handleSwitchWebServer = async (newEngine: WebServerType) => {
+    if (!newEngine || newEngine.toLowerCase() === (app.webServer || '').toLowerCase()) return;
+    if (!confirm(`Switch web server for ${app.name} from ${app.webServer.toUpperCase()} to ${newEngine.toUpperCase()}?\n\nA new virtual host configuration will be generated and validated.`)) return;
+    setIsSwitchingWebServer(true);
+    try {
+      await api.updateRuntime(app.name, { engine: newEngine.toLowerCase() });
+      const updatedApp: WebApp = { ...app, webServer: newEngine.toLowerCase() as WebServerType };
+      onUpdateApp?.(updatedApp);
+      onShowToast?.('Web Server Switched', `${app.name} is now served by ${newEngine.toUpperCase()}.`, 'success');
+    } catch (err) {
+      onShowToast?.('Switch Failed', describeError(err), 'error');
+    } finally {
+      setIsSwitchingWebServer(false);
+    }
+  };
+
   const handleSaveRuntimeConfig = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setIsSavingRuntimeConfig(true);
@@ -1733,15 +1752,15 @@ QUEUE_CONNECTION=redis`;
 
         {app.runtime !== 'proxy' && (
           <button
-            onClick={() => setActiveTab('php')}
+            onClick={() => setActiveTab('runtime')}
             className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-              activeTab === 'php' || activeTab === 'runtime'
+              activeTab === 'php' || activeTab === 'runtime' || activeTab === 'overview'
                 ? 'border-purple-600 text-purple-700 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Layers className="w-4 h-4 text-purple-600" />
-            <span>{getRuntimeTabTitle()}</span>
+            <Server className="w-4 h-4 text-purple-600" />
+            <span>Server & Runtime Configuration</span>
             <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
               {getRuntimeBadge()}
             </span>
@@ -1877,18 +1896,6 @@ QUEUE_CONNECTION=redis`;
               )}
             </span>
           )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'overview'
-              ? 'border-blue-600 text-blue-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Server className="w-4 h-4" />
-          <span>Server & Runtime Configuration</span>
         </button>
       </div>
 
@@ -3281,9 +3288,134 @@ QUEUE_CONNECTION=redis`}
           </div>
         )}
 
-        {/* TAB: POLYGLOT RUNTIME CONFIGURATION STUDIO */}
-        {(activeTab === 'php' || activeTab === 'runtime') && (
+        {/* TAB: SERVER & RUNTIME CONFIGURATION */}
+        {(activeTab === 'php' || activeTab === 'runtime' || activeTab === 'overview') && (
           <div className="space-y-6 animate-in fade-in duration-200">
+            {/* ENGINE & RUNTIME SELECTION HUB */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Web Server Engine Card */}
+              <div className="p-5 rounded-2xl border border-blue-200 bg-white shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-blue-600" />
+                    <span className="font-bold text-xs text-slate-900 uppercase tracking-wider">Web Server Engine</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 uppercase flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
+                    {app.webServer.toUpperCase()} ACTIVE
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Select the high-performance HTTP web server daemon that handles traffic routing, TLS termination, and reverse proxying for this website.
+                </p>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  {(['caddy', 'nginx', 'openlitespeed', 'apache'] as WebServerType[]).map((ws) => {
+                    const isActive = (app.webServer || 'caddy').toLowerCase() === ws.toLowerCase();
+                    return (
+                      <button
+                        key={ws}
+                        type="button"
+                        onClick={() => handleSwitchWebServer(ws)}
+                        disabled={isActive || isSwitchingWebServer}
+                        className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer disabled:cursor-default ${
+                          isActive
+                            ? 'bg-blue-50 border-blue-500 text-blue-900 ring-2 ring-blue-500/15 font-bold shadow-2xs'
+                            : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100 text-slate-700 hover:border-slate-300'
+                        }`}
+                      >
+                        <span className="capitalize">{ws === 'openlitespeed' ? 'OpenLiteSpeed' : ws.toUpperCase()}</span>
+                        {isActive ? (
+                          <span className="w-2 h-2 rounded-full bg-blue-600" />
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-normal">Switch</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {isSwitchingWebServer && (
+                  <div className="flex items-center gap-2 text-[11px] text-blue-700 font-semibold animate-pulse pt-1">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                    <span>Rebuilding virtual host with new web server...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Runtime Version Card */}
+              <div className="p-5 rounded-2xl border border-purple-200 bg-white shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-purple-600" />
+                    <span className="font-bold text-xs text-slate-900 uppercase tracking-wider">
+                      {app.runtime.toUpperCase()} Runtime Version
+                    </span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-1 font-mono">
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse" />
+                    {app.runtime.toUpperCase()} {app.version || 'Default'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Execution runtime engine. Switching version updates FastCGI socket connections and safely reloads process supervisor units.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {availableVersions.map((v: string) => {
+                    const isActive = v === app.version;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => handleSwitchVersion(v)}
+                        disabled={isActive || isSwitchingVersion}
+                        className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer disabled:cursor-default flex items-center gap-1.5 ${
+                          isActive
+                            ? 'bg-purple-50 border-purple-500 text-purple-900 ring-2 ring-purple-500/15 font-bold shadow-2xs'
+                            : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100 text-slate-700 hover:border-slate-300'
+                        }`}
+                      >
+                        <span className="font-mono">{app.runtime.toUpperCase()} {v}</span>
+                        {isActive ? (
+                          <span className="w-2 h-2 rounded-full bg-purple-600" />
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-normal">Switch</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                {isSwitchingVersion && (
+                  <div className="flex items-center gap-2 text-[11px] text-purple-700 font-semibold animate-pulse pt-1">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-purple-600" />
+                    <span>Switching {app.runtime.toUpperCase()} version and reloading pool...</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Server Jail & Host Routing Specifications */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 space-y-1">
+                <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">ISOLATED HOME DIR</span>
+                <span className="text-xs font-mono font-bold text-slate-800 truncate block">{appPath}</span>
+                <span className="text-[10px] text-slate-400 block pt-0.5">Linux chroot jail & cgroups v2</span>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 space-y-1">
+                <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">ACTIVE WEB SERVER</span>
+                <span className="text-xs font-bold text-slate-800 block">{app.webServer.toUpperCase()}</span>
+                <span className="text-[10px] text-slate-400 block pt-0.5">HTTP/2 & HTTP/3 ALPN Ready</span>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 space-y-1">
+                <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">SOCKET / SUPERVISOR</span>
+                <span className="text-xs font-mono font-bold text-slate-800 truncate block">
+                  {app.runtime === 'php'
+                    ? `/run/php/php${app.version || '8.3'}-fpm-${app.tenantUser}.sock`
+                    : `barepod-app@${app.name}.service`}
+                </span>
+                <span className="text-[10px] text-slate-400 block pt-0.5">High Performance IPC Socket</span>
+              </div>
+            </div>
             {/* Top Banner: Runtime & Supervision Status */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-purple-50/70 border border-purple-200">
               <div className="space-y-1">
@@ -5508,35 +5640,6 @@ QUEUE_CONNECTION=redis`}
                     {log}
                   </div>
                 ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 6: OVERVIEW & SERVER RUNTIME */}
-        {activeTab === 'overview' && (
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-              Runtime & Server Jail Specifications
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-1">
-                <span className="text-[10px] text-slate-400 font-bold block">ISOLATED HOME DIR</span>
-                <span className="text-xs font-mono font-bold text-slate-800">{appPath}</span>
-                <span className="text-[10px] text-slate-400 block pt-1">Linux chroot & cgroups v2</span>
-              </div>
-
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-1">
-                <span className="text-[10px] text-slate-400 font-bold block">ACTIVE WEB SERVER</span>
-                <span className="text-xs font-bold text-slate-800">{app.webServer.toUpperCase()}</span>
-                <span className="text-[10px] text-slate-400 block pt-1">HTTP/2 & HTTP/3 ALPN Ready</span>
-              </div>
-
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-1">
-                <span className="text-[10px] text-slate-400 font-bold block">NODE/PHP FASTCGI SOCKET</span>
-                <span className="text-xs font-mono font-bold text-slate-800">/run/{app.runtime}/{app.tenantUser}.sock</span>
-                <span className="text-[10px] text-slate-400 block pt-1">High Performance IPC Socket</span>
               </div>
             </div>
           </div>
