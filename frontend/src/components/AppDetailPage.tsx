@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { siteSupportsShell, siteSupportsFiles, siteSupportsCI, siteHasGit, siteShellNote, siteFilesNote, siteCINote, siteTabSupport } from '../utils/siteRuntime';
 import { 
   ArrowLeft, 
@@ -313,6 +313,7 @@ npm run build`;
   const [runtimeConfigData, setRuntimeConfigData] = useState<any>(null);
   const [isLoadingRuntimeConfig, setIsLoadingRuntimeConfig] = useState(false);
   const [isSavingRuntimeConfig, setIsSavingRuntimeConfig] = useState(false);
+  const [isSwitchingVersion, setIsSwitchingVersion] = useState(false);
 
   // Node.js
   const [nodePkgManager, setNodePkgManager] = useState('npm');
@@ -983,6 +984,36 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   useEffect(() => {
     loadRuntimeConfig();
   }, [loadRuntimeConfig]);
+
+  const availableVersions = useMemo(() => {
+    if (app.runtime === 'php') {
+      const fromApi = runtimeConfigData?.config?.installedVersions;
+      if (fromApi && fromApi.length > 0) return fromApi;
+      return ['8.1', '8.2', '8.3', '8.4'];
+    }
+    if (app.runtime === 'nodejs') return ['18', '20', '22'];
+    if (app.runtime === 'python') return ['3.10', '3.11', '3.12'];
+    if (app.runtime === 'ruby') return ['3.1', '3.2', '3.3'];
+    if (app.runtime === 'go') return ['1.21', '1.22', '1.23'];
+    return [];
+  }, [app.runtime, runtimeConfigData]);
+
+  const handleSwitchVersion = async (newVersion: string) => {
+    if (!newVersion || newVersion === app.version) return;
+    if (!confirm(`Switch ${app.name} from ${app.runtime.toUpperCase()} ${app.version || ''} to ${app.runtime.toUpperCase()} ${newVersion}?\n\nThe server service will be reloaded with the new version.`)) return;
+    setIsSwitchingVersion(true);
+    try {
+      await api.updateRuntime(app.name, { version: newVersion });
+      const updatedApp: WebApp = { ...app, version: newVersion };
+      onUpdateApp?.(updatedApp);
+      onShowToast?.('Runtime Version Switched', `${app.name} is now running on ${app.runtime.toUpperCase()} ${newVersion}.`, 'success');
+      loadRuntimeConfig();
+    } catch (err) {
+      onShowToast?.('Switch Failed', err instanceof Error ? err.message : 'Unknown error', 'error');
+    } finally {
+      setIsSwitchingVersion(false);
+    }
+  };
 
   const handleSaveRuntimeConfig = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -3276,13 +3307,32 @@ QUEUE_CONNECTION=redis`}
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {availableVersions.length > 0 && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-purple-200 rounded-lg shadow-2xs">
+                    <span className="text-[11px] font-bold text-slate-700">Version:</span>
+                    <select
+                      value={app.version || ''}
+                      onChange={(e) => handleSwitchVersion(e.target.value)}
+                      disabled={isSwitchingVersion || isReloadingFpm || isSavingRuntimeConfig}
+                      className="text-xs font-bold text-purple-900 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5 font-mono focus:outline-hidden cursor-pointer disabled:opacity-50"
+                    >
+                      {availableVersions.map((v: string) => (
+                        <option key={v} value={v}>
+                          {v} {v === app.version ? '• Active' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {isSwitchingVersion && <RefreshCw className="w-3 h-3 text-purple-600 animate-spin" />}
+                  </div>
+                )}
+
                 {app.runtime === 'php' && (
                   <button
                     type="button"
                     onClick={handleRestorePhpBaseline}
-                    disabled={isReloadingFpm || isSavingRuntimeConfig}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-2xs transition-colors disabled:opacity-50"
+                    disabled={isReloadingFpm || isSavingRuntimeConfig || isSwitchingVersion}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-2xs transition-colors disabled:opacity-50 cursor-pointer"
                   >
                     <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
                     <span>Restore Baseline</span>

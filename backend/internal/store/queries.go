@@ -303,6 +303,15 @@ func (s *Store) UpdateWebsiteDeployScript(slug, script string) error {
 	return err
 }
 
+// UpdateWebsiteVersion updates the runtime version of a website.
+func (s *Store) UpdateWebsiteVersion(slug, version string) error {
+	_, err := s.DB.Exec(
+		`UPDATE websites SET version = ? WHERE slug = ?`,
+		version, slug,
+	)
+	return err
+}
+
 // --- Website Scheduled Tasks (Cron Jobs) ---
 
 // ListWebsiteCronJobs returns all scheduled tasks configured for a website.

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/phpext"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/phpfpm"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
@@ -20,6 +21,29 @@ func (s *Server) siteOr404(w http.ResponseWriter, r *http.Request, user *store.U
 	return site, true
 }
 
+func availableRuntimeVersions(runtime string) []string {
+	switch strings.ToLower(runtime) {
+	case "php":
+		vers := phpext.InstalledVersions()
+		if len(vers) > 0 {
+			return vers
+		}
+		return []string{"8.1", "8.2", "8.3", "8.4"}
+	case "nodejs":
+		return []string{"18", "20", "22"}
+	case "python":
+		return []string{"3.10", "3.11", "3.12"}
+	case "ruby":
+		return []string{"3.1", "3.2", "3.3"}
+	case "go":
+		return []string{"1.21", "1.22", "1.23"}
+	case "rust":
+		return []string{"stable"}
+	default:
+		return nil
+	}
+}
+
 // siteRuntime reports how a site is served: the host's active engine, whether it is
 // installed, and where the site's files and socket live.
 func (s *Server) siteRuntime(site *store.Website) map[string]any {
@@ -27,17 +51,18 @@ func (s *Server) siteRuntime(site *store.Website) map[string]any {
 	siteDir := s.host.SitePath(site.TenantUser, site.Slug)
 	spec := webserver.SpecFor(site.Slug, site.Domain, site.Runtime, siteDir, site.Port)
 	out := map[string]any{
-		"runtime":         site.Runtime,
-		"version":         site.Version,
-		"webServer":       engine,
-		"siteEngine":      site.WebServer,
-		"engine":          engine,
-		"engineSupported": webserver.Supported(engine),
-		"engineInstalled": webserver.Available(engine, s.lookPath),
-		"docRoot":         spec.DocRoot,
-		"port":            site.Port,
-		"vhostPath":       webserver.Path(engine, s.host.VhostsFor(engine), site.Slug),
-		"mode":            s.host.Mode(),
+		"runtime":           site.Runtime,
+		"version":           site.Version,
+		"availableVersions": availableRuntimeVersions(site.Runtime),
+		"webServer":         engine,
+		"siteEngine":        site.WebServer,
+		"engine":            engine,
+		"engineSupported":   webserver.Supported(engine),
+		"engineInstalled":   webserver.Available(engine, s.lookPath),
+		"docRoot":           spec.DocRoot,
+		"port":              site.Port,
+		"vhostPath":         webserver.Path(engine, s.host.VhostsFor(engine), site.Slug),
+		"mode":              s.host.Mode(),
 	}
 	if site.Runtime == "php" {
 		out["socket"] = phpfpm.SocketIn(siteDir)
@@ -53,8 +78,7 @@ func (s *Server) handleGetRuntime(w http.ResponseWriter, r *http.Request, user *
 	writeJSON(w, http.StatusOK, s.siteRuntime(site))
 }
 
-// handlePutRuntime used to switch a single site's web server. The engine is a
-// host-level choice now (one engine owns :80), so this refuses and points at Stack.
+// handlePutRuntime switches a site's runtime version and updates the host service.
 func (s *Server) handlePutRuntime(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	site, ok := s.siteOr404(w, r, user)
 	if !ok {
@@ -68,11 +92,48 @@ func (s *Server) handlePutRuntime(w http.ResponseWriter, r *http.Request, user *
 		writeError(w, http.StatusBadRequest, "bad_request", "Invalid JSON body")
 		return
 	}
-	if req.Version != nil && strings.TrimSpace(*req.Version) != site.Version {
-		writeError(w, http.StatusConflict, "redeploy_required",
-			"changing the runtime version rewrites the service unit — redeploy the site instead")
-		return
+
+	if req.Version != nil && strings.TrimSpace(*req.Version) != "" && strings.TrimSpace(*req.Version) != site.Version {
+		newVer := strings.TrimSpace(*req.Version)
+		if err := s.store.UpdateWebsiteVersion(site.Slug, newVer); err != nil {
+			writeError(w, http.StatusInternalServerError, "store_error", "Failed to update version: "+err.Error())
+			return
+		}
+		site.Version = newVer
+
+		// Reconfigure runtime
+		siteDir := s.host.SitePath(site.TenantUser, site.Slug)
+		if strings.EqualFold(site.Runtime, "php") {
+			limits := s.limitsForTenant(site.TenantUser)
+			spec := phpfpm.Spec{
+				Tenant:      site.TenantUser,
+				SiteDir:     siteDir,
+				Socket:      phpfpm.SocketIn(siteDir),
+				MaxChildren: phpfpm.MaxChildren(limits.MemoryMB),
+				Directives: phpfpm.Directives{
+					MemoryLimit:        "256M",
+					UploadMaxSize:      "64M",
+					PostMaxSize:        "64M",
+					MaxExecutionTime:   60,
+					MaxInputVars:       3000,
+					ProcessIdleTimeout: "10s",
+				},
+				MemoryMB: limits.MemoryMB,
+			}
+			_, _ = phpfpm.Write(r.Context(), s.host, spec)
+			_ = s.applyVhost(r, site)
+			if s.host.Materialises() {
+				_, _ = s.host.ServiceAction(r.Context(), "restart", site.Slug)
+			}
+		} else {
+			_ = s.applyVhost(r, site)
+			if s.host.Materialises() {
+				_, _ = s.host.ServiceAction(r.Context(), "restart", site.Slug)
+			}
+		}
+		_ = s.store.Audit(user.ID, "website.version_change", site.Slug, clientIP(r), "new_version="+newVer)
 	}
+
 	engine := strings.ToLower(strings.TrimSpace(req.Engine))
 	if engine != "" && !webserver.Supported(engine) {
 		writeError(w, http.StatusBadRequest, "unsupported_web_server",

@@ -168,6 +168,14 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 		req.Config = map[string]any{}
 	}
 
+	if verVal, ok := req.Config["version"]; ok {
+		if verStr := strings.TrimSpace(fmt.Sprint(verVal)); verStr != "" && verStr != site.Version {
+			_ = s.store.UpdateWebsiteVersion(site.Slug, verStr)
+			site.Version = verStr
+			_ = s.store.Audit(user.ID, "website.version_change", site.Slug, clientIP(r), "new_version="+verStr)
+		}
+	}
+
 	siteDir := s.host.SitePath(site.TenantUser, site.Slug)
 	runtime := strings.ToLower(strings.TrimSpace(site.Runtime))
 	limits := s.limitsForTenant(site.TenantUser)

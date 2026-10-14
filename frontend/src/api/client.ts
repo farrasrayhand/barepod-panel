@@ -985,7 +985,7 @@ export const api = {
   /** How a site is served: engine, whether it is installed, docroot and socket. */
   runtime: (slug: string) => request<SiteRuntime>(`/websites/${encodeURIComponent(slug)}/runtime`),
 
-  updateRuntime: (slug: string, body: { engine?: string }) =>
+  updateRuntime: (slug: string, body: { engine?: string; version?: string }) =>
     request<SiteRuntime>(`/websites/${encodeURIComponent(slug)}/runtime`, {
       method: 'PUT',
       body: JSON.stringify(body),
@@ -1454,6 +1454,7 @@ export interface UpdateUserPayload {
 export interface SiteRuntime {
   runtime: string;
   version: string;
+  availableVersions?: string[];
   webServer: string;
   siteEngine?: string;
   engine: string;

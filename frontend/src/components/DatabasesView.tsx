@@ -125,7 +125,7 @@ const TOOL_TO_API: Record<string, string> = {
 };
 
 export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => {
-  const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine | 'caches' | 'trash' | 'detached'>('all');
+  const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine | 'caches' | 'trash'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Modal States
@@ -445,7 +445,6 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
   const filtered = databases.filter((db) => {
     if (activeTab === 'trash') return isInBin(db);
     if (isInBin(db)) return false;
-    if (activeTab === 'detached') return isDetached(db);
     if (activeTab === 'all') return db.type !== 'redis';
     if (activeTab === 'caches') return db.type === 'redis';
     if (activeTab === 'mysql' || activeTab === 'mariadb') {
@@ -631,20 +630,6 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
           <span>Caches (Redis)</span>
           <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'caches' ? 'bg-rose-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
             {activeDatabases.filter((d) => d.type === 'redis').length}
-          </span>
-        </button>
-        <button
-          onClick={() => setActiveTab('detached')}
-          className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 shrink-0 ${
-            activeTab === 'detached'
-              ? 'bg-slate-900 text-white shadow-2xs'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-          }`}
-        >
-          <Folder className="w-3.5 h-3.5" />
-          <span>Detached</span>
-          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'detached' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>
-            {activeDatabases.filter((d) => isDetached(d)).length}
           </span>
         </button>
         <button
