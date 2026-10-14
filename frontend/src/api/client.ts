@@ -102,6 +102,18 @@ export interface ApiDeployKey {
   createdAt: string;
 }
 
+export interface ApiWebsiteGitStatus {
+  detected: boolean;
+  repo: string;
+  branch: string;
+  commit?: string;
+  commitMessage?: string;
+  autoDeploy: boolean;
+  deployHookToken: string;
+  webhookUrl: string;
+  deployKey?: ApiDeployKey;
+}
+
 export interface ApiCronJob {
   id: string;
   websiteSlug: string;
@@ -729,6 +741,7 @@ export const api = {
     ),
 
   /** Git Ingress & Deploy Keys */
+  websiteGitStatus: (slug: string) => request<ApiWebsiteGitStatus>(`/websites/${slug}/git`),
   websiteDeployKey: (slug: string) => request<ApiDeployKey>(`/websites/${slug}/git/deploy-key`),
   rotateWebsiteDeployKey: (slug: string) =>
     request<ApiDeployKey>(`/websites/${slug}/git/deploy-key/rotate`, { method: 'POST' }),

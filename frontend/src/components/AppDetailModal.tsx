@@ -33,6 +33,7 @@ import {
   Filter
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
+import { siteSupportsFiles, siteSupportsCI, siteSupportsShell, siteHasGit } from '../utils/siteRuntime';
 
 interface AppDetailModalProps {
   isOpen: boolean;
@@ -259,14 +260,16 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               <span>Files</span>
             </button>
 
-            <button
-              onClick={() => onOpenGit(app)}
-              className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center gap-1.5 shadow-2xs cursor-pointer"
-              title="Redeploy from GitHub"
-            >
-              <FolderGit2 className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Git Deploy</span>
-            </button>
+            {siteSupportsCI(app) && siteHasGit(app) && (
+              <button
+                onClick={() => onOpenGit(app)}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                title={`Redeploy from Git (${app.gitBranch || 'main'})`}
+              >
+                <FolderGit2 className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Git Deploy</span>
+              </button>
+            )}
 
             <button
               onClick={() => onToggleStatus(app.id)}

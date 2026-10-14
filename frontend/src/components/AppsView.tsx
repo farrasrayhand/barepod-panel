@@ -22,7 +22,7 @@ import {
   AlertTriangle,
   Lock
 } from 'lucide-react';
-import { siteSupportsFiles, siteSupportsCI, siteSupportsShell } from '../utils/siteRuntime';
+import { siteSupportsFiles, siteSupportsCI, siteSupportsShell, siteHasGit } from '../utils/siteRuntime';
 import type { WebApp, WebServerType } from '../types';
 import { GitDeploymentModal } from './GitDeploymentModal';
 import { AppDetailPage, type AppDetailTab } from './AppDetailPage';
@@ -277,6 +277,12 @@ export const AppsView: React.FC<AppsViewProps> = ({
                                 Auth
                               </span>
                             )}
+                            {siteHasGit(app) && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200" title={`Git Connected (${app.gitBranch || 'main'})`}>
+                                <FolderGit2 className="w-2.5 h-2.5 text-purple-600" />
+                                {app.gitBranch || 'main'}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -381,14 +387,14 @@ export const AppsView: React.FC<AppsViewProps> = ({
                           </button>
                           )}
 
-                          {/* GitHub CI/CD & Redeploy Button */}
-                          {siteSupportsCI(app) && (
+                          {/* Git CI/CD & Redeploy Button (only for git-connected websites) */}
+                          {siteSupportsCI(app) && siteHasGit(app) && (
                           <button
                             onClick={() => setSelectedAppForGit(app)}
-                            className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-                            title="GitHub Push-to-Deploy & Redeploy"
+                            className="p-1.5 rounded-lg text-slate-600 hover:text-purple-600 hover:bg-purple-50 transition-colors"
+                            title={`Git Push-to-Deploy & Redeploy (${app.gitBranch || 'main'})`}
                           >
-                            <FolderGit2 className="w-4 h-4" />
+                            <FolderGit2 className="w-4 h-4 text-purple-600" />
                           </button>
                           )}
 

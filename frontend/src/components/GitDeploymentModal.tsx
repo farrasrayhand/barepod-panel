@@ -20,7 +20,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import type { WebApp } from '../types';
-import { api } from '../api/client';
+import { api, type ApiWebsiteGitStatus } from '../api/client';
 
 interface GitDeploymentModalProps {
   isOpen: boolean;
@@ -71,18 +71,17 @@ npm run build`;
   const [isSaving, setIsSaving] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState(false);
-  // Empty on purpose: this window has no history of its own, and inventing one ("last
-  // deployment succeeded, commit d70a45a") is exactly what it used to do.
   const [deployLogs, setDeployLogs] = useState<string[]>([]);
   const [deployKey, setDeployKey] = useState<{ publicKey: string; fingerprint: string } | null>(null);
   const [loadingKey, setLoadingKey] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [isRotatingKey, setIsRotatingKey] = useState(false);
+  const [gitStatus, setGitStatus] = useState<ApiWebsiteGitStatus | null>(null);
 
   // Sync state when app changes
   useEffect(() => {
     if (app) {
-      setRepoUrl(app.gitRepo || `https://github.com/${app.tenantUser}/${app.name}`);
+      setRepoUrl(app.gitRepo || '');
       setBranch(app.gitBranch || 'main');
       setAutoDeploy(app.autoDeploy !== false);
       setBuildScript(app.buildScript || getDefaultScript(app.runtime));
@@ -96,9 +95,17 @@ npm run build`;
     }
     if (app && isOpen) {
       setLoadingKey(true);
-      api.websiteDeployKey(app.name)
-        .then((res) => setDeployKey(res))
-        .catch(() => {})
+      api.websiteGitStatus(app.name)
+        .then((res) => {
+          setGitStatus(res);
+          if (res.repo) setRepoUrl(res.repo);
+          if (res.branch) setBranch(res.branch);
+          setAutoDeploy(res.autoDeploy);
+          if (res.deployKey) setDeployKey(res.deployKey);
+        })
+        .catch(() => {
+          api.websiteDeployKey(app.name).then((res) => setDeployKey(res)).catch(() => {});
+        })
         .finally(() => setLoadingKey(false));
     }
   }, [app, isOpen]);
@@ -225,14 +232,18 @@ systemctl reload ${app.name}`;
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-slate-900">GitHub CI/CD & Deploy Script</h2>
+                <h2 className="text-base font-bold text-slate-900">
+                  {app.gitRepo ? 'Git CI/CD & Push-to-Deploy' : 'Connect Git Repository'}
+                </h2>
                 <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1">
                   <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                  <span>Saved per App</span>
+                  <span>{app.gitRepo ? 'Connected' : 'Git Integration'}</span>
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Configure the build script and auto-redeploy webhook for <strong>{app.name}</strong> ({app.domain})
+                {app.gitRepo
+                  ? <>Configure build script, deploy keys, and auto-redeploy webhook for <strong>{app.name}</strong> ({app.domain})</>
+                  : <>Connect a Git repository (GitHub, GitLab, Bitbucket, Gitea) to enable automated push-to-deploy for <strong>{app.name}</strong></>}
               </p>
             </div>
           </div>
@@ -246,17 +257,40 @@ systemctl reload ${app.name}`;
 
         {/* Content (Scrollable) */}
         <div className="p-6 overflow-y-auto space-y-5">
+          {/* Git Auto-detected banner */}
+          {gitStatus?.detected && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3.5 bg-purple-50/80 border border-purple-200 rounded-xl text-xs text-purple-900">
+              <div className="flex items-center gap-2.5">
+                <FolderGit2 className="w-4 h-4 text-purple-600 shrink-0" />
+                <div>
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <span>Git Repository Auto-Detected on Host:</span>
+                    <code className="font-mono text-[11px] bg-purple-100 px-1.5 py-0.2 rounded border border-purple-200">{gitStatus.repo || 'Local .git found'}</code>
+                  </div>
+                  {gitStatus.commit && (
+                    <p className="text-[11px] text-purple-700 mt-0.5">
+                      Latest Commit: <code className="font-mono font-semibold">{gitStatus.commit}</code>{gitStatus.commitMessage ? ` - ${gitStatus.commitMessage}` : ''}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-white text-purple-800 rounded border border-purple-200 shrink-0">
+                Active Branch: {gitStatus.branch || branch}
+              </span>
+            </div>
+          )}
+
           {/* Repo & Branch Configuration */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                GitHub Repository URL
+                Git Repository URL (GitHub / GitLab / Gitea / Custom)
               </label>
               <input
                 type="text"
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}
-                placeholder="https://github.com/username/repository"
+                placeholder="https://github.com/username/repository.git or git@github.com:..."
                 className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white"
               />
             </div>
@@ -323,7 +357,12 @@ systemctl reload ${app.name}`;
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
                 <Radio className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
-                <span>GitHub Webhook URL (Push-to-Deploy)</span>
+                <span>Inbound Push Webhook URL</span>
+                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                  autoDeploy ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                }`}>
+                  {autoDeploy ? 'Active' : 'Disabled'}
+                </span>
               </span>
               <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none">
                 <input
@@ -339,10 +378,11 @@ systemctl reload ${app.name}`;
               <input
                 type="text"
                 readOnly
-                value={webhookUrl}
-                className="w-full px-3 py-1.5 text-[11px] font-mono bg-white border border-slate-200 rounded-lg text-slate-600"
+                value={gitStatus?.webhookUrl || webhookUrl}
+                className="w-full px-3 py-1.5 text-[11px] font-mono bg-white border border-slate-200 rounded-lg text-slate-600 select-all"
               />
               <button
+                type="button"
                 onClick={handleCopyWebhook}
                 className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-medium flex items-center gap-1 shrink-0 cursor-pointer shadow-2xs"
               >
@@ -350,9 +390,20 @@ systemctl reload ${app.name}`;
                 <span>{copiedWebhook ? 'Copied' : 'Copy'}</span>
               </button>
             </div>
-            <p className="text-[11px] text-slate-500">
-              Paste this URL into GitHub: <strong>Repo Settings → Webhooks → Add Webhook</strong>. On <code>git push</code>, the server runs the <strong>Deploy & Build Script</strong> below automatically.
-            </p>
+
+            <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-[11px] text-slate-700 space-y-1">
+              <span className="font-bold text-blue-900 block">Cara Pasang di Provider Git:</span>
+              <ul className="list-disc list-inside space-y-0.5 text-slate-600 text-[10.5px]">
+                <li><strong>GitHub:</strong> Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Masukkan Payload URL, pilih <code>application/json</code>, pilih <em>Just the push event</em>.</li>
+                <li><strong>GitLab:</strong> Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Masukkan URL, centang <em>Push events</em>.</li>
+                <li><strong>Gitea:</strong> Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Masukkan Target URL.</li>
+              </ul>
+              <p className="text-[10px] text-blue-900 font-semibold pt-0.5">
+                {autoDeploy
+                  ? '✓ Auto-deploy AKTIF: Setiap commit baru di-push ke branch ' + branch + ' akan otomatis men-trigger build & deploy.'
+                  : '⚠️ Auto-deploy NONAKTIF: Centang "Auto Redeploy on Push" di atas agar commit baru otomatis di-deploy.'}
+              </p>
+            </div>
           </div>
 
           {/* Build Command Script */}

@@ -61,3 +61,11 @@ export function siteTabSupport(app: WebApp): SiteTabSupport {
   };
 }
 
+/**
+ * True when the site is actively connected to a Git repository or was deployed via Git.
+ */
+export function siteHasGit(app: WebApp): boolean {
+  if (app.runtime === 'proxy') return false;
+  return Boolean(app.gitRepo?.trim() || app.sourceKind === 'github');
+}
+

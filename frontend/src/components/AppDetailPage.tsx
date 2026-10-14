@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { siteSupportsShell, siteSupportsFiles, siteSupportsCI, siteShellNote, siteFilesNote, siteCINote, siteTabSupport } from '../utils/siteRuntime';
+import { siteSupportsShell, siteSupportsFiles, siteSupportsCI, siteHasGit, siteShellNote, siteFilesNote, siteCINote, siteTabSupport } from '../utils/siteRuntime';
 import { 
   ArrowLeft, 
   Activity, 
@@ -66,7 +66,7 @@ import { runtimeIcon, frameworkIcon } from '../utils/brandIcons';
 import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
-import { api, apiReachable, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode } from '../api/client';
+import { api, apiReachable, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey } from '../api/client';
 import { describeError } from '../utils/format';
 
 export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'domains' | 'routing' | 'files' | 'env' | 'php' | 'runtime' | 'security' | 'deploy';
@@ -257,25 +257,41 @@ npm install
 npm run build`;
   };
 
-  const [gitRepo, setGitRepo] = useState(app.gitRepo || `https://github.com/${app.tenantUser}/${app.name}`);
+  const [gitRepo, setGitRepo] = useState(app.gitRepo || '');
   const [gitBranch, setGitBranch] = useState(app.gitBranch || 'main');
   const [autoDeploy, setAutoDeploy] = useState(app.autoDeploy !== false);
   const [buildScript, setBuildScript] = useState(app.buildScript || getDefaultBuildScript(app.runtime));
   const [isSavingDeployScript, setIsSavingDeployScript] = useState(false);
   const [isDeployingNow, setIsDeployingNow] = useState(false);
   const [copiedDeployWebhook, setCopiedDeployWebhook] = useState(false);
-  const [deployLogs, setDeployLogs] = useState<string[]>([
-    `[SYSTEM] Last deployment: ${app.lastDeployedAt || '2026-10-10 18:34:12'} (Commit: ${app.lastDeployCommit || '7fa901a'})`,
-    `[SYSTEM] Webhook listener active at https://${app.domain}/api/v1/webhook/${app.id}/deploy`,
-    `[SYSTEM] Build script stored persistently per app and ready to run on auto-redeploy.`,
-  ]);
+  const [deployLogs, setDeployLogs] = useState<string[]>([]);
+  const [gitStatus, setGitStatus] = useState<ApiWebsiteGitStatus | null>(null);
+  const [loadingGitStatus, setLoadingGitStatus] = useState(false);
+  const [deployKeyInfo, setDeployKeyInfo] = useState<ApiDeployKey | null>(null);
+  const [copiedDeployKey, setCopiedDeployKey] = useState(false);
+  const [isRotatingDeployKey, setIsRotatingDeployKey] = useState(false);
+  const [showConnectGit, setShowConnectGit] = useState(false);
 
   useEffect(() => {
-    if (app.gitRepo) setGitRepo(app.gitRepo);
-    if (app.gitBranch) setGitBranch(app.gitBranch);
+    setGitRepo(app.gitRepo || '');
+    setGitBranch(app.gitBranch || 'main');
     if (app.autoDeploy !== undefined) setAutoDeploy(app.autoDeploy);
     if (app.buildScript) setBuildScript(app.buildScript);
-  }, [app]);
+
+    setLoadingGitStatus(true);
+    api.websiteGitStatus(app.name)
+      .then((res) => {
+        setGitStatus(res);
+        if (res.repo) setGitRepo(res.repo);
+        if (res.branch) setGitBranch(res.branch);
+        setAutoDeploy(res.autoDeploy);
+        if (res.deployKey) setDeployKeyInfo(res.deployKey);
+      })
+      .catch(() => {
+        api.websiteDeployKey(app.name).then(k => setDeployKeyInfo(k)).catch(() => {});
+      })
+      .finally(() => setLoadingGitStatus(false));
+  }, [app.name, app.gitRepo, app.gitBranch, app.autoDeploy, app.buildScript]);
 
   // Extension counts come from the panel below, which reads them from the host.
   const [extensionCounts, setExtensionCounts] = useState({ enabled: 0, total: 0 });
@@ -593,11 +609,19 @@ npm run build`;
   };
 
   const handleCopyDeployWebhook = () => {
-    const url = `https://${app.domain}/api/v1/webhook/${app.id}/deploy?token=bp_wh_${app.tenantUser}_99a`;
+    const url = gitStatus?.webhookUrl || `${window.location.origin}/api/v1/webhooks/deploy/${app.name}?token=${app.deployHookToken || ''}`;
     navigator.clipboard.writeText(url);
     setCopiedDeployWebhook(true);
     setTimeout(() => setCopiedDeployWebhook(false), 2000);
-    onShowToast?.('Webhook Copied', 'GitHub webhook URL copied to clipboard.', 'info');
+    onShowToast?.('Webhook Copied', 'Deploy webhook URL copied to clipboard. Add it to your Git repository webhooks.', 'info');
+  };
+
+  const handleCopyDeployKeyInPage = () => {
+    if (!deployKeyInfo?.publicKey) return;
+    navigator.clipboard.writeText(deployKeyInfo.publicKey);
+    setCopiedDeployKey(true);
+    setTimeout(() => setCopiedDeployKey(false), 2000);
+    onShowToast?.('Deploy Key Copied', 'ED25519 Public Key copied to clipboard. Add it to your repository deploy keys.', 'info');
   };
 
   const handleApplyPresetInDetail = (preset: 'laravel' | 'nextjs' | 'fastapi' | 'go' | 'static') => {
@@ -632,11 +656,15 @@ systemctl reload ${app.name}`;
     onShowToast?.('Preset Applied', `${preset.toUpperCase()} script template loaded into the editor. Click "Save Script" to persist it.`, 'info');
   };
 
-  const handleSaveDeployScript = (e?: React.FormEvent) => {
+  const handleSaveDeployScript = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setIsSavingDeployScript(true);
-    setTimeout(() => {
-      setIsSavingDeployScript(false);
+    try {
+      await api.updateWebsiteGit(app.name, {
+        repo: gitRepo,
+        branch: gitBranch,
+        autoDeploy,
+      });
       const updated: WebApp = {
         ...app,
         gitRepo,
@@ -645,8 +673,27 @@ systemctl reload ${app.name}`;
         buildScript,
       };
       onUpdateApp?.(updated);
-      onShowToast?.('Build Script Saved', `Deploy & Build Script for '${app.name}' saved permanently. It runs whenever auto-redeploy is triggered.`, 'success');
-    }, 400);
+      onShowToast?.('Settings Saved', `Git configuration and deploy script for '${app.name}' saved to server.`, 'success');
+      api.websiteGitStatus(app.name).then(res => setGitStatus(res)).catch(() => {});
+    } catch (err) {
+      onShowToast?.('Save Failed', err instanceof Error ? err.message : 'Unknown error', 'error');
+    } finally {
+      setIsSavingDeployScript(false);
+    }
+  };
+
+  const handleRotateDeployKeyInPage = async () => {
+    if (!confirm('Rotate Deploy Key? The old key will immediately stop working and you will need to update the public key in your git repository settings.')) return;
+    setIsRotatingDeployKey(true);
+    try {
+      const res = await api.rotateWebsiteDeployKey(app.name);
+      setDeployKeyInfo(res);
+      onShowToast?.('Deploy Key Rotated', 'New ED25519 deploy key generated.', 'success');
+    } catch (err) {
+      onShowToast?.('Rotation Failed', err instanceof Error ? err.message : 'Unknown error', 'error');
+    } finally {
+      setIsRotatingDeployKey(false);
+    }
   };
 
   const handleTriggerDirectDeploy = () => {
@@ -1609,14 +1656,17 @@ QUEUE_CONNECTION=redis`;
               </button>
             )}
 
-            {siteSupportsCI(app) && (
+            {siteSupportsCI(app) && (siteHasGit(app) || gitStatus?.detected) && (
               <button
                 onClick={() => onOpenGit(app)}
-                title={siteCINote(app)}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs"
+                title={`Git Push-to-Deploy (${gitBranch || app.gitBranch || 'main'})`}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 rounded-xl hover:bg-purple-100 transition-colors shadow-2xs"
               >
                 <FolderGit2 className="w-3.5 h-3.5 text-purple-600" />
                 <span>Git CI/CD</span>
+                {autoDeploy && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="Auto-deploy active" />
+                )}
               </button>
             )}
 
@@ -1721,9 +1771,13 @@ QUEUE_CONNECTION=redis`;
             }`}
           >
             <FolderGit2 className="w-4 h-4 text-blue-600" />
-            <span>Deploy & Build Script</span>
-            <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">
-              Saved
+            <span>{siteHasGit(app) || gitStatus?.detected ? 'Git CI/CD & Deploy' : 'Deploy & Script'}</span>
+            <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+              siteHasGit(app) || gitStatus?.detected
+                ? 'bg-purple-100 text-purple-800'
+                : 'bg-slate-100 text-slate-600'
+            }`}>
+              {siteHasGit(app) || gitStatus?.detected ? (gitBranch || 'Git') : 'Local'}
             </span>
           </button>
         )}
@@ -4425,126 +4479,273 @@ QUEUE_CONNECTION=redis`}
         {/* TAB: DEPLOY & BUILD SCRIPT (PERSISTENT PER APP) */}
         {activeTab === 'deploy' && (
           <div className="space-y-6">
-            {/* Top Persistence Banner */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-blue-50/70 border border-blue-200 rounded-2xl">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-                  <FolderGit2 className="w-5 h-5" />
+            {/* Auto-detected Git repository banner */}
+            {gitStatus?.detected && (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-purple-50/80 border border-purple-200 rounded-2xl shadow-2xs">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                    <FolderGit2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-bold text-purple-950">
+                        Git Repository Auto-Detected on Server
+                      </h4>
+                      <span className="text-[10px] font-bold bg-purple-200/80 text-purple-900 px-2 py-0.5 rounded font-mono">
+                        .git active
+                      </span>
+                    </div>
+                    <p className="text-xs text-purple-900 mt-0.5">
+                      Remote: <code className="font-mono font-bold bg-white/70 px-1.5 py-0.5 rounded border border-purple-200">{gitStatus.repo || 'origin'}</code>
+                      {gitStatus.commit && (
+                        <span className="ml-2">
+                          (Commit: <code className="font-mono">{gitStatus.commit}</code>{gitStatus.commitMessage ? ` - ${gitStatus.commitMessage}` : ''})
+                        </span>
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Deploy & Build Script Saved Per App
-                    </h3>
-                    <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1 font-mono">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                      <span>Persistent in DB</span>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs font-mono font-bold text-purple-900 bg-white px-3 py-1.5 rounded-xl border border-purple-200">
+                    Branch: {gitStatus.branch || gitBranch}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* If site has NO git repo configured and NO .git detected and user hasn't clicked connect: show clean local info card */}
+            {!siteHasGit(app) && !gitStatus?.detected && !showConnectGit ? (
+              <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl space-y-4 shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                      <Folder className="w-6 h-6 text-amber-600" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Deployment Mode: Local File System / Application Scaffold
+                        </h3>
+                        <span className="text-[10px] font-bold bg-slate-200 text-slate-700 px-2 py-0.5 rounded font-mono">
+                          {app.framework || app.runtime.toUpperCase()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1 max-w-2xl leading-relaxed">
+                        This website runs directly from local files in <code>{appPath}</code>.
+                        You can upload files via File Manager or run commands in Web Terminal. If you want automated CI/CD, connect a Git repository below.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowConnectGit(true)}
+                    className="px-4 py-2.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-colors flex items-center gap-2 shrink-0 shadow-sm shadow-purple-500/25 cursor-pointer"
+                  >
+                    <FolderGit2 className="w-4 h-4" />
+                    <span>Connect Git Repository</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Top Persistence Banner */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-blue-50/70 border border-blue-200 rounded-2xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <FolderGit2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-bold text-slate-900">
+                          Deploy & Build Script Saved Per App
+                        </h3>
+                        <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1 font-mono">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          <span>Persistent in DB</span>
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Whenever a commit is pushed to your Git remote or the webhook is invoked, BarePod automatically runs the build script inside <code>{appPath}</code>.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleSaveDeployScript}
+                      disabled={isSavingDeployScript}
+                      className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                    >
+                      <Save className={`w-3.5 h-3.5 ${isSavingDeployScript ? 'animate-spin' : 'text-blue-600'}`} />
+                      <span>{isSavingDeployScript ? 'Saving...' : 'Save Git Config'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleTriggerDirectDeploy}
+                      disabled={isDeployingNow}
+                      className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center gap-2 shadow-sm shadow-blue-500/25 disabled:opacity-50 cursor-pointer"
+                    >
+                      <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
+                      <span>{isDeployingNow ? 'Deploying...' : 'Redeploy Now'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Git Repo & Branch Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2 p-4 bg-white rounded-xl border border-slate-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-slate-800">
+                        Git Repository URL (GitHub / GitLab / Gitea / Custom)
+                      </label>
+                      {gitRepo && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm('Disconnect Git repository from this website?')) {
+                              setGitRepo('');
+                              setShowConnectGit(false);
+                            }
+                          }}
+                          className="text-[11px] text-red-600 hover:underline cursor-pointer"
+                        >
+                          Disconnect Git
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={gitRepo}
+                      onChange={(e) => setGitRepo(e.target.value)}
+                      placeholder="https://github.com/username/repository.git or git@github.com:..."
+                      className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white"
+                    />
+                    <span className="text-[11px] text-slate-500 block">
+                      Upstream remote URL used for automatic pulling and resetting.
                     </span>
                   </div>
-                  <p className="text-xs text-slate-600 mt-0.5">
-                    This script is stored permanently for <strong>{app.name}</strong>. Whenever a commit is pushed to GitHub or the webhook is called, the server runs it automatically in the sandbox <code>{appPath}</code>.
-                  </p>
+
+                  <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-2">
+                    <label className="block text-xs font-bold text-slate-800">
+                      Target Branch
+                    </label>
+                    <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus-within:border-blue-500 focus-within:bg-white">
+                      <GitBranch className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <input
+                        type="text"
+                        value={gitBranch}
+                        onChange={(e) => setGitBranch(e.target.value)}
+                        placeholder="main"
+                        className="w-full bg-transparent border-none outline-hidden p-0 text-slate-800 font-mono text-xs font-bold"
+                      />
+                    </div>
+                    <span className="text-[11px] text-slate-500 block">
+                      Branch checked out automatically on deploy.
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleSaveDeployScript}
-                  disabled={isSavingDeployScript}
-                  className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
-                >
-                  <Save className={`w-3.5 h-3.5 ${isSavingDeployScript ? 'animate-spin' : 'text-blue-600'}`} />
-                  <span>{isSavingDeployScript ? 'Saving...' : 'Save Script Config'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleTriggerDirectDeploy}
-                  disabled={isDeployingNow}
-                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center gap-2 shadow-sm shadow-blue-500/25 disabled:opacity-50 cursor-pointer"
-                >
-                  <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
-                  <span>{isDeployingNow ? 'Deploying...' : 'Redeploy Now'}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Git Repo & Branch Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2 p-4 bg-white rounded-xl border border-slate-200 space-y-2">
-                <label className="block text-xs font-bold text-slate-800">
-                  GitHub Repository URL
-                </label>
-                <input
-                  type="text"
-                  value={gitRepo}
-                  onChange={(e) => setGitRepo(e.target.value)}
-                  placeholder="https://github.com/username/repo"
-                  className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white"
-                />
-                <span className="text-[11px] text-slate-500 block">
-                  Upstream git remote used to pull code (git pull).
-                </span>
-              </div>
-
-              <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-2">
-                <label className="block text-xs font-bold text-slate-800">
-                  Target Branch
-                </label>
-                <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus-within:border-blue-500 focus-within:bg-white">
-                  <GitBranch className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <input
-                    type="text"
-                    value={gitBranch}
-                    onChange={(e) => setGitBranch(e.target.value)}
-                    placeholder="main"
-                    className="w-full bg-transparent border-none outline-hidden p-0 text-slate-800 font-mono text-xs font-bold"
-                  />
+                {/* SSH Deploy Key Card */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <Key className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Dedicated SSH Deploy Key (Private Git Repositories)</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleRotateDeployKeyInPage}
+                      disabled={isRotatingDeployKey}
+                      className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isRotatingDeployKey ? 'animate-spin' : ''}`} />
+                      <span>Rotate Key</span>
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={deployKeyInfo?.publicKey || 'Loading ED25519 deploy key...'}
+                      className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-lg text-slate-700 select-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCopyDeployKeyInPage}
+                      disabled={!deployKeyInfo?.publicKey}
+                      className="px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer disabled:opacity-50"
+                    >
+                      {copiedDeployKey ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedDeployKey ? 'Copied' : 'Copy Key'}</span>
+                    </button>
+                  </div>
+                  {deployKeyInfo?.fingerprint && (
+                    <p className="text-[10px] text-slate-500 font-mono">
+                      Fingerprint: <span className="text-slate-700">{deployKeyInfo.fingerprint}</span> (ED25519, mode 0600 tenant-isolated)
+                    </p>
+                  )}
                 </div>
-                <span className="text-[11px] text-slate-500 block">
-                  Branch checked out automatically on deploy.
-                </span>
-              </div>
-            </div>
 
-            {/* Webhook Push-to-Deploy */}
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Radio className="w-4 h-4 text-blue-600 animate-pulse" />
-                  <span className="text-xs font-bold text-slate-900">Push-to-Deploy GitHub Webhook URL</span>
+                {/* Webhook Push-to-Deploy */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Radio className="w-4 h-4 text-blue-600 animate-pulse" />
+                      <span className="text-xs font-bold text-slate-900">Push-to-Deploy Webhook URL</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        autoDeploy ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        {autoDeploy ? 'Active' : 'Disabled'}
+                      </span>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={autoDeploy}
+                        onChange={(e) => setAutoDeploy(e.target.checked)}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="font-bold text-slate-900">Enable Auto Redeploy on Git Push</span>
+                    </label>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={gitStatus?.webhookUrl || `${window.location.origin}/api/v1/webhooks/deploy/${app.name}?token=${app.deployHookToken || ''}`}
+                      className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-lg text-slate-700 select-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCopyDeployWebhook}
+                      className="px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer"
+                    >
+                      {copiedDeployWebhook ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedDeployWebhook ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+
+                  {/* Webhook Quick Guide */}
+                  <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg text-xs text-slate-700 space-y-1.5">
+                    <span className="font-bold text-blue-950 block">Cara Setting di Provider Git:</span>
+                    <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-600">
+                      <li><strong>GitHub:</strong> Repo Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Paste Payload URL, Content-Type: <code>application/json</code>, Event: <em>Just the push event</em>.</li>
+                      <li><strong>GitLab:</strong> Settings &rarr; Webhooks &rarr; Add new webhook &rarr; Paste URL, Trigger: <em>Push events</em>.</li>
+                      <li><strong>Gitea:</strong> Settings &rarr; Webhooks &rarr; Add Gitea webhook &rarr; Paste Target URL.</li>
+                    </ul>
+                    <p className="text-[11px] text-blue-900 font-semibold pt-0.5">
+                      {autoDeploy
+                        ? '✓ Auto-deploy aktif: Setiap push ke branch ' + gitBranch + ' akan otomatis men-trigger redeploy.'
+                        : '⚠️ Auto-deploy nonaktif: Webhook tidak akan melakukan deploy sampai opsi "Enable Auto Redeploy" dicentang.'}
+                    </p>
+                  </div>
                 </div>
-                <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={autoDeploy}
-                    onChange={(e) => setAutoDeploy(e.target.checked)}
-                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="font-semibold">Enable Auto Redeploy on Git Push</span>
-                </label>
-              </div>
-
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={`https://${app.domain}/api/v1/webhook/${app.id}/deploy?token=bp_wh_${app.tenantUser}_99a`}
-                  className="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-lg text-slate-600"
-                />
-                <button
-                  type="button"
-                  onClick={handleCopyDeployWebhook}
-                  className="px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer"
-                >
-                  {copiedDeployWebhook ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedDeployWebhook ? 'Copied' : 'Copy'}</span>
-                </button>
-              </div>
-              <p className="text-[11px] text-slate-500">
-                Copy the Webhook URL above into <strong>GitHub: Repo Settings → Webhooks → Add Webhook</strong> (Content-Type: <code>application/json</code>). Every commit pushed to branch <code>{gitBranch}</code> automatically runs the build script below!
-              </p>
-            </div>
+              </>
+            )}
 
             {/* Build Script Editor Card */}
             <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">

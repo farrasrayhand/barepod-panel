@@ -125,3 +125,39 @@ func TestFetchSourceExistingGitRepoUsesFetchAndReset(t *testing.T) {
 	}
 }
 
+func TestDetectGit(t *testing.T) {
+	root := t.TempDir()
+	tenant := "git_detect_user"
+	slug := "detect-app"
+
+	runner := &DryRunner{}
+	h := &Host{Runner: runner, SitesRoot: root}
+	siteDir, err := h.EnsureSiteDir(context.Background(), tenant, slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Without .git, should not detect
+	res, err := h.DetectGit(context.Background(), tenant, slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Detected {
+		t.Errorf("expected detected=false when .git is absent")
+	}
+
+	// 2. With .git directory, should detect
+	gitDir := filepath.Join(siteDir, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err = h.DetectGit(context.Background(), tenant, slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Detected {
+		t.Errorf("expected detected=true when .git exists")
+	}
+}
+

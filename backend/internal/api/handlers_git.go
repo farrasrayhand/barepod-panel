@@ -3,12 +3,14 @@ package api
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
@@ -155,10 +157,79 @@ func (s *Server) handleRotateDeployKey(w http.ResponseWriter, r *http.Request, u
 	writeJSON(w, http.StatusOK, info)
 }
 
+// WebsiteGitStatus holds comprehensive git status for a website, combining
+// stored repository metadata, auto-detected disk repository info, auto-deploy toggle,
+// webhook URL, and deploy key.
+type WebsiteGitStatus struct {
+	Detected        bool                `json:"detected"`
+	Repo            string              `json:"repo"`
+	Branch          string              `json:"branch"`
+	Commit          string              `json:"commit,omitempty"`
+	CommitMessage   string              `json:"commitMessage,omitempty"`
+	AutoDeploy      bool                `json:"autoDeploy"`
+	DeployHookToken string              `json:"deployHookToken"`
+	WebhookURL      string              `json:"webhookUrl"`
+	DeployKey       *host.DeployKeyInfo `json:"deployKey,omitempty"`
+}
+
+// handleGetWebsiteGit returns the full git status, auto-detected repository,
+// webhook URL, and deploy key.
+func (s *Server) handleGetWebsiteGit(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	slug := r.PathValue("slug")
+	site, err := s.store.WebsiteBySlug(slug)
+	if err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+
+	detectedInfo, _ := s.host.DetectGit(r.Context(), site.TenantUser, site.Slug)
+	if detectedInfo == nil {
+		detectedInfo = &host.GitDetectInfo{Detected: false}
+	}
+
+	activeRepo := site.SourceRepo
+	if activeRepo == "" && detectedInfo.Detected && detectedInfo.Repo != "" {
+		activeRepo = detectedInfo.Repo
+		// If website had no repo in DB but .git exists on disk, auto-sync DB
+		_ = s.store.UpdateWebsiteGit(site.Slug, activeRepo, detectedInfo.Branch, site.AutoDeploy)
+	}
+
+	activeBranch := site.SourceBranch
+	if activeBranch == "" {
+		if detectedInfo.Branch != "" {
+			activeBranch = detectedInfo.Branch
+		} else {
+			activeBranch = "main"
+		}
+	}
+
+	keyInfo, _ := s.host.EnsureDeployKey(r.Context(), site.TenantUser, site.Slug)
+
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	webhookURL := fmt.Sprintf("%s://%s/api/v1/webhooks/deploy/%s?token=%s", scheme, r.Host, site.Slug, site.DeployHookToken)
+
+	status := WebsiteGitStatus{
+		Detected:        detectedInfo.Detected || activeRepo != "",
+		Repo:            activeRepo,
+		Branch:          activeBranch,
+		Commit:          detectedInfo.Commit,
+		CommitMessage:   detectedInfo.CommitMessage,
+		AutoDeploy:      site.AutoDeploy,
+		DeployHookToken: site.DeployHookToken,
+		WebhookURL:      webhookURL,
+		DeployKey:       keyInfo,
+	}
+
+	writeJSON(w, http.StatusOK, status)
+}
+
 type updateGitPayload struct {
-	Repo       string `json:"repo"`
-	Branch     string `json:"branch"`
-	AutoDeploy *bool  `json:"autoDeploy"`
+	Repo       *string `json:"repo"`
+	Branch     *string `json:"branch"`
+	AutoDeploy *bool   `json:"autoDeploy"`
 }
 
 // handleUpdateWebsiteGit updates repository, branch, and auto_deploy settings.
@@ -176,16 +247,16 @@ func (s *Server) handleUpdateWebsiteGit(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	newRepo := strings.TrimSpace(req.Repo)
-	if newRepo == "" {
-		newRepo = site.SourceRepo
+	newRepo := site.SourceRepo
+	if req.Repo != nil {
+		newRepo = strings.TrimSpace(*req.Repo)
 	}
-	newBranch := strings.TrimSpace(req.Branch)
+	newBranch := site.SourceBranch
+	if req.Branch != nil {
+		newBranch = strings.TrimSpace(*req.Branch)
+	}
 	if newBranch == "" {
-		newBranch = site.SourceBranch
-		if newBranch == "" {
-			newBranch = "main"
-		}
+		newBranch = "main"
 	}
 	autoDeploy := site.AutoDeploy
 	if req.AutoDeploy != nil {
@@ -203,7 +274,7 @@ func (s *Server) handleUpdateWebsiteGit(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	_ = s.store.Audit(user.ID, "website.update_git", site.Slug, clientIP(r), "repo="+newRepo+", branch="+newBranch)
+	_ = s.store.Audit(user.ID, "website.update_git", site.Slug, clientIP(r), fmt.Sprintf("repo=%s, branch=%s, autoDeploy=%t", newRepo, newBranch, autoDeploy))
 	writeJSON(w, http.StatusOK, updated)
 }
 

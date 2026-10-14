@@ -596,3 +596,58 @@ func (h *Host) RunCronCommand(ctx context.Context, tenant, siteSlug, command str
 	}
 	return h.Runner.RunAs(ctx, tenant, siteDir, "sh", "-c", command)
 }
+
+// GitDetectInfo holds auto-detected git repository metadata from the site directory.
+type GitDetectInfo struct {
+	Detected      bool   `json:"detected"`
+	Repo          string `json:"repo"`
+	Branch        string `json:"branch"`
+	Commit        string `json:"commit,omitempty"`
+	CommitMessage string `json:"commitMessage,omitempty"`
+}
+
+// DetectGit inspects a website's directory to see if a .git repository exists,
+// extracting remote url, current branch, and latest commit info if found.
+func (h *Host) DetectGit(ctx context.Context, tenant, slug string) (*GitDetectInfo, error) {
+	dir := h.SitePath(tenant, slug)
+	gitDir := filepath.Join(dir, ".git")
+
+	fi, err := os.Stat(gitDir)
+	if err != nil {
+		return &GitDetectInfo{Detected: false}, nil
+	}
+	if !fi.IsDir() && fi.Mode()&os.ModeType != 0 {
+		return &GitDetectInfo{Detected: false}, nil
+	}
+
+	info := &GitDetectInfo{Detected: true}
+	if h.Runner == nil {
+		return info, nil
+	}
+
+	// 1. Remote URL
+	if out, err := h.Runner.RunAs(ctx, tenant, dir, "git", "remote", "get-url", "origin"); err == nil {
+		info.Repo = strings.TrimSpace(out)
+	} else if out, err := h.Runner.RunAs(ctx, tenant, dir, "git", "config", "--get", "remote.origin.url"); err == nil {
+		info.Repo = strings.TrimSpace(out)
+	}
+
+	// 2. Branch
+	if out, err := h.Runner.RunAs(ctx, tenant, dir, "git", "branch", "--show-current"); err == nil && strings.TrimSpace(out) != "" {
+		info.Branch = strings.TrimSpace(out)
+	} else if out, err := h.Runner.RunAs(ctx, tenant, dir, "git", "rev-parse", "--abbrev-ref", "HEAD"); err == nil && strings.TrimSpace(out) != "" {
+		info.Branch = strings.TrimSpace(out)
+	}
+
+	// 3. Short commit hash
+	if out, err := h.Runner.RunAs(ctx, tenant, dir, "git", "rev-parse", "--short", "HEAD"); err == nil {
+		info.Commit = strings.TrimSpace(out)
+	}
+
+	// 4. Commit subject message
+	if out, err := h.Runner.RunAs(ctx, tenant, dir, "git", "log", "-1", "--pretty=format:%s"); err == nil {
+		info.CommitMessage = strings.TrimSpace(out)
+	}
+
+	return info, nil
+}

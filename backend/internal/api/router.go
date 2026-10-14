@@ -253,6 +253,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/websites/{slug}/basic-auth/toggle", deploy(s.handleToggleBasicAuth))
 
 	// Git Ingress, Deploy Keys & Webhooks
+	mux.HandleFunc("GET /api/v1/websites/{slug}/git", deploy(s.handleGetWebsiteGit))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/git/deploy-key", deploy(s.handleGetDeployKey))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/git/deploy-key/rotate", deploy(s.handleRotateDeployKey))
 	mux.HandleFunc("PATCH /api/v1/websites/{slug}/git", deploy(s.handleUpdateWebsiteGit))
