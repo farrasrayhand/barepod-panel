@@ -50,8 +50,8 @@ say "Installing database engines"
 apt-get update -qq
 # postgresql + mariadb-server + redis-server, each pulling its own client tools.
 # A server that is already installed is simply kept.
-apt-get install -y -qq postgresql mariadb-server redis-server python3-venv python3-pip python3-dev composer git unzip >/dev/null
-note "packages in place: PostgreSQL, MariaDB, Redis, Composer, Python, Git"
+apt-get install -y -qq postgresql mariadb-server redis-server python3-venv python3-pip python3-dev composer git unzip certbot >/dev/null
+note "packages in place: PostgreSQL, MariaDB, Redis, Composer, Python, Git, Certbot"
 
 if [[ "$WANT_MONGO" == "1" ]]; then
   say "Installing MongoDB (third-party repository)"
