@@ -8,7 +8,7 @@
 
 | Already served by the daemon | Contract only (planned) |
 |---|---|
-| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `system/guard` (+ `unban`) · `system/settings` · `system/ports` (panel/ssh) · **the Stack**: `system/stack` + `web-server` switch + allowlisted `install` (job + SSE) + dedicated uninstall modal · **accounts & packages**: `users` list/create/patch/delete + password reset + `provision`, `groups` list/create/`PATCH`/delete · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · **all 4 web servers (nginx, caddy, apache, openlitespeed vhosts & concurrent ports)** · **`runtime` (get/put) + `vhost/preview` + `php-fpm/reload`** · **PHP extensions toggle (`system/php/extensions`) & host tuning blueprint (`system/settings/php-defaults`)** · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**, plus **DbGate** as a per-database container), and a real logical **`export`** · **Domains & Automated SSL/TLS**: `domains` list/`POST`/`DELETE`, ACME Let's Encrypt automated issuance with preflight DNS check, self-signed local generator, custom cert upload, 301 Force HTTPS redirection, HSTS headers, and vhost hot-reload · **Website Telemetry & Traffic Map** (`GET /websites/:slug/telemetry` + SSE stream, implemented in code, pending live host verification) · **Universal Git Providers & Deploy Keys** (`GET /websites/:slug/git/deploy-key`, rotate, `/git/providers`) · **Push-to-Deploy Webhooks** (`POST /api/v1/webhooks/deploy/:slug` & `/webhook/:slug/deploy`) · **Centralized Cron & Scheduled Tasks** (`GET|POST|PUT|DELETE /api/v1/cron/jobs`, `POST /api/v1/cron/jobs/:id/run`) | Pods (Docker) · backups & migration · Cloudflare tunnels · MCP server · per-app access control (503, basic auth, anti-brute-force) · per-site custom php.ini directive editor |
+| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `system/guard` (+ `unban`) · `system/settings` · `system/ports` (panel/ssh) · **the Stack**: `system/stack` + `web-server` switch + allowlisted `install` (job + SSE) + dedicated uninstall modal · **accounts & packages**: `users` list/create/patch/delete + password reset + `provision`, `groups` list/create/`PATCH`/delete · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · **all 4 web servers (nginx, caddy, apache, openlitespeed vhosts & concurrent ports)** · **`runtime` (get/put) + `vhost/preview` + `php-fpm/reload`** · **PHP extensions toggle (`system/php/extensions`) & host tuning blueprint (`system/settings/php-defaults`)** · **Framework version detection (`GET /websites/:slug/detect-framework`, `POST /websites/detect-framework`) & version guardrails** · **Operational command execution (`POST /websites/:slug/exec`)** · **Non-destructive .env injection & merge** · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**, plus **DbGate** as a per-database container), and a real logical **`export`** · **Domains & Automated SSL/TLS**: `domains` list/`POST`/`DELETE`, ACME Let's Encrypt automated issuance with preflight DNS check, self-signed local generator, custom cert upload, 301 Force HTTPS redirection, HSTS headers, and vhost hot-reload · **Website Telemetry & Traffic Map** (`GET /websites/:slug/telemetry` + SSE stream, implemented in code, pending live host verification) · **Universal Git Providers & Deploy Keys** (`GET /websites/:slug/git/deploy-key`, rotate, `/git/providers`) · **Push-to-Deploy Webhooks** (`POST /api/v1/webhooks/deploy/:slug` & `/webhook/:slug/deploy`) · **Centralized Cron & Scheduled Tasks** (`GET|POST|PUT|DELETE /api/v1/cron/jobs`, `POST /api/v1/cron/jobs/:id/run`) | Pods (Docker) · backups & migration · Cloudflare tunnels · MCP server · per-app access control (503, basic auth, anti-brute-force) · per-site custom php.ini directive editor |
 
 `mode: "real" | "dry-run"` appears on every response that depends on privileged work — off Linux+systemd the daemon is in dry-run and says so instead of faking success.
 
@@ -120,9 +120,11 @@ This is the main rework risk — the UI currently stores some values as presenta
                   "maxConnections": 25 },
     "cache": { "provision": true, "engine": "redis", "version": "Redis 7.2.4", "password": "…" },
     "autoEnv": true,
+    "env": { "APP_KEY": "base64:…", "CUSTOM_VAR": "value" },
     "automationSteps": ["composer install …", "php artisan migrate --force"]
   }
   ```
+  `env` is an optional `Record<string, string>` map. The deployment pipeline (`stepWriteEnv`) reads pre-existing `.env` (or `.env.example`) and non-destructively merges custom variables alongside database credentials (`DB_*`, `DATABASE_URL`) and Redis cache configurations (`REDIS_*`, `CACHE_STORE`, `CACHE_URL`). Existing keys and secrets are never wiped out or overwritten by blank defaults on redeployment.
   `source.kind` ∈ `scaffold | github | upload | existing | default`. For `upload` the archive is sent to `POST /websites/:slug/files/upload`; for `existing` the directory must exist **and not be empty** (the daemon returns `409` otherwise, and the job fails with an actionable message); for `default` the daemon writes a single `index.html` (owned by the tenant) and nothing else, so a website can exist and answer before its application does — and a static site needs no `version` (`static` and `proxy` are version-less by contract, which the validator now accepts).
 - `source.kind = scaffold` runs the framework's download **and writes its starter entrypoint** when that file is absent (never overwriting uploaded or cloned code), so the site runs as promised: Flask/FastAPI get an `app.py` exposing `/` and `/healthz`, and FastAPI's unit starts gunicorn with an ASGI worker. For Python, virtual environment creation uses the chosen version (`python<version> -m venv .venv`, e.g. `python3.12`) rather than an unversioned system default. A preset that only installed packages would deploy a site that cannot start.
 - **`POST /websites/prepare-directory`** `{ slug, tenantUser }` → `201 { slug, tenantUser, path, created, existed, mode }`. **Tenants have no shell on the server**, so this is how "Existing Files" is reachable from the panel: create the folder here → upload the code with the File Manager → deploy. Idempotent; also gated on `deployApps` and restricted to the caller's own tenant.
@@ -139,6 +141,7 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `GET|POST|DELETE /websites/:slug/routes` (multi-engine path routing)
 - `GET|PUT /websites/:slug/env`
 - `POST /websites/:slug/backup` (export per-website `.bpod`)
+- **`POST /websites/:slug/exec`** `{ command: string }` → `200 { ok: boolean, command: string, output: string, durationMs: number }`. Executes an operational command inside the site directory (`/home/<tenant>/web/<slug>`) as the tenant user with timeout protection.
 
 ### 4.2.1 Site Types and What They Expose
 Normative: a client must not offer a control the site type cannot use, and the server must refuse such a request rather than half-serve it.
@@ -192,6 +195,31 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `PUT /websites/:slug/runtime/config` → validates parameters against the site's `runtime`. For PHP, updates `<siteDir>/php-fpm.conf` with `php_admin_value[...]` directives and gracefully reloads the FPM pool. For daemon runtimes (Node, Python, Ruby, Go, Rust), updates the systemd unit drop-in / `.env` and restarts the service. Audited as `website.runtime_config`.
 - `GET|PUT /websites/:slug/php/extensions` · `POST .../php/extensions/install` (PECL)
 - `GET|PUT /websites/:slug/php/ini` (compatibility alias for `/runtime/config` on PHP sites)
+- **`GET /websites/:slug/detect-framework`** → `200 { ok: true, framework: DetectedFramework }`. Inspects `composer.lock`, `composer.json`, `package.json`, `requirements.txt`, `pyproject.toml`, or `wp-config.php` in the site directory and returns detected framework metadata:
+  ```json
+  {
+    "ok": true,
+    "framework": {
+      "name": "laravel",
+      "title": "Laravel 12",
+      "frameworkVersion": "12.70.0",
+      "minPhpVersion": "8.2",
+      "compatiblePhp": ["8.2", "8.3", "8.4"],
+      "runtime": "php",
+      "version": "8.2",
+      "packageManager": "composer",
+      "docRoot": "public",
+      "buildCommand": "composer install --no-dev --optimize-autoloader && php artisan config:cache && php artisan route:cache && php artisan view:cache && php artisan migrate --force",
+      "startCommand": "",
+      "port": 8001,
+      "databaseEngine": "mariadb",
+      "cacheEngine": "redis",
+      "isProxy": false
+    }
+  }
+  ```
+  The panel UI uses `minPhpVersion` and `compatiblePhp` to lock incompatible PHP versions (e.g. PHP 7.1–8.1 on Laravel 12) from accidental switching, preventing fatal syntax errors.
+- **`POST /websites/detect-framework`** → `200 { ok: true, framework: DetectedFramework }`. Inspects an uploaded project ZIP archive (multipart) or staged directory (`{ slug, tenantUser }`) prior to website provisioning.
 > **Engine support today:** All 4 engines (`nginx`, `caddy`, `apache`, `openlitespeed`) are supported site choices. A site can choose its web server engine freely in `AddAppModal` and `POST /websites`. Public ports `:80`/`:443` are managed by the active edge ingress (Nginx or Caddy), which reverse-proxies traffic to internal backend engine ports (Apache on `127.0.0.1:8080`, OpenLiteSpeed on `127.0.0.1:8088`, Caddy on `127.0.0.1:8081`).
 
 ### 4.14 Stack (host-level platform choices)
