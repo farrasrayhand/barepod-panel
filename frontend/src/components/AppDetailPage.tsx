@@ -345,23 +345,6 @@ npm run build`;
     return `${app.runtime.toUpperCase()} Studio`;
   };
 
-  const getRuntimeBadge = () => {
-    const ws = (app.webServer || 'caddy').toUpperCase();
-    if (app.runtime === 'php') {
-      return `${ws} • PHP ${app.version || '8.3'}${effectiveFwTitle ? ' • ' + effectiveFwTitle : ''}`;
-    }
-    if (app.runtime === 'python') {
-      return `${ws} • Python ${app.version || '3.12'}${effectiveFwTitle ? ' • ' + effectiveFwTitle : ''}`;
-    }
-    if (app.runtime === 'nodejs') {
-      return `${ws} • Node ${app.version || '22'}${effectiveFwTitle ? ' • ' + effectiveFwTitle : ''}`;
-    }
-    if (app.runtime === 'ruby') {
-      return `${ws} • Ruby ${app.version || '3.3'}${effectiveFwTitle ? ' • ' + effectiveFwTitle : ''}`;
-    }
-    return `${ws} • ${app.runtime.toUpperCase()} ${app.version || ''}${effectiveFwTitle ? ' • ' + effectiveFwTitle : ''}`;
-  };
-
   const handleExecuteFrameworkCommand = async (cmd: string) => {
     if (!cmd.trim() || isRunningFrameworkCmd) return;
     setIsRunningFrameworkCmd(true);
@@ -1759,10 +1742,10 @@ QUEUE_CONNECTION=redis`;
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Server className="w-4 h-4 text-purple-600" />
-            <span>Server & Runtime Configuration</span>
-            <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
-              {getRuntimeBadge()}
+            <Layers className="w-4 h-4 text-purple-600" />
+            <span>{getRuntimeTabTitle()}</span>
+            <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
+              v{app.version || (app.runtime === 'php' ? '8.4' : '1.0')}
             </span>
           </button>
         )}
@@ -3341,22 +3324,22 @@ QUEUE_CONNECTION=redis`}
                 )}
               </div>
 
-              {/* Runtime Version Card */}
+              {/* Runtime & Process Pool Manager Card */}
               <div className="p-5 rounded-2xl border border-purple-200 bg-white shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Layers className="w-4 h-4 text-purple-600" />
                     <span className="font-bold text-xs text-slate-900 uppercase tracking-wider">
-                      {app.runtime.toUpperCase()} Runtime Version
+                      {app.runtime === 'php' ? `PHP FastCGI Pool (${app.version || '8.3'})` : `${app.runtime.toUpperCase()} Process Manager`}
                     </span>
                   </div>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-1 font-mono">
-                    <span className="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse" />
-                    {app.runtime.toUpperCase()} {app.version || 'Default'}
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1 font-mono">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    ACTIVE SUPERVISION
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Execution runtime engine. Switching version updates FastCGI socket connections and safely reloads process supervisor units.
+                  Execution runtime pool & FastCGI socket manager for {app.name}. Switching versions auto-rebinds the IPC socket.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-1">
                   {availableVersions.map((v: string) => {
@@ -3389,6 +3372,45 @@ QUEUE_CONNECTION=redis`}
                     <span>Switching {app.runtime.toUpperCase()} version and reloading pool...</span>
                   </div>
                 )}
+
+                {/* Pool & Config Actions */}
+                <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
+                  {app.runtime === 'php' && (
+                    <button
+                      type="button"
+                      onClick={handleRestorePhpBaseline}
+                      disabled={isReloadingFpm || isSavingRuntimeConfig || isSwitchingVersion}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-2xs transition-colors disabled:opacity-50 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Restore Baseline</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleRestartService}
+                    disabled={isReloadingFpm || isSavingRuntimeConfig}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg shadow-2xs transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    <RotateCw className={`w-3.5 h-3.5 ${isReloadingFpm ? 'animate-spin text-purple-600' : ''}`} />
+                    <span>
+                      {isReloadingFpm
+                        ? 'Reloading...'
+                        : app.runtime === 'php'
+                        ? 'Reload FPM Pool'
+                        : 'Restart Service'}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveRuntimeConfig}
+                    disabled={isReloadingFpm || isSavingRuntimeConfig}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors disabled:opacity-50 cursor-pointer ml-auto"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{isSavingRuntimeConfig ? 'Saving...' : 'Save & Apply'}</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -3413,111 +3435,9 @@ QUEUE_CONNECTION=redis`}
                     ? `/run/php/php${app.version || '8.3'}-fpm-${app.tenantUser}.sock`
                     : `barepod-app@${app.name}.service`}
                 </span>
-                <span className="text-[10px] text-slate-400 block pt-0.5">High Performance IPC Socket</span>
-              </div>
-            </div>
-            {/* Top Banner: Runtime & Supervision Status */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-purple-50/70 border border-purple-200">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                    <Layers className="w-4 h-4 text-purple-600" />
-                    {app.runtime === 'php'
-                      ? `PHP FastCGI Process Manager (PHP-FPM ${app.version || '8.3'})`
-                      : app.runtime === 'nodejs'
-                      ? `Node.js Process & Memory Studio (Node ${app.version || '22'})`
-                      : app.runtime === 'python'
-                      ? `Python WSGI / ASGI Studio (Python ${app.version || '3.12'})`
-                      : app.runtime === 'ruby'
-                      ? `Ruby Application Server Studio (Ruby ${app.version || '3.3'})`
-                      : app.runtime === 'go'
-                      ? `Go Native Binary Studio (Go ${app.version || '1.22'})`
-                      : app.runtime === 'rust'
-                      ? `Rust Native Binary Studio (Rust ${app.version || 'stable'})`
-                      : app.runtime === 'static'
-                      ? 'Static Web & Single Page Application (SPA) Studio'
-                      : `${app.runtime.toUpperCase()} Runtime Studio`}
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    ACTIVE SUPERVISION
-                  </span>
-                </div>
-                <p className="text-xs text-purple-800 font-mono">
-                  Tenant: <strong>{app.tenantUser}</strong> • Service:{' '}
-                  <strong>
-                    {app.runtime === 'php'
-                      ? `/run/php/php${app.version || '8.3'}-fpm-${app.tenantUser}.sock`
-                      : `barepod-app@${app.name}.service`}
-                  </strong>{' '}
-                  • cgroup v2:{' '}
-                  <strong>
-                    {runtimeConfigData?.limits?.memoryMb
-                      ? `${runtimeConfigData.limits.memoryMb}MB RAM limit`
-                      : 'Host Bound'}{' '}
-                    •{' '}
-                    {runtimeConfigData?.limits?.cpuQuotaPercent
-                      ? `${runtimeConfigData.limits.cpuQuotaPercent}% CPU Quota`
-                      : 'Uncapped CPU'}
-                  </strong>
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                {availableVersions.length > 0 && (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-purple-200 rounded-lg shadow-2xs">
-                    <span className="text-[11px] font-bold text-slate-700">Version:</span>
-                    <select
-                      value={app.version || ''}
-                      onChange={(e) => handleSwitchVersion(e.target.value)}
-                      disabled={isSwitchingVersion || isReloadingFpm || isSavingRuntimeConfig}
-                      className="text-xs font-bold text-purple-900 bg-purple-50 border border-purple-200 rounded px-1.5 py-0.5 font-mono focus:outline-hidden cursor-pointer disabled:opacity-50"
-                    >
-                      {availableVersions.map((v: string) => (
-                        <option key={v} value={v}>
-                          {v} {v === app.version ? '• Active' : ''}
-                        </option>
-                      ))}
-                    </select>
-                    {isSwitchingVersion && <RefreshCw className="w-3 h-3 text-purple-600 animate-spin" />}
-                  </div>
-                )}
-
-                {app.runtime === 'php' && (
-                  <button
-                    type="button"
-                    onClick={handleRestorePhpBaseline}
-                    disabled={isReloadingFpm || isSavingRuntimeConfig || isSwitchingVersion}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-2xs transition-colors disabled:opacity-50 cursor-pointer"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Restore Baseline</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={handleRestartService}
-                  disabled={isReloadingFpm || isSavingRuntimeConfig}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-700 bg-white hover:bg-purple-100 border border-purple-300 rounded-lg shadow-2xs transition-colors disabled:opacity-50"
-                >
-                  <RotateCw className={`w-3.5 h-3.5 ${isReloadingFpm ? 'animate-spin text-purple-600' : ''}`} />
-                  <span>
-                    {isReloadingFpm
-                      ? 'Reloading...'
-                      : app.runtime === 'php'
-                      ? 'Reload FPM Pool'
-                      : 'Restart Service'}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveRuntimeConfig}
-                  disabled={isReloadingFpm || isSavingRuntimeConfig}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors disabled:opacity-50"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>{isSavingRuntimeConfig ? 'Saving...' : 'Save & Apply'}</span>
-                </button>
+                <span className="text-[10px] text-slate-400 block pt-0.5">
+                  {runtimeConfigData?.limits?.memoryMb ? `${runtimeConfigData.limits.memoryMb}MB RAM Limit` : 'High Performance IPC Socket'}
+                </span>
               </div>
             </div>
 
