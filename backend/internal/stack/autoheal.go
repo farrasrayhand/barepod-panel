@@ -86,6 +86,31 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 	}
 
 	// 4. Web Servers (Nginx, Caddy, Apache2, OpenLiteSpeed)
+	if isBinaryInstalled("caddy") || isServiceInstalled(ctx, runner, "caddy") {
+		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy 2>/dev/null && chmod 755 /var/log/caddy && chmod 664 /var/log/caddy/*.log 2>/dev/null || true")
+		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "caddy")
+		if strings.TrimSpace(activeOut) != "active" {
+			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "caddy")
+			_, _ = runner.Run(ctx, "", "systemctl", "restart", "caddy")
+			actions = append(actions, "caddy: repaired log permissions & restarted service")
+		}
+	}
+	if isBinaryInstalled("nginx") || isServiceInstalled(ctx, runner, "nginx") {
+		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/nginx && chown -R www-data:adm /var/log/nginx 2>/dev/null && chmod 755 /var/log/nginx && chmod 664 /var/log/nginx/*.log 2>/dev/null || true")
+		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "nginx")
+		if strings.TrimSpace(activeOut) != "active" {
+			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "nginx")
+			_, _ = runner.Run(ctx, "", "systemctl", "restart", "nginx")
+			actions = append(actions, "nginx: repaired log permissions & restarted service")
+		}
+	}
+	if isBinaryInstalled("apache2") || isServiceInstalled(ctx, runner, "apache2") {
+		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/apache2 && chown -R www-data:adm /var/log/apache2 2>/dev/null && chmod 755 /var/log/apache2 && chmod 664 /var/log/apache2/*.log 2>/dev/null || true")
+	}
+	if isBinaryInstalled("openlitespeed") || isServiceInstalled(ctx, runner, "lshttpd") {
+		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /usr/local/lsws/logs && chown -R nobody:nogroup /usr/local/lsws/logs 2>/dev/null && chmod 755 /usr/local/lsws/logs && chmod 664 /usr/local/lsws/logs/*.log 2>/dev/null || true")
+	}
+
 	webServices := []string{"nginx", "caddy", "apache2", "lshttpd"}
 	for _, unit := range webServices {
 		if isServiceInstalled(ctx, runner, unit) {

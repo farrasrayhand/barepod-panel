@@ -668,7 +668,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                           {/* Install / Update actions only */}
                           {!state?.installed ? (
                             <button
-                              onClick={() => void install(engine, 'latest')}
+                              onClick={() => void install(engine, latest || 'latest')}
                               disabled={busy || live !== true}
                               title={`Install official upstream latest ${engine}`}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 shadow-xs"
@@ -677,7 +677,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                             </button>
                           ) : !isUpToDate && latest ? (
                             <button
-                              onClick={() => void install(engine, 'latest')}
+                              onClick={() => void install(engine, latest || 'latest')}
                               disabled={busy || live !== true}
                               title={`Update ${engine} to latest upstream version (${latest})`}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 shadow-xs"

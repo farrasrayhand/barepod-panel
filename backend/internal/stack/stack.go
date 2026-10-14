@@ -118,8 +118,8 @@ func Commands(component, version string) ([][]string, error) {
 		return nil, fmt.Errorf("stack: %s needs a version (see its repository's list)", c.Name)
 	}
 	// The version reaches a shell, so only the shapes the panel installs are allowed:
-	// 8.3, 1.22, 3.12.1, or rustup's channels.
-	if version != "" && !versionShape.MatchString(version) {
+	// 8.3, 1.22, 3.12.1, or rustup's channels, or "latest".
+	if version != "" && version != "latest" && !versionShape.MatchString(version) {
 		return nil, fmt.Errorf("stack: %q is not a version this panel installs", version)
 	}
 
@@ -785,7 +785,11 @@ func (i *Installer) release() {
 
 // Start records the job and runs it in the background.
 func (i *Installer) Start(component, version string) (*store.DeployJob, error) {
-	if version != "" {
+	if version == "latest" {
+		if offered := i.offered(context.Background(), component); len(offered) > 0 {
+			version = offered[0]
+		}
+	} else if version != "" {
 		// The screen draws a button per version the host offers, so a version it did not
 		// draw must not be installable — and one it did draw must be (that mismatch is
 		// exactly what "php 8.0 is not offered (choose 8.3, 8.2, 8.1)" was: the check used

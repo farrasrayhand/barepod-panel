@@ -459,12 +459,12 @@ func nginxVhost(s Spec) string {
 	b.WriteString("    listen 80;\n")
 	b.WriteString("    listen [::]:80;\n")
 	fmt.Fprintf(&b, "    server_name %s;\n\n", serverName)
-	b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
-	b.WriteString("        default_type \"text/plain\";\n")
-	b.WriteString("        root /var/lib/barepod/acme;\n")
-	b.WriteString("    }\n\n")
 
 	if hasSSL && s.ForceHTTPS {
+		b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
+		b.WriteString("        default_type \"text/plain\";\n")
+		b.WriteString("        root /var/lib/barepod/acme;\n")
+		b.WriteString("    }\n\n")
 		b.WriteString("    location / {\n")
 		b.WriteString("        if ($http_x_forwarded_proto = \"https\") {\n")
 		b.WriteString("            break;\n")
@@ -604,10 +604,11 @@ func caddyVhost(s Spec) string {
 		b.WriteString("}\n\n")
 	}
 
-	// Plain HTTP block on port 80 (prevents automatic HTTP->HTTPS 308 redirect loop behind Cloudflare tunnels / proxies)
+	// Plain HTTP block (prevents automatic HTTP->HTTPS 308 redirect loop behind Cloudflare tunnels / proxies)
+	// Using http:// scheme allows Caddy to obey the configured http_port (80 when edge ingress, 8081 when backend)
 	var httpDomains []string
 	for _, d := range allDomains {
-		httpDomains = append(httpDomains, d+":80")
+		httpDomains = append(httpDomains, "http://"+d)
 	}
 	fmt.Fprintf(&b, "%s {\n", strings.Join(httpDomains, ", "))
 	fmt.Fprintf(&b, "\timport %s\n", snippetName)
@@ -967,51 +968,39 @@ func ensureLogPermissions(ctx context.Context, engine, slug string, h *host.Host
 	case Caddy:
 		_ = os.MkdirAll("/var/log/caddy", 0o755)
 		logFile := fmt.Sprintf("/var/log/caddy/barepod-%s.access.log", slug)
-		if _, err := os.Stat(logFile); err == nil {
-			_ = os.Chmod(logFile, 0o664)
-		} else {
-			f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664)
-			if err == nil {
-				f.Close()
-			}
+		if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664); err == nil {
+			f.Close()
 		}
+		_ = os.Chmod(logFile, 0o664)
 		_, _ = h.Run(ctx, []string{"chown", "-R", "caddy:caddy", "/var/log/caddy"})
+		_, _ = h.Run(ctx, []string{"chmod", "664", logFile})
 	case Nginx:
 		_ = os.MkdirAll("/var/log/nginx", 0o755)
 		logFile := fmt.Sprintf("/var/log/nginx/barepod-%s.access.log", slug)
-		if _, err := os.Stat(logFile); err == nil {
-			_ = os.Chmod(logFile, 0o664)
-		} else {
-			f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664)
-			if err == nil {
-				f.Close()
-			}
+		if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664); err == nil {
+			f.Close()
 		}
+		_ = os.Chmod(logFile, 0o664)
 		_, _ = h.Run(ctx, []string{"chown", "www-data:adm", logFile})
+		_, _ = h.Run(ctx, []string{"chmod", "664", logFile})
 	case Apache:
 		_ = os.MkdirAll("/var/log/apache2", 0o755)
 		logFile := fmt.Sprintf("/var/log/apache2/barepod-%s.access.log", slug)
-		if _, err := os.Stat(logFile); err == nil {
-			_ = os.Chmod(logFile, 0o664)
-		} else {
-			f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664)
-			if err == nil {
-				f.Close()
-			}
+		if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664); err == nil {
+			f.Close()
 		}
+		_ = os.Chmod(logFile, 0o664)
 		_, _ = h.Run(ctx, []string{"chown", "www-data:adm", logFile})
+		_, _ = h.Run(ctx, []string{"chmod", "664", logFile})
 	case OpenLiteSpeed:
 		_ = os.MkdirAll("/usr/local/lsws/logs", 0o755)
 		logFile := fmt.Sprintf("/usr/local/lsws/logs/barepod-%s.access.log", slug)
-		if _, err := os.Stat(logFile); err == nil {
-			_ = os.Chmod(logFile, 0o664)
-		} else {
-			f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664)
-			if err == nil {
-				f.Close()
-			}
+		if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664); err == nil {
+			f.Close()
 		}
+		_ = os.Chmod(logFile, 0o664)
 		_, _ = h.Run(ctx, []string{"chown", "nobody:nogroup", logFile})
+		_, _ = h.Run(ctx, []string{"chmod", "664", logFile})
 	}
 }
 

@@ -252,20 +252,36 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 	}
 
 	if engine == "caddy" {
-		// Nginx moves to internal backend port 127.0.0.1:8082 so it never collides with Caddy on :80/:443
-		reconfigNginx := "sed -i 's/listen [0-9.]*:80;/listen 127.0.0.1:8082;/g; s/listen 80 /listen 127.0.0.1:8082 /g; s/listen 80;/listen 127.0.0.1:8082;/g; s/listen \\[::\\]:80;/listen [::1]:8082;/g; s/listen \\[::1\\]:80;/listen [::1]:8082;/g' /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d/*.conf 2>/dev/null || true"
+		// Nginx moves to internal backend port 127.0.0.1:8082 (and 8444 for ssl) so it never collides with Caddy on :80/:443
+		reconfigNginx := `python3 -c "import glob, re
+for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/conf.d/*.conf'):
+    with open(f, 'r') as fp: content = fp.read()
+    content = re.sub(r'listen\s+\[::\]:80(\s+default_server)?;', r'listen [::1]:8082\1;', content)
+    content = re.sub(r'listen\s+([0-9.]+:)80(\s+default_server)?;', r'listen 127.0.0.1:8082\2;', content)
+    content = re.sub(r'listen\s+80(\s+default_server)?;', r'listen 127.0.0.1:8082\1;', content)
+    content = re.sub(r'listen\s+\[::\]:443\s+ssl;', r'listen [::1]:8444 ssl;', content)
+    content = re.sub(r'listen\s+([0-9.]+:)443\s+ssl;', r'listen 127.0.0.1:8444 ssl;', content)
+    content = re.sub(r'listen\s+443\s+ssl;', r'listen 127.0.0.1:8444 ssl;', content)
+    with open(f, 'w') as fp: fp.write(content)" 2>/dev/null || true`
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", reconfigNginx})
 		cleanCaddyPort := "sed -i '/http_port/d; /https_port/d' /etc/caddy/Caddyfile 2>/dev/null || true; sed -i '/{\\s*}/d' /etc/caddy/Caddyfile 2>/dev/null || true"
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", cleanCaddyPort})
 	} else if engine == "nginx" {
-		// Ensure nginx includes sites-enabled
-		ensureNginxInclude := "grep -q 'sites-enabled' /etc/nginx/nginx.conf 2>/dev/null || sed -i '/include \\/etc\\/nginx\\/conf.d\\/\\*\\.conf;/a \\    include /etc/nginx/sites-enabled/*.conf;' /etc/nginx/nginx.conf 2>/dev/null || true"
-		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", ensureNginxInclude})
+		// Ensure nginx includes sites-enabled and runs as www-data to match system php-fpm permissions
+		ensureNginx := "grep -q 'sites-enabled' /etc/nginx/nginx.conf 2>/dev/null || sed -i '/include \\/etc\\/nginx\\/conf.d\\/\\*\\.conf;/a \\    include /etc/nginx/sites-enabled/*.conf;' /etc/nginx/nginx.conf 2>/dev/null || true; sed -i 's/user  nginx;/user www-data;/; s/user nginx;/user www-data;/' /etc/nginx/nginx.conf 2>/dev/null || true; usermod -a -G www-data nginx 2>/dev/null || true"
+		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", ensureNginx})
 		// Nginx takes edge ingress on :80 and :443
-		reconfigNginx := "sed -i 's/listen 127.0.0.1:8082;/listen 80;/g; s/listen 127.0.0.1:8082 default_server;/listen 80 default_server;/g; s/listen \\[::1\\]:8082;/listen [::]:80;/g; s/listen \\[::1\\]:8082 default_server;/listen [::]:80 default_server;/g' /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d/*.conf 2>/dev/null || true"
+		reconfigNginx := `python3 -c "import glob, re
+for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/conf.d/*.conf'):
+    with open(f, 'r') as fp: content = fp.read()
+    content = re.sub(r'listen\s+127\.0\.0\.1:8082(\s+default_server)?;', r'listen 80\1;', content)
+    content = re.sub(r'listen\s+\[::1\]:8082(\s+default_server)?;', r'listen [::]:80\1;', content)
+    content = re.sub(r'listen\s+127\.0\.0\.1:8444\s+ssl;', r'listen 443 ssl;', content)
+    content = re.sub(r'listen\s+\[::1\]:8444\s+ssl;', r'listen [::]:443 ssl;', content)
+    with open(f, 'w') as fp: fp.write(content)" 2>/dev/null || true`
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", reconfigNginx})
-		// Caddy moves to internal backend ports 8081 and 8443
-		caddyPortCmd := "sed -i '/http_port/d; /https_port/d' /etc/caddy/Caddyfile 2>/dev/null || true; sed -i '1s/^/{\\n    http_port 8081\\n    https_port 8443\\n}\\n/' /etc/caddy/Caddyfile 2>/dev/null || true"
+		// Caddy moves to internal backend ports 8081 and 8445 (port 8443 is reserved for panel daemon)
+		caddyPortCmd := "sed -i '/http_port/d; /https_port/d' /etc/caddy/Caddyfile 2>/dev/null || true; sed -i '1s/^/{\\n    http_port 8081\\n    https_port 8445\\n}\\n/' /etc/caddy/Caddyfile 2>/dev/null || true"
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", caddyPortCmd})
 	}
 
