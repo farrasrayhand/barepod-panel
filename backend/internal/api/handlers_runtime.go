@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -105,20 +106,29 @@ func (s *Server) handlePutRuntime(w http.ResponseWriter, r *http.Request, user *
 		siteDir := s.host.SitePath(site.TenantUser, site.Slug)
 		if strings.EqualFold(site.Runtime, "php") {
 			limits := s.limitsForTenant(site.TenantUser)
+			var saved map[string]any
+			if raw, _ := s.store.PanelSetting("site_runtime_config:" + site.Slug); raw != "" {
+				_ = json.Unmarshal([]byte(raw), &saved)
+			}
+			directives := phpfpm.Directives{
+				MemoryLimit:        stringVal(saved["memoryLimit"], "256M"),
+				UploadMaxSize:      stringVal(saved["uploadMaxSize"], "64M"),
+				PostMaxSize:        stringVal(saved["postMaxSize"], "64M"),
+				MaxExecutionTime:   intVal(saved["maxExecutionTime"], 60),
+				MaxInputVars:       intVal(saved["maxInputVars"], 3000),
+				ProcessIdleTimeout: stringVal(saved["processIdleTimeout"], "10s"),
+			}
+			maxChildren := intVal(saved["maxChildren"], phpfpm.MaxChildren(limits.MemoryMB))
+			if maxChildren <= 0 {
+				maxChildren = 5
+			}
 			spec := phpfpm.Spec{
 				Tenant:      site.TenantUser,
 				SiteDir:     siteDir,
 				Socket:      phpfpm.SocketIn(siteDir),
-				MaxChildren: phpfpm.MaxChildren(limits.MemoryMB),
-				Directives: phpfpm.Directives{
-					MemoryLimit:        "256M",
-					UploadMaxSize:      "64M",
-					PostMaxSize:        "64M",
-					MaxExecutionTime:   60,
-					MaxInputVars:       3000,
-					ProcessIdleTimeout: "10s",
-				},
-				MemoryMB: limits.MemoryMB,
+				MaxChildren: maxChildren,
+				Directives:  directives,
+				MemoryMB:    limits.MemoryMB,
 			}
 			_, _ = phpfpm.Write(r.Context(), s.host, spec)
 			_ = s.applyVhost(r, site)
