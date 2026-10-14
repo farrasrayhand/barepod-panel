@@ -205,7 +205,7 @@ export const POPULAR_SCAFFOLDS: ScaffoldPreset[] = [
     id: 'rails',
     name: 'Ruby on Rails',
     runtime: 'ruby',
-    defaultVersion: '3.3',
+    defaultVersion: '3.2',
     frameworkVersions: [
       { value: '8.0', label: '8.0', badge: 'Latest', minRuntime: '3.2' },
       { value: '7.2', label: '7.2', badge: 'Stable', minRuntime: '3.1' },
@@ -365,14 +365,29 @@ export const getCompatibleRuntimeVersions = (
   }
 
   if (runtime === 'ruby') {
-    if (fw.includes('rails') && (fv.startsWith('8') || fw.includes('8'))) {
-      const allowed = ['3.3'];
-      const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
-      return {
-        versions: filtered.length ? filtered : allowed,
-        recommended: '3.3',
-        note: 'Rails 8.0 membutuhkan Ruby ≥ 3.2 (Direkomendasikan: Ruby 3.3)',
-      };
+    if (fw.includes('rails')) {
+      if (fv.startsWith('8') || fw.includes('8')) {
+        const allowed = ['3.3', '3.2'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        const finalVersions = filtered.length ? filtered : (allAvailableVersions.length ? allAvailableVersions : allowed);
+        const rec = (finalVersions.includes('3.2') && !finalVersions.includes('3.3')) ? '3.2' : (finalVersions.includes('3.3') ? '3.3' : finalVersions[0]);
+        return {
+          versions: finalVersions,
+          recommended: rec,
+          note: 'Rails 8.0 membutuhkan Ruby ≥ 3.2',
+        };
+      }
+      if (fv.startsWith('7') || fw.includes('7')) {
+        const allowed = ['3.3', '3.2', '3.1'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        const finalVersions = filtered.length ? filtered : (allAvailableVersions.length ? allAvailableVersions : allowed);
+        const rec = (finalVersions.includes('3.2') ? '3.2' : finalVersions[0]);
+        return {
+          versions: finalVersions,
+          recommended: rec,
+          note: 'Rails 7.2 membutuhkan Ruby ≥ 3.1',
+        };
+      }
     }
   }
 
@@ -783,12 +798,6 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
     };
   }, [stackStatus]);
 
-  useEffect(() => {
-    const available = runtimeConfigs[runtime]?.versions ?? [];
-    if (available.length > 0 && !available.includes(version)) {
-      setVersion(available[0]);
-    }
-  }, [runtimeConfigs, runtime, version]);
 
   const isStaticSite = appMode === 'static' || runtime === 'static' || /static|html|vite\s*dist|astro\s*static/i.test(framework);
   const steps = stepsForMode(appMode, runtime, framework);
