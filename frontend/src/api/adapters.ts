@@ -88,7 +88,7 @@ export function toWebApp(site: ApiWebsite, metrics?: SiteMetrics): WebApp {
     memoryUsage: metrics?.available ? formatBytes(metrics.memoryBytes) : '—',
     cpuUsage: metrics?.available ? `${metrics.cpuPercent.toFixed(1)}%` : '—',
     createdAt: formatDate(site.createdAt),
-    path: `/home/${site.tenantUser}/apps/${site.slug}`,
+    path: `/home/${site.tenantUser}/web/${site.slug}`,
   };
 }
 

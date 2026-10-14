@@ -35,7 +35,7 @@ const MOCK_USER = { username: 'farras', role: 'admin' as const };
 const TAB_PATHS: Record<NavItem, string> = {
   overview: '/overview',
   monitoring: '/monitoring',
-  apps: '/apps',
+  web: '/web',
   pods: '/pods',
   databases: '/databases',
   domains: '/domains',
@@ -64,11 +64,11 @@ const parseRoute = (pathname: string): AppRoute => {
   if (clean === '/') return { tab: 'overview' };
   // /login is the signed-out address; it is not a panel page but it is valid,
   // so refreshing there must not be reported as a missing page.
-  if (clean === '/login') return { tab: 'apps' };
+  if (clean === '/login') return { tab: 'web' };
   const parts = clean.split('/').filter(Boolean);
-  if (parts[0] === 'apps') {
+  if (parts[0] === 'web' || parts[0] === 'apps' || parts[0] === 'websites') {
     return {
-      tab: 'apps',
+      tab: 'web',
       appSlug: parts[1] ? decodeURIComponent(parts[1]) : undefined,
       appSubTab: parts[2] ? decodeURIComponent(parts[2]) : undefined,
     };
@@ -79,7 +79,7 @@ const parseRoute = (pathname: string): AppRoute => {
   }
   // Unknown path: fall back to Websites, but say so — the caller corrects the
   // URL instead of leaving an address that does not match what is on screen.
-  return { tab: 'apps', unmatchedPath: clean };
+  return { tab: 'web', unmatchedPath: clean };
 };
 
 // Realistic sample web apps used while the daemon is not running.
@@ -300,7 +300,7 @@ export function App() {
     if (!signedOut) return;
     const path = window.location.pathname + window.location.search;
     if (path === '/login') return;
-    if (path !== '/' && path !== TAB_PATHS.overview && path !== TAB_PATHS.apps) setRedirectTo(path);
+    if (path !== '/' && path !== TAB_PATHS.overview && path !== TAB_PATHS.web) setRedirectTo(path);
     window.history.replaceState(null, '', '/login');
     setRoute(parseRoute('/login'));
   }, [signedOut]);
@@ -609,6 +609,7 @@ export function App() {
             <OverviewView
               apps={apps}
               onNavigate={navigate}
+              onSelectApp={(slug) => navigatePath(`/web/${encodeURIComponent(slug)}`)}
               onOpenAddModal={() => setIsAddModalOpen(true)}
             />
           )}
@@ -636,19 +637,19 @@ export function App() {
             />
           )}
 
-          {currentTab === 'apps' && (
+          {currentTab === 'web' && (
             <AppsView
               apps={apps}
               appsLoaded={appsLoaded}
               onWatchDeploy={(slug, deployId) => setDeployWatch({ slug, deployId })}
               selectedAppSlug={route.appSlug ?? null}
               appSubTab={route.appSubTab}
-              onSelectApp={(slug) => navigatePath(`/apps/${encodeURIComponent(slug)}`)}
+              onSelectApp={(slug) => navigatePath(`/web/${encodeURIComponent(slug)}`)}
               onSubTabChange={(sub) => {
-                if (route.appSlug) navigatePath(`/apps/${encodeURIComponent(route.appSlug)}/${sub}`);
+                if (route.appSlug) navigatePath(`/web/${encodeURIComponent(route.appSlug)}/${sub}`);
               }}
-              onOpenAppFiles={(app) => navigatePath(`/apps/${encodeURIComponent(app.name)}/files`)}
-              onBack={() => navigatePath(TAB_PATHS.apps)}
+              onOpenAppFiles={(app) => navigatePath(`/web/${encodeURIComponent(app.name)}/files`)}
+              onBack={() => navigatePath(TAB_PATHS.web)}
               onOpenAddModal={() => setIsAddModalOpen(true)}
               onOpenAppTerminal={handleOpenAppTerminal}
               onToggleAppStatus={handleToggleAppStatus}

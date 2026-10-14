@@ -66,10 +66,10 @@ import { runtimeIcon, frameworkIcon } from '../utils/brandIcons';
 import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
-import { api, apiReachable } from '../api/client';
+import { api, apiReachable, type ApiDomain } from '../api/client';
 import { describeError } from '../utils/format';
 
-export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'routing' | 'files' | 'env' | 'php' | 'runtime' | 'security' | 'deploy';
+export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'domains' | 'routing' | 'files' | 'env' | 'php' | 'runtime' | 'security' | 'deploy';
 
 interface AppDetailPageProps {
   app: WebApp;
@@ -1010,7 +1010,90 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 
   const isRunning = app.status === 'running';
   const isSuspended = app.status === 'suspended';
-  const appPath = app.path || `/home/${app.tenantUser}/apps/${app.name}`;
+  const appPath = app.path || `/home/${app.tenantUser}/web/${app.name}`;
+
+  // Domains & SSL Subtab State
+  const [siteDomains, setSiteDomains] = useState<ApiDomain[]>([]);
+  const [loadingDomains, setLoadingDomains] = useState(false);
+  const [newAliasDomain, setNewAliasDomain] = useState('');
+  const [addingAlias, setAddingAlias] = useState(false);
+  const [issuingSslId, setIssuingSslId] = useState<string | null>(null);
+
+  const fetchSiteDomains = async () => {
+    try {
+      setLoadingDomains(true);
+      const res = await api.domains();
+      const list = (res.items || []).filter((d) => d.websiteSlug === app.name);
+      setSiteDomains(list);
+    } catch (err: any) {
+      console.warn('Failed to load domains for site', err);
+    } finally {
+      setLoadingDomains(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSiteDomains();
+  }, [app.name]);
+
+  const handleAddAlias = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const domain = newAliasDomain.trim();
+    if (!domain) return;
+    try {
+      setAddingAlias(true);
+      await api.addDomain({ websiteSlug: app.name, domain });
+      onShowToast?.('Alias Domain Added', `Successfully added ${domain} to ${app.name}`, 'success');
+      setNewAliasDomain('');
+      fetchSiteDomains();
+    } catch (err: any) {
+      onShowToast?.('Error Adding Domain', err?.message || 'Failed to add alias domain', 'error');
+    } finally {
+      setAddingAlias(false);
+    }
+  };
+
+  const handleDeleteAlias = async (dom: ApiDomain) => {
+    if (!window.confirm(`Are you sure you want to remove alias domain "${dom.domain}"?`)) return;
+    try {
+      await api.deleteDomain(dom.id);
+      onShowToast?.('Domain Removed', `Removed ${dom.domain} from website`, 'success');
+      fetchSiteDomains();
+    } catch (err: any) {
+      onShowToast?.('Error Removing Domain', err?.message || 'Failed to remove alias', 'error');
+    }
+  };
+
+  const handleToggleForceHttps = async (dom: ApiDomain) => {
+    try {
+      await api.toggleSsl(dom.id, {
+        forceHTTPS: !dom.forceHttps,
+        hsts: dom.hstsEnabled,
+        autoRenew: dom.autoRenew,
+      });
+      onShowToast?.('SSL Updated', `Force HTTPS set to ${!dom.forceHttps ? 'ON' : 'OFF'} for ${dom.domain}`, 'success');
+      fetchSiteDomains();
+    } catch (err: any) {
+      onShowToast?.('Error', err?.message || 'Failed to update SSL settings', 'error');
+    }
+  };
+
+  const handleIssueSsl = async (dom: ApiDomain) => {
+    try {
+      setIssuingSslId(dom.id);
+      await api.issueSsl(dom.id, {
+        provider: 'auto',
+        forceHTTPS: dom.forceHttps,
+        hsts: dom.hstsEnabled,
+      });
+      onShowToast?.('SSL Certificate Issued', `Active certificate issued for ${dom.domain}`, 'success');
+      fetchSiteDomains();
+    } catch (err: any) {
+      onShowToast?.('SSL Issue Failed', err?.message || 'Failed to issue certificate', 'error');
+    } finally {
+      setIssuingSslId(null);
+    }
+  };
 
   // Realistic Logs Generator with Visitor Client IP
   interface LogItem {
@@ -1538,6 +1621,26 @@ QUEUE_CONNECTION=redis`;
         >
           <Globe className="w-4 h-4" />
           <span>Traffic Map</span>
+          <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold">
+            Sim
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('domains')}
+          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+            activeTab === 'domains'
+              ? 'border-emerald-600 text-emerald-700 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Globe className="w-4 h-4 text-emerald-600" />
+          <span>Domains & SSL</span>
+          {siteDomains.length > 1 && (
+            <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-mono text-[10px] font-bold">
+              {siteDomains.length}
+            </span>
+          )}
         </button>
 
         {tabSupport.deploy && (
@@ -2273,12 +2376,12 @@ QUEUE_CONNECTION=redis`;
                     <div>
                       <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                         <span>Global Visitor Distribution Map (Live Geo Ingress)</span>
-                        <span className="px-1.5 py-0.2 text-[9px] bg-emerald-100 text-emerald-800 font-mono font-bold rounded">
-                          Live Pulse
+                        <span className="px-1.5 py-0.2 text-[9px] bg-amber-100 text-amber-800 font-mono font-bold rounded">
+                          Mock Simulation
                         </span>
                       </h4>
                       <p className="text-[11px] text-slate-500">
-                        Real-time visualization of visitor-origin countries & Cloudflare edge nodes accessing {app.domain}
+                        Visual simulation of visitor-origin nodes & Cloudflare edge routes (real-time access-log telemetry streamer is in roadmap).
                       </p>
                     </div>
                   </div>
@@ -2443,6 +2546,182 @@ QUEUE_CONNECTION=redis`;
                 </div>
               </div>
 
+          </div>
+        )}
+
+        {/* TAB: DOMAINS & SSL MANAGEMENT */}
+        {activeTab === 'domains' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Header info card */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold shrink-0">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 tracking-tight">
+                    Domains & TLS/SSL Certificates
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Connect multiple domains (FQDNs, www, subdomains) to this website. Zero-downtime hot-reload across your web server.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={fetchSiteDomains}
+                disabled={loadingDomains}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingDomains ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            {/* Add Domain Alias Card */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-emerald-600" />
+                    Attach New Domain Alias
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Add <code>www.{app.domain}</code>, a subdomain, or an additional custom domain name.
+                  </p>
+                </div>
+              </div>
+              <form onSubmit={handleAddAlias} className="flex flex-col sm:flex-row items-center gap-3">
+                <div className="relative flex-1 w-full">
+                  <input
+                    type="text"
+                    value={newAliasDomain}
+                    onChange={(e) => setNewAliasDomain(e.target.value)}
+                    placeholder="e.g. www.example.com or store.mybrand.id"
+                    className="w-full px-3.5 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={addingAlias || !newAliasDomain.trim()}
+                  className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{addingAlias ? 'Attaching...' : 'Add Domain Alias'}</span>
+                </button>
+              </form>
+            </div>
+
+            {/* Domains List Table */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Active Domains ({siteDomains.length})
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  Auto-synced with active web server vhost
+                </span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {siteDomains.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    {loadingDomains ? 'Loading domain configurations...' : `Primary domain: ${app.domain}`}
+                  </div>
+                ) : (
+                  siteDomains.map((dom) => (
+                    <div key={dom.id} className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
+                      <div className="flex items-start sm:items-center gap-3 min-w-0">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+                          dom.isPrimary ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                          <Globe className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-slate-900 font-mono tracking-tight">
+                              {dom.domain}
+                            </span>
+                            {dom.isPrimary ? (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 rounded-md">
+                                Primary
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-700 rounded-md">
+                                Alias
+                              </span>
+                            )}
+                            {dom.sslEnabled ? (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded-md flex items-center gap-1">
+                                <Lock className="w-3 h-3" />
+                                <span>TLS 1.3 ({dom.sslProvider})</span>
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 rounded-md">
+                                No SSL (HTTP Only)
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-3 flex-wrap">
+                            {dom.sslIssuer && <span>Issuer: {dom.sslIssuer}</span>}
+                            {dom.sslExpiresAt && (
+                              <span className="text-slate-500">
+                                Expires: {new Date(dom.sslExpiresAt).toLocaleDateString()}
+                              </span>
+                            )}
+                            <a
+                              href={`http://${dom.domain}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-700 flex items-center gap-1 font-medium"
+                            >
+                              <span>Open in Browser</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0 self-end md:self-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleForceHttps(dom)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                            dom.forceHttps
+                              ? 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                          }`}
+                          title="Force HTTP to HTTPS 301 redirection"
+                        >
+                          <span>HTTPS 301:</span>
+                          <span className="font-bold">{dom.forceHttps ? 'ON' : 'OFF'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={issuingSslId === dom.id}
+                          onClick={() => handleIssueSsl(dom)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>{issuingSslId === dom.id ? 'Issuing...' : 'Issue / Renew SSL'}</span>
+                        </button>
+
+                        {!dom.isPrimary && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteAlias(dom)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="Remove alias domain"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -3245,7 +3524,7 @@ QUEUE_CONNECTION=redis`}
                       Environment=&quot;NODE_OPTIONS=--max-old-space-size={nodeMemLimitMb}&quot;
                     </div>
                   )}
-                  <div className="text-slate-400">EnvironmentFile=/home/{app.tenantUser}/apps/{app.name}/.env</div>
+                  <div className="text-slate-400">EnvironmentFile=/home/{app.tenantUser}/web/{app.name}/.env</div>
                 </div>
               </div>
             )}
@@ -3335,7 +3614,7 @@ QUEUE_CONNECTION=redis`}
                       Virtualenv (.venv): {pythonVenvExists ? 'Detected' : 'Not Found in Site Root'}
                     </span>
                     <span className="text-[11px] font-mono text-slate-500">
-                      ({pythonVenvPath || `/home/${app.tenantUser}/apps/${app.name}/.venv`})
+                      ({pythonVenvPath || `/home/${app.tenantUser}/web/${app.name}/.venv`})
                     </span>
                   </div>
                   {!pythonVenvExists && (
@@ -3438,7 +3717,7 @@ QUEUE_CONNECTION=redis`}
                       className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
                     />
                     <span className="text-[10px] text-slate-400 mt-1 block">
-                      Relative to <code>/home/{app.tenantUser}/apps/{app.name}/</code>
+                      Relative to <code>/home/{app.tenantUser}/web/{app.name}/</code>
                     </span>
                   </div>
 

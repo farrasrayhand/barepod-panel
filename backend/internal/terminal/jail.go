@@ -20,11 +20,27 @@ type JailSpec struct {
 // Home is the tenant's home directory.
 func (s JailSpec) Home() string { return filepath.Join(s.SitesRoot, s.Tenant) }
 
-// AppsDir holds every site of the tenant.
-func (s JailSpec) AppsDir() string { return filepath.Join(s.Home(), "apps") }
+// WebDir holds the websites of the tenant.
+func (s JailSpec) WebDir() string {
+	web := filepath.Join(s.Home(), "web")
+	if _, err := os.Stat(filepath.Join(web, s.Slug)); err == nil {
+		return web
+	}
+	legacy := filepath.Join(s.Home(), "apps")
+	if _, err := os.Stat(filepath.Join(legacy, s.Slug)); err == nil {
+		return legacy
+	}
+	if _, err := os.Stat(web); err == nil {
+		return web
+	}
+	return legacy
+}
+
+// AppsDir holds every site of the tenant (kept for backward compatibility).
+func (s JailSpec) AppsDir() string { return s.WebDir() }
 
 // SiteDir is the one directory the shell is meant to work in.
-func (s JailSpec) SiteDir() string { return filepath.Join(s.AppsDir(), s.Slug) }
+func (s JailSpec) SiteDir() string { return filepath.Join(s.WebDir(), s.Slug) }
 
 // SiteInsideHome reports whether the site lives inside the tenant's home, which
 // is what makes the home overlay possible.
@@ -35,7 +51,7 @@ func (s JailSpec) SiteInsideHome() bool {
 }
 
 // Siblings lists what a shell opened for one site must not see: the entries of
-// the tenant's home other than apps/, and every other site under apps/. This is
+// the tenant's home other than web/ or apps/, and every other site under web/. This is
 // plain filesystem logic, so it is testable on any platform.
 func (s JailSpec) Siblings() ([]string, error) {
 	out := []string{}
@@ -45,7 +61,7 @@ func (s JailSpec) Siblings() ([]string, error) {
 		return nil, err
 	}
 	for _, entry := range homeEntries {
-		if entry.Name() == "apps" {
+		if entry.Name() == "apps" || entry.Name() == "web" {
 			continue
 		}
 		out = append(out, filepath.Join(s.Home(), entry.Name()))

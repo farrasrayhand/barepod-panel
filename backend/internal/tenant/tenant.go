@@ -39,7 +39,10 @@ type Result struct {
 	Notes    []string `json:"notes,omitempty"`
 }
 
-// Apps is the directory holding the tenant's websites.
+// Web is the directory holding the tenant's websites.
+func (r *Result) Web() string { return filepath.Join(r.Home, "web") }
+
+// Apps is kept for backward-compatibility.
 func (r *Result) Apps() string { return filepath.Join(r.Home, "apps") }
 
 // Manager provisions and locks tenant accounts.
@@ -95,7 +98,10 @@ func (m *Manager) real() bool { return m.runner.Mode() == "real" }
 // Home is the tenant home directory.
 func (m *Manager) Home(user string) string { return filepath.Join(m.homeBase, user) }
 
-// Apps is the directory holding the tenant's websites.
+// Web is the directory holding the tenant's websites.
+func (m *Manager) Web(user string) string { return filepath.Join(m.Home(user), "web") }
+
+// Apps is kept for backward-compatibility.
 func (m *Manager) Apps(user string) string { return filepath.Join(m.Home(user), "apps") }
 
 // accountExists asks the OS whether the account is already there.
@@ -150,9 +156,13 @@ func (m *Manager) Provision(ctx context.Context, user string, opts Options, log 
 
 	// The directory layout is created for real (it needs no privilege); the
 	// runner decides whether the chmod/chown it records are actually executed.
-	apps := m.Apps(user)
-	if err := os.MkdirAll(apps, 0o750); err != nil {
-		return res, fmt.Errorf("tenant: create %s: %w", apps, err)
+	web := m.Web(user)
+	if err := os.MkdirAll(web, 0o750); err != nil {
+		return res, fmt.Errorf("tenant: create %s: %w", web, err)
+	}
+	legacyApps := filepath.Join(m.Home(user), "apps")
+	if _, err := os.Stat(legacyApps); os.IsNotExist(err) {
+		_ = os.Symlink("web", legacyApps)
 	}
 
 	if err := m.run(ctx, res, []string{"chmod", "0750", m.Home(user)}); err != nil {

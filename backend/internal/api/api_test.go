@@ -252,7 +252,7 @@ func TestFileManagerBlocksEscapes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("TOP-SECRET"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(panel.home, "admin", "apps", "admin-site", "escape")
+	link := filepath.Join(panel.home, "admin", "web", "admin-site", "escape")
 	if err := os.Symlink(outside, link); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestDeleteWebsiteRemovesEverything(t *testing.T) {
 	if _, err := panel.store.WebsiteBySlug("admin-site"); err != store.ErrNotFound {
 		t.Errorf("the row survived the delete: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(panel.home, "admin", "apps", "admin-site")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(panel.home, "admin", "web", "admin-site")); !os.IsNotExist(err) {
 		t.Errorf("the site directory survived: %v", err)
 	}
 
@@ -622,7 +622,7 @@ func TestTenantScopeSeesTheWholeHome(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("listing the tenant home = %d (%s)", resp.StatusCode, body)
 	}
-	for _, want := range []string{`"name":"apps"`, "downloads.tar.gz"} {
+	for _, want := range []string{`"name":"web"`, "downloads.tar.gz"} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("the home listing is missing %s: %s", want, body)
 		}
@@ -895,10 +895,10 @@ func TestFileUploadIsConfinedToTheDirectory(t *testing.T) {
 	}
 
 	// The file landed inside the site, not above it.
-	if _, err := os.Stat(filepath.Join(panel.home, "admin", "apps", "admin-site", "evil.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join(panel.home, "admin", "web", "admin-site", "evil.txt")); err != nil {
 		t.Errorf("uploaded file is not inside the site: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(panel.home, "admin", "apps", "evil.txt")); err == nil {
+	if _, err := os.Stat(filepath.Join(panel.home, "admin", "web", "evil.txt")); err == nil {
 		t.Error("upload escaped the site directory")
 	}
 }

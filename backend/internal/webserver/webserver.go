@@ -866,7 +866,18 @@ func GrantRead(ctx context.Context, h *host.Host, home, siteDir, webUser string)
 		}
 		return nil
 	}
-	if err := run("chmod", "o+x", home, filepath.Join(home, "apps")); err != nil {
+	parentDir := filepath.Dir(siteDir)
+	dirs := []string{"chmod", "o+x", home}
+	if parentDir != "" && parentDir != home {
+		dirs = append(dirs, parentDir)
+	}
+	for _, sub := range []string{"web", "apps"} {
+		d := filepath.Join(home, sub)
+		if _, err := os.Stat(d); err == nil {
+			dirs = append(dirs, d)
+		}
+	}
+	if err := run(dirs...); err != nil {
 		return err
 	}
 	if err := run("chgrp", "-R", webUser, siteDir); err != nil {

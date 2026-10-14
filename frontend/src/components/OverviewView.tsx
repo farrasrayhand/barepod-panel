@@ -33,6 +33,7 @@ import { clockTime, describeAudit, describeDevice, timeAgo } from '../utils/form
 interface OverviewViewProps {
   apps: WebApp[];
   onNavigate: (tab: NavItem) => void;
+  onSelectApp?: (slug: string) => void;
   onOpenAddModal: () => void;
 }
 
@@ -49,7 +50,7 @@ interface SessionLine {
   current: boolean;
 }
 
-export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, onOpenAddModal }) => {
+export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, onSelectApp, onOpenAddModal }) => {
   const runningApps = apps.filter((a) => a.status === 'running').length;
   const runningPct = apps.length ? Math.round((runningApps / apps.length) * 100) : 0;
 
@@ -321,14 +322,14 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
         </div>
 
         <button
-          onClick={() => onNavigate('apps')}
+          onClick={() => onNavigate('web')}
           className="text-left bg-white p-4 rounded-xl border border-slate-200 shadow-2xs hover:border-blue-300 transition-colors cursor-pointer flex items-center gap-3"
         >
           <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
             <Box className="w-4 h-4 text-blue-600" />
           </div>
           <div className="min-w-0">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Active Apps</span>
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Websites</span>
             <span className="text-sm font-bold text-slate-900 block truncate">{runningApps} of {apps.length} Running</span>
           </div>
         </button>
@@ -364,18 +365,18 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column (2 cols): App Table & Sessions */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Apps Quick List */}
+          {/* Websites Quick List */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-blue-600" />
-                <h2 className="text-sm font-bold text-slate-900">Hosted Applications</h2>
+                <h2 className="text-sm font-bold text-slate-900">Hosted Websites</h2>
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">
                   {apps.length}
                 </span>
               </div>
               <button
-                onClick={() => onNavigate('apps')}
+                onClick={() => onNavigate('web')}
                 className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 cursor-pointer"
               >
                 <span>Manage All</span>
@@ -387,7 +388,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
                   <tr>
-                    <th className="py-2.5 px-5">App / Domain</th>
+                    <th className="py-2.5 px-5">Website / Domain</th>
                     <th className="py-2.5 px-5">Runtime & Server</th>
                     <th className="py-2.5 px-5">Tenant</th>
                     <th className="py-2.5 px-5">Port</th>
@@ -398,14 +399,14 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
                   {apps.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="py-8 text-center text-slate-400">
-                        No applications deployed yet. Click "Deploy App" above to get started.
+                        No websites deployed yet. Click "Deploy App" above to get started.
                       </td>
                     </tr>
                   ) : (
                     apps.map((app) => (
                       <tr
                         key={app.id}
-                        onClick={() => onNavigate('apps')}
+                        onClick={() => onSelectApp ? onSelectApp(app.name) : onNavigate('web')}
                         className="hover:bg-slate-50/70 transition-colors cursor-pointer"
                       >
                         <td className="py-3 px-5">

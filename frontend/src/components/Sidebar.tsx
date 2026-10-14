@@ -52,7 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
   };
 
   const serviceItems: NavGroupItem[] = [
-    { id: 'apps', label: 'Websites', icon: Layers },
+    { id: 'web', label: 'Websites', icon: Layers },
     { id: 'pods', label: 'Pods (Containers)', icon: Box },
     { id: 'databases', label: 'Database', icon: Database },
   ];

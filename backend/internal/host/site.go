@@ -93,14 +93,37 @@ func (h *Host) Mode() string {
 func (h *Host) Materialises() bool { return h.Mode() == "real" }
 
 // SitePath is the working directory of a website:
-// <sitesRoot>/<tenant>/apps/<slug>.
+// <sitesRoot>/<tenant>/web/<slug>. If legacy <sitesRoot>/<tenant>/apps/<slug>
+// exists and web/<slug> does not, it gracefully falls back to the legacy location.
 func (h *Host) SitePath(tenant, slug string) string {
-	return filepath.Join(h.SitesRoot, tenant, "apps", slug)
+	web := filepath.Join(h.SitesRoot, tenant, "web", slug)
+	legacy := filepath.Join(h.SitesRoot, tenant, "apps", slug)
+	if _, err := os.Stat(web); err == nil {
+		return web
+	}
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy
+	}
+	return web
 }
 
 // EnsureSiteDir creates the tenant/site layout and returns the site path.
+// If legacy apps/<slug> exists and web/<slug> does not, it migrates it cleanly.
 func (h *Host) EnsureSiteDir(ctx context.Context, tenant, slug string) (string, error) {
 	home := filepath.Join(h.SitesRoot, tenant)
+	webDir := filepath.Join(home, "web")
+	_ = os.MkdirAll(webDir, 0o750)
+
+	legacy := filepath.Join(home, "apps", slug)
+	target := filepath.Join(webDir, slug)
+
+	// Auto-migrate from apps/<slug> to web/<slug> if legacy exists
+	if _, err := os.Stat(legacy); err == nil {
+		if _, errTarget := os.Stat(target); os.IsNotExist(errTarget) {
+			_ = os.Rename(legacy, target)
+		}
+	}
+
 	path := h.SitePath(tenant, slug)
 	if err := os.MkdirAll(path, 0o750); err != nil {
 		return "", fmt.Errorf("host: create %s: %w", path, err)
