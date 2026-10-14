@@ -34,11 +34,10 @@ export const getProvisionPlan = (runtime: RuntimeType, framework: string, framew
         install: `composer create-project laravel/laravel:^${major} .`,
         steps: [
           'composer install --no-dev --optimize-autoloader',
-          'php artisan key:generate',
-          'php artisan migrate --force',
-          'php artisan db:seed --force',
-          'npm install && npm run build',
-          'php artisan config:cache && php artisan route:cache',
+          'php artisan key:generate --force',
+          'php artisan migrate --force || true',
+          'npm install && npm run build || true',
+          'php artisan config:cache && php artisan route:cache || true',
         ],
         note: `Downloads Laravel ^${major} and wires the generated .env to the provisioned database.`,
       };

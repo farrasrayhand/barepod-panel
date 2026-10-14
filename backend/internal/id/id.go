@@ -3,6 +3,7 @@ package id
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"time"
 )
@@ -56,4 +57,13 @@ func Token(n int) string {
 		return hex.EncodeToString([]byte(New() + New()))
 	}
 	return hex.EncodeToString(buf)
+}
+
+// Base64 returns standard base64-encoded n random bytes.
+func Base64(n int) string {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return base64.StdEncoding.EncodeToString([]byte(Token(n)[:n]))
+	}
+	return base64.StdEncoding.EncodeToString(buf)
 }

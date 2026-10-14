@@ -292,21 +292,25 @@ func stepFetchSource(ctx context.Context, s *state) error {
 		return nil
 	}
 
-	scaffoldVer := s.req.FrameworkVersion
-	if s.req.Runtime == "python" && s.req.Version != "" {
-		scaffoldVer = s.req.Version
-	}
-	argv := provision.Scaffold(s.req.Framework, scaffoldVer)
-	if len(argv) == 0 {
-		s.log("stdout", "no automated download for this template — use a GitHub repository or upload the code instead")
-		return nil
-	}
-	if err := s.runInSite(ctx, argv); err != nil {
-		return err
-	}
-	for _, extra := range provision.PostScaffold(s.req.Framework) {
-		if err := s.runInSite(ctx, extra); err != nil {
+	if isAlreadyScaffolded(s.siteDir, s.req.Framework) {
+		s.log("stdout", "project files already present — skipping fresh scaffold download")
+	} else {
+		scaffoldVer := s.req.FrameworkVersion
+		if s.req.Runtime == "python" && s.req.Version != "" {
+			scaffoldVer = s.req.Version
+		}
+		argv := provision.Scaffold(s.req.Framework, scaffoldVer)
+		if len(argv) == 0 {
+			s.log("stdout", "no automated download for this template — use a GitHub repository or upload the code instead")
+			return nil
+		}
+		if err := s.runInSite(ctx, argv); err != nil {
 			return err
+		}
+		for _, extra := range provision.PostScaffold(s.req.Framework) {
+			if err := s.runInSite(ctx, extra); err != nil {
+				return err
+			}
 		}
 	}
 	// A framework download without an entrypoint would start and immediately
@@ -317,6 +321,41 @@ func stepFetchSource(ctx context.Context, s *state) error {
 	}
 	// Starter files are written by the daemon itself (as root), so hand them over.
 	return s.m.host.ChownSite(ctx, s.req.Tenant, s.req.Slug)
+}
+
+func isAlreadyScaffolded(siteDir, framework string) bool {
+	fw := strings.ToLower(strings.TrimSpace(framework))
+	switch {
+	case strings.Contains(fw, "laravel"):
+		if _, err := os.Stat(filepath.Join(siteDir, "artisan")); err == nil {
+			return true
+		}
+		if _, err := os.Stat(filepath.Join(siteDir, "composer.json")); err == nil {
+			return true
+		}
+	case strings.Contains(fw, "symfony"):
+		if _, err := os.Stat(filepath.Join(siteDir, "bin", "console")); err == nil {
+			return true
+		}
+		if _, err := os.Stat(filepath.Join(siteDir, "composer.json")); err == nil {
+			return true
+		}
+	case strings.Contains(fw, "wordpress"):
+		if _, err := os.Stat(filepath.Join(siteDir, "wp-settings.php")); err == nil {
+			return true
+		}
+	case strings.Contains(fw, "django"):
+		if _, err := os.Stat(filepath.Join(siteDir, "manage.py")); err == nil {
+			return true
+		}
+	default:
+		for _, marker := range []string{"composer.json", "package.json", "requirements.txt", "go.mod"} {
+			if _, err := os.Stat(filepath.Join(siteDir, marker)); err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // writeDefaultPage puts a single index.html in the site directory: the web server that
@@ -366,9 +405,29 @@ func (s *state) writeStarterFiles(ctx context.Context) error {
 	return nil
 }
 
+func readExistingEnv(path, key string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	prefix := key + "="
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, prefix) {
+			val := strings.TrimPrefix(line, prefix)
+			return strings.Trim(val, `"' `)
+		}
+	}
+	return ""
+}
+
 func stepWriteEnv(ctx context.Context, s *state) error {
 	env := provision.EnvFileLines(s.req.Slug, s.req.Domain, s.req.Port, nil)
-	env["APP_KEY"] = "base64:" + id.Token(32)
+	if existing := readExistingEnv(filepath.Join(s.siteDir, ".env"), "APP_KEY"); existing != "" && strings.HasPrefix(existing, "base64:") && len(existing) >= 50 {
+		env["APP_KEY"] = existing
+	} else {
+		env["APP_KEY"] = "base64:" + id.Base64(32)
+	}
 
 	if db := s.req.Database; db != nil {
 		engine := strings.ToLower(db.Engine)

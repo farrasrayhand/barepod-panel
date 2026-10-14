@@ -946,6 +946,9 @@ func Apply(ctx context.Context, engine, dir string, h *host.Host, s Spec) (strin
 	path := Path(engine, dir, s.Slug)
 	previous, readErr := os.ReadFile(path)
 
+	// Ensure webserver log directories and access log files exist with appropriate permissions
+	ensureLogPermissions(ctx, engine, s.Slug, h)
+
 	if _, err := Write(engine, dir, s); err != nil {
 		return "", err
 	}
@@ -961,6 +964,62 @@ func Apply(ctx context.Context, engine, dir string, h *host.Host, s Spec) (strin
 		return "", err
 	}
 	return path, nil
+}
+
+func ensureLogPermissions(ctx context.Context, engine, slug string, h *host.Host) {
+	if h == nil || h.Runner == nil || h.Runner.Mode() != "real" {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case Caddy:
+		_ = os.MkdirAll("/var/log/caddy", 0o755)
+		logFile := fmt.Sprintf("/var/log/caddy/barepod-%s.access.log", slug)
+		if _, err := os.Stat(logFile); err == nil {
+			_ = os.Chmod(logFile, 0o664)
+		} else {
+			f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664)
+			if err == nil {
+				f.Close()
+			}
+		}
+		_, _ = h.Run(ctx, []string{"chown", "-R", "caddy:caddy", "/var/log/caddy"})
+	case Nginx:
+		_ = os.MkdirAll("/var/log/nginx", 0o755)
+		logFile := fmt.Sprintf("/var/log/nginx/barepod-%s.access.log", slug)
+		if _, err := os.Stat(logFile); err == nil {
+			_ = os.Chmod(logFile, 0o664)
+		} else {
+			f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664)
+			if err == nil {
+				f.Close()
+			}
+		}
+		_, _ = h.Run(ctx, []string{"chown", "www-data:adm", logFile})
+	case Apache:
+		_ = os.MkdirAll("/var/log/apache2", 0o755)
+		logFile := fmt.Sprintf("/var/log/apache2/barepod-%s.access.log", slug)
+		if _, err := os.Stat(logFile); err == nil {
+			_ = os.Chmod(logFile, 0o664)
+		} else {
+			f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664)
+			if err == nil {
+				f.Close()
+			}
+		}
+		_, _ = h.Run(ctx, []string{"chown", "www-data:adm", logFile})
+	case OpenLiteSpeed:
+		_ = os.MkdirAll("/usr/local/lsws/logs", 0o755)
+		logFile := fmt.Sprintf("/usr/local/lsws/logs/barepod-%s.access.log", slug)
+		if _, err := os.Stat(logFile); err == nil {
+			_ = os.Chmod(logFile, 0o664)
+		} else {
+			f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o664)
+			if err == nil {
+				f.Close()
+			}
+		}
+		_, _ = h.Run(ctx, []string{"chown", "nobody:nogroup", logFile})
+	}
 }
 
 // GrantRead lets the web server's user serve a site without widening the tenant's own
