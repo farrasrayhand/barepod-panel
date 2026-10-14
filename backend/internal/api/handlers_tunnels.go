@@ -471,6 +471,29 @@ func (s *Server) handleAddTunnelRoute(w http.ResponseWriter, r *http.Request, us
 		}
 	}
 
+	// Automated domain sync to website_domains and web server vhost if route is linked to a website
+	var targetSite *store.Website
+	if req.AppName != "" {
+		if site, err := s.store.WebsiteBySlug(req.AppName); err == nil && site != nil {
+			targetSite = site
+		}
+	}
+	if targetSite == nil {
+		if existingDom, _ := s.store.GetDomainByName(hostname); existingDom != nil {
+			if site, err := s.store.WebsiteBySlug(existingDom.WebsiteSlug); err == nil && site != nil {
+				targetSite = site
+			}
+		}
+	}
+	if targetSite != nil {
+		existingDom, _ := s.store.GetDomainByName(hostname)
+		if existingDom == nil {
+			if _, err := s.store.CreateDomain(targetSite.Slug, hostname, false); err == nil {
+				_ = s.applyVhost(r, targetSite)
+			}
+		}
+	}
+
 	_ = s.store.Audit(user.ID, "cloudflare.tunnel.route_add", targetUser+":"+hostname, clientIP(r), "Added ingress route "+hostname+" -> "+service)
 	writeJSON(w, http.StatusCreated, route)
 }
@@ -513,6 +536,14 @@ func (s *Server) handleDeleteTunnelRoute(w http.ResponseWriter, r *http.Request,
 		if tunnel != nil && tunnel.ApiToken != "" && tunnel.AccountID != "" && tunnel.TunnelID != "" {
 			cf := cloudflare.NewClient(tunnel.ApiToken, tunnel.AccountID, tunnel.TunnelID)
 			_ = cf.DeleteIngressRule(r.Context(), targetHostname)
+		}
+
+		// If the domain is an alias in website_domains, remove it and reapply vhost so it doesn't linger
+		if dom, _ := s.store.GetDomainByName(targetHostname); dom != nil && !dom.IsPrimary {
+			if site, err := s.store.WebsiteBySlug(dom.WebsiteSlug); err == nil && site != nil {
+				_ = s.store.DeleteDomain(dom.ID)
+				_ = s.applyVhost(r, site)
+			}
 		}
 	}
 
@@ -572,7 +603,54 @@ func (s *Server) handleUpdateTunnelRoute(w http.ResponseWriter, r *http.Request,
 		}
 	}
 
+	// Automated domain sync to website_domains and web server vhost if route is linked to a website
+	var targetSite *store.Website
+	if req.AppName != "" {
+		if site, err := s.store.WebsiteBySlug(req.AppName); err == nil && site != nil {
+			targetSite = site
+		}
+	}
+	if targetSite == nil {
+		if existingDom, _ := s.store.GetDomainByName(hostname); existingDom != nil {
+			if site, err := s.store.WebsiteBySlug(existingDom.WebsiteSlug); err == nil && site != nil {
+				targetSite = site
+			}
+		}
+	}
+	if targetSite != nil {
+		existingDom, _ := s.store.GetDomainByName(hostname)
+		if existingDom == nil {
+			if _, err := s.store.CreateDomain(targetSite.Slug, hostname, false); err == nil {
+				_ = s.applyVhost(r, targetSite)
+			}
+		}
+	}
+
 	_ = s.store.Audit(user.ID, "cloudflare.tunnel.route_update", targetUser+":"+hostname, clientIP(r), "Updated ingress route "+hostname+" -> "+service)
 	writeJSON(w, http.StatusOK, route)
+}
+
+// handleListTunnelZones returns all active Cloudflare DNS zones accessible by this tenant's API token.
+func (s *Server) handleListTunnelZones(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	targetUser := user.Username
+	reqUser := r.URL.Query().Get("user")
+	if user.Role == "admin" && reqUser != "" {
+		targetUser = reqUser
+	}
+
+	tunnel, err := s.store.GetCloudflareTunnel(targetUser)
+	if err != nil || tunnel == nil || tunnel.ApiToken == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"zones": []any{}})
+		return
+	}
+
+	cf := cloudflare.NewClient(tunnel.ApiToken, tunnel.AccountID, tunnel.TunnelID)
+	zones, err := cf.ListZones(r.Context())
+	if err != nil {
+		log.Printf("cloudflare: list zones error: %v", err)
+		writeJSON(w, http.StatusOK, map[string]any{"zones": []any{}, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"zones": zones})
 }
 

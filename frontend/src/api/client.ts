@@ -1136,6 +1136,9 @@ export const api = {
       method: 'DELETE',
     }),
 
+  tunnelZones: (user?: string) =>
+    request<{ zones: CloudflareZone[]; error?: string }>(`/tunnels/zones${user ? `?user=${encodeURIComponent(user)}` : ''}`),
+
   // --- metrics & host operations ------------------------------------------
   systemMetrics: (range = '1h') =>
     request<MetricSeries<HostMetrics>>(`/system/metrics?range=${encodeURIComponent(range)}`),
@@ -1812,6 +1815,12 @@ export interface TunnelStatusResponse {
     targetUrl: string;
   }>;
   accounts?: string[];
+}
+
+export interface CloudflareZone {
+  id: string;
+  name: string;
+  status: string;
 }
 
 

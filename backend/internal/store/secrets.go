@@ -60,8 +60,15 @@ func (s *Store) DeleteWebsiteSecrets(slug string) error {
 	return err
 }
 
-// DeleteWebsite removes a website row.
+// DeleteWebsite removes a website row and cascades to associated domain, security, cron, and secret records.
 func (s *Store) DeleteWebsite(slug string) error {
+	_, _ = s.DB.Exec(`DELETE FROM website_domains WHERE website_slug = ?`, slug)
+	_, _ = s.DB.Exec(`DELETE FROM website_security WHERE website_slug = ?`, slug)
+	_, _ = s.DB.Exec(`DELETE FROM website_cron_jobs WHERE website_slug = ?`, slug)
+	_, _ = s.DB.Exec(`DELETE FROM website_secrets WHERE website_slug = ?`, slug)
+	_, _ = s.DB.Exec(`DELETE FROM cloudflare_tunnel_routes WHERE app_name = ?`, slug)
+	_, _ = s.DB.Exec(`UPDATE databases SET website_slug = '', detached_at = CURRENT_TIMESTAMP WHERE website_slug = ?`, slug)
+
 	res, err := s.DB.Exec(`DELETE FROM websites WHERE slug = ?`, slug)
 	if err != nil {
 		return err

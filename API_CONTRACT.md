@@ -329,19 +329,26 @@ Normative: a client must not offer a control the site type cannot use, and the s
   - Saves the Cloudflare Zero Trust run token (`eyJh...`) and optional API token.
   - Automatically provisions systemd unit `/etc/systemd/system/barepod-tunnel@.service` and executes `systemctl enable --now barepod-tunnel@<user>.service`.
   - When Cloudflare API token is provided with `Account.Tunnel` and `Zone.DNS` permissions, enables **1-Click Auto Sync** to create Public Hostnames and DNS CNAMEs in Cloudflare Zero Trust automatically.
+- `GET /api/v1/tunnels/zones` (query `?user=<tenant>`) → `200 { zones: CloudflareZone[] }`.
+  - Queries Cloudflare API (`GET /zones?status=active&per_page=50`) to retrieve all verified DNS domains/zones owned by the user's Cloudflare account.
+  - Used by UI to provide a zone select dropdown (`*.domain.com`) + subdomain input (`app`, `api`, or `@` for apex domain) with live hostname previews.
 - `POST /api/v1/tunnels/routes` → Body `{ hostname: string, service: string, appName?: string, noTLSVerify?: bool, user?: string }` → `201 IngressRouteDTO`.
   - Registers a new ingress hostname rule. If `service` is omitted, defaults to `http://127.0.0.1:80` (BarePod Edge Ingress).
   - If Auto-Sync is active, calls Cloudflare API (`POST /accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations`) to create the ingress rule and auto-creates the DNS CNAME record in the corresponding Cloudflare Zone.
   - Supports `noTLSVerify: true` to bypass origin certificate checks when proxying to local self-signed HTTPS endpoints (such as port 443), preventing `502 Bad Gateway`.
+  - **Automatic Website Domain Synchronization**: When route is mapped to a website (via `appName`), BarePod automatically registers the public hostname into `website_domains` as an active alias and calls `applyVhost` to reload the active web server (Nginx, Caddy, OLS, Apache), making the route immediately visible under Website Details $\rightarrow$ Domains and `/domains`.
 - `PUT /api/v1/tunnels/routes/:id` → Body `{ hostname: string, service: string, appName?: string, noTLSVerify?: bool, user?: string }` → `200 IngressRouteDTO`.
   - Updates an existing ingress route target URL, hostname, app label, and `noTLSVerify` flag.
-  - Synchronizes changes directly to Cloudflare Zero Trust tunnel configuration in real time.
+  - Synchronizes changes directly to Cloudflare Zero Trust tunnel configuration and auto-syncs website domain alias in real time.
 - `DELETE /api/v1/tunnels/routes/:id` (query `?user=<tenant>`) → `200 { ok: true }`.
-  - Removes the route from local SQLite database and automatically deletes the public hostname rule in Cloudflare Zero Trust via API.
+  - Removes the route from local SQLite database, automatically deletes the public hostname rule in Cloudflare Zero Trust via API, and cleans up non-primary alias entries from `website_domains` while reloading the web server.
 - `POST /api/v1/tunnels/sync` (query `?user=<tenant>`) → `200 TunnelStatusResponse`.
   - Bidirectional sync: queries Cloudflare Zero Trust API for all active ingress rules on this tunnel and synchronizes them into BarePod local database.
 - `POST /api/v1/tunnels/restart` (query `?user=<tenant>`) → `200 TunnelStatusResponse`.
   - Executes `systemctl restart barepod-tunnel@<tenant>.service` to refresh the daemon process.
+- **Cascade Deletion & Orphaned Domain Pruning**:
+  - `DELETE /api/v1/websites/:slug` cascades and permanently deletes child records from `website_domains`, `website_security`, `website_cron_jobs`, `website_secrets`, and `cloudflare_tunnel_routes`.
+  - `GET /api/v1/domains` joins `websites w ON d.website_slug = w.slug` ensuring orphaned domains from deleted websites never display in the global `/domains` registry.
 - **Edge Ingress Anti-Redirect Loop Pattern (`ERR_TOO_MANY_REDIRECTS` Prevention)**:
   - All web traffic from Cloudflare Tunnels arrives on plain HTTP port 80 (`http://127.0.0.1:80`).
   - Edge Ingress (Caddy) defines an explicit `:80` site block alongside the TLS block using a shared snippet `(barepod_<slug>_common)`, preventing Caddy's Automatic HTTPS from issuing 308 redirect loops back to Cloudflare.
@@ -351,7 +358,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
   - Country code resolution extracts `Cf-Ipcountry` header before falling back to local GeoIP lookups.
 
 ### 4.8 Domains & SSL / TLS Automation
-- `GET /domains` (also `?websiteSlug=...`) → `{ items: ApiDomain[] }`. Lists configured hostnames. Admins see all domains across tenants; non-admin tenants see only domains attached to their owned websites.
+- `GET /domains` (also `?websiteSlug=...`) → `{ items: ApiDomain[] }`. Lists configured hostnames. Admins see all domains across tenants; non-admin tenants see only domains attached to their owned websites. Performs an inner join against `websites` to exclude any orphaned domain records.
 - `POST /domains` → Body `{ websiteSlug: string, domain: string }` → `201 ApiDomain`. Registers a new domain alias for a website, validates uniqueness and FQDN format, appends to the website's virtual host, and reloads the active web server. Refuses duplicates with `409 domain_exists`.
 - `DELETE /domains/:id` → `200 { status: "deleted", id, domain }`. Detaches an alias domain from the website and reloads the web server. Deleting the website's primary domain is guarded and answered with `400 primary_domain`.
 - `POST /domains/:id/ssl/issue` → Body `{ provider?: "auto" | "letsencrypt" | "self_signed", forceHTTPS?: bool, hsts?: bool, email?: string }` → `200 { status: "active", provider, domain, issuer, expiresAt, daysLeft, forceHTTPS, hstsEnabled, warning? }`.

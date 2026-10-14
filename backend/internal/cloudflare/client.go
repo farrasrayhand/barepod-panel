@@ -379,3 +379,24 @@ func (c *Client) EnsureDNSCname(ctx context.Context, hostname string) error {
 	})
 	return err
 }
+
+// Zone represents a DNS zone in Cloudflare.
+type Zone struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// ListZones returns all active DNS zones accessible by the API token.
+func (c *Client) ListZones(ctx context.Context) ([]Zone, error) {
+	resp, err := c.request(ctx, "GET", "/zones?status=active&per_page=50", nil)
+	if err != nil {
+		return nil, err
+	}
+	var zones []Zone
+	if err := json.Unmarshal(resp.Result, &zones); err != nil {
+		return nil, err
+	}
+	return zones, nil
+}
+

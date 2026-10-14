@@ -413,6 +413,7 @@ func New(d Deps) http.Handler {
 		return s.requireAuth(s.requireCapability(rbac.CapCloudflareTunnels, h))
 	}
 	mux.HandleFunc("GET /api/v1/tunnels/status", tunnels(s.handleGetTunnelStatus))
+	mux.HandleFunc("GET /api/v1/tunnels/zones", tunnels(s.handleListTunnelZones))
 	mux.HandleFunc("POST /api/v1/tunnels/token", tunnels(s.handleSetTunnelToken))
 	mux.HandleFunc("POST /api/v1/tunnels/restart", tunnels(s.handleRestartTunnel))
 	mux.HandleFunc("POST /api/v1/tunnels/sync", tunnels(s.handleSyncCloudflareRoutes))

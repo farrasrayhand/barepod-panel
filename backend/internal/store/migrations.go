@@ -29,7 +29,16 @@ var migrations = []migration{
 	{version: 19, statements: schemaV19},
 	{version: 20, statements: schemaV20},
 	{version: 21, statements: schemaV21},
+	{version: 22, statements: schemaV22},
 }
+
+// schemaV22 cleans up orphaned records left by deleted websites.
+const schemaV22 = `
+DELETE FROM website_domains WHERE website_slug NOT IN (SELECT slug FROM websites);
+DELETE FROM website_security WHERE website_slug NOT IN (SELECT slug FROM websites);
+DELETE FROM website_cron_jobs WHERE website_slug NOT IN (SELECT slug FROM websites);
+DELETE FROM website_secrets WHERE website_slug NOT IN (SELECT slug FROM websites);
+`
 
 // schemaV21 adds api_token, account_id, and tunnel_id to cloudflare_tunnels.
 const schemaV21 = `

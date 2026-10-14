@@ -109,7 +109,7 @@ func TestCaddyVhosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"shop.example.com:80 {",
+		"http://shop.example.com {",
 		"root * /home/alex/apps/shop",
 		"php_fastcgi unix//home/alex/apps/shop/fpm.sock",
 		"file_server",

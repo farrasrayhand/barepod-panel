@@ -26,7 +26,7 @@ import {
   HelpCircle,
   Pencil
 } from 'lucide-react';
-import { api, type TunnelStatusResponse, type IngressRouteDTO } from '../api/client';
+import { api, type TunnelStatusResponse, type IngressRouteDTO, type CloudflareZone } from '../api/client';
 
 interface CloudflareTunnelViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
@@ -39,6 +39,12 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
+
+  // Cloudflare Zones State
+  const [zones, setZones] = useState<CloudflareZone[]>([]);
+  const [loadingZones, setLoadingZones] = useState(false);
+  const [selectedZone, setSelectedZone] = useState<string>(''); // zone domain or 'custom'
+  const [subdomain, setSubdomain] = useState<string>('');
 
   // Tokens State
   const [inputToken, setInputToken] = useState('');
@@ -74,9 +80,24 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
     }
   }, [onShowToast]);
 
+  const fetchZones = useCallback(async (user: string) => {
+    try {
+      setLoadingZones(true);
+      const res = await api.tunnelZones(user);
+      if (res.zones && Array.isArray(res.zones)) {
+        setZones(res.zones);
+      }
+    } catch (err) {
+      console.warn('Failed to fetch Cloudflare zones:', err);
+    } finally {
+      setLoadingZones(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTunnel(activeUser);
-  }, [activeUser, fetchTunnel]);
+    fetchZones(activeUser);
+  }, [activeUser, fetchTunnel, fetchZones]);
 
   // Handle switching active user account
   const handleSwitchUser = (username: string) => {
@@ -184,14 +205,37 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
     }
   };
 
+  const computeHostname = (sub: string, zone: string, manual: string): string => {
+    if (zone === 'custom' || !zone) {
+      return manual.trim().toLowerCase();
+    }
+    const cleanSub = sub.trim().toLowerCase();
+    if (!cleanSub || cleanSub === '@') {
+      return zone.toLowerCase();
+    }
+    return `${cleanSub}.${zone.toLowerCase()}`;
+  };
+
   const handleOpenAddModal = () => {
     setEditingRoute(null);
     setSelectedAppSlug('');
-    setNewHostname('');
     setNewAppName('');
     setNewTargetService('http://127.0.0.1:80');
     setNoTlsVerify(false);
+
+    if (zones.length > 0) {
+      setSelectedZone(zones[0].name);
+      setSubdomain('');
+      setNewHostname(zones[0].name);
+    } else {
+      setSelectedZone('custom');
+      setSubdomain('');
+      setNewHostname('');
+    }
+
     setIsAddRouteOpen(true);
+    fetchZones(activeUser);
+
     if (tunnelData?.availableApps && tunnelData.availableApps.length > 0) {
       handleAppSelect(tunnelData.availableApps[0].slug);
     }
@@ -200,10 +244,34 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
   const handleEditRoute = (route: IngressRouteDTO) => {
     setEditingRoute(route);
     setSelectedAppSlug('');
-    setNewHostname(route.hostname);
     setNewAppName(route.appName || '');
     setNewTargetService(route.service || 'http://127.0.0.1:80');
     setNoTlsVerify(route.service.startsWith('https://'));
+
+    const host = route.hostname.toLowerCase();
+    let matchedZone = '';
+    let extractedSub = '';
+    for (const z of zones) {
+      const zName = z.name.toLowerCase();
+      if (host === zName) {
+        matchedZone = z.name;
+        extractedSub = '@';
+        break;
+      } else if (host.endsWith('.' + zName)) {
+        matchedZone = z.name;
+        extractedSub = host.slice(0, -(zName.length + 1));
+        break;
+      }
+    }
+
+    if (matchedZone) {
+      setSelectedZone(matchedZone);
+      setSubdomain(extractedSub);
+    } else {
+      setSelectedZone('custom');
+      setSubdomain('');
+    }
+    setNewHostname(route.hostname);
     setIsAddRouteOpen(true);
   };
 
@@ -216,8 +284,36 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
       setNewAppName(found.slug);
       // Auto-set to Edge Ingress (port 80) by default so traffic routes through web server
       setNewTargetService(found.targetUrl || 'http://127.0.0.1:80');
-      if (!newHostname && found.domain) {
-        setNewHostname(found.domain);
+
+      const host = (found.domain || '').toLowerCase();
+      let matchedZone = '';
+      let extractedSub = '';
+      for (const z of zones) {
+        const zName = z.name.toLowerCase();
+        if (host === zName) {
+          matchedZone = z.name;
+          extractedSub = '@';
+          break;
+        } else if (host.endsWith('.' + zName)) {
+          matchedZone = z.name;
+          extractedSub = host.slice(0, -(zName.length + 1));
+          break;
+        }
+      }
+
+      if (matchedZone) {
+        setSelectedZone(matchedZone);
+        setSubdomain(extractedSub);
+        setNewHostname(host);
+      } else if (zones.length > 0) {
+        const activeZ = (selectedZone && selectedZone !== 'custom') ? selectedZone : zones[0].name;
+        setSelectedZone(activeZ);
+        setSubdomain(found.slug);
+        setNewHostname(`${found.slug}.${activeZ}`);
+      } else {
+        setSelectedZone('custom');
+        setSubdomain('');
+        setNewHostname(found.domain || '');
       }
     }
   };
@@ -697,18 +793,110 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                 </div>
               )}
 
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Public Hostname (Cloudflare Zone Domain / Subdomain)
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. app.yourdomain.com or mywebsite.id"
-                  value={newHostname}
-                  onChange={(e) => setNewHostname(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
-                />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block font-semibold text-slate-700">
+                    Public Hostname
+                  </label>
+                  {zones.length > 0 && (
+                    <span className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" /> {zones.length} Cloudflare Zone{zones.length > 1 ? 's' : ''} Connected
+                    </span>
+                  )}
+                </div>
+
+                {zones.length > 0 ? (
+                  <div className="space-y-2.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                          Select Cloudflare Domain (Zone)
+                        </label>
+                        <select
+                          value={selectedZone}
+                          onChange={(e) => {
+                            const newZone = e.target.value;
+                            setSelectedZone(newZone);
+                            setNewHostname(computeHostname(subdomain, newZone, newHostname));
+                          }}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono text-xs cursor-pointer shadow-2xs"
+                        >
+                          {zones.map((z) => (
+                            <option key={z.id} value={z.name}>
+                              🌐 {z.name}
+                            </option>
+                          ))}
+                          <option value="custom">✏️ Custom Domain (Manual Input)</option>
+                        </select>
+                      </div>
+
+                      {selectedZone !== 'custom' ? (
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                            Subdomain Prefix
+                          </label>
+                          <div className="flex items-center shadow-2xs rounded-lg overflow-hidden border border-slate-200 focus-within:border-blue-500 bg-white">
+                            <input
+                              type="text"
+                              placeholder="subdomain (or blank / @ for apex)"
+                              value={subdomain}
+                              onChange={(e) => {
+                                const newSub = e.target.value;
+                                setSubdomain(newSub);
+                                setNewHostname(computeHostname(newSub, selectedZone, newHostname));
+                              }}
+                              className="w-full px-3 py-2 bg-transparent focus:outline-hidden font-mono text-xs text-slate-900"
+                            />
+                            <span className="px-2.5 py-2 bg-slate-100/80 border-l border-slate-200 text-slate-500 text-xs font-mono font-medium whitespace-nowrap">
+                              .{selectedZone}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                            Full Hostname
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. app.yourdomain.com"
+                            value={newHostname}
+                            onChange={(e) => setNewHostname(e.target.value)}
+                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono text-xs shadow-2xs"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedZone !== 'custom' && (
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1.5 border-t border-slate-200/60">
+                        <span className="flex items-center gap-1.5">
+                          Target:
+                          <strong className="font-mono text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200/60">
+                            {computeHostname(subdomain, selectedZone, newHostname) || 'Enter subdomain...'}
+                          </strong>
+                        </span>
+                        <span className="text-[10px] text-slate-400">Leave blank for root apex domain</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. app.yourdomain.com or mywebsite.id"
+                      value={newHostname}
+                      onChange={(e) => setNewHostname(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono text-xs"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Tip: Add Cloudflare API Token above to automatically list your Cloudflare zones here.
+                    </p>
+                  </div>
+                )}
+
                 {tunnelData?.autoSync ? (
                   <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1 font-medium">
                     <Sparkles className="w-3 h-3" /> Auto-sync enabled: This route and DNS CNAME will be created automatically in Cloudflare!

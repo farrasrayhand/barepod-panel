@@ -747,11 +747,12 @@ func (s *Store) ListDomains(tenantUser string) ([]*WebsiteDomain, error) {
 			 ORDER BY d.is_primary DESC, d.domain ASC`, tenantUser)
 	} else {
 		rows, err = s.DB.Query(
-			`SELECT id, website_slug, domain, is_primary, ssl_enabled, ssl_provider, ssl_status,
-			        ssl_cert_path, ssl_key_path, ssl_issuer, ssl_expires_at, force_https, hsts_enabled,
-			        auto_renew, created_at
-			 FROM website_domains
-			 ORDER BY is_primary DESC, domain ASC`)
+			`SELECT d.id, d.website_slug, d.domain, d.is_primary, d.ssl_enabled, d.ssl_provider, d.ssl_status,
+			        d.ssl_cert_path, d.ssl_key_path, d.ssl_issuer, d.ssl_expires_at, d.force_https, d.hsts_enabled,
+			        d.auto_renew, d.created_at
+			 FROM website_domains d
+			 JOIN websites w ON d.website_slug = w.slug
+			 ORDER BY d.is_primary DESC, d.domain ASC`)
 	}
 	if err != nil {
 		return nil, err
