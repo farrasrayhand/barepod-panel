@@ -26,6 +26,7 @@ import {
   Lock,
   GitBranch,
   KeyRound,
+  AlertCircle,
 } from 'lucide-react';
 import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../types';
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
@@ -46,7 +47,73 @@ interface AddAppModalProps {
 type WizardStep = 'basics' | 'engine' | 'source' | 'database' | 'upstream' | 'review';
 type SourceKind = 'scaffold' | 'github' | 'upload' | 'existing' | 'default';
 
-const stepsForMode = (mode: 'standard' | 'proxy' | 'static'): { id: WizardStep; label: string }[] => {
+export interface SupportedDbEngine {
+  engine: DatabaseEngine;
+  label?: string;
+  badge?: string;
+  warning?: string;
+  recommended?: boolean;
+}
+
+export const getSupportedDbEngines = (runtime: RuntimeType, framework: string): SupportedDbEngine[] => {
+  const fw = (framework || '').toLowerCase();
+
+  // CMSs strictly requiring MySQL / MariaDB (or SQLite via drop-in)
+  if (/wordpress|woocommerce|joomla|prestashop|drupal|whmcs|magento|shopware|moodle|nextcloud|owncloud/i.test(fw)) {
+    return [
+      { engine: 'mariadb', label: 'MariaDB / MySQL', recommended: true, badge: 'Standard CMS' },
+      { engine: 'sqlite', label: 'SQLite', badge: 'Embedded' },
+    ];
+  }
+
+  // PHP frameworks (Laravel, Symfony, CodeIgniter, CakePHP, Slim, etc.)
+  if (runtime === 'php') {
+    return [
+      { engine: 'mariadb', label: 'MariaDB / MySQL', recommended: true, badge: 'Standard PHP' },
+      { engine: 'postgres', label: 'PostgreSQL', badge: 'Relational' },
+      { engine: 'sqlite', label: 'SQLite', badge: 'Embedded' },
+      { 
+        engine: 'mongodb', 
+        label: 'MongoDB (ODM)', 
+        badge: 'NoSQL', 
+        warning: 'Laravel butuh package pihak ketiga (mongodb/laravel-mongodb) & ekstensi PHP mongodb. Migrasi skema SQL relasional standar tidak didukung.' 
+      },
+    ];
+  }
+
+  // Node.js
+  if (runtime === 'nodejs') {
+    return [
+      { engine: 'postgres', label: 'PostgreSQL', recommended: true, badge: 'Prisma / Drizzle' },
+      { engine: 'mongodb', label: 'MongoDB', badge: 'Mongoose / NoSQL' },
+      { engine: 'mariadb', label: 'MariaDB / MySQL' },
+      { engine: 'sqlite', label: 'SQLite' },
+    ];
+  }
+
+  // Python
+  if (runtime === 'python') {
+    return [
+      { engine: 'postgres', label: 'PostgreSQL', recommended: true, badge: 'SQLAlchemy / Django' },
+      { engine: 'mariadb', label: 'MariaDB / MySQL' },
+      { engine: 'sqlite', label: 'SQLite' },
+      { engine: 'mongodb', label: 'MongoDB', badge: 'PyMongo / Motor' },
+    ];
+  }
+
+  // Go / Rust / Ruby / others
+  return [
+    { engine: 'postgres', label: 'PostgreSQL', recommended: true, badge: 'Recommended' },
+    { engine: 'mariadb', label: 'MariaDB / MySQL' },
+    { engine: 'sqlite', label: 'SQLite' },
+  ];
+};
+
+const stepsForMode = (
+  mode: 'standard' | 'proxy' | 'static',
+  runtime: RuntimeType,
+  framework: string,
+): { id: WizardStep; label: string }[] => {
   if (mode === 'proxy') {
     return [
       { id: 'basics', label: 'Basics' },
@@ -54,7 +121,8 @@ const stepsForMode = (mode: 'standard' | 'proxy' | 'static'): { id: WizardStep; 
       { id: 'review', label: 'Review' },
     ];
   }
-  if (mode === 'static') {
+  const isStatic = mode === 'static' || runtime === 'static' || /static|html|vite\s*dist|astro\s*static/i.test(framework);
+  if (isStatic) {
     return [
       { id: 'basics', label: 'Basics' },
       { id: 'engine', label: 'Engine' },
@@ -136,7 +204,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
 
   // Database
   const [createDb, setCreateDb] = useState(true);
-  const [dbType, setDbType] = useState<DatabaseEngine>('postgres');
+  const [dbType, setDbType] = useState<DatabaseEngine>('mariadb');
   const [dbVersionIndex, setDbVersionIndex] = useState(0);
   const [dbName, setDbName] = useState('');
   const [dbUser, setDbUser] = useState('');
@@ -241,9 +309,24 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
     }
   }, [runtimeConfigs, runtime, version]);
 
-  const steps = stepsForMode(appMode);
+  const isStaticSite = appMode === 'static' || runtime === 'static' || /static|html|vite\s*dist|astro\s*static/i.test(framework);
+  const steps = stepsForMode(appMode, runtime, framework);
   const currentStep = steps[Math.min(stepIndex, steps.length - 1)];
   const currentStepId = currentStep?.id ?? 'basics';
+
+  const supportedDbEngines = useMemo(
+    () => getSupportedDbEngines(runtime, framework),
+    [runtime, framework],
+  );
+  const selectedEngineMeta = supportedDbEngines.find((e) => e.engine === dbType);
+
+  useEffect(() => {
+    if (!supportedDbEngines.some((e) => e.engine === dbType)) {
+      const fallback = supportedDbEngines.find((e) => e.recommended)?.engine ?? supportedDbEngines[0]?.engine ?? 'mariadb';
+      setDbType(fallback);
+      setDbVersionIndex(0);
+    }
+  }, [supportedDbEngines, dbType]);
 
   // Only templates with an automated download are offered (plus the Generic option)
   const availableFrameworks = useMemo(() => {
@@ -492,13 +575,13 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
       proxyPreserveHost,
       proxyRealIp,
       proxyTimeoutSecs,
-      dbAutoProvision: createDb,
-      dbEngine: createDb ? dbType : undefined,
-      dbName: createDb ? resolvedDbName : undefined,
-      dbUser: createDb ? resolvedDbUser : undefined,
-      cacheAutoProvision: createCache,
-      cacheEngine: createCache ? 'redis' : undefined,
-      autoEnv,
+      dbAutoProvision: !isStaticSite && createDb,
+      dbEngine: (!isStaticSite && createDb) ? dbType : undefined,
+      dbName: (!isStaticSite && createDb) ? resolvedDbName : undefined,
+      dbUser: (!isStaticSite && createDb) ? resolvedDbUser : undefined,
+      cacheAutoProvision: !isStaticSite && createCache,
+      cacheEngine: (!isStaticSite && createCache) ? 'redis' : undefined,
+      autoEnv: isStaticSite ? false : autoEnv,
       sourceKind: effectiveSource,
       provisionMode: effectiveSource === 'scaffold' ? 'download' : 'generic',
       automationSteps: plan.steps.length ? plan.steps : undefined,
@@ -683,8 +766,8 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               {appMode === 'standard' && (
                 <>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-2">Language & Runtime</label>
-                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                    <label className="block text-xs font-semibold text-slate-700 mb-2">Language &amp; Runtime</label>
+                    <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
                       {[
                         { id: 'python' as RuntimeType, label: 'Python' },
                         { id: 'php' as RuntimeType, label: 'PHP' },
@@ -692,6 +775,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                         { id: 'go' as RuntimeType, label: 'Golang' },
                         { id: 'rust' as RuntimeType, label: 'Rust' },
                         { id: 'ruby' as RuntimeType, label: 'Ruby' },
+                        { id: 'static' as RuntimeType, label: 'Static HTML' },
                       ].map((item) => {
                         const RuntimeIcon = runtimeIcon[item.id] ?? Code2;
                         const active = runtime === item.id;
@@ -928,21 +1012,40 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               {createDb && (
                 <div className="pl-5 space-y-4">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {(['postgres', 'mariadb', 'mongodb', 'sqlite'] as DatabaseEngine[]).map((engineId) => {
+                    {supportedDbEngines.map((item) => {
+                      const engineId = item.engine;
                       const DbIcon = dbIcon[engineId] ?? Database;
+                      const active = dbType === engineId;
                       return (
                         <button
                           key={engineId}
                           type="button"
                           onClick={() => { setDbType(engineId); setDbVersionIndex(0); }}
-                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] transition-all ${cardChoice(dbType === engineId)}`}
+                          className={`flex flex-col items-start gap-1 p-2 rounded-lg border text-left transition-all ${cardChoice(active)}`}
                         >
-                          <DbIcon className="w-3.5 h-3.5 shrink-0" />
-                          <span>{ENGINE_LABELS[engineId]}</span>
+                          <div className="flex items-center gap-1.5 w-full">
+                            <DbIcon className="w-3.5 h-3.5 shrink-0" />
+                            <span className="font-semibold text-[11px] truncate">{item.label || ENGINE_LABELS[engineId]}</span>
+                          </div>
+                          {item.badge && (
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${active ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
+                              {item.badge}
+                            </span>
+                          )}
                         </button>
                       );
                     })}
                   </div>
+
+                  {selectedEngineMeta?.warning && (
+                    <div className="p-2.5 rounded-lg border border-amber-200 bg-amber-50 text-[11px] text-amber-800 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-semibold">Catatan Kompatibilitas: </span>
+                        <span>{selectedEngineMeta.warning}</span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -1134,7 +1237,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                         ['Source', effectiveSource === 'scaffold' ? 'Scaffold / download' : effectiveSource === 'github' ? `GitHub ${gitRepo || '(repo)'} @ ${gitBranch}` : effectiveSource === 'upload' ? `Upload ${uploadFile ?? '(archive)'}` : 'Existing files'],
                       ] as [string, string][])
                     : ([['Upstream', upstreamUrl]] as [string, string][])),
-                  ...(appMode === 'standard'
+                  ...(!isStaticSite && appMode === 'standard'
                     ? ([
                         ['Database', createDb ? `${ENGINE_LABELS[dbType]}${isSqlite ? '' : ` :${activeDbVersion?.port}`} → ${resolvedDbName}` : 'None'],
                         ['Cache', createCache ? `Redis 7.2 :${activeCacheVersion?.port ?? 6379}` : 'None'],

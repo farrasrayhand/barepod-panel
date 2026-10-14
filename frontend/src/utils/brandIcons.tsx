@@ -30,6 +30,7 @@ import {
   SiCloudflare,
   SiPhpmyadmin,
   SiSqlite,
+  SiHtml5,
 } from 'react-icons/si';
 
 export const runtimeIcon: Record<string, IconType> = {
@@ -40,6 +41,7 @@ export const runtimeIcon: Record<string, IconType> = {
   rust: SiRust,
   ruby: SiRuby,
   docker: SiDocker,
+  static: SiHtml5,
 };
 
 export const frameworkIcon = (framework?: string): IconType | null => {
