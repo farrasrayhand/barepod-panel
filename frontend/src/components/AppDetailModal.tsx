@@ -604,7 +604,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">Environment Variables (.env)</h3>
-                  <p className="text-xs text-slate-500">Auto-synced with file <code>/home/{app.tenantUser}/apps/{app.name}/.env</code></p>
+                  <p className="text-xs text-slate-500">Auto-synced with file <code>{app.path || `/home/${app.tenantUser}/web/${app.name}`}/.env</code></p>
                 </div>
                 <button
                   onClick={() => {
@@ -668,7 +668,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-100">
                     <span className="text-slate-400">Filesystem Sandbox</span>
-                    <span className="font-mono text-slate-600 text-[11px]">/home/{app.tenantUser}/apps/{app.name}</span>
+                    <span className="font-mono text-slate-600 text-[11px]">{app.path || `/home/${app.tenantUser}/web/${app.name}`}</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-100">
                     <span className="text-slate-400">Cloudflare Tunnel Ingress</span>

@@ -323,7 +323,7 @@ systemctl reload ${app.name}`;
 
             <div className="bg-slate-900 rounded-xl p-3.5 border border-slate-800 font-mono text-xs text-slate-200 shadow-inner">
               <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-[10px] text-slate-400">
-                <span>Runs inside tenant sandbox: <code>/home/{app.tenantUser}/apps/{app.name}</code></span>
+                <span>Runs inside tenant sandbox: <code>{app.path || `/home/${app.tenantUser}/web/${app.name}`}</code></span>
                 <span className="text-emerald-400">Bash Shell</span>
               </div>
               <textarea

@@ -813,7 +813,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       ? '/'
       : scope === 'tenant'
         ? `/home/${tenant}`
-        : `/home/${app?.tenantUser ?? ''}/apps/${app?.name ?? ''}`;
+        : (app?.path || `/home/${app?.tenantUser ?? ''}/web/${app?.name ?? ''}`);
   /** A protected entry can be opened and downloaded, never changed. */
   const isLocked = (file: FileEntry | null | undefined) => Boolean(file?.protected);
 

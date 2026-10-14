@@ -760,7 +760,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     <div>
                       <strong className="text-purple-900">Panel Policy: Maximum App Retention = 30 Days</strong>
                       <p className="text-[11px] text-slate-600 mt-0.5">
-                        Website-level monitoring is capped at <strong>30 days</strong> to avoid disk exhaustion in tenant home partitions (<code className="font-mono text-purple-800">/home/[user]/apps/</code>).
+                        Website-level monitoring is capped at <strong>30 days</strong> to avoid disk exhaustion in tenant home partitions (<code className="font-mono text-purple-800">/home/[user]/web/</code>).
                       </p>
                     </div>
                   </div>

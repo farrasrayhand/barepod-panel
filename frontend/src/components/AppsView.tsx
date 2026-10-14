@@ -69,7 +69,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
   // Modals
   const [selectedAppForGit, setSelectedAppForGit] = useState<WebApp | null>(null);
 
-  // Detail page is driven by the URL (/apps/<name>/<tab>) so it survives refresh
+  // Detail page is driven by the URL (/web/<name>/<tab>) so it survives refresh
   const selectedAppForDetails = apps.find((a) => a.name === selectedAppSlug || a.id === selectedAppSlug) || null;
 
   // A deep link to a website that does not exist goes back to the list with a

@@ -207,7 +207,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const [dirPath, setDirPath] = useState<string | null>(null);
   const [dirError, setDirError] = useState('');
   const KNOWN_EXISTING_APPS = ['flask-sentiment-api', 'larastore-commerce', 'billing-backend-api', 'fastapi-ai-service', 'legacy-news-portal', 'internal-n8n-proxy'];
-  const existingPath = `/home/${tenantUser}/apps/${name || '<website>'}`;
+  const existingPath = `/home/${tenantUser}/web/${name || '<website>'}`;
 
   /**
    * Tenants have no shell on the server, so the panel creates the directory.
@@ -470,7 +470,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
       if (isSqlite) {
         lines.push('# Database — SQLite (file-based, no daemon)');
         lines.push('DB_CONNECTION=sqlite');
-        lines.push(`DB_DATABASE=/home/${tenantUser}/apps/${name || 'website'}/${resolvedDbName}.sqlite`);
+        lines.push(`DB_DATABASE=/home/${tenantUser}/web/${name || 'website'}/${resolvedDbName}.sqlite`);
       } else {
         const host = '127.0.0.1';
         const port = activeDbVersion?.port ?? 0;
@@ -930,7 +930,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               {effectiveSource === 'scaffold' && (
                 <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 text-xs space-y-1.5">
                   <p className="text-slate-600">
-                    The panel downloads <strong>{framework}</strong> ({version}) into <code className="font-mono">/home/{tenantUser}/apps/{name || '<website>'}</code>.
+                    The panel downloads <strong>{framework}</strong> ({version}) into <code className="font-mono">/home/{tenantUser}/web/{name || '<website>'}</code>.
                   </p>
                   {plan.install ? (
                     <code className="block font-mono text-[11px] text-blue-700 bg-white border border-slate-200 rounded px-2 py-1">{plan.install}</code>

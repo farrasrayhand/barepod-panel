@@ -239,7 +239,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
               {type === 'sqlite' ? (
                 <>
                   <Folder className="w-3 h-3 text-slate-400" />
-                  <span>File: /home/&lt;tenant&gt;/apps/&lt;website&gt;/{name || 'database'}.sqlite (no daemon)</span>
+                  <span>File: /home/&lt;tenant&gt;/web/&lt;website&gt;/{name || 'database'}.sqlite (no daemon)</span>
                 </>
               ) : (
                 <>

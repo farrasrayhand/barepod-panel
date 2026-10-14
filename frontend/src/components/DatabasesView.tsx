@@ -487,7 +487,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         uri = `redis://:••••••••@127.0.0.1:6379/0`;
         break;
       case 'sqlite':
-        uri = `sqlite:///home/${db.tenantUser ?? 'user'}/apps/${db.name}.sqlite`;
+        uri = db.path ? `sqlite://${db.path}` : `sqlite:///home/${db.tenantUser ?? 'user'}/web/${db.name}.sqlite`;
         break;
     }
     navigator.clipboard?.writeText(uri);
@@ -698,7 +698,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
               const badge = getDbBadge(db.type);
               const isSqliteDb = db.type === 'sqlite';
               const isBinned = isInBin(db);
-              const sqlitePath = `/home/${db.tenantUser ?? 'user'}/apps/${db.name}.sqlite`;
+              const sqlitePath = db.path || `/home/${db.tenantUser ?? 'user'}/web/${db.name}.sqlite`;
               const host = db.host || '127.0.0.1';
               const port = db.port || (
                 db.type === 'postgres' ? 5432 :

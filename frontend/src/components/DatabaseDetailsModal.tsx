@@ -405,7 +405,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
       case 'redis':
         return `redis://:${pwd}@${effectiveHost}:${port}/0`;
       case 'sqlite':
-        return `sqlite:///home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`;
+        return database.path ? `sqlite://${database.path}` : `sqlite:///home/${database.tenantUser ?? 'user'}/web/${database.name}.sqlite`;
     }
   };
 
@@ -452,7 +452,7 @@ REDIS_PASSWORD=${pwd}`;
       case 'sqlite':
         return `# SQLite (file-based, no daemon)
 DB_CONNECTION=sqlite
-DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`;
+DB_DATABASE=${database.path || `/home/${database.tenantUser ?? 'user'}/web/${database.name}.sqlite`}`;
     }
   };
 
@@ -680,7 +680,7 @@ DB_DATABASE=/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`
                         SQLite operates directly inside your application process via filesystem I/O without a background service daemon, network port, or central log file.
                       </p>
                       <p className="text-[11px] font-mono text-slate-600">
-                        File path: {database.path || `/home/${database.tenantUser ?? 'user'}/apps/${database.name}.sqlite`}
+                        File path: {database.path || `/home/${database.tenantUser ?? 'user'}/web/${database.name}.sqlite`}
                       </p>
                     </div>
                   ) : (

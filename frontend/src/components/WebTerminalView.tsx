@@ -93,7 +93,7 @@ Note: a container shell exposes the container filesystem only. Type 'help'.
         {
           type: 'output',
           text: `[SYSTEM] Switched context to isolated tenant: '${currentApp.tenantUser}'
-Workspace: /home/${currentApp.tenantUser}/apps/${currentApp.name}
+Workspace: ${currentApp.path || `/home/${currentApp.tenantUser}/web/${currentApp.name}`}
 Runtime: ${currentApp.runtime.toUpperCase()} ${currentApp.version}
 `,
         },
@@ -452,7 +452,7 @@ Available commands:
     } else if (trimmed === 'pip -V' || trimmed === 'pip3 -V' || trimmed === 'pip') {
       response = `pip 24.0 from /usr/local/lib/python3.12/site-packages/pip (python 3.12)`;
     } else if (trimmed === 'pwd') {
-      response = `/home/${app.tenantUser}/apps/${app.name}`;
+      response = app.path || `/home/${app.tenantUser}/web/${app.name}`;
     } else if (trimmed === 'whoami') {
       response = `${app.tenantUser} (uid=1002, gid=1002, groups=tenant-jail,hybrid-developers)`;
     } else if (trimmed === 'ls -la' || trimmed === 'ls') {
@@ -490,13 +490,13 @@ drwxr-xr-x 4 ${app.tenantUser} ${app.tenantUser} 4096 Oct 10 17:15 venv`;
       const phpVer = app.runtime === 'php' ? app.version : '8.4';
       response = `USER=${app.tenantUser}
 HOME=/home/${app.tenantUser}
-APP_PATH=/home/${app.tenantUser}/apps/${app.name}
+APP_PATH=${app.path || `/home/${app.tenantUser}/web/${app.name}`}
 BAREPOD_RUNTIME=${app.runtime}
 BAREPOD_VERSION=${app.version}
 BAREPOD_HYBRID_MONOREPO=enabled
 PATH=/opt/runtimes/${app.runtime}/${app.version}/bin:/opt/runtimes/php/${phpVer}/bin:/opt/runtimes/nodejs/22/bin:/opt/runtimes/python/3.12/bin:/usr/local/bin:/usr/bin
 NODE_PATH=/opt/runtimes/nodejs/22/lib/node_modules
-PYTHONPATH=/home/${app.tenantUser}/apps/${app.name}/ai_scripts
+PYTHONPATH=${app.path || `/home/${app.tenantUser}/web/${app.name}`}/ai_scripts
 SHELL=/bin/bash`;
     } else {
       response = `bash: ${trimmed}: command executed in ${app.tenantUser} polyglot jail. Type 'help' to see sample commands.`;
@@ -615,7 +615,7 @@ SHELL=/bin/bash`;
               {selectedPod
                 ? `root@${selectedPod.name} — ${selectedPod.image}`
                 : currentApp
-                  ? `${currentApp.tenantUser}@barepod-${currentApp.name}: /home/${currentApp.tenantUser}/apps/${currentApp.name}`
+                  ? `${currentApp.tenantUser}@barepod-${currentApp.name}: ${currentApp.path || `/home/${currentApp.tenantUser}/web/${currentApp.name}`}`
                   : 'no session selected'}
             </span>
           </div>
@@ -729,7 +729,7 @@ const PickerGroups: React.FC<PickerGroupsProps> = ({ apps, pods, selected, onSel
                 </div>
 
                 <div className="mt-2 text-[10px] text-slate-400 font-mono truncate">
-                  /home/{app.tenantUser}/apps/{app.name}
+                  {app.path || `/home/${app.tenantUser}/web/${app.name}`}
                 </div>
               </button>
             );
