@@ -751,6 +751,12 @@ export const api = {
 
   website: (slug: string) => request<ApiWebsite>(`/websites/${slug}`),
 
+  deleteWebsite: (slug: string, options?: { databases?: 'keep' | 'delete' }) =>
+    request<{ slug: string; steps: string[]; mode: string }>(
+      `/websites/${encodeURIComponent(slug)}${options?.databases ? `?databases=${options.databases}` : '?databases=keep'}`,
+      { method: 'DELETE' },
+    ),
+
   /** Re-run the pipeline from the source recorded at create time; also a 202 + job. */
   redeploy: (slug: string) =>
     request<{ slug: string; deployId: string; mode: string; status: string; totalSteps?: number }>(
