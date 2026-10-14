@@ -955,6 +955,12 @@ export const api = {
   siteMetrics: (slug: string, range = '1h') =>
     request<MetricSeries<SiteMetrics>>(`/websites/${slug}/metrics?range=${encodeURIComponent(range)}`),
 
+  websiteTelemetry: (slug: string, limit = 300) =>
+    request<ApiWebsiteTelemetry>(`/websites/${encodeURIComponent(slug)}/telemetry?limit=${limit}`),
+
+  websiteTelemetryStreamUrl: (slug: string) =>
+    `${API_BASE}/websites/${encodeURIComponent(slug)}/telemetry/stream`,
+
   // --- file manager --------------------------------------------------------
   files: (slug: string, path = '') =>
     request<{ path: string; site: string; tenant: string; items: FileEntry[]; maxSize: number }>(
@@ -1306,6 +1312,50 @@ export interface SiteRuntime {
   vhostPath: string;
   socket?: string;
   mode: string;
+}
+
+export interface ApiTelemetryNode {
+  country: string;
+  countryName: string;
+  flag: string;
+  city: string;
+  ip: string;
+  isp: string;
+  x: number;
+  y: number;
+  reqs: number;
+  percentage: number;
+  latency: string;
+  isThreat: boolean;
+}
+
+export interface ApiTelemetryLogItem {
+  time: string;
+  type: 'access' | 'error';
+  ip?: string;
+  country?: string;
+  isp?: string;
+  method?: string;
+  path?: string;
+  status?: number;
+  latency?: string;
+  size?: string;
+  userAgent?: string;
+  msg: string;
+  rawLine?: string;
+}
+
+export interface ApiWebsiteTelemetry {
+  slug: string;
+  domain: string;
+  webServer: string;
+  logPath: string;
+  totalRequests: number;
+  uniqueIps: number;
+  threatCount: number;
+  nodes: ApiTelemetryNode[];
+  logs: ApiTelemetryLogItem[];
+  updatedAt: string;
 }
 
 /** One web server's real state (the Stack screen). */

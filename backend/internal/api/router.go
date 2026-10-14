@@ -22,6 +22,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/rbac"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/stack"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/telemetry"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/tenant"
 )
 
@@ -72,6 +73,8 @@ type Server struct {
 	installs *stack.Installer
 	// guard is the brute-force lockout watching the engines' logs.
 	guard *guard.Guard
+	// telemetry aggregates real access logs and visitor GeoIP data.
+	telemetry *telemetry.Service
 	// guiMu serialises switching a manager between databases; guiServed records
 	// which database each running manager is scoped to.
 	guiMu     sync.Mutex
@@ -119,6 +122,7 @@ func New(d Deps) http.Handler {
 		lookPath:       lookPath,
 		guard:          d.Guard,
 		installs:       stack.New(d.Store, d.Host),
+		telemetry:      telemetry.NewService(d.Store),
 	}
 
 	mux := http.NewServeMux()
@@ -231,6 +235,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/stream", deploy(s.handleDeployStream))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/{id}", deploy(s.handleDeployJob))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/metrics", deploy(s.handleWebsiteMetrics))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/telemetry", deploy(s.handleWebsiteTelemetry))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/telemetry/stream", deploy(s.handleWebsiteTelemetryStream))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/runtime", deploy(s.handleGetRuntime))
 	mux.HandleFunc("PUT /api/v1/websites/{slug}/runtime", deploy(s.handlePutRuntime))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/vhost/preview", deploy(s.handleVhostPreview))

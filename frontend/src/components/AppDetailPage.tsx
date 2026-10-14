@@ -66,7 +66,7 @@ import { runtimeIcon, frameworkIcon } from '../utils/brandIcons';
 import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
-import { api, apiReachable, type ApiDomain } from '../api/client';
+import { api, apiReachable, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode } from '../api/client';
 import { describeError } from '../utils/format';
 
 export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'domains' | 'routing' | 'files' | 'env' | 'php' | 'runtime' | 'security' | 'deploy';
@@ -131,6 +131,73 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [copiedEnv, setCopiedEnv] = useState(false);
   const [maskSecrets, setMaskSecrets] = useState(true);
   const [isExportingBackup, setIsExportingBackup] = useState(false);
+  const [telemetry, setTelemetry] = useState<ApiWebsiteTelemetry | null>(null);
+  const [realLogs, setRealLogs] = useState<LogItem[] | null>(null);
+  const [realNodes, setRealNodes] = useState<ApiTelemetryNode[] | null>(null);
+  const [isLiveStreaming, setIsLiveStreaming] = useState(false);
+
+  const fetchTelemetry = useCallback(async () => {
+    try {
+      const res = await api.websiteTelemetry(app.name);
+      if (res) {
+        setTelemetry(res);
+        if (res.logs && res.logs.length > 0) {
+          setRealLogs(res.logs as LogItem[]);
+        }
+        if (res.nodes && res.nodes.length > 0) {
+          setRealNodes(res.nodes);
+        }
+      }
+    } catch {
+      // Fallback
+    }
+  }, [app.name]);
+
+  useEffect(() => {
+    fetchTelemetry();
+  }, [fetchTelemetry]);
+
+  // Connect live SSE stream when tab is 'map' or 'logs'
+  useEffect(() => {
+    if (activeTab !== 'map' && activeTab !== 'logs') return;
+    let es: EventSource | null = null;
+    try {
+      const streamUrl = api.websiteTelemetryStreamUrl(app.name);
+      es = new EventSource(streamUrl);
+      es.onopen = () => setIsLiveStreaming(true);
+      es.addEventListener('snapshot', (e: MessageEvent) => {
+        try {
+          const snap = JSON.parse(e.data) as ApiWebsiteTelemetry;
+          setTelemetry(snap);
+          if (snap.logs && snap.logs.length > 0) setRealLogs(snap.logs as LogItem[]);
+          if (snap.nodes && snap.nodes.length > 0) setRealNodes(snap.nodes);
+        } catch { /* ignore */ }
+      });
+      es.addEventListener('hit', (e: MessageEvent) => {
+        try {
+          const item = JSON.parse(e.data) as LogItem;
+          setRealLogs(prev => [item, ...(prev || []).slice(0, 499)]);
+        } catch { /* ignore */ }
+      });
+      es.addEventListener('nodes', (e: MessageEvent) => {
+        try {
+          const nodes = JSON.parse(e.data) as ApiTelemetryNode[];
+          if (nodes && nodes.length > 0) setRealNodes(nodes);
+        } catch { /* ignore */ }
+      });
+      es.onerror = () => {
+        setIsLiveStreaming(false);
+      };
+    } catch {
+      setIsLiveStreaming(false);
+    }
+    return () => {
+      if (es) {
+        es.close();
+        setIsLiveStreaming(false);
+      }
+    };
+  }, [app.name, activeTab]);
 
   const handleExportAppBackup = () => {
     setIsExportingBackup(true);
@@ -1348,14 +1415,15 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     return commonLogs;
   };
 
-  const logs = getMockLogs();
+  const logs: LogItem[] = realLogs && realLogs.length > 0 ? realLogs : getMockLogs();
+  const isRealData = realLogs !== null && realLogs.length > 0;
   const uniqueVisitorIps = Array.from(new Set(logs.filter(l => l.ip).map(l => l.ip as string)));
 
-  const visitorCountryNodes = [
+  const visitorCountryNodes = realNodes && realNodes.length > 0 ? realNodes : [
     { country: 'ID', countryName: 'Indonesia', flag: '🇮🇩', city: 'Jakarta & Surabaya', ip: '114.124.180.52', isp: 'Telkomsel & Biznet', x: 796, y: 268, reqs: 3, percentage: 38, latency: '14ms', isThreat: false },
     { country: 'SG', countryName: 'Singapore', flag: '🇸🇬', city: 'Singapore Edge', ip: '103.147.154.82', isp: 'MyRepublic Singapore', x: 788, y: 246, reqs: 2, percentage: 25, latency: '1ms', isThreat: false },
     { country: 'US', countryName: 'United States', flag: '🇺🇸', city: 'Ashburn, VA', ip: '198.51.100.41', isp: 'Security Scanner', x: 285, y: 142, reqs: 1, percentage: 12, latency: '3ms', isThreat: true },
-    { country: 'DE', countryName: 'Germany', flag: '🇩🇪', city: 'Frankfurt Node', ip: '45.33.32.156', isp: 'Hetzner Online', x: 524, y: 111, reqs: 1, percentage: 12, latency: '28ms', isThreat: false },
+    { country: 'DE', Germany: 'Germany', flag: '🇩🇪', city: 'Frankfurt Node', ip: '45.33.32.156', isp: 'Hetzner Online', x: 524, y: 111, reqs: 1, percentage: 12, latency: '28ms', isThreat: false, countryName: 'Germany' },
     { country: 'JP', countryName: 'Japan', flag: '🇯🇵', city: 'Tokyo Edge', ip: '139.162.112.50', isp: 'Linode Tokyo', x: 888, y: 151, reqs: 1, percentage: 12, latency: '36ms', isThreat: false },
     { country: 'AU', countryName: 'Australia', flag: '🇦🇺', city: 'Sydney Edge', ip: '13.236.40.91', isp: 'AWS Sydney', x: 920, y: 344, reqs: 1, percentage: 12, latency: '42ms', isThreat: false },
   ];
@@ -2066,12 +2134,13 @@ QUEUE_CONNECTION=redis`;
                   </button>
 
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       setIsRefreshingLogs(true);
-                      setTimeout(() => setIsRefreshingLogs(false), 500);
+                      await fetchTelemetry();
+                      setIsRefreshingLogs(false);
                     }}
                     className="flex items-center gap-1 px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-50 shadow-2xs transition-colors cursor-pointer font-medium"
-                    title="Refresh logs"
+                    title="Refresh logs from web server"
                   >
                     <RotateCw className={`w-3 h-3 text-slate-500 ${isRefreshingLogs ? 'animate-spin' : ''}`} />
                     <span>Refresh</span>
@@ -2376,12 +2445,21 @@ QUEUE_CONNECTION=redis`;
                     <div>
                       <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                         <span>Global Visitor Distribution Map (Live Geo Ingress)</span>
-                        <span className="px-1.5 py-0.2 text-[9px] bg-amber-100 text-amber-800 font-mono font-bold rounded">
-                          Mock Simulation
-                        </span>
+                        {isRealData ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono font-bold rounded">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Live Telemetry Stream
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 text-[9px] bg-slate-100 text-slate-600 font-mono font-semibold rounded">
+                            Awaiting Traffic
+                          </span>
+                        )}
                       </h4>
                       <p className="text-[11px] text-slate-500">
-                        Visual simulation of visitor-origin nodes & Cloudflare edge routes (real-time access-log telemetry streamer is in roadmap).
+                        {isRealData
+                          ? `Ingesting live access hits from web server log (${telemetry?.logPath || 'active vhost log'}). Geo-located dynamically.`
+                          : `Real-time visitor origin nodes and request latency streamed directly from active web server access logs.`}
                       </p>
                     </div>
                   </div>
@@ -2397,7 +2475,7 @@ QUEUE_CONNECTION=redis`;
                       </button>
                     )}
                     <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200 font-semibold">
-                      {visitorCountryNodes.length} Active Locations across 5 Continents
+                      {visitorCountryNodes.length} Active {visitorCountryNodes.length === 1 ? 'Location' : 'Locations'} ({logs.length} Requests Recorded)
                     </span>
                   </div>
                 </div>

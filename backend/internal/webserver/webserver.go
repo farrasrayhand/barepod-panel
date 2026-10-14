@@ -500,6 +500,8 @@ func caddyVhost(s Spec) string {
 		fmt.Fprintf(&b, "%s {\n", strings.Join(domainsWith80, ", "))
 	}
 
+	fmt.Fprintf(&b, "\tlog {\n\t\toutput file /var/log/caddy/barepod-%s.access.log\n\t}\n\n", s.Slug)
+
 	// 1. IP Access Control
 	if s.Security.IPRestrictionMode == "allowlist" && len(s.Security.IPRestrictionList) > 0 {
 		b.WriteString("\t@ipDenied not client_ip " + strings.Join(s.Security.IPRestrictionList, " ") + "\n")
