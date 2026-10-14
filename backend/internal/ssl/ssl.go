@@ -285,7 +285,15 @@ func IssueLetsEncrypt(ctx context.Context, domain string, aliases []string, emai
 	cmd := exec.CommandContext(ctx, certbotPath, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("certbot failed: %s: %w", string(out), err)
+		outStr := string(out)
+		if idx := strings.Index(outStr, "The Certificate Authority reported these problems:"); idx != -1 {
+			part := outStr[idx:]
+			if endIdx := strings.Index(part, "Hint:"); endIdx != -1 {
+				part = part[:endIdx]
+			}
+			return nil, fmt.Errorf("%s (Ensure your domain DNS A/AAAA record points directly to this server)", strings.TrimSpace(part))
+		}
+		return nil, fmt.Errorf("certbot failed: %s: %w", outStr, err)
 	}
 
 	certPath := filepath.Join(LetsDir, domain, "fullchain.pem")
