@@ -79,6 +79,7 @@ export const POPULAR_SCAFFOLDS: ScaffoldPreset[] = [
     runtime: 'php',
     defaultVersion: '8.4',
     frameworkVersions: [
+      { value: '13', label: '13', badge: 'Next / Dev', minRuntime: '8.3' },
       { value: '12', label: '12', badge: 'Latest', minRuntime: '8.2' },
       { value: '11', label: '11', badge: 'LTS', minRuntime: '8.2' },
       { value: '10', label: '10', minRuntime: '8.1' },
@@ -235,6 +236,15 @@ export const getCompatibleRuntimeVersions = (
 
   if (runtime === 'php') {
     if (fw.includes('laravel')) {
+      if (fv.startsWith('13') || fw.includes('13')) {
+        const allowed = ['8.4', '8.3'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        return {
+          versions: filtered.length ? filtered : allowed,
+          recommended: (allAvailableVersions.includes('8.4') ? '8.4' : filtered[0]) || '8.4',
+          note: 'Laravel 13 membutuhkan PHP ≥ 8.3 (Direkomendasikan: PHP 8.4)',
+        };
+      }
       if (fv.startsWith('12') || fw.includes('12')) {
         const allowed = ['8.4', '8.3', '8.2'];
         const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
