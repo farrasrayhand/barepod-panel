@@ -101,6 +101,45 @@ export const getSupportedDbEngines = (runtime: RuntimeType, framework: string): 
   ];
 };
 
+export const supportsCacheFor = (runtime: RuntimeType, framework: string): boolean => {
+  const fw = (framework || '').toLowerCase();
+
+  // Static sites never use cache
+  if (runtime === 'static' || /static|html|vite|astro/i.test(fw)) return false;
+
+  // CMSs don't support Redis out of the box in their core installer
+  if (/wordpress|woocommerce|joomla|prestashop|drupal|whmcs|magento|shopware|moodle|nextcloud|owncloud|matomo|mautic/i.test(fw)) {
+    return false;
+  }
+
+  // Micro-frameworks or simple starters without built-in Redis env setup
+  if (/codeigniter|cakephp|slim|laminas|yii/i.test(fw)) {
+    return false;
+  }
+
+  // Compiled binary stacks (Go, Rust) starters don't use Redis
+  if (runtime === 'go' || runtime === 'rust') {
+    return false;
+  }
+
+  // Frameworks with native first-class Redis support in scaffold
+  if (/laravel|symfony|django|rails/i.test(fw)) {
+    return true;
+  }
+
+  // Generic custom apps where developer brings code
+  if (/generic|custom/i.test(fw)) {
+    return true;
+  }
+
+  // Node.js or Python backend apps (NestJS, Express, FastAPI)
+  if (runtime === 'nodejs' || runtime === 'python' || runtime === 'ruby') {
+    return true;
+  }
+
+  return false;
+};
+
 const stepsForMode = (
   mode: 'standard' | 'proxy' | 'static',
   runtime: RuntimeType,
@@ -122,11 +161,12 @@ const stepsForMode = (
       { id: 'review', label: 'Review' },
     ];
   }
+  const hasCache = supportsCacheFor(runtime, framework);
   return [
     { id: 'basics', label: 'Basics' },
     { id: 'engine', label: 'Engine & Runtime' },
     { id: 'source', label: 'Source' },
-    { id: 'database', label: 'Database & Cache' },
+    { id: 'database', label: hasCache ? 'Database & Cache' : 'Database' },
     { id: 'review', label: 'Review' },
   ];
 };
@@ -312,6 +352,15 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   );
   const selectedEngineMeta = supportedDbEngines.find((e) => e.engine === dbType);
 
+  const hasCacheSupport = supportsCacheFor(runtime, framework);
+  const effectiveCreateCache = hasCacheSupport && createCache;
+
+  useEffect(() => {
+    if (!hasCacheSupport) {
+      setCreateCache(false);
+    }
+  }, [hasCacheSupport]);
+
   useEffect(() => {
     if (!supportedDbEngines.some((e) => e.engine === dbType)) {
       const fallback = supportedDbEngines.find((e) => e.recommended)?.engine ?? supportedDbEngines[0]?.engine ?? 'mariadb';
@@ -446,7 +495,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
       }
     }
 
-    if (createCache) {
+    if (effectiveCreateCache) {
       lines.push('');
       lines.push('# Cache — Redis');
       lines.push('CACHE_STORE=redis');
@@ -456,7 +505,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
     }
 
     return lines.join('\n');
-  }, [createDb, createCache, dbType, resolvedDbName, resolvedDbUser, dbPassword, cachePassword, domain, name, tenantUser, isSqlite, activeDbVersion, activeCacheVersion]);
+  }, [createDb, effectiveCreateCache, dbType, resolvedDbName, resolvedDbUser, dbPassword, cachePassword, domain, name, tenantUser, isSqlite, activeDbVersion, activeCacheVersion]);
 
   const getGeneratedConfig = () => {
     const dName = domain || 'example.com';
@@ -571,8 +620,8 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
       dbEngine: (!isStaticSite && createDb) ? dbType : undefined,
       dbName: (!isStaticSite && createDb) ? resolvedDbName : undefined,
       dbUser: (!isStaticSite && createDb) ? resolvedDbUser : undefined,
-      cacheAutoProvision: !isStaticSite && createCache,
-      cacheEngine: (!isStaticSite && createCache) ? 'redis' : undefined,
+      cacheAutoProvision: !isStaticSite && effectiveCreateCache,
+      cacheEngine: (!isStaticSite && effectiveCreateCache) ? 'redis' : undefined,
       autoEnv: isStaticSite ? false : autoEnv,
       sourceKind: effectiveSource,
       provisionMode: effectiveSource === 'scaffold' ? 'download' : 'generic',
@@ -1094,48 +1143,52 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               )}
 
               {/* Cache */}
-              <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
-                <input type="checkbox" checked={createCache} onChange={(e) => setCreateCache(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-rose-600" />
-                <span className="text-xs">
-                  <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5 text-rose-600" /> Provision a cache (Redis)
-                  </span>
-                  <span className="text-slate-500 block mt-0.5">In-memory cache / sessions / queues. Independent from the database — combine freely.</span>
-                </span>
-              </label>
+              {hasCacheSupport && (
+                <>
+                  <label className="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
+                    <input type="checkbox" checked={createCache} onChange={(e) => setCreateCache(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-rose-600" />
+                    <span className="text-xs">
+                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-rose-600" /> Provision a cache (Redis)
+                      </span>
+                      <span className="text-slate-500 block mt-0.5">In-memory cache / sessions / queues. Independent from the database — combine freely.</span>
+                    </span>
+                  </label>
 
-              {createCache && (
-                <div className="pl-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Redis Version &amp; Port</label>
-                    {/* Same rule as the database: the cache version is the host's. */}
-                    <div className={`${inputClass} font-mono text-slate-500 bg-slate-100`}>
-                      {activeCacheVersion ? `${activeCacheVersion.label} · port ${activeCacheVersion.port ?? '—'}` : 'host default'}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Cache Password (ACL)</label>
-                    <div className="relative">
-                      <input
-                        type={showCachePassword ? 'text' : 'password'}
-                        value={cachePassword}
-                        onChange={(e) => setCachePassword(e.target.value)}
-                        className={`${inputClass} pr-14 font-mono`}
-                      />
-                      <div className="absolute right-2 top-1.5 flex items-center gap-1">
-                        <button type="button" onClick={() => setShowCachePassword((v) => !v)} className="p-1 text-slate-400 hover:text-slate-600" title="Show/hide">
-                          {showCachePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        </button>
-                        <button type="button" onClick={() => setCachePassword('bp_' + Math.random().toString(36).slice(2, 14))} className="p-1 text-slate-400 hover:text-blue-600" title="Generate">
-                          <RefreshCw className="w-3.5 h-3.5" />
-                        </button>
+                  {createCache && (
+                    <div className="pl-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Redis Version &amp; Port</label>
+                        {/* Same rule as the database: the cache version is the host's. */}
+                        <div className={`${inputClass} font-mono text-slate-500 bg-slate-100`}>
+                          {activeCacheVersion ? `${activeCacheVersion.label} · port ${activeCacheVersion.port ?? '—'}` : 'host default'}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Cache Password (ACL)</label>
+                        <div className="relative">
+                          <input
+                            type={showCachePassword ? 'text' : 'password'}
+                            value={cachePassword}
+                            onChange={(e) => setCachePassword(e.target.value)}
+                            className={`${inputClass} pr-14 font-mono`}
+                          />
+                          <div className="absolute right-2 top-1.5 flex items-center gap-1">
+                            <button type="button" onClick={() => setShowCachePassword((v) => !v)} className="p-1 text-slate-400 hover:text-slate-600" title="Show/hide">
+                              {showCachePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                            <button type="button" onClick={() => setCachePassword('bp_' + Math.random().toString(36).slice(2, 14))} className="p-1 text-slate-400 hover:text-blue-600" title="Generate">
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
+                  )}
+                </>
               )}
 
-              {(createDb || createCache) && (
+              {(createDb || effectiveCreateCache) && (
                 <>
                   <label className="flex items-center gap-2.5 text-xs text-slate-700 cursor-pointer">
                     <input type="checkbox" checked={autoEnv} onChange={(e) => setAutoEnv(e.target.checked)} className="rounded border-slate-300 text-blue-600" />
@@ -1225,7 +1278,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   ...(!isStaticSite && appMode === 'standard'
                     ? ([
                         ['Database', createDb ? `${ENGINE_LABELS[dbType]}${isSqlite ? '' : ` :${activeDbVersion?.port}`} → ${resolvedDbName}` : 'None'],
-                        ['Cache', createCache ? `Redis 7.2 :${activeCacheVersion?.port ?? 6379}` : 'None'],
+                        ...(hasCacheSupport ? [['Cache', effectiveCreateCache ? `Redis 7.2 :${activeCacheVersion?.port ?? 6379}` : 'None']] : []),
                       ] as [string, string][])
                     : []),
                   ['Cloudflare Tunnel', tunnelEnabled ? 'Enabled' : 'Disabled'],
