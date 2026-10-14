@@ -57,7 +57,8 @@ import {
   MapPin,
   ChevronDown,
   ChevronRight,
-  Archive
+  Archive,
+  X
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
 import { PhpExtensionsPanel } from './PhpExtensionsPanel';
@@ -1250,18 +1251,42 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     }
   };
 
-  const handleIssueSsl = async (dom: ApiDomain) => {
+  // SSL Issue Modal State
+  const [sslModalDomain, setSslModalDomain] = useState<ApiDomain | null>(null);
+  const [sslModalProvider, setSslModalProvider] = useState<'auto' | 'letsencrypt' | 'self_signed'>('auto');
+  const [sslModalEmail, setSslModalEmail] = useState('');
+  const [sslModalForceHttps, setSslModalForceHttps] = useState(true);
+  const [sslModalHsts, setSslModalHsts] = useState(false);
+
+  const handleOpenSslModal = (dom: ApiDomain) => {
+    setSslModalDomain(dom);
+    setSslModalProvider(dom.sslProvider === 'self_signed' ? 'self_signed' : dom.sslProvider === 'letsencrypt' ? 'letsencrypt' : 'auto');
+    setSslModalForceHttps(dom.forceHttps ?? true);
+    setSslModalHsts(dom.hstsEnabled ?? false);
+    setSslModalEmail('');
+  };
+
+  const handleIssueSslModalSubmit = async () => {
+    if (!sslModalDomain) return;
     try {
-      setIssuingSslId(dom.id);
-      await api.issueSsl(dom.id, {
-        provider: 'auto',
-        forceHTTPS: dom.forceHttps,
-        hsts: dom.hstsEnabled,
+      setIssuingSslId(sslModalDomain.id);
+      const res = await api.issueSsl(sslModalDomain.id, {
+        provider: sslModalProvider,
+        email: sslModalEmail.trim() || undefined,
+        forceHTTPS: sslModalForceHttps,
+        hsts: sslModalHsts,
       });
-      onShowToast?.('SSL Certificate Issued', `Active certificate issued for ${dom.domain}`, 'success');
+      const providerLabel = res.provider === 'letsencrypt' ? "Let's Encrypt" : "Self-Signed";
+      if (res.warning) {
+        onShowToast?.('SSL Issued with Notice', res.warning, 'info');
+      } else {
+        onShowToast?.('SSL Certificate Active', `${providerLabel} certificate successfully installed for ${sslModalDomain.domain}`, 'success');
+      }
+      setSslModalDomain(null);
       fetchSiteDomains();
+      onUpdateApp?.({ ...app, ssl: true });
     } catch (err: any) {
-      onShowToast?.('SSL Issue Failed', err?.message || 'Failed to issue certificate', 'error');
+      onShowToast?.('SSL Issuance Failed', err?.message || 'Failed to issue certificate', 'error');
     } finally {
       setIssuingSslId(null);
     }
@@ -1951,33 +1976,84 @@ QUEUE_CONNECTION=redis`;
             </div>
 
             {/* Health Probes & SSL Status */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
-                <div className="flex items-center gap-2 text-emerald-700 font-bold text-xs">
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>SSL/TLS Automated Let's Encrypt Certificate</span>
-                </div>
-                <p className="text-xs text-slate-500">
-                  Domain <code>{app.domain}</code> is protected by TLS 1.3 encryption with auto-renewal every 60 days.
-                </p>
-                <div className="text-[11px] text-slate-400 font-mono pt-1">
-                  Issuer: Let's Encrypt Authority X3 • Valid until: 2026-12-10
-                </div>
-              </div>
+            {(() => {
+              const primaryDom = siteDomains.find(d => d.isPrimary) || siteDomains.find(d => d.domain === app.domain) || siteDomains[0];
+              const isSslActive = primaryDom ? primaryDom.sslEnabled : app.ssl;
+              const isSelfSigned = primaryDom?.sslProvider === 'self_signed';
+              const isLetsEncrypt = primaryDom?.sslProvider === 'letsencrypt';
+              const issuerDisplay = primaryDom?.sslIssuer || (isSelfSigned ? 'BarePod Self-Signed CA' : isLetsEncrypt ? "Let's Encrypt Public Authority" : 'Internal SSL');
+              const expiresDisplay = primaryDom?.sslExpiresAt ? new Date(primaryDom.sslExpiresAt).toLocaleDateString() : null;
 
-              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
-                <div className="flex items-center gap-2 text-blue-700 font-bold text-xs">
-                  <CloudRain className="w-4 h-4 text-blue-600" />
-                  <span>Cloudflare Zero-NAT Tunnel Status</span>
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className={`p-4 rounded-xl border bg-white space-y-2 ${isSslActive ? (isSelfSigned ? 'border-purple-200' : 'border-emerald-200') : 'border-amber-200 bg-amber-50/20'}`}>
+                    <div className="flex items-center justify-between">
+                      <div className={`flex items-center gap-2 font-bold text-xs ${isSslActive ? (isSelfSigned ? 'text-purple-700' : 'text-emerald-700') : 'text-amber-800'}`}>
+                        {isSslActive ? (
+                          <>
+                            <ShieldCheck className={`w-4 h-4 ${isSelfSigned ? 'text-purple-600' : 'text-emerald-600'}`} />
+                            <span>{isLetsEncrypt ? "SSL/TLS: Let's Encrypt (ACME Auto)" : isSelfSigned ? "SSL/TLS: Self-Signed Certificate" : "SSL/TLS: Active Certificate"}</span>
+                          </>
+                        ) : (
+                          <>
+                            <Lock className="w-4 h-4 text-amber-600" />
+                            <span>SSL/TLS: Not Issued (HTTP Only)</span>
+                          </>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('domains');
+                          if (primaryDom) {
+                            handleOpenSslModal(primaryDom);
+                          }
+                        }}
+                        className="text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer flex items-center gap-1"
+                      >
+                        <span>{isSslActive ? 'Configure SSL' : 'Issue SSL'}</span>
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-slate-500">
+                      {isSslActive
+                        ? isSelfSigned
+                          ? `Domain ${app.domain} is protected by a self-signed TLS certificate (suitable for local dev/staging).`
+                          : `Domain ${app.domain} is protected by TLS 1.3 encryption with automatic 90-day renewals.`
+                        : `Domain ${app.domain} is currently serving unencrypted plain HTTP. Issue a certificate to enable HTTPS.`}
+                    </p>
+
+                    <div className="text-[11px] font-mono pt-1">
+                      {isSslActive ? (
+                        <span className="text-slate-500">Issuer: {issuerDisplay}{expiresDisplay ? ` • Valid until: ${expiresDisplay}` : ''}</span>
+                      ) : (
+                        <span className="text-amber-700 font-semibold font-sans">HTTPS Redirection is disabled until SSL is installed</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
+                    <div className="flex items-center gap-2 text-blue-700 font-bold text-xs">
+                      <CloudRain className={`w-4 h-4 ${app.tunnelEnabled ? 'text-blue-600' : 'text-slate-400'}`} />
+                      <span>{app.tunnelEnabled ? 'Cloudflare Zero-NAT Tunnel' : 'Direct Edge Ingress (No Tunnel)'}</span>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {app.tunnelEnabled
+                        ? `Isolated tunnel ingress active for tenant user ${app.tenantUser}.`
+                        : `Direct reverse proxy ingress active on port ${app.port}.`}
+                    </p>
+                    <div className="text-[11px] font-mono pt-1">
+                      {app.tunnelEnabled ? (
+                        <span className="text-emerald-600 font-semibold">Status: Connected • Zero-NAT Ingress Active</span>
+                      ) : (
+                        <span className="text-slate-400">Tunnel: Inactive • Direct Web Server Routing</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <p className="text-xs text-slate-500">
-                  Isolated tunnel ingress connection active for tenant <code>{app.tenantUser}</code>.
-                </p>
-                <div className="text-[11px] text-slate-400 font-mono pt-1">
-                  Tunnel ID: cf-tun-71fa80c • Direct Edge Routing Active
-                </div>
-              </div>
-            </div>
+              );
+            })()}
           </div>
         )}
 
@@ -2752,7 +2828,7 @@ QUEUE_CONNECTION=redis`;
                         <button
                           type="button"
                           disabled={issuingSslId === dom.id}
-                          onClick={() => handleIssueSsl(dom)}
+                          onClick={() => handleOpenSslModal(dom)}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                         >
                           <Lock className="w-3.5 h-3.5" />
@@ -4909,6 +4985,219 @@ QUEUE_CONNECTION=redis`}
         expectedPass={basicAuthPassword}
         realm={basicAuthRealm}
       />
+
+      {/* SSL Certificate Issuance & Provider Selection Modal */}
+      {sslModalDomain && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                  <ShieldCheck className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Configure SSL Certificate
+                  </h3>
+                  <p className="text-xs text-slate-500 font-mono">
+                    {sslModalDomain.domain}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSslModalDomain(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  Issuance Provider
+                </label>
+                <div className="space-y-2">
+                  {/* Let's Encrypt Option */}
+                  <button
+                    type="button"
+                    onClick={() => setSslModalProvider('letsencrypt')}
+                    className={`w-full p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                      sslModalProvider === 'letsencrypt'
+                        ? 'border-emerald-500 bg-emerald-50/50 text-emerald-950 ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
+                      <Sparkles className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold flex items-center gap-1.5">
+                        <span>Let's Encrypt (Production ACME)</span>
+                        <span className="text-[10px] bg-emerald-200/80 text-emerald-900 font-bold px-1.5 py-0.5 rounded">
+                          Trusted Public CA
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                        Industry-standard TLS 1.3 certificate recognized by all modern browsers. Auto-renews every 60 days. Requires domain DNS to point to this server.
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Self-Signed Option */}
+                  <button
+                    type="button"
+                    onClick={() => setSslModalProvider('self_signed')}
+                    className={`w-full p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                      sslModalProvider === 'self_signed'
+                        ? 'border-purple-500 bg-purple-50/50 text-purple-950 ring-2 ring-purple-500/20'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center shrink-0 mt-0.5">
+                      <Lock className="w-4 h-4 text-purple-600" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold flex items-center gap-1.5">
+                        <span>Self-Signed (Local Development / Staging)</span>
+                        <span className="text-[10px] bg-purple-200/80 text-purple-900 font-bold px-1.5 py-0.5 rounded">
+                          Instant TLS
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                        Instant ECDSA P-256 certificate generated locally by BarePod. Ideal for testing, internal domains, or dev environments without public DNS.
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Auto Fallback Option */}
+                  <button
+                    type="button"
+                    onClick={() => setSslModalProvider('auto')}
+                    className={`w-full p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                      sslModalProvider === 'auto'
+                        ? 'border-blue-500 bg-blue-50/50 text-blue-950 ring-2 ring-blue-500/20'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0 mt-0.5">
+                      <ShieldCheck className="w-4 h-4 text-blue-600" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold flex items-center gap-1.5">
+                        <span>Auto-Detect (Let's Encrypt with Fallback)</span>
+                        <span className="text-[10px] bg-blue-200/80 text-blue-900 font-bold px-1.5 py-0.5 rounded">
+                          Automatic
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                        Tries Let's Encrypt first. If public DNS is not pointed to this server yet, automatically issues a self-signed certificate so HTTPS works immediately.
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {sslModalProvider !== 'self_signed' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Notification Email (Optional)
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="admin@example.com"
+                    value={sslModalEmail}
+                    onChange={(e) => setSslModalEmail(e.target.value)}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500 font-mono"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Used by Let's Encrypt ACME to send critical certificate expiry notices.
+                  </p>
+                </div>
+              )}
+
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-2.5">
+                <div className="text-xs font-bold text-slate-800">Redirection & Security Settings</div>
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={sslModalForceHttps}
+                    onChange={(e) => setSslModalForceHttps(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-800">
+                      Force HTTPS (HTTP 301 Permanent Redirect)
+                    </span>
+                    <p className="text-[10px] text-slate-500">
+                      Automatically reroutes all unencrypted port 80 traffic to encrypted HTTPS port 443.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-2.5 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={sslModalHsts}
+                    onChange={(e) => setSslModalHsts(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-800">
+                      Enable HSTS (Strict-Transport-Security)
+                    </span>
+                    <p className="text-[10px] text-slate-500">
+                      Instructs browsers to always use HTTPS for 1 year.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Notice for domains that don't resolve */}
+              {sslModalProvider === 'letsencrypt' && (
+                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] leading-relaxed">
+                    <strong>DNS Requirement:</strong> Ensure an <code>A</code> or <code>AAAA</code> record for <code>{sslModalDomain.domain}</code> points to this server's public IP before submitting. If not, choose <strong>Self-Signed</strong> or <strong>Auto-Detect</strong>.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Actions */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setSslModalDomain(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleIssueSslModalSubmit}
+                disabled={Boolean(issuingSslId)}
+                className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {issuingSslId ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Issuing & Installing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Issue & Install Certificate</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
