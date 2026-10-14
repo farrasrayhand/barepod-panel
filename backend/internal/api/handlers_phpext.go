@@ -65,3 +65,27 @@ func (s *Server) defaultPhpVersion() string {
 	}
 	return ""
 }
+
+// handleInstallPhpExtensions triggers a background job to install missing PHP extensions.
+func (s *Server) handleInstallPhpExtensions(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	var req struct {
+		Version string `json:"version"`
+	}
+	_ = decodeJSON(r, &req)
+	job, err := s.installs.Start("php-extensions", req.Version)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	_ = s.store.Audit(user.ID, "php.extensions.install", req.Version, clientIP(r), job.ID)
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"jobId":      job.ID,
+		"component":  "php-extensions",
+		"version":    req.Version,
+		"status":     job.Status,
+		"totalSteps": job.TotalSteps,
+		"mode":       job.Mode,
+		"stream":     "/api/v1/system/stack/jobs/stream?id=" + job.ID,
+	})
+}
+

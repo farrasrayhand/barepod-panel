@@ -67,6 +67,7 @@ import { runtimeIcon, frameworkIcon } from '../utils/brandIcons';
 import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
+import { DangerConfirmModal } from './DangerConfirmModal';
 import { api, apiReachable, subscribeDeploy, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey, type DeployJob, type DetectedFramework } from '../api/client';
 import { describeError } from '../utils/format';
 
@@ -79,6 +80,7 @@ interface AppDetailPageProps {
   onOpenTerminal: (app: WebApp) => void;
   onOpenGit: (app: WebApp) => void;
   onUpdateApp?: (updated: WebApp) => void;
+  onDeleteApp?: (slug: string, options?: { databases?: 'keep' | 'delete' }) => Promise<void> | void;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   activeTab?: AppDetailTab;
   onTabChange?: (tab: AppDetailTab) => void;
@@ -91,6 +93,7 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   onOpenTerminal,
   onOpenGit,
   onUpdateApp,
+  onDeleteApp,
   onShowToast,
   activeTab: activeTabProp,
   onTabChange,
@@ -101,6 +104,11 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
     setInternalTab(tab);
     onTabChange?.(tab);
   };
+
+  // Delete Website Modal State
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteDatabasesOption, setDeleteDatabasesOption] = useState<'keep' | 'delete'>('keep');
+  const [isDeletingApp, setIsDeletingApp] = useState(false);
 
   const tabSupport = siteTabSupport(app);
 
@@ -1294,22 +1302,38 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     }
   };
 
+  const [togglingForceHttpsId, setTogglingForceHttpsId] = useState<string | null>(null);
+
   const handleToggleForceHttps = async (dom: ApiDomain) => {
     if (!dom.sslEnabled) {
       onShowToast?.('SSL Certificate Required', `Cannot enable HTTPS redirect: no active SSL certificate for ${dom.domain}`, 'info');
       return;
     }
+    const oldVal = Boolean(dom.forceHttps);
+    const nextVal = !oldVal;
+
+    // 1. Optimistic UI update: instantly flip toggle
+    setSiteDomains((prev) =>
+      prev.map((d) => (d.id === dom.id ? { ...d, forceHttps: nextVal } : d))
+    );
+    setTogglingForceHttpsId(dom.id);
+
     try {
-      const nextVal = !dom.forceHttps;
       await api.toggleSsl(dom.id, {
         forceHTTPS: nextVal,
         hsts: dom.hstsEnabled,
         autoRenew: dom.autoRenew,
       });
       onShowToast?.('HTTPS Redirect Updated', `HTTPS 301 Redirect is now ${nextVal ? 'ON (Active)' : 'OFF'} for ${dom.domain}`, 'success');
-      fetchSiteDomains();
+      await fetchSiteDomains();
     } catch (err: any) {
+      // Revert optimistic update on failure
+      setSiteDomains((prev) =>
+        prev.map((d) => (d.id === dom.id ? { ...d, forceHttps: oldVal } : d))
+      );
       onShowToast?.('Error', err?.message || 'Failed to update SSL settings', 'error');
+    } finally {
+      setTogglingForceHttpsId(null);
     }
   };
 
@@ -1683,6 +1707,20 @@ QUEUE_CONNECTION=redis`;
             >
               {isRunning ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
               <span>{isRunning ? 'Stop App' : 'Start App'}</span>
+            </button>
+
+            {/* Delete App Button in Header */}
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteDatabasesOption('keep');
+                setShowDeleteModal(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-2xs bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 cursor-pointer"
+              title={`Delete website ${app.name}`}
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Delete App</span>
             </button>
           </div>
         </div>
@@ -2819,11 +2857,13 @@ QUEUE_CONNECTION=redis`;
                           type="button"
                           role="switch"
                           aria-checked={Boolean(dom.sslEnabled && dom.forceHttps)}
-                          disabled={!dom.sslEnabled}
+                          disabled={!dom.sslEnabled || togglingForceHttpsId === dom.id}
                           onClick={() => handleToggleForceHttps(dom)}
                           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
                             !dom.sslEnabled
                               ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed opacity-75'
+                              : togglingForceHttpsId === dom.id
+                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait opacity-80'
                               : dom.forceHttps
                               ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100 cursor-pointer'
                               : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
@@ -2841,7 +2881,7 @@ QUEUE_CONNECTION=redis`;
                             />
                           </div>
                           <span className="font-bold text-[11px]">
-                            {!dom.sslEnabled ? 'Requires SSL' : dom.forceHttps ? 'ON' : 'OFF'}
+                            {!dom.sslEnabled ? 'Requires SSL' : togglingForceHttpsId === dom.id ? 'Saving...' : dom.forceHttps ? 'ON' : 'OFF'}
                           </span>
                         </button>
 
@@ -5044,6 +5084,38 @@ QUEUE_CONNECTION=redis`}
           </div>
         )}
 
+        {/* Danger Zone: Only shown inside the Access & Security tab */}
+        {activeTab === 'security' && (
+          <div className="bg-white rounded-2xl border border-rose-200/80 p-6 shadow-xs overflow-hidden mt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Danger Zone</h3>
+                    <p className="text-xs text-slate-500">
+                      Permanently delete website <span className="font-mono font-bold text-slate-700">{app.name}</span>, including its virtual hosts, systemd services, and configuration.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteDatabasesOption('keep');
+                  setShowDeleteModal(true);
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition-colors shadow-sm shadow-rose-500/25 cursor-pointer shrink-0 flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Website</span>
+              </button>
+            </div>
+          </div>
+        )}
+
       </div>
 
       {/* Maintenance Preview Simulator Modal */}
@@ -5277,6 +5349,69 @@ QUEUE_CONNECTION=redis`}
             </div>
           </div>
         </div>
+      )}
+
+      {/* Delete Website Danger Confirm Modal */}
+      {showDeleteModal && (
+        <DangerConfirmModal
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={async () => {
+            if (!onDeleteApp) return;
+            setIsDeletingApp(true);
+            try {
+              await onDeleteApp(app.name, { databases: deleteDatabasesOption });
+              setShowDeleteModal(false);
+            } finally {
+              setIsDeletingApp(false);
+            }
+          }}
+          title={`Delete Website "${app.name}"`}
+          itemType="Website"
+          itemName={app.name}
+          warningDescription={`This action cannot be undone. It will permanently remove all web server configurations, systemd services, site logs, and isolated process groups for ${app.domain || app.name}.`}
+          confirmLabel={isDeletingApp ? 'Deleting Website...' : 'Permanently Delete Website'}
+        >
+          <div className="space-y-2 pt-2 border-t border-slate-100">
+            <label className="block text-xs font-bold text-slate-700">
+              Associated Databases
+            </label>
+            <div className="space-y-2">
+              <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs">
+                <input
+                  type="radio"
+                  name="databasesOptionDetail"
+                  value="keep"
+                  checked={deleteDatabasesOption === 'keep'}
+                  onChange={() => setDeleteDatabasesOption('keep')}
+                  className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="font-bold text-slate-800">Keep Databases (Recommended)</span>
+                  <p className="text-[11px] text-slate-500">
+                    Preserve all MySQL, PostgreSQL, and SQLite databases associated with this website.
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-rose-200 bg-rose-50/30 hover:bg-rose-50/60 cursor-pointer text-xs">
+                <input
+                  type="radio"
+                  name="databasesOptionDetail"
+                  value="delete"
+                  checked={deleteDatabasesOption === 'delete'}
+                  onChange={() => setDeleteDatabasesOption('delete')}
+                  className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                />
+                <div>
+                  <span className="font-bold text-rose-800">Delete Associated Databases</span>
+                  <p className="text-[11px] text-rose-600">
+                    Drop and permanently destroy databases owned by this website.
+                  </p>
+                </div>
+              </label>
+            </div>
+          </div>
+        </DangerConfirmModal>
       )}
 
     </div>

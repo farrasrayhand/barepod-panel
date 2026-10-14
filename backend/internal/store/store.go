@@ -107,6 +107,30 @@ type WebsiteSecurity struct {
 	UpdatedAt             string `json:"updatedAt"`
 }
 
+// CloudflareTunnel stores per-tenant Cloudflare Zero Trust tunnel token and metadata.
+type CloudflareTunnel struct {
+	ID         string `json:"id"`
+	TenantUser string `json:"tenantUser"`
+	TunnelName string `json:"tunnelName"`
+	Token      string `json:"token"`
+	ApiToken   string `json:"apiToken"`
+	AccountID  string `json:"accountId"`
+	TunnelID   string `json:"tunnelId"`
+	CreatedAt  string `json:"createdAt"`
+	UpdatedAt  string `json:"updatedAt"`
+}
+
+// CloudflareTunnelRoute is a public hostname mapped to an internal service/port for a tenant.
+type CloudflareTunnelRoute struct {
+	ID         string `json:"id"`
+	TenantUser string `json:"tenantUser"`
+	Hostname   string `json:"hostname"`
+	Service    string `json:"service"`
+	AppName    string `json:"appName"`
+	Status     string `json:"status"`
+	CreatedAt  string `json:"createdAt"`
+}
+
 // User is a panel account.
 type User struct {
 	ID           string `json:"id"`

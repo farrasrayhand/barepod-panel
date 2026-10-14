@@ -27,7 +27,40 @@ var migrations = []migration{
 	{version: 17, statements: schemaV17},
 	{version: 18, statements: schemaV18},
 	{version: 19, statements: schemaV19},
+	{version: 20, statements: schemaV20},
+	{version: 21, statements: schemaV21},
 }
+
+// schemaV21 adds api_token, account_id, and tunnel_id to cloudflare_tunnels.
+const schemaV21 = `
+ALTER TABLE cloudflare_tunnels ADD COLUMN api_token TEXT NOT NULL DEFAULT '';
+ALTER TABLE cloudflare_tunnels ADD COLUMN account_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE cloudflare_tunnels ADD COLUMN tunnel_id TEXT NOT NULL DEFAULT '';
+`
+
+// schemaV20 adds cloudflare_tunnels and cloudflare_tunnel_routes.
+const schemaV20 = `
+CREATE TABLE IF NOT EXISTS cloudflare_tunnels (
+  id          TEXT PRIMARY KEY,
+  tenant_user TEXT NOT NULL UNIQUE,
+  tunnel_name TEXT NOT NULL DEFAULT '',
+  token       TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_cf_tunnels_user ON cloudflare_tunnels(tenant_user);
+
+CREATE TABLE IF NOT EXISTS cloudflare_tunnel_routes (
+  id           TEXT PRIMARY KEY,
+  tenant_user  TEXT NOT NULL,
+  hostname     TEXT NOT NULL,
+  service      TEXT NOT NULL,
+  app_name     TEXT NOT NULL DEFAULT '',
+  status       TEXT NOT NULL DEFAULT 'Healthy',
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cf_routes_user ON cloudflare_tunnel_routes(tenant_user);
+`
 
 // schemaV19 adds deploy_script column to websites for custom or auto-detected CI/CD pipelines.
 const schemaV19 = `

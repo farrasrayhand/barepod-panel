@@ -177,6 +177,7 @@ func New(d Deps) http.Handler {
 	// administrative and audited.
 	mux.HandleFunc("GET /api/v1/system/php/extensions", s.requireAuth(s.handlePhpExtensions))
 	mux.HandleFunc("POST /api/v1/system/php/extensions", users(s.handleSetPhpExtension))
+	mux.HandleFunc("POST /api/v1/system/php/extensions/install", users(s.handleInstallPhpExtensions))
 
 	// Brute-force lockout. Reading it is for anyone signed in — knowing that the panel keeps
 	// brute-force out is not a secret, and a card nobody can see is a card nobody uses.
@@ -406,6 +407,18 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/domains/{id}/ssl/issue", domains(s.handleIssueSSL))
 	mux.HandleFunc("POST /api/v1/domains/{id}/ssl/custom", domains(s.handleUploadCustomSSL))
 	mux.HandleFunc("POST /api/v1/domains/{id}/ssl/toggle", domains(s.handleToggleSSL))
+
+	// Cloudflare Tunnels (Zero-NAT) — "cloudflareTunnels" capability
+	tunnels := func(h authedHandler) http.HandlerFunc {
+		return s.requireAuth(s.requireCapability(rbac.CapCloudflareTunnels, h))
+	}
+	mux.HandleFunc("GET /api/v1/tunnels/status", tunnels(s.handleGetTunnelStatus))
+	mux.HandleFunc("POST /api/v1/tunnels/token", tunnels(s.handleSetTunnelToken))
+	mux.HandleFunc("POST /api/v1/tunnels/restart", tunnels(s.handleRestartTunnel))
+	mux.HandleFunc("POST /api/v1/tunnels/sync", tunnels(s.handleSyncCloudflareRoutes))
+	mux.HandleFunc("POST /api/v1/tunnels/routes", tunnels(s.handleAddTunnelRoute))
+	mux.HandleFunc("PUT /api/v1/tunnels/routes/{id}", tunnels(s.handleUpdateTunnelRoute))
+	mux.HandleFunc("DELETE /api/v1/tunnels/routes/{id}", tunnels(s.handleDeleteTunnelRoute))
 
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)

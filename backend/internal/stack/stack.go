@@ -72,6 +72,9 @@ func Lookup(name string) (Component, bool) {
 			return c, true
 		}
 	}
+	if strings.EqualFold(strings.TrimSpace(name), "php-extensions") {
+		return Component{Name: "php-extensions", Label: "PHP Extensions", Kind: "internal"}, true
+	}
 	return Component{}, false
 }
 
@@ -156,6 +159,83 @@ func Commands(component, version string) ([][]string, error) {
 			{"bash", "-c", apacheRepoScript},
 			{"bash", "-c", openlitespeedRepoScript},
 		}, nil
+	case "php-extensions":
+		targetVer := strings.TrimSpace(version)
+		if targetVer != "" && targetVer != "all" && !runtimesVersionPattern.MatchString(targetVer) {
+			return nil, fmt.Errorf("stack: %q is not a valid PHP version (e.g. 8.4, 8.3, or empty for all)", targetVer)
+		}
+		script := `set -e
+VERSIONS="` + targetVer + `"
+if [ -z "$VERSIONS" ] || [ "$VERSIONS" = "all" ]; then
+  VERSIONS=$(ls -d /etc/php/* 2>/dev/null | xargs -n1 basename 2>/dev/null | grep -E '^[0-9]+\.[0-9]+$' | sort -V)
+fi
+if [ -z "$VERSIONS" ]; then
+  echo "No installed PHP versions found under /etc/php"
+  exit 0
+fi
+
+echo "=========================================================="
+echo "BarePod PHP Extensions Synchronizer & Installer"
+echo "Target PHP version(s): $VERSIONS"
+echo "=========================================================="
+
+CORE_EXTS="curl mbstring xml zip gd intl bcmath mysql pgsql sqlite3 opcache soap sodium exif bz2 gmp imagick redis mongodb ldap imap swoole pcntl"
+
+for v in $VERSIONS; do
+  if [ ! -d "/etc/php/$v" ]; then
+    echo "Skipping PHP $v: directory /etc/php/$v not found"
+    continue
+  fi
+  echo ""
+  echo ">>> [PHP $v] Scanning repository for installable extensions..."
+  
+  AVAIL=$(apt-cache search --names-only "^php${v}-[a-z0-9]+$" 2>/dev/null | awk '{print $1}')
+  
+  INSTALL_PKGS=""
+  for pkg in $AVAIL; do
+    case "$pkg" in
+      *-fpm|*-cli|*-common|*-dev|*-dbg|*-phpdbg|*-cgi|*-apache2|*-pear|lib*) continue ;;
+      *-gmagick|*-yac|*-openswoole|*-phalcon5) continue ;;
+    esac
+    if ! dpkg -s "$pkg" 2>/dev/null | grep -q "Status: install ok installed"; then
+      INSTALL_PKGS="$INSTALL_PKGS $pkg"
+    fi
+  done
+
+  for e in $CORE_EXTS; do
+    pkg="php${v}-${e}"
+    if ! dpkg -s "$pkg" 2>/dev/null | grep -q "Status: install ok installed"; then
+      case " $INSTALL_PKGS " in
+        *" $pkg "*) ;;
+        *) INSTALL_PKGS="$INSTALL_PKGS $pkg" ;;
+      esac
+    fi
+  done
+
+  if [ -z "$INSTALL_PKGS" ]; then
+    echo ">>> [PHP $v] All available extensions are already installed."
+  else
+    echo ">>> [PHP $v] Installing missing extensions:"
+    echo "    $INSTALL_PKGS"
+    for p in $INSTALL_PKGS; do
+      echo "--> Installing $p..."
+      DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::="--force-confold" install -y "$p" 2>&1 || echo "Notice: skipped $p"
+    done
+  fi
+
+  echo ">>> [PHP $v] Enabling all extensions via phpenmod..."
+  phpenmod -v "$v" ALL 2>/dev/null || true
+  echo ">>> [PHP $v] Reloading php$v-fpm service..."
+  systemctl reload php${v}-fpm 2>/dev/null || true
+  echo ">>> [PHP $v] Extension synchronization complete."
+done
+
+echo ""
+echo "=========================================================="
+echo "All PHP extension installations finished successfully!"
+echo "=========================================================="
+`
+		return [][]string{{"bash", "-c", suryRepoScript}, {"bash", "-c", script}}, nil
 	case "php":
 		// A PHP install is a full one: all available extensions offered by the repository
 		// for this PHP version are dynamically discovered and installed.
@@ -2215,9 +2295,9 @@ func aptCandidate(ctx context.Context, h *host.Host, pkg string) (string, bool) 
 var runtimesVersionPattern = regexp.MustCompile(`(\d+)\.(\d+)`)
 
 // versionShape is the only thing that may be pasted into an install command: a dotted
-// number, or one of rustup's channels. Which of those the host actually offers is
+// number, or one of rustup's channels, or "all" for multi-version jobs. Which of those the host actually offers is
 // decided against the repositories, not here.
-var versionShape = regexp.MustCompile(`^(\d+(\.\d+)*|stable|beta|nightly)$`)
+var versionShape = regexp.MustCompile(`^(\d+(\.\d+)*|stable|beta|nightly|all)$`)
 
 // probeVersions reports a tool's version when it is installed, or nil when it is not
 // — the absence is the answer, not a guess.

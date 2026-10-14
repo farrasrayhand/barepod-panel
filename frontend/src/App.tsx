@@ -543,6 +543,22 @@ export function App() {
     setApps(apps.map(a => a.id === updated.id ? updated : a));
   };
 
+  const handleDeleteApp = async (slug: string, options?: { databases?: 'keep' | 'delete' }) => {
+    try {
+      if (session.mode === 'live') {
+        await api.deleteWebsite(slug, options);
+      }
+      setApps((prev) => prev.filter((a) => a.name !== slug && a.id !== slug));
+      showToast('Website Deleted', `Website ${slug} has been permanently deleted.`, 'success');
+      if (route.appSlug === slug) {
+        navigatePath(TAB_PATHS.web);
+      }
+    } catch (err: any) {
+      showToast('Could not delete website', err.message || String(err), 'error');
+      throw err;
+    }
+  };
+
   if (session.mode === 'checking') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100">
@@ -665,6 +681,7 @@ export function App() {
               onOpenAppTerminal={handleOpenAppTerminal}
               onToggleAppStatus={handleToggleAppStatus}
               onUpdateApp={handleUpdateApp}
+              onDeleteApp={handleDeleteApp}
               onShowToast={showToast}
             />
           )}

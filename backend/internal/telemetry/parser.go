@@ -85,11 +85,46 @@ func ParseLine(line string, resolver *GeoIPResolver) (*LogItem, bool) {
 	if strings.HasPrefix(line, "{") && strings.HasSuffix(line, "}") {
 		var caddyLog caddyAccessLog
 		if err := json.Unmarshal([]byte(line), &caddyLog); err == nil && caddyLog.Status > 0 {
-			ip := caddyLog.Request.ClientIP
+			ip := ""
+			countryHint := ""
+			if caddyLog.Request.Headers != nil {
+				for k, vals := range caddyLog.Request.Headers {
+					if (strings.EqualFold(k, "Cf-Connecting-Ip") || strings.EqualFold(k, "True-Client-Ip")) && len(vals) > 0 {
+						if v := strings.TrimSpace(vals[0]); v != "" {
+							ip = v
+							break
+						}
+					}
+				}
+				if ip == "" {
+					for k, vals := range caddyLog.Request.Headers {
+						if strings.EqualFold(k, "X-Forwarded-For") && len(vals) > 0 {
+							parts := strings.Split(vals[0], ",")
+							candidate := strings.TrimSpace(parts[0])
+							if candidate != "" && candidate != "127.0.0.1" && candidate != "::1" {
+								ip = candidate
+								break
+							}
+						}
+					}
+				}
+				for k, vals := range caddyLog.Request.Headers {
+					if strings.EqualFold(k, "Cf-Ipcountry") && len(vals) > 0 {
+						countryHint = strings.ToUpper(strings.TrimSpace(vals[0]))
+						break
+					}
+				}
+			}
+			if ip == "" {
+				ip = caddyLog.Request.ClientIP
+			}
 			if ip == "" {
 				ip = caddyLog.Request.RemoteIP
 			}
 			loc := resolver.Resolve(ip)
+			if countryHint != "" && (loc.CountryCode == "" || loc.CountryCode == "UN") {
+				loc.CountryCode = countryHint
+			}
 			
 			t := time.Unix(int64(caddyLog.TS), 0)
 			timeStr := t.Format("15:04:05")

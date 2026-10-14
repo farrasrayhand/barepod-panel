@@ -1080,6 +1080,13 @@ export const api = {
       body: JSON.stringify({ version, name, enabled }),
     }),
 
+  /** Installs all missing repository extensions for a specific PHP version (or all installed versions if omitted). */
+  installPhpExtensions: (version?: string) =>
+    request<{ jobId: string; component: string; version: string; status: string; totalSteps: number; mode: string; stream: string }>(
+      '/system/php/extensions/install',
+      { method: 'POST', body: JSON.stringify({ version: version || 'all' }) },
+    ),
+
   phpDefaults: () =>
     request<{ config: PhpDefaultsConfig; installedVersions: string[] }>('/system/settings/php-defaults'),
 
@@ -1091,6 +1098,43 @@ export const api = {
 
   deployStreamUrl: (slug: string, deployId?: string) =>
     `${API_BASE}/websites/${slug}/deploy/stream${deployId ? `?id=${deployId}` : ''}`,
+
+  // --- Cloudflare Tunnels (Zero-NAT) -----------------------------------------
+  tunnelStatus: (user?: string) =>
+    request<TunnelStatusResponse>(`/tunnels/status${user ? `?user=${encodeURIComponent(user)}` : ''}`),
+
+  saveTunnelToken: (token: string, apiToken?: string, user?: string, tunnelName?: string) =>
+    request<TunnelStatusResponse>('/tunnels/token', {
+      method: 'POST',
+      body: JSON.stringify({ token, apiToken, user, tunnelName }),
+    }),
+
+  syncTunnelRoutes: (user?: string) =>
+    request<TunnelStatusResponse>(`/tunnels/sync${user ? `?user=${encodeURIComponent(user)}` : ''}`, {
+      method: 'POST',
+    }),
+
+  restartTunnel: (user?: string) =>
+    request<TunnelStatusResponse>(`/tunnels/restart${user ? `?user=${encodeURIComponent(user)}` : ''}`, {
+      method: 'POST',
+    }),
+
+  addTunnelRoute: (hostname: string, service: string, appName?: string, noTLSVerify?: boolean, user?: string) =>
+    request<IngressRouteDTO>('/tunnels/routes', {
+      method: 'POST',
+      body: JSON.stringify({ hostname, service, appName, noTLSVerify, user }),
+    }),
+
+  updateTunnelRoute: (id: string, hostname: string, service: string, appName?: string, noTLSVerify?: boolean, user?: string) =>
+    request<IngressRouteDTO>(`/tunnels/routes/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ hostname, service, appName, noTLSVerify, user }),
+    }),
+
+  deleteTunnelRoute: (idOrHostname: string, user?: string) =>
+    request<{ ok: boolean }>(`/tunnels/routes/${encodeURIComponent(idOrHostname)}${user ? `?user=${encodeURIComponent(user)}` : ''}`, {
+      method: 'DELETE',
+    }),
 
   // --- metrics & host operations ------------------------------------------
   systemMetrics: (range = '1h') =>
@@ -1731,6 +1775,43 @@ export interface DeployLogLine {
   ts: string;
   stream: 'stdout' | 'stderr' | 'step' | 'status';
   line: string;
+}
+
+export interface IngressRouteDTO {
+  id: string;
+  hostname: string;
+  service: string;
+  appName: string;
+  status: string;
+  createdAt?: string;
+}
+
+export interface TunnelStatusResponse {
+  tenantUser: string;
+  tunnelName: string;
+  hasToken: boolean;
+  tokenMasked: string;
+  token: string;
+  hasApiToken: boolean;
+  apiTokenMasked: string;
+  accountId: string;
+  tunnelId: string;
+  autoSync: boolean;
+  status: 'connected' | 'disconnected' | 'configuring';
+  daemonPid: number;
+  memoryUsage: string;
+  uptime: string;
+  routes: IngressRouteDTO[];
+  availableApps: Array<{
+    slug: string;
+    domain: string;
+    port: number;
+    status: string;
+    webServer: string;
+    runtime: string;
+    targetUrl: string;
+  }>;
+  accounts?: string[];
 }
 
 

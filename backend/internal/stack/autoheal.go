@@ -93,6 +93,15 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 		}
 	}
 
+	// 5. MongoDB Container Auto-Heal (if container was provisioned)
+	if isBinaryInstalled("docker") {
+		inspectOut, err := runner.Run(ctx, "", "docker", "inspect", "-f", "{{.State.Running}}", "barepod-mongo")
+		if err == nil && strings.TrimSpace(inspectOut) == "false" {
+			_, _ = runner.Run(ctx, "", "docker", "start", "barepod-mongo")
+			actions = append(actions, "mongodb: restarted barepod-mongo container")
+		}
+	}
+
 	return actions
 }
 

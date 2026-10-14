@@ -10,6 +10,7 @@ interface DangerConfirmModalProps {
   itemName: string; // e.g. "larastore_production"
   warningDescription?: string;
   confirmLabel?: string;
+  children?: React.ReactNode;
 }
 
 export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
@@ -21,6 +22,7 @@ export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
   itemName,
   warningDescription,
   confirmLabel = 'Delete Permanently',
+  children,
 }) => {
   const [confirmInput, setConfirmInput] = useState('');
   const [acknowledged, setAcknowledged] = useState(false);
@@ -110,6 +112,9 @@ export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
               </p>
             )}
           </div>
+
+          {/* Custom Form Elements / Extra Options */}
+          {children}
 
           {/* Checkbox Acknowledgment */}
           <div className="pt-1">

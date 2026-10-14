@@ -191,6 +191,26 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 	for _, site := range sites {
 		siteDir := s.host.SitePath(site.TenantUser, site.Slug)
 		spec := webserver.SpecFor(site.Slug, site.Domain, site.Runtime, siteDir, site.Port)
+		if domains, err := s.store.ListDomainsForSite(site.Slug); err == nil && len(domains) > 0 {
+			var aliases []string
+			var certPath, keyPath string
+			var sslEnabled, forceHTTPS, hsts bool
+			for _, d := range domains {
+				if !d.IsPrimary {
+					aliases = append(aliases, d.Domain)
+				} else {
+					certPath = d.SSLCertPath
+					keyPath = d.SSLKeyPath
+					sslEnabled = d.SSLEnabled
+					forceHTTPS = d.ForceHTTPS
+					hsts = d.HSTSEnabled
+				}
+			}
+			spec = spec.WithSSL(aliases, certPath, keyPath, sslEnabled, forceHTTPS, hsts)
+		}
+		if sec, err := s.store.GetWebsiteSecurity(site.Slug); err == nil && sec != nil {
+			spec = spec.WithSecurity(s.buildSecuritySpec(sec))
+		}
 		path := webserver.Path(engine, dir, site.Slug)
 		prev, readErr := os.ReadFile(path)
 		undos = append(undos, undo{path: path, prev: prev, existed: readErr == nil})
@@ -235,14 +255,17 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 		// Nginx moves to internal backend port 127.0.0.1:8082 so it never collides with Caddy on :80/:443
 		reconfigNginx := "sed -i 's/listen [0-9.]*:80;/listen 127.0.0.1:8082;/g; s/listen 80 /listen 127.0.0.1:8082 /g; s/listen 80;/listen 127.0.0.1:8082;/g; s/listen \\[::\\]:80;/listen [::1]:8082;/g; s/listen \\[::1\\]:80;/listen [::1]:8082;/g' /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d/*.conf 2>/dev/null || true"
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", reconfigNginx})
-		cleanCaddyPort := "sed -i '/http_port 8081/d' /etc/caddy/Caddyfile 2>/dev/null || true; sed -i '/{\\s*}/d' /etc/caddy/Caddyfile 2>/dev/null || true"
+		cleanCaddyPort := "sed -i '/http_port/d; /https_port/d' /etc/caddy/Caddyfile 2>/dev/null || true; sed -i '/{\\s*}/d' /etc/caddy/Caddyfile 2>/dev/null || true"
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", cleanCaddyPort})
 	} else if engine == "nginx" {
+		// Ensure nginx includes sites-enabled
+		ensureNginxInclude := "grep -q 'sites-enabled' /etc/nginx/nginx.conf 2>/dev/null || sed -i '/include \\/etc\\/nginx\\/conf.d\\/\\*\\.conf;/a \\    include /etc/nginx/sites-enabled/*.conf;' /etc/nginx/nginx.conf 2>/dev/null || true"
+		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", ensureNginxInclude})
 		// Nginx takes edge ingress on :80 and :443
 		reconfigNginx := "sed -i 's/listen 127.0.0.1:8082;/listen 80;/g; s/listen 127.0.0.1:8082 default_server;/listen 80 default_server;/g; s/listen \\[::1\\]:8082;/listen [::]:80;/g; s/listen \\[::1\\]:8082 default_server;/listen [::]:80 default_server;/g' /etc/nginx/sites-enabled/*.conf /etc/nginx/conf.d/*.conf 2>/dev/null || true"
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", reconfigNginx})
-		// Caddy moves to internal backend port 8081
-		caddyPortCmd := "if [ -f /etc/caddy/Caddyfile ] && ! grep -q 'http_port' /etc/caddy/Caddyfile; then sed -i '1s/^/{\\n    http_port 8081\\n}\\n/' /etc/caddy/Caddyfile 2>/dev/null || true; fi"
+		// Caddy moves to internal backend ports 8081 and 8443
+		caddyPortCmd := "sed -i '/http_port/d; /https_port/d' /etc/caddy/Caddyfile 2>/dev/null || true; sed -i '1s/^/{\\n    http_port 8081\\n    https_port 8443\\n}\\n/' /etc/caddy/Caddyfile 2>/dev/null || true"
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", caddyPortCmd})
 	}
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Loader2, RefreshCw } from 'lucide-react';
+import { Check, Loader2, RefreshCw, Sparkles, Download } from 'lucide-react';
 import { api } from '../api/client';
 import { describeError } from '../utils/format';
 
@@ -24,6 +24,7 @@ export const PhpExtensionsPanel: React.FC<PhpExtensionsPanelProps> = ({ version,
   const [installable, setInstallable] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [installingMissing, setInstallingMissing] = useState(false);
   const [search, setSearch] = useState('');
 
   const apply = (report: { extensions?: Extension[]; installable?: string[] }) => {
@@ -140,10 +141,46 @@ export const PhpExtensionsPanel: React.FC<PhpExtensionsPanelProps> = ({ version,
       </div>
 
       {installable.length > 0 && (
-        <p className="text-[11px] text-slate-500">
-          Offered by this host's repositories but not installed for PHP {version}:{' '}
-          <span className="font-mono">{installable.join(', ')}</span> — install the version again from Stack to pick them up.
-        </p>
+        <div className="p-3.5 bg-purple-50/70 border border-purple-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div>
+            <div className="font-bold text-slate-900 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+              <span>{installable.length} available extension{installable.length > 1 ? 's' : ''} not yet installed for PHP {version}</span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Offered by host repository:{' '}
+              <span className="font-mono text-purple-900 font-semibold">{installable.join(', ')}</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={installingMissing}
+            onClick={async () => {
+              setInstallingMissing(true);
+              try {
+                await api.installPhpExtensions(version);
+                onShowToast?.(
+                  'Installing Extensions',
+                  `Started installing all missing extensions for PHP ${version} in the background. Check Stack page for live logs.`,
+                  'info',
+                );
+                setTimeout(() => void load(), 3000);
+              } catch (err) {
+                onShowToast?.('Could not start extension installation', describeError(err), 'error');
+              } finally {
+                setInstallingMissing(false);
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-xs transition-colors shadow-2xs cursor-pointer shrink-0 disabled:opacity-50"
+          >
+            {installingMissing ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Download className="w-3.5 h-3.5" />
+            )}
+            <span>Install Missing Extensions</span>
+          </button>
+        </div>
       )}
     </div>
   );

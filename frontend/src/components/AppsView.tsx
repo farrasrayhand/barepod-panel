@@ -20,12 +20,15 @@ import {
   Sliders,
   ArrowRightLeft,
   AlertTriangle,
-  Lock
+  Lock,
+  Trash2,
+  Database
 } from 'lucide-react';
 import { siteSupportsFiles, siteSupportsCI, siteSupportsShell, siteHasGit } from '../utils/siteRuntime';
 import type { WebApp, WebServerType } from '../types';
 import { GitDeploymentModal } from './GitDeploymentModal';
 import { AppDetailPage, type AppDetailTab } from './AppDetailPage';
+import { DangerConfirmModal } from './DangerConfirmModal';
 
 interface AppsViewProps {
   apps: WebApp[];
@@ -41,6 +44,7 @@ interface AppsViewProps {
   onOpenAppTerminal: (app: WebApp) => void;
   onToggleAppStatus: (appId: string) => void;
   onUpdateApp?: (updated: WebApp) => void;
+  onDeleteApp?: (slug: string, options?: { databases?: 'keep' | 'delete' }) => Promise<void> | void;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   /** Hands a running deploy to the log panel: it shows the daemon's own stream. */
   onWatchDeploy?: (slug: string, deployId: string) => void;
@@ -59,12 +63,18 @@ export const AppsView: React.FC<AppsViewProps> = ({
   onOpenAppTerminal,
   onToggleAppStatus,
   onUpdateApp,
+  onDeleteApp,
   onShowToast,
   onWatchDeploy,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Delete Website Modal State
+  const [appToDelete, setAppToDelete] = useState<WebApp | null>(null);
+  const [deleteDatabasesOption, setDeleteDatabasesOption] = useState<'keep' | 'delete'>('keep');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Modals
   const [selectedAppForGit, setSelectedAppForGit] = useState<WebApp | null>(null);
@@ -126,6 +136,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
           onOpenTerminal={onOpenAppTerminal}
           onOpenGit={(a) => setSelectedAppForGit(a)}
           onUpdateApp={handleUpdateAppDetail}
+          onDeleteApp={onDeleteApp}
           onShowToast={onShowToast}
         />
 
@@ -457,6 +468,20 @@ export const AppsView: React.FC<AppsViewProps> = ({
                           >
                             {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                           </button>
+
+                          {/* Delete Website Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAppToDelete(app);
+                              setDeleteDatabasesOption('keep');
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title={`Delete website ${app.name}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -479,6 +504,70 @@ export const AppsView: React.FC<AppsViewProps> = ({
         }}
         onShowToast={onShowToast}
       />
+
+      {/* Delete Website Danger Confirmation Modal */}
+      <DangerConfirmModal
+        isOpen={!!appToDelete}
+        onClose={() => setAppToDelete(null)}
+        onConfirm={async () => {
+          if (!appToDelete) return;
+          try {
+            setIsDeleting(true);
+            await onDeleteApp?.(appToDelete.name, { databases: deleteDatabasesOption });
+            setAppToDelete(null);
+          } catch {
+            // error handled by toast
+          } finally {
+            setIsDeleting(false);
+          }
+        }}
+        title="Delete Website Permanently"
+        itemType="Website"
+        itemName={appToDelete?.name || ''}
+        warningDescription={`This will permanently remove the website ${appToDelete?.name}, stop and remove its systemd service, delete its web server virtual host configuration (${appToDelete?.webServer.toUpperCase()}), and delete all website files in /home/${appToDelete?.tenantUser}/web/${appToDelete?.name}. This action CANNOT be undone.`}
+        confirmLabel={isDeleting ? 'Deleting Website...' : 'Permanently Delete Website'}
+      >
+        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+            <Database className="w-3.5 h-3.5 text-blue-600" />
+            <span>Associated Databases</span>
+          </div>
+          <div className="space-y-2 text-xs">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="radio"
+                name="dbAction"
+                value="keep"
+                checked={deleteDatabasesOption === 'keep'}
+                onChange={() => setDeleteDatabasesOption('keep')}
+                className="mt-0.5 text-blue-600 focus:ring-blue-500"
+              />
+              <div>
+                <span className="font-semibold text-slate-800">Keep databases (Recommended)</span>
+                <p className="text-[11px] text-slate-500">
+                  Preserves or detaches existing databases so application data remains safe.
+                </p>
+              </div>
+            </label>
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="radio"
+                name="dbAction"
+                value="delete"
+                checked={deleteDatabasesOption === 'delete'}
+                onChange={() => setDeleteDatabasesOption('delete')}
+                className="mt-0.5 text-rose-600 focus:ring-rose-500"
+              />
+              <div>
+                <span className="font-semibold text-rose-700">Delete associated databases</span>
+                <p className="text-[11px] text-rose-600">
+                  Permanently drops databases and removes SQLite database files owned by this website.
+                </p>
+              </div>
+            </label>
+          </div>
+        </div>
+      </DangerConfirmModal>
     </div>
   );
 };

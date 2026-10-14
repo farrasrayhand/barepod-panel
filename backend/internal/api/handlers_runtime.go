@@ -197,6 +197,10 @@ func (s *Server) applyVhost(r *http.Request, site *store.Website) error {
 		spec = spec.WithSecurity(s.buildSecuritySpec(sec))
 	}
 	_, err := webserver.Apply(r.Context(), engine, s.host.VhostsFor(engine), s.host, spec)
+	if active := s.deploy.ActiveEngine(); active != "" && !strings.EqualFold(active, engine) {
+		_ = webserver.GrantRead(r.Context(), s.host, home, siteDir, webserver.WebUser(active))
+		_, _ = webserver.Apply(r.Context(), active, s.host.VhostsFor(active), s.host, spec)
+	}
 	return err
 }
 

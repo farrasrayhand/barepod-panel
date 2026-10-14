@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert, Globe, Zap } from 'lucide-react';
+import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert, Globe, Zap, Sparkles } from 'lucide-react';
 import { api, apiReachable, type StackStatus, type StackComponent, type StackJobLogLine, type StackPlanResult, type ApiWebsite } from '../api/client';
 import { describeError } from '../utils/format';
 import { useSubRoute } from '../hooks/useSubRoute';
@@ -818,6 +818,17 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200"
                       >
                         <span className="font-mono">{version}</span>
+                        {component.name === 'php' && (
+                          <button
+                            type="button"
+                            onClick={() => void install('php-extensions', version)}
+                            disabled={busy || live !== true}
+                            title={`Install all missing repository extensions for PHP ${version}`}
+                            className="p-0.5 rounded text-purple-600 hover:text-purple-800 hover:bg-purple-100 disabled:opacity-40 cursor-pointer"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                          </button>
+                        )}
                         <button
                           onClick={() => void promptUninstall(component.name, version, component.label)}
                           disabled={busy || live !== true}
@@ -828,6 +839,35 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         </button>
                       </span>
                     ))}
+                  </div>
+                )}
+                {component.name === 'php' && installed.length > 0 && (
+                  <div className="mt-3 p-3 bg-purple-50/70 border border-purple-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+                        <Sparkles className="w-4 h-4 text-purple-600" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
+                          <span>Complete Missing PHP Extensions</span>
+                          <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-mono text-[10px] font-semibold">
+                            {installed.length} version{installed.length > 1 ? 's' : ''} on host
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Scan Sury apt repositories and install all missing extensions (curl, gd, imagick, redis, swoole, etc.) for all installed PHP versions.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void install('php-extensions', 'all')}
+                      disabled={busy || live !== true}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition-colors shadow-2xs cursor-pointer disabled:opacity-50 shrink-0"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Install All Missing Extensions</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -935,13 +975,13 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                               </span>
                             </div>
                           </div>
-                        ) : detected?.available ? (
+                        ) : (active || installedList.length > 0) ? (
                           <div>
                             <span className="font-mono text-slate-600 text-xs">{active ? `v${active}` : '—'}</span>
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
                                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                                Stopped ({detected.mode})
+                                Stopped ({detected?.mode || 'host'})
                               </span>
                               <button
                                 type="button"
@@ -1030,8 +1070,10 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                               const isAct = isVersionActive(version);
                               const isInst = installedList.includes(version);
                               let tag = '• Repository';
-                              if (isAct) {
+                              if (isAct && detected?.running) {
                                 tag = '• Active (Running)';
+                              } else if (isAct && !detected?.running) {
+                                tag = '• Selected (Stopped)';
                               } else if (isInst) {
                                 tag = '• Local (Installed)';
                               }
@@ -1046,10 +1088,20 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                             })}
                           </select>
 
-                          {isCurrent ? (
+                          {isCurrent && detected?.running ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 whitespace-nowrap">
                               <CheckCircle2 className="w-3.5 h-3.5" /> Active
                             </span>
+                          ) : isCurrent && !detected?.running ? (
+                            <button
+                              type="button"
+                              onClick={() => void runAutoRepair()}
+                              disabled={repairing || busy || live !== true}
+                              title={`Start and auto-repair ${component.label}`}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 whitespace-nowrap shadow-sm transition disabled:opacity-50 cursor-pointer"
+                            >
+                              <Play className="w-3.5 h-3.5" /> {repairing ? 'Starting...' : 'Start Service'}
+                            </button>
                           ) : (
                             <button
                               onClick={() => {

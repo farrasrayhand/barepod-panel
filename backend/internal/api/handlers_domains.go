@@ -351,6 +351,7 @@ func (s *Server) handleToggleSSL(w http.ResponseWriter, r *http.Request, user *s
 	}
 
 	if err := s.applyVhost(r, site); err != nil {
+		_ = s.store.UpdateDomainToggles(d.ID, d.ForceHTTPS, d.HSTSEnabled, d.AutoRenew)
 		writeError(w, http.StatusInternalServerError, "webserver_error", "Failed to apply updated settings to web server: "+err.Error())
 		return
 	}

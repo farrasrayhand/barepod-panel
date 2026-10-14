@@ -432,6 +432,18 @@ func nginxLocations(b *strings.Builder, s Spec) {
 	b.WriteString("\n    location ~ /\\.(?!well-known) {\n        deny all;\n    }\n")
 }
 
+func nginxServerBody(b *strings.Builder, s Spec) {
+	fmt.Fprintf(b, "    access_log /var/log/nginx/barepod-%s.access.log;\n", s.Slug)
+	fmt.Fprintf(b, "    error_log  /var/log/nginx/barepod-%s.error.log;\n\n", s.Slug)
+	nginxTuningDirectives(b, s)
+	b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
+	b.WriteString("        default_type \"text/plain\";\n")
+	b.WriteString("        root /var/lib/barepod/acme;\n")
+	b.WriteString("    }\n\n")
+	nginxSecurityDirectives(b, s)
+	nginxLocations(b, s)
+}
+
 func nginxVhost(s Spec) string {
 	var b strings.Builder
 	b.WriteString("# Managed by BarePod Panel — do not edit by hand (" + FileName(Nginx, s.Slug) + ").\n")
@@ -442,81 +454,49 @@ func nginxVhost(s Spec) string {
 	serverName := s.ServerName()
 	hasSSL := s.SSLEnabled && s.SSLCertPath != "" && s.SSLKeyPath != ""
 
-	if hasSSL && s.ForceHTTPS {
-		// Port 80: ACME challenge support + permanent redirect to HTTPS
-		b.WriteString("server {\n")
-		b.WriteString("    listen 80;\n")
-		b.WriteString("    listen [::]:80;\n")
-		fmt.Fprintf(&b, "    server_name %s;\n\n", serverName)
-		b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
-		b.WriteString("        default_type \"text/plain\";\n")
-		b.WriteString("        root /var/lib/barepod/acme;\n")
-		b.WriteString("    }\n\n")
-		b.WriteString("    location / {\n")
-		b.WriteString("        return 301 https://$host$request_uri;\n")
-		b.WriteString("    }\n")
-		b.WriteString("}\n\n")
-
-		// Port 443: SSL Vhost
-		b.WriteString("server {\n")
-		b.WriteString("    listen 443 ssl;\n")
-		b.WriteString("    listen [::]:443 ssl;\n")
-		fmt.Fprintf(&b, "    server_name %s;\n\n", serverName)
-		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.SSLCertPath)
-		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.SSLKeyPath)
-		b.WriteString("    ssl_protocols TLSv1.2 TLSv1.3;\n")
-		b.WriteString("    ssl_ciphers HIGH:!aNULL:!MD5;\n")
-		b.WriteString("    ssl_prefer_server_ciphers on;\n")
-		b.WriteString("    ssl_session_cache shared:SSL:10m;\n")
-		b.WriteString("    ssl_session_timeout 10m;\n")
-		if s.HSTS {
-			b.WriteString("    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;\n")
-		}
-		b.WriteString("\n")
-		fmt.Fprintf(&b, "    access_log /var/log/nginx/barepod-%s.access.log;\n", s.Slug)
-		fmt.Fprintf(&b, "    error_log  /var/log/nginx/barepod-%s.error.log;\n\n", s.Slug)
-		nginxTuningDirectives(&b, s)
-		b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
-		b.WriteString("        default_type \"text/plain\";\n")
-		b.WriteString("        root /var/lib/barepod/acme;\n")
-		b.WriteString("    }\n\n")
-		nginxSecurityDirectives(&b, s)
-		nginxLocations(&b, s)
-		b.WriteString("}\n")
-		return b.String()
-	}
-
+	// Port 80 server block (clean plain HTTP)
 	b.WriteString("server {\n")
 	b.WriteString("    listen 80;\n")
 	b.WriteString("    listen [::]:80;\n")
-	if hasSSL {
-		b.WriteString("    listen 443 ssl;\n")
-		b.WriteString("    listen [::]:443 ssl;\n")
-	}
 	fmt.Fprintf(&b, "    server_name %s;\n\n", serverName)
-	if hasSSL {
-		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.SSLCertPath)
-		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.SSLKeyPath)
-		b.WriteString("    ssl_protocols TLSv1.2 TLSv1.3;\n")
-		b.WriteString("    ssl_ciphers HIGH:!aNULL:!MD5;\n")
-		b.WriteString("    ssl_prefer_server_ciphers on;\n")
-		b.WriteString("    ssl_session_cache shared:SSL:10m;\n")
-		b.WriteString("    ssl_session_timeout 10m;\n")
-		if s.HSTS {
-			b.WriteString("    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;\n")
-		}
-		b.WriteString("\n")
-	}
-	fmt.Fprintf(&b, "    access_log /var/log/nginx/barepod-%s.access.log;\n", s.Slug)
-	fmt.Fprintf(&b, "    error_log  /var/log/nginx/barepod-%s.error.log;\n\n", s.Slug)
-	nginxTuningDirectives(&b, s)
 	b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
 	b.WriteString("        default_type \"text/plain\";\n")
 	b.WriteString("        root /var/lib/barepod/acme;\n")
 	b.WriteString("    }\n\n")
-	nginxSecurityDirectives(&b, s)
-	nginxLocations(&b, s)
-	b.WriteString("}\n")
+
+	if hasSSL && s.ForceHTTPS {
+		b.WriteString("    location / {\n")
+		b.WriteString("        if ($http_x_forwarded_proto = \"https\") {\n")
+		b.WriteString("            break;\n")
+		b.WriteString("        }\n")
+		b.WriteString("        return 301 https://$host$request_uri;\n")
+		b.WriteString("    }\n")
+	} else {
+		nginxServerBody(&b, s)
+	}
+	b.WriteString("}\n\n")
+
+	// Port 443 server block if SSL enabled (clean HTTPS)
+	if hasSSL {
+		b.WriteString("server {\n")
+		b.WriteString("    listen 443 ssl;\n")
+		b.WriteString("    listen [::]:443 ssl;\n")
+		fmt.Fprintf(&b, "    server_name %s;\n\n", serverName)
+		fmt.Fprintf(&b, "    ssl_certificate %s;\n", s.SSLCertPath)
+		fmt.Fprintf(&b, "    ssl_certificate_key %s;\n", s.SSLKeyPath)
+		b.WriteString("    ssl_protocols TLSv1.2 TLSv1.3;\n")
+		b.WriteString("    ssl_ciphers HIGH:!aNULL:!MD5;\n")
+		b.WriteString("    ssl_prefer_server_ciphers on;\n")
+		b.WriteString("    ssl_session_cache shared:SSL:10m;\n")
+		b.WriteString("    ssl_session_timeout 10m;\n")
+		if s.HSTS {
+			b.WriteString("    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;\n")
+		}
+		b.WriteString("\n")
+		nginxServerBody(&b, s)
+		b.WriteString("}\n")
+	}
+
 	return b.String()
 }
 
@@ -542,17 +522,9 @@ func caddyVhost(s Spec) string {
 	allDomains := s.AllDomains()
 	hasSSL := s.SSLEnabled && s.SSLCertPath != "" && s.SSLKeyPath != ""
 
-	if hasSSL {
-		fmt.Fprintf(&b, "%s {\n", strings.Join(allDomains, ", "))
-		fmt.Fprintf(&b, "\ttls %s %s\n", s.SSLCertPath, s.SSLKeyPath)
-	} else {
-		var domainsWith80 []string
-		for _, d := range allDomains {
-			domainsWith80 = append(domainsWith80, d+":80")
-		}
-		fmt.Fprintf(&b, "%s {\n", strings.Join(domainsWith80, ", "))
-	}
+	snippetName := fmt.Sprintf("barepod_%s_common", sanitizeSlug(s.Slug))
 
+	b.WriteString("(" + snippetName + ") {\n")
 	fmt.Fprintf(&b, "\tlog {\n\t\toutput file /var/log/caddy/barepod-%s.access.log\n\t}\n\n", s.Slug)
 
 	// Optimization & Compression
@@ -622,7 +594,25 @@ func caddyVhost(s Spec) string {
 		caddyAppLocations(&b, s, "\t")
 	}
 
+	b.WriteString("}\n\n")
+
+	// TLS block if SSL is configured
+	if hasSSL {
+		fmt.Fprintf(&b, "%s {\n", strings.Join(allDomains, ", "))
+		fmt.Fprintf(&b, "\ttls %s %s\n", s.SSLCertPath, s.SSLKeyPath)
+		fmt.Fprintf(&b, "\timport %s\n", snippetName)
+		b.WriteString("}\n\n")
+	}
+
+	// Plain HTTP block on port 80 (prevents automatic HTTP->HTTPS 308 redirect loop behind Cloudflare tunnels / proxies)
+	var httpDomains []string
+	for _, d := range allDomains {
+		httpDomains = append(httpDomains, d+":80")
+	}
+	fmt.Fprintf(&b, "%s {\n", strings.Join(httpDomains, ", "))
+	fmt.Fprintf(&b, "\timport %s\n", snippetName)
 	b.WriteString("}\n")
+
 	return b.String()
 }
 
@@ -907,6 +897,9 @@ func Test(ctx context.Context, engine string, h *host.Host) error {
 	case Apache:
 		argv = []string{"apache2ctl", "configtest"}
 	case OpenLiteSpeed:
+		if _, err := os.Stat("/usr/local/lsws/Example"); err == nil {
+			_, _ = h.Run(ctx, []string{"chown", "-R", "lsadm:lsadm", "/usr/local/lsws/Example"})
+		}
 		argv = []string{"/usr/local/lsws/bin/openlitespeed", "-t"}
 	default:
 		argv = []string{"nginx", "-t"}
@@ -1031,6 +1024,11 @@ func GrantRead(ctx context.Context, h *host.Host, home, siteDir, webUser string)
 	if webUser == "" {
 		webUser = h.EffectiveWebUser()
 	}
+	webGroup := webUser
+	if webUser == "nobody" {
+		webGroup = "nogroup"
+		_, _ = h.Run(ctx, []string{"usermod", "-a", "-G", "nogroup", "caddy"})
+	}
 	run := func(argv ...string) error {
 		out, err := h.Run(ctx, argv)
 		if err != nil {
@@ -1052,7 +1050,7 @@ func GrantRead(ctx context.Context, h *host.Host, home, siteDir, webUser string)
 	if err := run(dirs...); err != nil {
 		return err
 	}
-	if err := run("chgrp", "-R", webUser, siteDir); err != nil {
+	if err := run("chgrp", "-R", webGroup, siteDir); err != nil {
 		return err
 	}
 	// Explicit modes rather than chmod's X: a directory needs group *search* to be

@@ -564,7 +564,17 @@ Locked decisions to be implemented in Phase 2/3:
    - Fallback: if systemd is unavailable (minimal containers), the daemon can supervise long-running services internally; this capability is reported by `GET /system/capabilities`.
 3. **Web server config ownership — global defaults + per-site override (LOCKED).** Admin manages **global defaults** in Panel Settings (default engine, global snippets/templates, shared-daemon versions & ports, PHP extension blueprint). Each website stores a **custom override diff** on top of the template; the effective config is resolved as *global template → per-site override*. Precedent already in the UI: global PHP blueprint vs per-app PHP tab.
    **Evolution (2026-10-13): Hybrid Multi-Engine allows per-site engine selection.** While Edge Ingress (`:80`/`:443`) is a host-level choice (Nginx or Caddy), backend engines (Apache 2.4 on internal `:8080`, OpenLiteSpeed on internal `:8088`, Caddy on internal `:8081`) run concurrently in systemd. Websites can freely select any of the 4 engines; the Edge Ingress transparently reverse-proxies traffic to the chosen backend engine port. What stays per site is both engine choice and *configuration* (PHP version, snippets, routing, TLS).
-4. **Secrets & auth — LOCKED.**
+   **Evolution (2026-10-15): Ingress Switching & Zero-Collision Port Management (LOCKED).**
+   - When switching Edge Ingress from Caddy to Nginx: Nginx takes `:80` and `:443`. Caddy moves to internal loopback with both `http_port 8081` and `https_port 8443` in global Caddyfile options, completely releasing both ports 80 and 443 to avoid port collision (`bind() failed: Address already in use` -> `502 Bad Gateway`).
+   - Nginx configuration guarantees `include /etc/nginx/sites-enabled/*.conf;` so stock or distribution Nginx packages consistently load panel-managed virtual hosts.
+   - Nginx virtual hosts cleanly isolate `listen 80;` and `listen 443 ssl;` into two distinct `server { ... }` blocks rather than combined listeners, eliminating `400 Bad Request: The plain HTTP request was sent to HTTPS port`.
+   - When Edge Ingress is switched, all site domains, aliases, and SSL certificate specs are loaded from the database (`ListDomainsForSite`) and re-applied to the target engine.
+4. **Cloudflare Zero Trust Ingress & Anti-Redirect Loop Pattern (LOCKED).**
+   - **Ingress Target Auto-Mapping:** Ingress routes for web applications automatically default to Primary Edge Ingress (`http://127.0.0.1:80`) rather than direct backend daemon ports (e.g., 8088), ensuring all incoming hostnames are resolved through Caddy/Nginx vhost routing, FastCGI unix sockets, and telemetry interceptors.
+   - **Anti-Redirect Loop (`ERR_TOO_MANY_REDIRECTS` Prevention):** Caddy vhosts are rendered using a shared snippet `(barepod_<slug>_common)` mapped to both `<domain>` (TLS 443) and `<domain>:80` (explicit HTTP port 80). Because port 80 is explicitly declared without Caddy's Automatic HTTPS 308 redirect, Cloudflare Tunnel forwarding to `http://127.0.0.1:80` terminates directly with `200 OK` instead of redirect looping.
+   - **Flexible Ingress Route Management:** Full CRUD support for tunnel routes (`PUT /api/v1/tunnels/routes/:id`), real-time synchronization with Cloudflare API, preset shortcuts for Edge Ingress (`:80`) and HTTPS (`:443`), and optional `noTLSVerify` flag to bypass origin SSL validation on local self-signed certificates.
+   - **Proxy Visitor IP & GeoIP Preservation:** Telemetry parser inspects `Cf-Connecting-Ip` and `Cf-Ipcountry` before falling back to local IP/GeoIP headers, correctly attributing metrics to external visitors instead of `127.0.0.1 LAN`.
+5. **Secrets & auth — LOCKED.**
    - **Panel passwords:** **Argon2id** (memory-hard, per-user salt). Login is rate-limited/locked out (ties into Anti-Brute Force); optional TOTP 2FA.
    - **Secrets that must be readable back** (database passwords, tunnel tokens, git/R2/S3 credentials): **AES-256-GCM** at rest, random nonce per secret, key file `/etc/barepod/secret.key` (`0600`, root-only) auto-generated at install, with a `key_id` to allow rotation. Revealing a secret requires panel re-auth and is written to the audit log; secrets never appear in logs. On a full `.bpod` export the secrets are decrypted and re-embedded as self-contained config, not shipped as the raw key.
    - **Browser session:** **opaque session cookie** (random id stored in SQLite WAL, `HttpOnly` + `Secure` + `SameSite`) with a CSRF token for state-changing requests. Sessions are revocable instantly — this powers the Active Sessions list on the Profile page. (Stateful sessions are chosen over stateless JWT precisely so `DELETE /sessions/:id` and user suspension take effect immediately.)
@@ -573,7 +583,7 @@ Locked decisions to be implemented in Phase 2/3:
    - **WebSocket:** short-lived one-time ticket from `POST /ws/ticket` (never a token in the URL, which would end up in logs).
    - Every sensitive action is audited; the UI keeps its 60-second secret reveal auto-lock.
 
-All four kickoff decisions are **LOCKED** — Phase 2 can start.
+All five kickoff decisions are **LOCKED** — Phase 2 can start.
 
 ---
 

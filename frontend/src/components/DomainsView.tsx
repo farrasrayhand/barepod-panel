@@ -171,6 +171,22 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   };
 
   const handleToggleSettings = async (domain: ApiDomain, field: 'forceHTTPS' | 'hsts' | 'autoRenew', newVal: boolean) => {
+    const oldVal = field === 'forceHTTPS' ? domain.forceHttps : field === 'hsts' ? domain.hstsEnabled : domain.autoRenew;
+
+    // Optimistic UI update
+    setDomains((prev) =>
+      prev.map((d) =>
+        d.id === domain.id
+          ? {
+              ...d,
+              forceHttps: field === 'forceHTTPS' ? newVal : d.forceHttps,
+              hstsEnabled: field === 'hsts' ? newVal : d.hstsEnabled,
+              autoRenew: field === 'autoRenew' ? newVal : d.autoRenew,
+            }
+          : d
+      )
+    );
+
     try {
       const payload: any = {};
       if (field === 'forceHTTPS') payload.forceHTTPS = newVal;
@@ -181,6 +197,19 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
       onShowToast?.('Setting Updated', `Domain '${domain.domain}' configuration reloaded.`, 'success');
       await fetchData();
     } catch (err: any) {
+      // Revert optimistic update
+      setDomains((prev) =>
+        prev.map((d) =>
+          d.id === domain.id
+            ? {
+                ...d,
+                forceHttps: field === 'forceHTTPS' ? oldVal : d.forceHttps,
+                hstsEnabled: field === 'hsts' ? oldVal : d.hstsEnabled,
+                autoRenew: field === 'autoRenew' ? oldVal : d.autoRenew,
+              }
+            : d
+        )
+      );
       onShowToast?.('Update Failed', err?.message || 'Could not update setting.', 'error');
     }
   };
