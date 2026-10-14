@@ -264,3 +264,78 @@ func TestAvailableUsesTheInjectedLookPath(t *testing.T) {
 		t.Error("nginx reported present though LookPath failed")
 	}
 }
+
+func TestSecurityDirectivesNginxAndCaddy(t *testing.T) {
+	spec := Spec{
+		Slug:    "portal",
+		Domain:  "portal.local",
+		Kind:    "nodejs",
+		Port:    3000,
+		Security: SecuritySpec{
+			MaintenanceMode:      true,
+			MaintenanceTitle:     "Portal Updating",
+			MaintenanceMessage:   "We are upgrading the database.",
+			MaintenanceBypassIPs: []string{"10.0.0.1", "192.168.1.100"},
+			BasicAuthEnabled:     true,
+			BasicAuthUser:        "operator",
+			BasicAuthHash:        "$2a$12$abcdefg",
+			BasicAuthFile:        "/etc/barepod/auth/portal.htpasswd",
+			BasicAuthRealm:       "Portal Internal",
+			IPRestrictionMode:    "allowlist",
+			IPRestrictionList:    []string{"10.0.0.0/8", "192.168.1.50"},
+			RateLimitEnabled:     true,
+			RateLimitReqPerSec:   15,
+			RateLimitBurst:       30,
+		},
+	}
+
+	// 1. Nginx
+	nginxCfg, err := Render(Nginx, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"limit_req_zone $binary_remote_addr zone=bp_rl_portal:10m rate=15r/s;",
+		"geo $bp_maint_bypass_portal",
+		"10.0.0.1 0;",
+		"192.168.1.100 0;",
+		"limit_req zone=bp_rl_portal burst=30 nodelay;",
+		"auth_basic \"Portal Internal\";",
+		"auth_basic_user_file /etc/barepod/auth/portal.htpasswd;",
+		"allow 10.0.0.0/8;",
+		"allow 192.168.1.50;",
+		"deny all;",
+		"error_page 503 /barepod_503.html;",
+		"location = /barepod_503.html",
+		"if ($bp_maint_bypass_portal)",
+		"return 503;",
+	} {
+		if !strings.Contains(nginxCfg, want) {
+			t.Errorf("nginx vhost missing expected security rule %q:\n%s", want, nginxCfg)
+		}
+	}
+
+	// 2. Caddy
+	caddyCfg, err := Render(Caddy, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"@ipDenied not client_ip 10.0.0.0/8 192.168.1.50",
+		"respond @ipDenied \"Access Denied\" 403",
+		"basic_auth {",
+		"operator $2a$12$abcdefg",
+		"@maintenance not client_ip 10.0.0.1 192.168.1.100",
+		"handle @maintenance {",
+		"header Retry-After 300",
+		"503",
+		"Portal Updating",
+		"We are upgrading the database",
+		"handle {",
+		"reverse_proxy 127.0.0.1:3000",
+	} {
+		if !strings.Contains(caddyCfg, want) {
+			t.Errorf("caddy vhost missing expected security rule %q:\n%s", want, caddyCfg)
+		}
+	}
+}

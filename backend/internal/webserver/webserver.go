@@ -111,6 +111,27 @@ type Spec struct {
 	SSLKeyPath  string
 	ForceHTTPS  bool
 	HSTS        bool
+	Security    SecuritySpec
+}
+
+// SecuritySpec describes per-app access control, maintenance, basic auth, and rate limits.
+type SecuritySpec struct {
+	MaintenanceMode      bool
+	MaintenanceTitle     string
+	MaintenanceMessage   string
+	MaintenanceBypassIPs []string
+	BasicAuthEnabled     bool
+	BasicAuthUser        string
+	BasicAuthPassword    string // raw password for generating htpasswd
+	BasicAuthHash        string // bcrypt hash for caddy
+	BasicAuthFile        string // path to .htpasswd file for nginx/apache
+	BasicAuthRealm       string
+	BasicAuthBypassIPs   []string
+	IPRestrictionMode    string // none | allowlist | denylist
+	IPRestrictionList    []string
+	RateLimitEnabled     bool
+	RateLimitReqPerSec   int
+	RateLimitBurst       int
 }
 
 // AllDomains returns the primary domain plus any unique non-empty aliases.
@@ -144,6 +165,12 @@ func (s Spec) WithSSL(aliases []string, certPath, keyPath string, sslEnabled, fo
 	s.SSLEnabled = sslEnabled
 	s.ForceHTTPS = forceHTTPS
 	s.HSTS = hsts
+	return s
+}
+
+// WithSecurity returns a copy of Spec configured with security directives.
+func (s Spec) WithSecurity(sec SecuritySpec) Spec {
+	s.Security = sec
 	return s
 }
 
@@ -230,15 +257,97 @@ docRoot /var/www/html
 
 // --- nginx ---
 
+func nginxSecurityHeader(b *strings.Builder, s Spec) {
+	slugSafe := sanitizeSlug(s.Slug)
+	if s.Security.RateLimitEnabled {
+		rate := s.Security.RateLimitReqPerSec
+		if rate <= 0 {
+			rate = 10
+		}
+		fmt.Fprintf(b, "limit_req_zone $binary_remote_addr zone=bp_rl_%s:10m rate=%dr/s;\n\n", slugSafe, rate)
+	}
+	if s.Security.MaintenanceMode && len(s.Security.MaintenanceBypassIPs) > 0 {
+		fmt.Fprintf(b, "geo $bp_maint_bypass_%s {\n", slugSafe)
+		b.WriteString("    default 1;\n")
+		for _, ip := range s.Security.MaintenanceBypassIPs {
+			if ip = strings.TrimSpace(ip); ip != "" {
+				fmt.Fprintf(b, "    %s 0;\n", ip)
+			}
+		}
+		b.WriteString("}\n\n")
+	}
+}
+
+func nginxSecurityDirectives(b *strings.Builder, s Spec) {
+	slugSafe := sanitizeSlug(s.Slug)
+	if s.Security.RateLimitEnabled {
+		burst := s.Security.RateLimitBurst
+		if burst <= 0 {
+			burst = 20
+		}
+		fmt.Fprintf(b, "    limit_req zone=bp_rl_%s burst=%d nodelay;\n", slugSafe, burst)
+	}
+
+	if s.Security.IPRestrictionMode == "allowlist" && len(s.Security.IPRestrictionList) > 0 {
+		b.WriteString("\n    # IP Access Control (Allowlist)\n")
+		for _, ip := range s.Security.IPRestrictionList {
+			if ip = strings.TrimSpace(ip); ip != "" {
+				fmt.Fprintf(b, "    allow %s;\n", ip)
+			}
+		}
+		b.WriteString("    deny all;\n")
+	} else if s.Security.IPRestrictionMode == "denylist" && len(s.Security.IPRestrictionList) > 0 {
+		b.WriteString("\n    # IP Access Control (Denylist)\n")
+		for _, ip := range s.Security.IPRestrictionList {
+			if ip = strings.TrimSpace(ip); ip != "" {
+				fmt.Fprintf(b, "    deny %s;\n", ip)
+			}
+		}
+		b.WriteString("    allow all;\n")
+	}
+
+	if s.Security.BasicAuthEnabled && s.Security.BasicAuthFile != "" {
+		realm := strings.TrimSpace(s.Security.BasicAuthRealm)
+		if realm == "" {
+			realm = "Restricted Area"
+		}
+		b.WriteString("\n    # HTTP Basic Authentication\n")
+		fmt.Fprintf(b, "    auth_basic \"%s\";\n", realm)
+		fmt.Fprintf(b, "    auth_basic_user_file %s;\n", s.Security.BasicAuthFile)
+	}
+
+	if s.Security.MaintenanceMode {
+		b.WriteString("\n    # Maintenance Mode (HTTP 503)\n")
+		b.WriteString("    error_page 503 /barepod_503.html;\n")
+		fmt.Fprintf(b, "    location = /barepod_503.html {\n        root /var/lib/barepod/maintenance/%s;\n        internal;\n    }\n", slugSafe)
+	}
+}
+
 func nginxLocations(b *strings.Builder, s Spec) {
+	slugSafe := sanitizeSlug(s.Slug)
+	maintCheck := ""
+	if s.Security.MaintenanceMode {
+		if len(s.Security.MaintenanceBypassIPs) > 0 {
+			maintCheck = fmt.Sprintf("        if ($bp_maint_bypass_%s) {\n            return 503;\n        }\n", slugSafe)
+		} else {
+			maintCheck = "        return 503;\n"
+		}
+	}
+
 	switch s.Kind {
 	case "php":
 		fmt.Fprintf(b, "    root %s;\n", s.DocRoot)
 		b.WriteString("    index index.php index.html index.htm;\n\n")
 		b.WriteString("    location / {\n")
+		if maintCheck != "" {
+			b.WriteString(maintCheck)
+		}
 		b.WriteString("        try_files $uri $uri/ /index.php?$query_string;\n")
 		b.WriteString("    }\n\n")
 		b.WriteString("    location ~ \\.php$ {\n")
+		if maintCheck != "" {
+			b.WriteString(maintCheck)
+		}
 		b.WriteString("        include fastcgi_params;\n")
 		fmt.Fprintf(b, "        fastcgi_pass unix:%s;\n", s.Socket)
 		b.WriteString("        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n")
@@ -248,10 +357,16 @@ func nginxLocations(b *strings.Builder, s Spec) {
 		fmt.Fprintf(b, "    root %s;\n", s.DocRoot)
 		b.WriteString("    index index.html index.htm;\n\n")
 		b.WriteString("    location / {\n")
+		if maintCheck != "" {
+			b.WriteString(maintCheck)
+		}
 		b.WriteString("        try_files $uri $uri/ =404;\n")
 		b.WriteString("    }\n")
 	default:
 		b.WriteString("    location / {\n")
+		if maintCheck != "" {
+			b.WriteString(maintCheck)
+		}
 		fmt.Fprintf(b, "        proxy_pass http://127.0.0.1:%d;\n", s.Port)
 		b.WriteString("        proxy_http_version 1.1;\n")
 		b.WriteString("        proxy_set_header Host $host;\n")
@@ -269,6 +384,9 @@ func nginxLocations(b *strings.Builder, s Spec) {
 func nginxVhost(s Spec) string {
 	var b strings.Builder
 	b.WriteString("# Managed by BarePod Panel — do not edit by hand (" + FileName(Nginx, s.Slug) + ").\n")
+
+	// Global / http-level definitions (limit_req_zone, geo blocks)
+	nginxSecurityHeader(&b, s)
 
 	serverName := s.ServerName()
 	hasSSL := s.SSLEnabled && s.SSLCertPath != "" && s.SSLKeyPath != ""
@@ -310,6 +428,7 @@ func nginxVhost(s Spec) string {
 		b.WriteString("        default_type \"text/plain\";\n")
 		b.WriteString("        root /var/lib/barepod/acme;\n")
 		b.WriteString("    }\n\n")
+		nginxSecurityDirectives(&b, s)
 		nginxLocations(&b, s)
 		b.WriteString("}\n")
 		return b.String()
@@ -342,12 +461,27 @@ func nginxVhost(s Spec) string {
 	b.WriteString("        default_type \"text/plain\";\n")
 	b.WriteString("        root /var/lib/barepod/acme;\n")
 	b.WriteString("    }\n\n")
+	nginxSecurityDirectives(&b, s)
 	nginxLocations(&b, s)
 	b.WriteString("}\n")
 	return b.String()
 }
 
 // --- Caddy ---
+
+func caddyAppLocations(b *strings.Builder, s Spec, indent string) {
+	switch s.Kind {
+	case "php":
+		fmt.Fprintf(b, "%sroot * %s\n", indent, s.DocRoot)
+		fmt.Fprintf(b, "%sphp_fastcgi unix/%s\n", indent, s.Socket)
+		fmt.Fprintf(b, "%sfile_server\n", indent)
+	case "static":
+		fmt.Fprintf(b, "%sroot * %s\n", indent, s.DocRoot)
+		fmt.Fprintf(b, "%sfile_server\n", indent)
+	default:
+		fmt.Fprintf(b, "%sreverse_proxy 127.0.0.1:%d\n", indent, s.Port)
+	}
+}
 
 func caddyVhost(s Spec) string {
 	var b strings.Builder
@@ -366,17 +500,55 @@ func caddyVhost(s Spec) string {
 		fmt.Fprintf(&b, "%s {\n", strings.Join(domainsWith80, ", "))
 	}
 
-	switch s.Kind {
-	case "php":
-		fmt.Fprintf(&b, "\troot * %s\n", s.DocRoot)
-		fmt.Fprintf(&b, "\tphp_fastcgi unix/%s\n", s.Socket)
-		b.WriteString("\tfile_server\n")
-	case "static":
-		fmt.Fprintf(&b, "\troot * %s\n", s.DocRoot)
-		b.WriteString("\tfile_server\n")
-	default:
-		fmt.Fprintf(&b, "\treverse_proxy 127.0.0.1:%d\n", s.Port)
+	// 1. IP Access Control
+	if s.Security.IPRestrictionMode == "allowlist" && len(s.Security.IPRestrictionList) > 0 {
+		b.WriteString("\t@ipDenied not client_ip " + strings.Join(s.Security.IPRestrictionList, " ") + "\n")
+		b.WriteString("\trespond @ipDenied \"Access Denied\" 403\n\n")
+	} else if s.Security.IPRestrictionMode == "denylist" && len(s.Security.IPRestrictionList) > 0 {
+		b.WriteString("\t@ipBlocked client_ip " + strings.Join(s.Security.IPRestrictionList, " ") + "\n")
+		b.WriteString("\trespond @ipBlocked \"Access Denied\" 403\n\n")
 	}
+
+	// 2. HTTP Basic Authentication
+	if s.Security.BasicAuthEnabled && s.Security.BasicAuthHash != "" {
+		user := strings.TrimSpace(s.Security.BasicAuthUser)
+		if user == "" {
+			user = "admin"
+		}
+		b.WriteString("\tbasic_auth {\n")
+		fmt.Fprintf(&b, "\t\t%s %s\n", user, s.Security.BasicAuthHash)
+		b.WriteString("\t}\n\n")
+	}
+
+	// 3. Maintenance Mode
+	if s.Security.MaintenanceMode {
+		htmlBody := RenderMaintenanceHTML(s.Security.MaintenanceTitle, s.Security.MaintenanceMessage)
+		escaped := strings.ReplaceAll(htmlBody, "\"", "\\\"")
+		escaped = strings.ReplaceAll(escaped, "\n", " ")
+		escaped = strings.ReplaceAll(escaped, "\r", "")
+
+		if len(s.Security.MaintenanceBypassIPs) > 0 {
+			bypass := s.Security.MaintenanceBypassIPs
+			fmt.Fprintf(&b, "\t@maintenance not client_ip %s\n", strings.Join(bypass, " "))
+			b.WriteString("\thandle @maintenance {\n")
+			b.WriteString("\t\theader Retry-After 300\n")
+			b.WriteString("\t\theader Content-Type \"text/html; charset=utf-8\"\n")
+			fmt.Fprintf(&b, "\t\trespond \"%s\" 503\n", escaped)
+			b.WriteString("\t}\n")
+			b.WriteString("\thandle {\n")
+			caddyAppLocations(&b, s, "\t\t")
+			b.WriteString("\t}\n")
+		} else {
+			b.WriteString("\thandle {\n")
+			b.WriteString("\t\theader Retry-After 300\n")
+			b.WriteString("\t\theader Content-Type \"text/html; charset=utf-8\"\n")
+			fmt.Fprintf(&b, "\t\trespond \"%s\" 503\n", escaped)
+			b.WriteString("\t}\n")
+		}
+	} else {
+		caddyAppLocations(&b, s, "\t")
+	}
+
 	b.WriteString("}\n")
 	return b.String()
 }
@@ -402,6 +574,33 @@ func apacheVhost(s Spec) string {
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "    CustomLog /var/log/apache2/barepod-%s.access.log combined\n", s.Slug)
 	fmt.Fprintf(&b, "    ErrorLog  /var/log/apache2/barepod-%s.error.log\n\n", s.Slug)
+
+	// Access control & Basic Auth for Apache
+	if s.Security.BasicAuthEnabled && s.Security.BasicAuthFile != "" {
+		realm := strings.TrimSpace(s.Security.BasicAuthRealm)
+		if realm == "" {
+			realm = "Restricted Area"
+		}
+		b.WriteString("    <Location />\n")
+		b.WriteString("        AuthType Basic\n")
+		fmt.Fprintf(&b, "        AuthName \"%s\"\n", realm)
+		fmt.Fprintf(&b, "        AuthUserFile %s\n", s.Security.BasicAuthFile)
+		b.WriteString("        Require valid-user\n")
+		b.WriteString("    </Location>\n\n")
+	}
+	if s.Security.IPRestrictionMode == "allowlist" && len(s.Security.IPRestrictionList) > 0 {
+		b.WriteString("    <Location />\n")
+		fmt.Fprintf(&b, "        Require ip %s\n", strings.Join(s.Security.IPRestrictionList, " "))
+		b.WriteString("    </Location>\n\n")
+	} else if s.Security.IPRestrictionMode == "denylist" && len(s.Security.IPRestrictionList) > 0 {
+		b.WriteString("    <Location />\n")
+		fmt.Fprintf(&b, "        Require not ip %s\n", strings.Join(s.Security.IPRestrictionList, " "))
+		b.WriteString("    </Location>\n\n")
+	}
+	if s.Security.MaintenanceMode {
+		fmt.Fprintf(&b, "    ErrorDocument 503 /barepod_503.html\n")
+		fmt.Fprintf(&b, "    Alias /barepod_503.html /var/lib/barepod/maintenance/%s/index.html\n\n", sanitizeSlug(s.Slug))
+	}
 
 	if s.DocRoot != "" {
 		fmt.Fprintf(&b, "    <Directory %s>\n", s.DocRoot)
@@ -443,6 +642,17 @@ func openlitespeedVhost(s Spec) string {
 		fmt.Fprintf(&b, "certFile                  %s\n", s.SSLCertPath)
 	}
 	b.WriteString("enableGzip                1\n\n")
+
+	if s.Security.IPRestrictionMode == "allowlist" && len(s.Security.IPRestrictionList) > 0 {
+		b.WriteString("accessControl {\n")
+		fmt.Fprintf(&b, "    allow                   %s\n", strings.Join(s.Security.IPRestrictionList, ", "))
+		b.WriteString("    deny                    all\n")
+		b.WriteString("}\n\n")
+	} else if s.Security.IPRestrictionMode == "denylist" && len(s.Security.IPRestrictionList) > 0 {
+		b.WriteString("accessControl {\n")
+		fmt.Fprintf(&b, "    deny                    %s\n", strings.Join(s.Security.IPRestrictionList, ", "))
+		b.WriteString("}\n\n")
+	}
 
 	switch s.Kind {
 	case "php":

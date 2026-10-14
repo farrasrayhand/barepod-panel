@@ -241,6 +241,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/v1/websites/{slug}/php/ini", deploy(s.handleSaveRuntimeConfig))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/secrets", deploy(s.handleListSecrets))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/secrets/{name}/reveal", deploy(s.handleRevealSecret))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/security", deploy(s.handleGetWebsiteSecurity))
+	mux.HandleFunc("PUT /api/v1/websites/{slug}/security", deploy(s.handleSaveWebsiteSecurity))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/maintenance/toggle", deploy(s.handleToggleMaintenance))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/basic-auth/toggle", deploy(s.handleToggleBasicAuth))
 
 	for _, action := range []string{"start", "stop", "restart"} {
 		mux.HandleFunc("POST /api/v1/websites/{slug}/"+action, deploy(

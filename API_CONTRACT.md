@@ -300,6 +300,18 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `POST /domains/:id/ssl/custom` → Body `{ certificate: string, privateKey: string, forceHTTPS?: bool, hsts?: bool }` → `200 { status: "active", provider: "custom", ... }`. Accepts, validates PEM syntax, verifies public/private keypair matching, writes securely to `/etc/barepod/ssl/<domain>/` (mode `0600`), and reloads the web server.
 - `POST /domains/:id/ssl/toggle` → Body `{ forceHTTPS?: bool, hsts?: bool, autoRenew?: bool }` → `200 ApiDomain`. Updates redirect and security headers and hot-reloads the web server.
 
+### 4.8.1 Website Security & Access Control
+- `GET /websites/:slug/security` → `200 ApiWebsiteSecurity`. Retrieves current access control, maintenance mode, HTTP basic auth, IP allowlist/denylist, and rate limiting settings for a site. Returns safe defaults if not yet configured.
+- `PUT /websites/:slug/security` → Body `UpdateSecurityRequest` → `200 ApiWebsiteSecurity`.
+  - Configures **HTTP 503 Maintenance Mode** with customizable title, message, Retry-After header, and bypass IPs. Generates responsive dark-mode HTML with live SVG pulse badge and auto-refresh countdown to `/var/lib/barepod/maintenance/<slug>/index.html`.
+  - Configures **HTTP Basic Authentication** (`.htpasswd` bcrypt hash stored in `/etc/barepod/auth/<slug>.htpasswd` for Nginx/Apache, and native bcrypt matcher for Caddy).
+  - Configures **IP Access Control**: `allowlist` (only allowed IPs/CIDRs permitted; all others receive 403 Forbidden) or `denylist` (denylisted IPs receive 403 Forbidden).
+  - Configures **Rate Limiting**: Nginx `limit_req_zone` + `limit_req` with burst control; graceful fallback on Caddy.
+  - Automatically regenerates the site's vhost and triggers an atomic hot-reload on the active web server.
+- `POST /websites/:slug/maintenance/toggle` → `200 { maintenanceMode: bool, security: ApiWebsiteSecurity }`. Quickly toggles maintenance mode on or off, updates the maintenance page, re-renders the vhost, and hot-reloads the web server.
+- `POST /websites/:slug/basic-auth/toggle` → `200 { basicAuthEnabled: bool, security: ApiWebsiteSecurity }`. Quickly toggles HTTP Basic Auth on or off and hot-reloads the web server. Requires that a password was previously configured.
+
+
 ### 4.9 Users, Groups & RBAC
 - `GET|POST /users` · `PATCH|DELETE /users/:id` · `POST /users/:id/password`
 - `GET|POST /groups` · `PATCH|DELETE /groups/:name` (a package is addressed by name, not id)

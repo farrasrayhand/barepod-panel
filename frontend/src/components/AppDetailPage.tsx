@@ -318,91 +318,136 @@ npm run build`;
     );
   };
 
-  const handleToggleMaintenance = () => {
-    const nextState = !maintenanceMode;
-    setMaintenanceMode(nextState);
-    const updated: WebApp = {
-      ...app,
-      maintenanceMode: nextState,
-      maintenanceMessage,
-      maintenanceBypassIps,
-      basicAuthEnabled,
-      basicAuthUser,
-      basicAuthPassword,
-      basicAuthRealm,
-      basicAuthBypassIps,
-    };
-    onUpdateApp?.(updated);
-    onShowToast?.(
-      nextState ? 'Maintenance Mode Enabled (503)' : 'Maintenance Mode Disabled',
-      nextState 
-        ? `Visitors will receive HTTP 503. Whitelisted IPs [${maintenanceBypassIps || 'None'}] retain access.`
-        : `${app.name} is now serving normal traffic again.`,
-      nextState ? 'info' : 'success'
-    );
+  const [ipRestrictionMode, setIpRestrictionMode] = useState<'none' | 'allowlist' | 'denylist'>('none');
+  const [ipRestrictionList, setIpRestrictionList] = useState('');
+  const [isSavingIpRestriction, setIsSavingIpRestriction] = useState(false);
+  const [vhostPreviewConfig, setVhostPreviewConfig] = useState<string>('');
+  const [isLoadingVhost, setIsLoadingVhost] = useState(false);
+
+  const loadSecurityConfig = useCallback(async () => {
+    try {
+      const sec = await api.websiteSecurity(app.name);
+      if (sec) {
+        setMaintenanceMode(sec.maintenanceMode);
+        if (sec.maintenanceMessage) setMaintenanceMessage(sec.maintenanceMessage);
+        if (sec.maintenanceBypassIps) setMaintenanceBypassIps(sec.maintenanceBypassIps);
+        setBasicAuthEnabled(sec.basicAuthEnabled);
+        if (sec.basicAuthUser) setBasicAuthUser(sec.basicAuthUser);
+        if (sec.basicAuthRealm) setBasicAuthRealm(sec.basicAuthRealm);
+        if (sec.basicAuthBypassIps) setBasicAuthBypassIps(sec.basicAuthBypassIps);
+        if (sec.ipRestrictionMode === 'allowlist' || sec.ipRestrictionMode === 'denylist') {
+          setIpRestrictionMode(sec.ipRestrictionMode);
+        } else {
+          setIpRestrictionMode('none');
+        }
+        if (sec.ipRestrictionList) setIpRestrictionList(sec.ipRestrictionList);
+        setAntiBruteforce(sec.antiBruteforceEnabled);
+        if (sec.antiBruteforceMax) setAntiBruteforceMaxAttempts(sec.antiBruteforceMax);
+        if (sec.antiBruteforceBanMins) setAntiBruteforceBanMinutes(sec.antiBruteforceBanMins);
+      }
+    } catch {
+      // Fallback to local state if server offline
+    }
+  }, [app.name]);
+
+  const loadVhostPreview = useCallback(async () => {
+    setIsLoadingVhost(true);
+    try {
+      const res = await api.vhostPreview(app.name, app.webServer);
+      if (res?.config) {
+        setVhostPreviewConfig(res.config);
+      }
+    } catch {
+      // Ignore
+    } finally {
+      setIsLoadingVhost(false);
+    }
+  }, [app.name, app.webServer]);
+
+  useEffect(() => {
+    loadSecurityConfig();
+    loadVhostPreview();
+  }, [loadSecurityConfig, loadVhostPreview]);
+
+  const handleToggleMaintenance = async () => {
+    try {
+      const res = await api.toggleMaintenance(app.name);
+      setMaintenanceMode(res.maintenanceMode);
+      onShowToast?.(
+        res.maintenanceMode ? 'Maintenance Mode Enabled (503)' : 'Maintenance Mode Disabled',
+        res.maintenanceMode
+          ? `Visitors receive HTTP 503. Whitelisted IPs [${maintenanceBypassIps || 'None'}] retain access.`
+          : `${app.name} is now serving normal traffic again.`,
+        res.maintenanceMode ? 'info' : 'success'
+      );
+      loadVhostPreview();
+    } catch (err: any) {
+      onShowToast?.('Failed to toggle maintenance mode', err.message || 'Unknown error', 'error');
+    }
   };
 
-  const handleSaveMaintenanceConfig = (e: React.FormEvent) => {
+  const handleSaveMaintenanceConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingMaintenance(true);
-    setTimeout(() => {
-      setIsSavingMaintenance(false);
-      const updated: WebApp = {
-        ...app,
+    try {
+      const updated = await api.updateWebsiteSecurity(app.name, {
         maintenanceMode,
+        maintenanceTitle: 'System Maintenance',
         maintenanceMessage,
         maintenanceBypassIps,
-        basicAuthEnabled,
-        basicAuthUser,
-        basicAuthPassword,
-        basicAuthRealm,
-        basicAuthBypassIps,
-      };
-      onUpdateApp?.(updated);
+      });
+      setMaintenanceMode(updated.maintenanceMode);
+      setMaintenanceMessage(updated.maintenanceMessage);
+      setMaintenanceBypassIps(updated.maintenanceBypassIps);
       onShowToast?.('Maintenance Configuration Saved', `HTTP 503 vhost template and IP bypass updated on ${app.webServer.toUpperCase()}.`, 'success');
-    }, 500);
+      loadVhostPreview();
+    } catch (err: any) {
+      onShowToast?.('Failed to save maintenance settings', err.message || 'Unknown error', 'error');
+    } finally {
+      setIsSavingMaintenance(false);
+    }
   };
 
-  const handleToggleBasicAuth = () => {
-    const nextState = !basicAuthEnabled;
-    setBasicAuthEnabled(nextState);
-    const updated: WebApp = {
-      ...app,
-      maintenanceMode,
-      maintenanceMessage,
-      maintenanceBypassIps,
-      basicAuthEnabled: nextState,
-      basicAuthUser,
-      basicAuthPassword,
-      basicAuthRealm,
-      basicAuthBypassIps,
-    };
-    onUpdateApp?.(updated);
-    onShowToast?.(
-      nextState ? 'HTTP Basic Auth Enabled' : 'HTTP Basic Auth Disabled',
-      nextState
-        ? `Access to https://${app.domain} is now password-protected (user: ${basicAuthUser}).`
-        : `Password protection for ${app.domain} has been removed.`,
-      nextState ? 'info' : 'success'
-    );
+  const handleToggleBasicAuth = async () => {
+    try {
+      const res = await api.toggleBasicAuth(app.name);
+      setBasicAuthEnabled(res.basicAuthEnabled);
+      onShowToast?.(
+        res.basicAuthEnabled ? 'HTTP Basic Auth Enabled' : 'HTTP Basic Auth Disabled',
+        res.basicAuthEnabled
+          ? `Access to https://${app.domain} is now password-protected (user: ${basicAuthUser}).`
+          : `Password protection for ${app.domain} has been removed.`,
+        res.basicAuthEnabled ? 'info' : 'success'
+      );
+      loadVhostPreview();
+    } catch (err: any) {
+      onShowToast?.('Failed to toggle HTTP Basic Auth', err.message || 'A password must be set first.', 'error');
+    }
   };
 
-  const handleToggleAntiBruteforce = () => {
+  const handleToggleAntiBruteforce = async () => {
     const nextState = !antiBruteforce;
     setAntiBruteforce(nextState);
-    onUpdateApp?.({
-      ...app,
-      antiBruteforce: nextState,
-      antiBruteforceMaxAttempts,
-      antiBruteforceBanMinutes,
-    });
-    onShowToast?.(
-      nextState ? 'Anti-Brute Force Enabled' : 'Anti-Brute Force Disabled',
-      nextState
-        ? `Failed-login throttling active: max ${antiBruteforceMaxAttempts} attempts, ${antiBruteforceBanMinutes}-min IP ban.`
-        : `Login rate limiting disabled for ${app.domain}.`,
-      nextState ? 'success' : 'info'
-    );
+    try {
+      await api.updateWebsiteSecurity(app.name, {
+        antiBruteforceEnabled: nextState,
+        antiBruteforceMax: antiBruteforceMaxAttempts,
+        antiBruteforceBanMins: antiBruteforceBanMinutes,
+        rateLimitEnabled: nextState,
+        rateLimitReqPerSec: antiBruteforceMaxAttempts * 2,
+        rateLimitBurst: antiBruteforceMaxAttempts * 4,
+      });
+      onShowToast?.(
+        nextState ? 'Anti-Brute Force Enabled' : 'Anti-Brute Force Disabled',
+        nextState
+          ? `Failed-login throttling active: max ${antiBruteforceMaxAttempts} attempts, ${antiBruteforceBanMinutes}-min IP ban.`
+          : `Login rate limiting disabled for ${app.domain}.`,
+        nextState ? 'success' : 'info'
+      );
+      loadVhostPreview();
+    } catch (err: any) {
+      onShowToast?.('Failed to update anti-bruteforce', err.message || 'Unknown error', 'error');
+    }
   };
 
   const handleGeneratePassword = () => {
@@ -415,25 +460,50 @@ npm run build`;
     onShowToast?.('New Password Generated', 'A random 16-character combination was generated.', 'info');
   };
 
-  const handleSaveBasicAuthConfig = (e: React.FormEvent) => {
+  const handleSaveBasicAuthConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSavingBasicAuth(true);
-    setTimeout(() => {
-      setIsSavingBasicAuth(false);
-      const updated: WebApp = {
-        ...app,
-        maintenanceMode,
-        maintenanceMessage,
-        maintenanceBypassIps,
+    try {
+      const updated = await api.updateWebsiteSecurity(app.name, {
         basicAuthEnabled,
         basicAuthUser,
-        basicAuthPassword,
+        basicAuthPassword: basicAuthPassword || undefined,
         basicAuthRealm,
         basicAuthBypassIps,
-      };
-      onUpdateApp?.(updated);
-      onShowToast?.('.htpasswd & VHost Saved', `Auth file /etc/nginx/.htpasswd_${app.name} synced successfully.`, 'success');
-    }, 500);
+      });
+      setBasicAuthEnabled(updated.basicAuthEnabled);
+      setBasicAuthUser(updated.basicAuthUser);
+      setBasicAuthRealm(updated.basicAuthRealm);
+      onShowToast?.('.htpasswd & VHost Saved', `Auth credentials and webserver directives synced successfully.`, 'success');
+      loadVhostPreview();
+    } catch (err: any) {
+      onShowToast?.('Failed to save Basic Auth settings', err.message || 'Unknown error', 'error');
+    } finally {
+      setIsSavingBasicAuth(false);
+    }
+  };
+
+  const handleSaveIpRestriction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingIpRestriction(true);
+    try {
+      const updated = await api.updateWebsiteSecurity(app.name, {
+        ipRestrictionMode,
+        ipRestrictionList,
+      });
+      if (updated.ipRestrictionMode === 'allowlist' || updated.ipRestrictionMode === 'denylist') {
+        setIpRestrictionMode(updated.ipRestrictionMode);
+      } else {
+        setIpRestrictionMode('none');
+      }
+      setIpRestrictionList(updated.ipRestrictionList);
+      onShowToast?.('IP Access Rules Saved', `Access restriction updated and reloaded on ${app.webServer.toUpperCase()}.`, 'success');
+      loadVhostPreview();
+    } catch (err: any) {
+      onShowToast?.('Failed to save IP access rules', err.message || 'Unknown error', 'error');
+    } finally {
+      setIsSavingIpRestriction(false);
+    }
   };
 
   const handleCopyCurl = (cmd: string) => {
@@ -3859,53 +3929,137 @@ QUEUE_CONNECTION=redis`}
                 </div>
               </div>
 
+              {/* CARD 4: IP ACCESS CONTROL (ALLOWLIST / DENYLIST) */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col justify-between">
+                <div className="p-5 space-y-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center">
+                        <Shield className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">
+                          IP Access Control
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Allow or block specific client IPs or CIDR networks
+                        </p>
+                      </div>
+                    </div>
+
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                      ipRestrictionMode === 'allowlist'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        : ipRestrictionMode === 'denylist'
+                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                        : 'bg-slate-100 text-slate-600 border border-slate-200'
+                    }`}>
+                      {ipRestrictionMode === 'none' ? 'Open Access' : ipRestrictionMode}
+                    </span>
+                  </div>
+
+                  <form onSubmit={handleSaveIpRestriction} className="space-y-3.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Restriction Mode
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIpRestrictionMode('none')}
+                          className={`py-1.5 px-2 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
+                            ipRestrictionMode === 'none'
+                              ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          Disabled (Open)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIpRestrictionMode('allowlist')}
+                          className={`py-1.5 px-2 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
+                            ipRestrictionMode === 'allowlist'
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          Allowlist Only
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIpRestrictionMode('denylist')}
+                          className={`py-1.5 px-2 text-xs font-bold rounded-xl border transition-all cursor-pointer ${
+                            ipRestrictionMode === 'denylist'
+                              ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
+                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          Denylist (Block)
+                        </button>
+                      </div>
+                    </div>
+
+                    {ipRestrictionMode !== 'none' && (
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          {ipRestrictionMode === 'allowlist' ? 'Whitelisted IPs / CIDRs' : 'Blocked IPs / CIDRs'}
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={ipRestrictionList}
+                          onChange={(e) => setIpRestrictionList(e.target.value)}
+                          placeholder="Example: 192.168.1.0/24, 10.0.0.1, 103.21.244.0/22"
+                          className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono focus:bg-white focus:border-blue-500 focus:outline-hidden resize-none"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          Separate with commas or newlines. Enforced natively by {app.webServer.toUpperCase()}.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="pt-2 flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={isSavingIpRestriction}
+                        className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm shadow-blue-500/25 cursor-pointer"
+                      >
+                        {isSavingIpRestriction ? 'Saving...' : 'Save IP Rules'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+
             </div>
 
-            {/* CARD 3: GENERATED VHOST DIRECTIVES INSPECTOR */}
+            {/* CARD 5: LIVE VHOST RULES INSPECTOR */}
             <div className="p-5 bg-slate-900 rounded-2xl text-slate-100 space-y-3 border border-slate-800 shadow-md">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
                   <span className="text-xs font-bold font-mono text-slate-200">
-                    Auto-Generated VHost Rules ({app.webServer.toUpperCase()})
+                    Live VHost Configuration ({app.webServer.toUpperCase()})
                   </span>
                 </div>
-                <span className="text-[10px] text-slate-400 font-mono">
-                  /etc/{app.webServer}/conf.d/{app.domain}.conf
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={loadVhostPreview}
+                    disabled={isLoadingVhost}
+                    className="text-[10px] text-slate-300 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 font-mono transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isLoadingVhost ? 'animate-spin text-emerald-400' : ''}`} />
+                    <span>Refresh Preview</span>
+                  </button>
+                  <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+                    barepod-{app.name}.{app.webServer === 'caddy' ? 'caddy' : 'conf'}
+                  </span>
+                </div>
               </div>
 
-              <pre className="font-mono text-xs bg-slate-950 p-4 rounded-xl overflow-x-auto text-emerald-400 leading-relaxed border border-slate-800">
-{app.webServer === 'caddy' ? (
-`# --- BarePod Panel Edge Access Directives ---
-${maintenanceMode ? `# Maintenance 503 Active
-@maintenance not remote_ip ${maintenanceBypassIps.replace(/,/g, '') || '127.0.0.1'}
-respond @maintenance 503 {
-    body "<h1>503 Service Unavailable</h1><p>${maintenanceMessage}</p>"
-}
-` : '# Maintenance Mode: OFF'}
-${basicAuthEnabled ? `# HTTP Basic Authentication Active
-basicauth {
-    ${basicAuthUser} $2a$14$JkE0... (bcrypt hash of password)
-}
-` : '# HTTP Basic Auth: OFF'}`
-) : (
-`# --- BarePod Panel Edge Access Directives ---
-${maintenanceMode ? `# Maintenance 503 Active
-error_page 503 @maintenance_page;
-if ($remote_addr !~ "^(${maintenanceBypassIps.replace(/\s+/g, '').replace(/,/g, '|') || '127.0.0.1'})$") {
-    return 503;
-}
-location @maintenance_page {
-    default_type text/html;
-    return 503 '<html><body><h2>Under Maintenance</h2><p>${maintenanceMessage}</p></body></html>';
-}
-` : '# Maintenance Mode: OFF'}
-${basicAuthEnabled ? `# HTTP Basic Authentication Active
-auth_basic "${basicAuthRealm}";
-auth_basic_user_file /etc/nginx/.htpasswd_${app.name};
-` : '# HTTP Basic Auth: OFF'}`
-)}
+              <pre className="font-mono text-xs bg-slate-950 p-4 rounded-xl overflow-x-auto text-emerald-400 leading-relaxed border border-slate-800 max-h-96">
+                {vhostPreviewConfig || '# Loading live configuration from daemon...'}
               </pre>
             </div>
           </div>

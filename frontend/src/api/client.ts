@@ -108,6 +108,28 @@ export interface ApiDomain {
   createdAt: string;
 }
 
+export interface ApiWebsiteSecurity {
+  websiteSlug: string;
+  maintenanceMode: boolean;
+  maintenanceTitle: string;
+  maintenanceMessage: string;
+  maintenanceBypassIps: string;
+  basicAuthEnabled: boolean;
+  basicAuthUser: string;
+  hasPassword?: boolean;
+  basicAuthRealm: string;
+  basicAuthBypassIps: string;
+  ipRestrictionMode: 'none' | 'allowlist' | 'denylist' | string;
+  ipRestrictionList: string;
+  rateLimitEnabled: boolean;
+  rateLimitReqPerSec: number;
+  rateLimitBurst: number;
+  antiBruteforceEnabled: boolean;
+  antiBruteforceMax: number;
+  antiBruteforceBanMins: number;
+  updatedAt: string;
+}
+
 export interface DeployJob {
   id: string;
   slug: string;
@@ -725,6 +747,34 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  websiteSecurity: (slug: string) =>
+    request<ApiWebsiteSecurity>(`/websites/${encodeURIComponent(slug)}/security`),
+
+  updateWebsiteSecurity: (
+    slug: string,
+    payload: Partial<ApiWebsiteSecurity> & { basicAuthPassword?: string }
+  ) =>
+    request<ApiWebsiteSecurity>(`/websites/${encodeURIComponent(slug)}/security`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  toggleMaintenance: (slug: string) =>
+    request<{ maintenanceMode: boolean; security: ApiWebsiteSecurity }>(
+      `/websites/${encodeURIComponent(slug)}/maintenance/toggle`,
+      {
+        method: 'POST',
+      }
+    ),
+
+  toggleBasicAuth: (slug: string) =>
+    request<{ basicAuthEnabled: boolean; security: ApiWebsiteSecurity }>(
+      `/websites/${encodeURIComponent(slug)}/basic-auth/toggle`,
+      {
+        method: 'POST',
+      }
+    ),
 
   prepareDirectory: (body: { slug: string; tenantUser: string }) =>
     request<PrepareDirectoryResult>('/websites/prepare-directory', {

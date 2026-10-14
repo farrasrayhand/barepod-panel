@@ -594,6 +594,29 @@ func stepWriteVhost(ctx context.Context, s *state) error {
 		}
 		spec = spec.WithSSL(aliases, certPath, keyPath, sslEnabled, forceHTTPS, hsts)
 	}
+	if sec, err := s.m.store.GetWebsiteSecurity(s.req.Slug); err == nil && sec != nil {
+		htpasswdPath := ""
+		if sec.BasicAuthEnabled && sec.BasicAuthPasswordHash != "" {
+			htpasswdPath = filepath.Join(webserver.AuthDir, sec.WebsiteSlug+".htpasswd")
+		}
+		spec = spec.WithSecurity(webserver.SecuritySpec{
+			MaintenanceMode:      sec.MaintenanceMode,
+			MaintenanceTitle:     sec.MaintenanceTitle,
+			MaintenanceMessage:   sec.MaintenanceMessage,
+			MaintenanceBypassIPs: webserver.ParseIPList(sec.MaintenanceBypassIPs),
+			BasicAuthEnabled:     sec.BasicAuthEnabled,
+			BasicAuthUser:        sec.BasicAuthUser,
+			BasicAuthHash:        sec.BasicAuthPasswordHash,
+			BasicAuthFile:        htpasswdPath,
+			BasicAuthRealm:       sec.BasicAuthRealm,
+			BasicAuthBypassIPs:   webserver.ParseIPList(sec.BasicAuthBypassIPs),
+			IPRestrictionMode:    sec.IPRestrictionMode,
+			IPRestrictionList:    webserver.ParseIPList(sec.IPRestrictionList),
+			RateLimitEnabled:     sec.RateLimitEnabled,
+			RateLimitReqPerSec:   sec.RateLimitReqPerSec,
+			RateLimitBurst:       sec.RateLimitBurst,
+		})
+	}
 	path, err := webserver.Apply(ctx, engine, dir, s.m.host, spec)
 	if err != nil {
 		return err

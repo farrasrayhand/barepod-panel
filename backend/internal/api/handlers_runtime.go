@@ -109,8 +109,38 @@ func (s *Server) applyVhost(r *http.Request, site *store.Website) error {
 		}
 		spec = spec.WithSSL(aliases, certPath, keyPath, sslEnabled, forceHTTPS, hsts)
 	}
+	if sec, err := s.store.GetWebsiteSecurity(site.Slug); err == nil && sec != nil {
+		spec = spec.WithSecurity(s.buildSecuritySpec(sec))
+	}
 	_, err := webserver.Apply(r.Context(), engine, s.host.VhostsFor(engine), s.host, spec)
 	return err
+}
+
+func (s *Server) buildSecuritySpec(sec *store.WebsiteSecurity) webserver.SecuritySpec {
+	if sec == nil {
+		return webserver.SecuritySpec{}
+	}
+	htpasswdPath := ""
+	if sec.BasicAuthEnabled && sec.BasicAuthPasswordHash != "" {
+		htpasswdPath = filepath.Join(webserver.AuthDir, sec.WebsiteSlug+".htpasswd")
+	}
+	return webserver.SecuritySpec{
+		MaintenanceMode:      sec.MaintenanceMode,
+		MaintenanceTitle:     sec.MaintenanceTitle,
+		MaintenanceMessage:   sec.MaintenanceMessage,
+		MaintenanceBypassIPs: webserver.ParseIPList(sec.MaintenanceBypassIPs),
+		BasicAuthEnabled:     sec.BasicAuthEnabled,
+		BasicAuthUser:        sec.BasicAuthUser,
+		BasicAuthHash:        sec.BasicAuthPasswordHash,
+		BasicAuthFile:        htpasswdPath,
+		BasicAuthRealm:       sec.BasicAuthRealm,
+		BasicAuthBypassIPs:   webserver.ParseIPList(sec.BasicAuthBypassIPs),
+		IPRestrictionMode:    sec.IPRestrictionMode,
+		IPRestrictionList:    webserver.ParseIPList(sec.IPRestrictionList),
+		RateLimitEnabled:     sec.RateLimitEnabled,
+		RateLimitReqPerSec:   sec.RateLimitReqPerSec,
+		RateLimitBurst:       sec.RateLimitBurst,
+	}
 }
 
 // handleVhostPreview renders the vhost the daemon would write, so a client never has
@@ -146,6 +176,9 @@ func (s *Server) handleVhostPreview(w http.ResponseWriter, r *http.Request, user
 			}
 		}
 		spec = spec.WithSSL(aliases, certPath, keyPath, sslEnabled, forceHTTPS, hsts)
+	}
+	if sec, err := s.store.GetWebsiteSecurity(site.Slug); err == nil && sec != nil {
+		spec = spec.WithSecurity(s.buildSecuritySpec(sec))
 	}
 	config, err := webserver.Render(engine, spec)
 	if err != nil {

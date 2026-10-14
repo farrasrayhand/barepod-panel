@@ -24,7 +24,34 @@ var migrations = []migration{
 	{version: 14, statements: schemaV14},
 	{version: 15, statements: schemaV15},
 	{version: 16, statements: schemaV16},
+	{version: 17, statements: schemaV17},
 }
+
+// schemaV17 adds website_security table for per-app maintenance mode, HTTP basic auth, IP access rules, and rate limiting.
+const schemaV17 = `
+CREATE TABLE IF NOT EXISTS website_security (
+  website_slug             TEXT PRIMARY KEY,
+  maintenance_mode         INTEGER NOT NULL DEFAULT 0,
+  maintenance_title        TEXT NOT NULL DEFAULT '',
+  maintenance_message      TEXT NOT NULL DEFAULT '',
+  maintenance_bypass_ips   TEXT NOT NULL DEFAULT '',
+  basic_auth_enabled       INTEGER NOT NULL DEFAULT 0,
+  basic_auth_user          TEXT NOT NULL DEFAULT '',
+  basic_auth_password_hash TEXT NOT NULL DEFAULT '',
+  basic_auth_realm         TEXT NOT NULL DEFAULT '',
+  basic_auth_bypass_ips    TEXT NOT NULL DEFAULT '',
+  ip_restriction_mode      TEXT NOT NULL DEFAULT 'none',
+  ip_restriction_list      TEXT NOT NULL DEFAULT '',
+  rate_limit_enabled       INTEGER NOT NULL DEFAULT 0,
+  rate_limit_req_per_sec   INTEGER NOT NULL DEFAULT 10,
+  rate_limit_burst         INTEGER NOT NULL DEFAULT 20,
+  anti_bruteforce_enabled  INTEGER NOT NULL DEFAULT 1,
+  anti_bruteforce_max      INTEGER NOT NULL DEFAULT 5,
+  anti_bruteforce_ban_mins INTEGER NOT NULL DEFAULT 15,
+  updated_at               TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_website_security_slug ON website_security(website_slug);
+`
 
 // schemaV16 adds website_domains table for multi-domain mapping, aliases, and SSL/TLS tracking.
 const schemaV16 = `

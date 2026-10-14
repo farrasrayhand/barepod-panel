@@ -51,6 +51,30 @@ type WebsiteDomain struct {
 	CreatedAt    string `json:"createdAt"`
 }
 
+// WebsiteSecurity defines the access control, HTTP basic auth, IP rules, and rate limits for a site.
+type WebsiteSecurity struct {
+	WebsiteSlug           string `json:"websiteSlug"`
+	MaintenanceMode       bool   `json:"maintenanceMode"`
+	MaintenanceTitle      string `json:"maintenanceTitle"`
+	MaintenanceMessage    string `json:"maintenanceMessage"`
+	MaintenanceBypassIPs  string `json:"maintenanceBypassIps"`
+	BasicAuthEnabled      bool   `json:"basicAuthEnabled"`
+	BasicAuthUser         string `json:"basicAuthUser"`
+	BasicAuthPasswordHash string `json:"-"`
+	HasPassword           bool   `json:"hasPassword"`
+	BasicAuthRealm        string `json:"basicAuthRealm"`
+	BasicAuthBypassIPs    string `json:"basicAuthBypassIps"`
+	IPRestrictionMode     string `json:"ipRestrictionMode"` // none | allowlist | denylist
+	IPRestrictionList     string `json:"ipRestrictionList"`
+	RateLimitEnabled      bool   `json:"rateLimitEnabled"`
+	RateLimitReqPerSec    int    `json:"rateLimitReqPerSec"`
+	RateLimitBurst        int    `json:"rateLimitBurst"`
+	AntiBruteforceEnabled bool   `json:"antiBruteforceEnabled"`
+	AntiBruteforceMax     int    `json:"antiBruteforceMax"`
+	AntiBruteforceBanMins int    `json:"antiBruteforceBanMins"`
+	UpdatedAt             string `json:"updatedAt"`
+}
+
 // User is a panel account.
 type User struct {
 	ID           string `json:"id"`
