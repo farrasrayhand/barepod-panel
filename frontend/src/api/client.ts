@@ -726,6 +726,16 @@ export const api = {
       { method: 'POST' },
     ),
 
+  /** Polyglot Runtime Configuration Studio: tuning directives and process supervision. */
+  runtimeConfig: (slug: string) =>
+    request<SiteRuntimeConfigResponse>(`/websites/${encodeURIComponent(slug)}/runtime/config`),
+
+  updateRuntimeConfig: (slug: string, config: Record<string, any>) =>
+    request<{ status: string; runtime: string; config: Record<string, any>; restarted?: boolean; mode?: string }>(
+      `/websites/${encodeURIComponent(slug)}/runtime/config`,
+      { method: 'PUT', body: JSON.stringify({ config }) },
+    ),
+
   stack: (refresh?: boolean) => request<StackStatus>(refresh ? '/system/stack?refresh=true' : '/system/stack'),
 
   setStackWebServer: (engine: string) =>
@@ -1224,6 +1234,61 @@ export interface PhpExtensionReport {
   version: string;
   extensions: { name: string; enabled: boolean }[];
   installable: string[];
+}
+
+export interface SiteRuntimeConfigResponse {
+  runtime: string;
+  version: string;
+  config: {
+    // PHP
+    memoryLimit?: string;
+    uploadMaxSize?: string;
+    postMaxSize?: string;
+    maxExecutionTime?: number;
+    maxInputVars?: number;
+    maxInputTime?: number;
+    maxChildren?: number;
+    processIdleTimeout?: string;
+    extensions?: Array<{ name: string; enabled: boolean; description?: string; installed?: boolean }>;
+    installable?: string[];
+    installedVersions?: string[];
+
+    // Node.js
+    packageManager?: string;
+    script?: string;
+    startScript?: string;
+    entrypoint?: string;
+    memoryLimitMb?: number;
+    detectedScripts?: string[];
+
+    // Python
+    wsgiServer?: string;
+    runner?: string;
+    workers?: number;
+    threads?: number;
+    timeout?: number;
+    venvExists?: boolean;
+    venvPath?: string;
+
+    // Ruby
+    appServer?: string;
+
+    // Go / Rust
+    binaryPath?: string;
+    args?: string;
+    port?: number;
+
+    // Static
+    spaFallback?: boolean;
+    docRoot?: string;
+
+    [key: string]: any;
+  };
+  limits?: {
+    memoryMb: number;
+    cpuQuotaPercent: number;
+    tasksMax: number;
+  };
 }
 
 export interface StackStatus {

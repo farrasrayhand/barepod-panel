@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { siteSupportsShell, siteSupportsFiles, siteSupportsCI, siteShellNote, siteFilesNote, siteCINote, siteTabSupport } from '../utils/siteRuntime';
 import { 
   ArrowLeft, 
@@ -69,7 +69,7 @@ import { BasicAuthPromptModal } from './BasicAuthPromptModal';
 import { api, apiReachable } from '../api/client';
 import { describeError } from '../utils/format';
 
-export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'routing' | 'files' | 'env' | 'php' | 'security' | 'deploy';
+export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'routing' | 'files' | 'env' | 'php' | 'runtime' | 'security' | 'deploy';
 
 interface AppDetailPageProps {
   app: WebApp;
@@ -107,7 +107,7 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   // (or a stale tab) falls back to monitoring instead of rendering an empty pane.
   React.useEffect(() => {
     const unavailable =
-      (activeTab === 'php' && app.runtime !== 'php') ||
+      ((activeTab === 'php' || activeTab === 'runtime') && app.runtime === 'proxy') ||
       (activeTab === 'files' && !tabSupport.files) ||
       (activeTab === 'env' && !tabSupport.env) ||
       (activeTab === 'deploy' && !tabSupport.deploy);
@@ -222,6 +222,40 @@ npm run build`;
   const [displayErrors, setDisplayErrors] = useState(false);
   const [opcacheEnabled, setOpcacheEnabled] = useState(true);
   const [isReloadingFpm, setIsReloadingFpm] = useState(false);
+  const [phpMaxChildren, setPhpMaxChildren] = useState(5);
+  const [phpIdleTimeout, setPhpIdleTimeout] = useState('10s');
+
+  // Polyglot Studio States
+  const [runtimeConfigData, setRuntimeConfigData] = useState<any>(null);
+  const [isLoadingRuntimeConfig, setIsLoadingRuntimeConfig] = useState(false);
+  const [isSavingRuntimeConfig, setIsSavingRuntimeConfig] = useState(false);
+
+  // Node.js
+  const [nodePkgManager, setNodePkgManager] = useState('npm');
+  const [nodeScript, setNodeScript] = useState('start');
+  const [nodeMemLimitMb, setNodeMemLimitMb] = useState(0);
+  const [nodeDetectedScripts, setNodeDetectedScripts] = useState<string[]>(['start', 'dev', 'build']);
+
+  // Python
+  const [pythonWsgi, setPythonWsgi] = useState('gunicorn');
+  const [pythonWorkers, setPythonWorkers] = useState(2);
+  const [pythonThreads, setPythonThreads] = useState(1);
+  const [pythonTimeout, setPythonTimeout] = useState(60);
+  const [pythonVenvExists, setPythonVenvExists] = useState(false);
+  const [pythonVenvPath, setPythonVenvPath] = useState('');
+
+  // Ruby
+  const [rubyAppServer, setRubyAppServer] = useState('puma');
+  const [rubyWorkers, setRubyWorkers] = useState(2);
+  const [rubyThreads, setRubyThreads] = useState(5);
+
+  // Go / Rust
+  const [binaryPath, setBinaryPath] = useState(app.runtime === 'rust' ? './target/release/app' : './bin/app');
+  const [binaryArgs, setBinaryArgs] = useState('');
+
+  // Static
+  const [spaFallback, setSpaFallback] = useState(true);
+  const [docRoot, setDocRoot] = useState('public');
 
   // Reverse Proxy Specific Interactive State
   const [currentUpstream, setCurrentUpstream] = useState(app.upstreamUrl || `http://127.0.0.1:${app.port}`);
@@ -711,33 +745,174 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     );
   };
 
-  const handleSavePhpIni = (e: React.FormEvent) => {
-    e.preventDefault();
+  const loadRuntimeConfig = useCallback(async () => {
+    if (app.runtime === 'proxy') return;
+    setIsLoadingRuntimeConfig(true);
+    try {
+      if (await apiReachable()) {
+        const res = await api.runtimeConfig(app.name);
+        setRuntimeConfigData(res);
+        const c = res.config || {};
+        if (app.runtime === 'php') {
+          if (c.memoryLimit) setMemoryLimit(c.memoryLimit);
+          if (c.uploadMaxSize) setUploadMaxFilesize(c.uploadMaxSize);
+          if (c.postMaxSize) setPostMaxSize(c.postMaxSize);
+          if (c.maxExecutionTime !== undefined) setMaxExecutionTime(String(c.maxExecutionTime));
+          if (c.maxInputVars !== undefined) setMaxInputVars(String(c.maxInputVars));
+          if (c.maxChildren !== undefined) setPhpMaxChildren(c.maxChildren);
+          if (c.processIdleTimeout) setPhpIdleTimeout(c.processIdleTimeout);
+        } else if (app.runtime === 'nodejs') {
+          if (c.packageManager) setNodePkgManager(c.packageManager);
+          const sc = c.script || c.startScript;
+          if (sc) setNodeScript(sc);
+          if (c.memoryLimitMb !== undefined) setNodeMemLimitMb(c.memoryLimitMb);
+          if (c.detectedScripts && c.detectedScripts.length > 0) setNodeDetectedScripts(c.detectedScripts);
+        } else if (app.runtime === 'python') {
+          const ws = c.wsgiServer || c.runner;
+          if (ws) setPythonWsgi(ws);
+          if (c.workers !== undefined) setPythonWorkers(c.workers);
+          if (c.threads !== undefined) setPythonThreads(c.threads);
+          if (c.timeout !== undefined) setPythonTimeout(c.timeout);
+          if (c.venvExists !== undefined) setPythonVenvExists(c.venvExists);
+          if (c.venvPath) setPythonVenvPath(c.venvPath);
+        } else if (app.runtime === 'ruby') {
+          if (c.appServer) setRubyAppServer(c.appServer);
+          if (c.workers !== undefined) setRubyWorkers(c.workers);
+          if (c.threads !== undefined) setRubyThreads(c.threads);
+        } else if (app.runtime === 'go' || app.runtime === 'rust') {
+          if (c.binaryPath) setBinaryPath(c.binaryPath);
+          if (c.args) setBinaryArgs(c.args);
+        } else if (app.runtime === 'static') {
+          if (c.spaFallback !== undefined) setSpaFallback(c.spaFallback);
+          if (c.docRoot) setDocRoot(c.docRoot);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load runtime config:', err);
+    } finally {
+      setIsLoadingRuntimeConfig(false);
+    }
+  }, [app.name, app.runtime]);
+
+  useEffect(() => {
+    loadRuntimeConfig();
+  }, [loadRuntimeConfig]);
+
+  const handleSaveRuntimeConfig = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSavingRuntimeConfig(true);
     setIsReloadingFpm(true);
-    setTimeout(() => {
+    try {
+      let payload: Record<string, any> = {};
+      if (app.runtime === 'php') {
+        payload = {
+          memoryLimit,
+          uploadMaxSize: uploadMaxFilesize,
+          postMaxSize,
+          maxExecutionTime: parseInt(maxExecutionTime, 10) || 60,
+          maxInputVars: parseInt(maxInputVars, 10) || 3000,
+          maxChildren: phpMaxChildren,
+          processIdleTimeout: phpIdleTimeout,
+        };
+      } else if (app.runtime === 'nodejs') {
+        payload = {
+          packageManager: nodePkgManager,
+          script: nodeScript,
+          startScript: nodeScript,
+          memoryLimitMb: nodeMemLimitMb,
+        };
+      } else if (app.runtime === 'python') {
+        payload = {
+          wsgiServer: pythonWsgi,
+          runner: pythonWsgi,
+          workers: pythonWorkers,
+          threads: pythonThreads,
+          timeout: pythonTimeout,
+        };
+      } else if (app.runtime === 'ruby') {
+        payload = {
+          appServer: rubyAppServer,
+          workers: rubyWorkers,
+          threads: rubyThreads,
+        };
+      } else if (app.runtime === 'go' || app.runtime === 'rust') {
+        payload = {
+          binaryPath,
+          args: binaryArgs,
+        };
+      } else if (app.runtime === 'static') {
+        payload = {
+          spaFallback,
+          docRoot,
+        };
+      }
+
+      if (await apiReachable()) {
+        const res = await api.updateRuntimeConfig(app.name, payload);
+        onShowToast?.(
+          'Runtime Configuration Saved',
+          app.runtime === 'php'
+            ? `PHP-FPM pool reloaded for ${app.tenantUser}.`
+            : `Systemd drop-in updated and service restarted successfully (${res.mode || 'live'}).`,
+          'success'
+        );
+      } else {
+        onShowToast?.('Runtime Saved', `Configuration updated (simulation mode).`, 'success');
+      }
+      await loadRuntimeConfig();
+    } catch (err) {
+      onShowToast?.('Could not save runtime configuration', describeError(err), 'error');
+    } finally {
+      setIsSavingRuntimeConfig(false);
       setIsReloadingFpm(false);
-      onShowToast?.('php.ini Saved', `${app.tenantUser} pool configuration applied. systemctl reload php-fpm [OK].`, 'success');
-    }, 600);
+    }
   };
 
-  const phpVersion = app.runtime === 'php' ? app.version : '8.4';
-  const AppIcon = frameworkIcon(app.framework) ?? runtimeIcon[app.runtime] ?? Server;
+  const handleRestorePhpBaseline = async () => {
+    try {
+      if (await apiReachable()) {
+        const globalRes = await api.phpDefaults();
+        if (globalRes && globalRes.config) {
+          const bp = globalRes.config;
+          setMemoryLimit(bp.memoryLimit);
+          setUploadMaxFilesize(bp.uploadMaxSize);
+          setPostMaxSize(bp.postMaxSize);
+          setMaxExecutionTime(String(bp.maxExecutionTime));
+          setMaxInputVars(String(bp.maxInputVars));
+          onShowToast?.('Global Blueprint Loaded', 'Values reset to host default blueprint. Click "Save & Apply" to write.', 'info');
+        }
+      }
+    } catch (err) {
+      onShowToast?.('Failed to load blueprint', describeError(err), 'error');
+    }
+  };
 
-  const handleRestartFpmPool = async () => {
+  const handleRestartService = async () => {
     setIsReloadingFpm(true);
     try {
       if (await apiReachable()) {
-        const res = await api.reloadPhpFpm(app.name);
-        onShowToast?.('PHP-FPM reloaded', `Pool ${res.pool} restarted (${res.mode}).`, 'success');
+        if (app.runtime === 'php') {
+          const res = await api.reloadPhpFpm(app.name);
+          onShowToast?.('PHP-FPM Reloaded', `Pool ${res.pool} reloaded (${res.mode}).`, 'success');
+        } else {
+          await api.websiteAction(app.name, 'restart');
+          onShowToast?.('Service Restarted', `Process supervisor restarted barepod-app@${app.name}.service.`, 'success');
+        }
       } else {
-        onShowToast?.('PHP-FPM reloaded', `Pool for ${app.name} restarted (simulation).`, 'success');
+        onShowToast?.('Service Restarted', `Service restarted for ${app.name} (simulation).`, 'success');
       }
     } catch (err) {
-      onShowToast?.('Could not reload PHP-FPM', describeError(err), 'error');
+      onShowToast?.('Could not restart service', describeError(err), 'error');
     } finally {
       setIsReloadingFpm(false);
     }
   };
+
+  const handleSavePhpIni = handleSaveRuntimeConfig;
+  const handleRestartFpmPool = handleRestartService;
+
+  const phpVersion = app.runtime === 'php' ? app.version : '8.4';
+  const AppIcon = frameworkIcon(app.framework) ?? runtimeIcon[app.runtime] ?? Server;
 
   // Simulated live CPU & RAM metrics
   const [liveMetrics, setLiveMetrics] = useState({
@@ -1352,19 +1527,49 @@ QUEUE_CONNECTION=redis`;
           </button>
         )}
 
-        {app.runtime === 'php' && (
+        {app.runtime !== 'proxy' && (
           <button
             onClick={() => setActiveTab('php')}
             className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-              activeTab === 'php'
+              activeTab === 'php' || activeTab === 'runtime'
                 ? 'border-purple-600 text-purple-700 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             <Layers className="w-4 h-4" />
-            <span>PHP & Extensions</span>
+            <span>
+              {app.runtime === 'php'
+                ? 'PHP & Extensions'
+                : app.runtime === 'nodejs'
+                ? 'Node.js Studio'
+                : app.runtime === 'python'
+                ? 'Python Studio'
+                : app.runtime === 'ruby'
+                ? 'Ruby Studio'
+                : app.runtime === 'go'
+                ? 'Go Runtime'
+                : app.runtime === 'rust'
+                ? 'Rust Runtime'
+                : app.runtime === 'static'
+                ? 'Static & SPA'
+                : `${app.runtime.toUpperCase()} Studio`}
+            </span>
             <span className="px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
-              PHP {app.version}
+              {app.runtime === 'php'
+                ? `PHP ${app.version || '8.3'}`
+                : app.runtime === 'nodejs'
+                ? `Node ${app.version || '22'}`
+                : app.runtime === 'python'
+                ? `Python ${app.version || '3.12'}`
+                : app.runtime === 'ruby'
+                ? `Ruby ${app.version || '3.3'}`
+                : app.runtime === 'go'
+                ? `Go ${app.version || '1.22'}`
+                : app.runtime === 'rust'
+                ? `Rust ${app.version || 'stable'}`
+                : app.runtime === 'static'
+                ? 'Static'
+                : app.runtime}
             </span>
           </button>
         )}
@@ -2538,230 +2743,718 @@ QUEUE_CONNECTION=redis`}
           </div>
         )}
 
-        {/* TAB: PHP EXTENSIONS & CONFIGURATION STUDIO */}
-        {activeTab === 'php' && (
+        {/* TAB: POLYGLOT RUNTIME CONFIGURATION STUDIO */}
+        {(activeTab === 'php' || activeTab === 'runtime') && (
           <div className="space-y-6 animate-in fade-in duration-200">
-            {/* PHP-FPM Pool Info & Quick Actions */}
+            {/* Top Banner: Runtime & Supervision Status */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-purple-50/70 border border-purple-200">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
                     <Layers className="w-4 h-4 text-purple-600" />
-                    PHP FastCGI Process Manager (PHP-FPM {app.runtime === 'php' ? app.version : '8.4'})
+                    {app.runtime === 'php'
+                      ? `PHP FastCGI Process Manager (PHP-FPM ${app.version || '8.3'})`
+                      : app.runtime === 'nodejs'
+                      ? `Node.js Process & Memory Studio (Node ${app.version || '22'})`
+                      : app.runtime === 'python'
+                      ? `Python WSGI / ASGI Studio (Python ${app.version || '3.12'})`
+                      : app.runtime === 'ruby'
+                      ? `Ruby Application Server Studio (Ruby ${app.version || '3.3'})`
+                      : app.runtime === 'go'
+                      ? `Go Native Binary Studio (Go ${app.version || '1.22'})`
+                      : app.runtime === 'rust'
+                      ? `Rust Native Binary Studio (Rust ${app.version || 'stable'})`
+                      : app.runtime === 'static'
+                      ? 'Static Web & Single Page Application (SPA) Studio'
+                      : `${app.runtime.toUpperCase()} Runtime Studio`}
                   </span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    ACTIVE POOL
+                    ACTIVE SUPERVISION
                   </span>
                 </div>
                 <p className="text-xs text-purple-800 font-mono">
-                  Socket: <strong>/run/php/php{app.runtime === 'php' ? app.version : '8.4'}-fpm.sock</strong> • User: <strong>{app.tenantUser}</strong> • OPcache JIT: <strong>Enabled (128M)</strong>
+                  Tenant: <strong>{app.tenantUser}</strong> • Service:{' '}
+                  <strong>
+                    {app.runtime === 'php'
+                      ? `/run/php/php${app.version || '8.3'}-fpm-${app.tenantUser}.sock`
+                      : `barepod-app@${app.name}.service`}
+                  </strong>{' '}
+                  • cgroup v2:{' '}
+                  <strong>
+                    {runtimeConfigData?.limits?.memoryMb
+                      ? `${runtimeConfigData.limits.memoryMb}MB RAM limit`
+                      : 'Host Bound'}{' '}
+                    •{' '}
+                    {runtimeConfigData?.limits?.cpuQuotaPercent
+                      ? `${runtimeConfigData.limits.cpuQuotaPercent}% CPU Quota`
+                      : 'Uncapped CPU'}
+                  </strong>
                 </p>
               </div>
 
               <div className="flex items-center gap-2">
+                {app.runtime === 'php' && (
+                  <button
+                    type="button"
+                    onClick={handleRestorePhpBaseline}
+                    disabled={isReloadingFpm || isSavingRuntimeConfig}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg shadow-2xs transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Restore Baseline</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={handleRestartFpmPool}
-                  disabled={isReloadingFpm}
+                  onClick={handleRestartService}
+                  disabled={isReloadingFpm || isSavingRuntimeConfig}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-700 bg-white hover:bg-purple-100 border border-purple-300 rounded-lg shadow-2xs transition-colors disabled:opacity-50"
                 >
                   <RotateCw className={`w-3.5 h-3.5 ${isReloadingFpm ? 'animate-spin text-purple-600' : ''}`} />
-                  <span>{isReloadingFpm ? 'Reloading...' : 'Reload PHP-FPM Pool'}</span>
+                  <span>
+                    {isReloadingFpm
+                      ? 'Reloading...'
+                      : app.runtime === 'php'
+                      ? 'Reload FPM Pool'
+                      : 'Restart Service'}
+                  </span>
                 </button>
-              </div>
-            </div>
-
-            {/* Quick Stats: Loaded Extensions Summary */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400">Loaded Extensions</span>
-                <div className="text-xl font-bold text-purple-700">
-                  {extensionCounts.enabled} <span className="text-xs font-normal text-slate-500">/ {extensionCounts.total} on this host</span>
-                </div>
-                <span className="text-[10px] text-slate-500">Managed via phpenmod/phpdismod</span>
-              </div>
-
-              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400">Database Drivers</span>
-                <div className="text-xl font-bold text-slate-900">
-                  PDO MySQL, PgSQL, Mongo
-                </div>
-                <span className="text-[10px] text-emerald-600 font-medium">Ready for Eloquent & Doctrine</span>
-              </div>
-
-              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400">Cache & Acceleration</span>
-                <div className="text-xl font-bold text-slate-900">
-                  Redis 6.0 + OPcache
-                </div>
-                <span className="text-[10px] text-purple-600 font-medium">Laravel Octane / Swoole Ready</span>
-              </div>
-
-              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400">Memory Quota</span>
-                <div className="text-xl font-bold text-slate-900">
-                  {memoryLimit}
-                </div>
-                <span className="text-[10px] text-slate-500">max_execution_time: {maxExecutionTime}s</span>
-              </div>
-            </div>
-
-            {/* The extensions this host really has for the app's PHP version. */}
-            <PhpExtensionsPanel
-              version={app.version}
-              title={`PHP ${app.version} Extensions`}
-              onShowToast={onShowToast}
-              onCountChange={(enabled, total) => {
-                setExtensionCounts({ enabled, total });
-              }}
-            />
-
-            {/* Core php.ini Directives Form */}
-            <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div>
-                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                    <Sliders className="w-4 h-4 text-purple-600" />
-                    Core php.ini Runtime Directives
-                  </h4>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Modify PHP-FPM runtime parameters for tenant <code>{app.tenantUser}</code> without affecting other websites.
-                  </p>
-                </div>
                 <button
                   type="button"
-                  onClick={handleSavePhpIni}
-                  disabled={isReloadingFpm}
+                  onClick={handleSaveRuntimeConfig}
+                  disabled={isReloadingFpm || isSavingRuntimeConfig}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors disabled:opacity-50"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  <span>{isReloadingFpm ? 'Saving...' : 'Save & Apply php.ini'}</span>
+                  <span>{isSavingRuntimeConfig ? 'Saving...' : 'Save & Apply'}</span>
                 </button>
               </div>
+            </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    memory_limit
-                  </label>
-                  <select
-                    value={memoryLimit}
-                    onChange={(e) => setMemoryLimit(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
-                  >
-                    <option value="128M">128M (Default)</option>
-                    <option value="256M">256M (Medium)</option>
-                    <option value="512M">512M (Recommended)</option>
-                    <option value="1024M">1024M (High Load)</option>
-                    <option value="2048M">2048M (Enterprise)</option>
-                    <option value="-1">-1 (Unlimited)</option>
-                  </select>
+            {/* Quick Stats: Polyglot Metrics & Quota Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">
+                  {app.runtime === 'php' ? 'Loaded Extensions' : 'Runtime Engine'}
+                </span>
+                <div className="text-xl font-bold text-purple-700">
+                  {app.runtime === 'php' ? (
+                    <>
+                      {extensionCounts.enabled}{' '}
+                      <span className="text-xs font-normal text-slate-500">/ {extensionCounts.total}</span>
+                    </>
+                  ) : app.runtime === 'nodejs' ? (
+                    `${nodePkgManager} run ${nodeScript}`
+                  ) : app.runtime === 'python' ? (
+                    pythonWsgi.toUpperCase()
+                  ) : app.runtime === 'ruby' ? (
+                    rubyAppServer.toUpperCase()
+                  ) : app.runtime === 'go' || app.runtime === 'rust' ? (
+                    'Native ELF'
+                  ) : (
+                    'Static Edge'
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-500">
+                  {app.runtime === 'php'
+                    ? 'phpenmod/phpdismod toggles'
+                    : `Version ${app.version || 'Default'}`}
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">
+                  {app.runtime === 'php' ? 'Database Drivers' : 'Concurrency / Workers'}
+                </span>
+                <div className="text-xl font-bold text-slate-900">
+                  {app.runtime === 'php' ? (
+                    'PDO MySQL, PgSQL, Mongo'
+                  ) : app.runtime === 'nodejs' ? (
+                    'Single Thread Event Loop'
+                  ) : app.runtime === 'python' ? (
+                    `${pythonWorkers} workers × ${pythonThreads} th`
+                  ) : app.runtime === 'ruby' ? (
+                    `${rubyWorkers} workers × ${rubyThreads} th`
+                  ) : app.runtime === 'go' || app.runtime === 'rust' ? (
+                    'Goroutines / Async'
+                  ) : (
+                    'Zero-Copy Direct Sendfile'
+                  )}
+                </div>
+                <span className="text-[10px] text-emerald-600 font-medium">
+                  {app.runtime === 'php'
+                    ? 'Eloquent & Doctrine ready'
+                    : app.runtime === 'python'
+                    ? `Keep-alive ${pythonTimeout}s`
+                    : 'Systemd Isolated'}
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Memory Allocation</span>
+                <div className="text-xl font-bold text-slate-900">
+                  {app.runtime === 'php'
+                    ? memoryLimit
+                    : app.runtime === 'nodejs'
+                    ? nodeMemLimitMb > 0
+                      ? `${nodeMemLimitMb}MB`
+                      : 'V8 Default (~1.4GB)'
+                    : runtimeConfigData?.limits?.memoryMb
+                    ? `${runtimeConfigData.limits.memoryMb}MB`
+                    : 'Host Allocated'}
+                </div>
+                <span className="text-[10px] text-slate-500">
+                  {app.runtime === 'php'
+                    ? `max_exec: ${maxExecutionTime}s`
+                    : app.runtime === 'nodejs'
+                    ? '--max-old-space-size'
+                    : 'Tenant Memory Bound'}
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Tenant cgroup v2</span>
+                <div className="text-xl font-bold text-slate-900">
+                  {runtimeConfigData?.limits?.cpuQuotaPercent
+                    ? `${runtimeConfigData.limits.cpuQuotaPercent}% CPU`
+                    : '100% Shared'}
+                </div>
+                <span className="text-[10px] text-purple-600 font-medium">
+                  TasksMax: {runtimeConfigData?.limits?.tasksMax || 256}
+                </span>
+              </div>
+            </div>
+
+            {/* PHP SPECIFIC EXTENSION TOGGLE PANEL */}
+            {app.runtime === 'php' && (
+              <PhpExtensionsPanel
+                version={app.version}
+                title={`PHP ${app.version} Extensions`}
+                onShowToast={onShowToast}
+                onCountChange={(enabled, total) => {
+                  setExtensionCounts({ enabled, total });
+                }}
+              />
+            )}
+
+            {/* STACK-SPECIFIC CONTROL FORMS */}
+            {app.runtime === 'php' && (
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-purple-600" />
+                      Core php.ini & FPM Directives
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Configure PHP-FPM runtime parameters for tenant <code>{app.tenantUser}</code> without affecting other websites.
+                    </p>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    upload_max_filesize
-                  </label>
-                  <select
-                    value={uploadMaxFilesize}
-                    onChange={(e) => setUploadMaxFilesize(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
-                  >
-                    <option value="20M">20M</option>
-                    <option value="50M">50M</option>
-                    <option value="100M">100M (Default)</option>
-                    <option value="250M">250M</option>
-                    <option value="500M">500M</option>
-                  </select>
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      memory_limit
+                    </label>
+                    <select
+                      value={memoryLimit}
+                      onChange={(e) => setMemoryLimit(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="128M">128M (Default)</option>
+                      <option value="256M">256M (Medium)</option>
+                      <option value="512M">512M (Recommended)</option>
+                      <option value="1024M">1024M (High Load)</option>
+                      <option value="2048M">2048M (Enterprise)</option>
+                      <option value="-1">-1 (Unlimited)</option>
+                    </select>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    post_max_size
-                  </label>
-                  <select
-                    value={postMaxSize}
-                    onChange={(e) => setPostMaxSize(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
-                  >
-                    <option value="25M">25M</option>
-                    <option value="55M">55M</option>
-                    <option value="100M">100M (Default)</option>
-                    <option value="255M">255M</option>
-                    <option value="512M">512M</option>
-                  </select>
-                </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      upload_max_filesize
+                    </label>
+                    <select
+                      value={uploadMaxFilesize}
+                      onChange={(e) => setUploadMaxFilesize(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="20M">20M</option>
+                      <option value="50M">50M</option>
+                      <option value="64M">64M</option>
+                      <option value="100M">100M (Default)</option>
+                      <option value="250M">250M</option>
+                      <option value="500M">500M</option>
+                    </select>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    max_execution_time
-                  </label>
-                  <select
-                    value={maxExecutionTime}
-                    onChange={(e) => setMaxExecutionTime(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
-                  >
-                    <option value="30">30 seconds</option>
-                    <option value="60">60 seconds</option>
-                    <option value="120">120 seconds</option>
-                    <option value="300">300 seconds (5 minutes)</option>
-                    <option value="600">600 seconds (10 minutes)</option>
-                  </select>
-                </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      post_max_size
+                    </label>
+                    <select
+                      value={postMaxSize}
+                      onChange={(e) => setPostMaxSize(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="25M">25M</option>
+                      <option value="55M">55M</option>
+                      <option value="64M">64M</option>
+                      <option value="100M">100M (Default)</option>
+                      <option value="255M">255M</option>
+                      <option value="512M">512M</option>
+                    </select>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    max_input_vars
-                  </label>
-                  <select
-                    value={maxInputVars}
-                    onChange={(e) => setMaxInputVars(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
-                  >
-                    <option value="1000">1000 (Default)</option>
-                    <option value="2500">2500</option>
-                    <option value="5000">5000 (WooCommerce / Large Forms)</option>
-                    <option value="10000">10000</option>
-                  </select>
-                </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      max_execution_time
+                    </label>
+                    <select
+                      value={maxExecutionTime}
+                      onChange={(e) => setMaxExecutionTime(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="30">30 seconds</option>
+                      <option value="60">60 seconds</option>
+                      <option value="120">120 seconds</option>
+                      <option value="300">300 seconds (5 min)</option>
+                      <option value="600">600 seconds (10 min)</option>
+                    </select>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    display_errors
-                  </label>
-                  <select
-                    value={displayErrors ? '1' : '0'}
-                    onChange={(e) => setDisplayErrors(e.target.value === '1')}
-                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
-                  >
-                    <option value="0">Off (Recommended for Production)</option>
-                    <option value="1">On (Development Debugging)</option>
-                  </select>
-                </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      max_input_vars
+                    </label>
+                    <select
+                      value={maxInputVars}
+                      onChange={(e) => setMaxInputVars(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="1000">1000 (Default)</option>
+                      <option value="2500">2500</option>
+                      <option value="3000">3000 (Recommended)</option>
+                      <option value="5000">5000 (WooCommerce / Large)</option>
+                      <option value="10000">10000</option>
+                    </select>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    opcache.enable
-                  </label>
-                  <select
-                    value={opcacheEnabled ? '1' : '0'}
-                    onChange={(e) => setOpcacheEnabled(e.target.value === '1')}
-                    className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
-                  >
-                    <option value="1">1 (Enabled - Maximum Speed)</option>
-                    <option value="0">0 (Disabled)</option>
-                  </select>
-                </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      pm.max_children (FPM Pool)
+                    </label>
+                    <select
+                      value={phpMaxChildren}
+                      onChange={(e) => setPhpMaxChildren(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="2">2 processes (Low RAM)</option>
+                      <option value="5">5 processes (Standard)</option>
+                      <option value="10">10 processes (Busy Site)</option>
+                      <option value="20">20 processes (Heavy Load)</option>
+                      <option value="50">50 processes (High Capacity)</option>
+                    </select>
+                  </div>
 
-                <div className="flex flex-col justify-end">
-                  <div className="text-[11px] text-slate-500 font-mono bg-slate-50 p-2 rounded-lg border border-slate-200">
-                    CLI Equivalent:
-                    <div className="text-purple-700 font-bold mt-0.5">php -i | grep memory_limit</div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      pm.process_idle_timeout
+                    </label>
+                    <select
+                      value={phpIdleTimeout}
+                      onChange={(e) => setPhpIdleTimeout(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="5s">5 seconds (Quick Pruning)</option>
+                      <option value="10s">10 seconds (Default)</option>
+                      <option value="30s">30 seconds (Medium)</option>
+                      <option value="60s">60 seconds (Persistent)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      display_errors
+                    </label>
+                    <select
+                      value={displayErrors ? '1' : '0'}
+                      onChange={(e) => setDisplayErrors(e.target.value === '1')}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="0">Off (Recommended for Production)</option>
+                      <option value="1">On (Development Debugging)</option>
+                    </select>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
+
+            {/* NODE.JS PROCESS & MEMORY STUDIO */}
+            {app.runtime === 'nodejs' && (
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-purple-600" />
+                      Node.js Process Supervision & Memory Allocation
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Configure package manager, entrypoint run script, and V8 heap limits for <code>{app.name}</code>.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Package Manager
+                    </label>
+                    <select
+                      value={nodePkgManager}
+                      onChange={(e) => setNodePkgManager(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="npm">npm</option>
+                      <option value="pnpm">pnpm (Recommended)</option>
+                      <option value="yarn">yarn</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Start / Run Script
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={nodeScript}
+                        onChange={(e) => setNodeScript(e.target.value)}
+                        placeholder="start"
+                        list="detected-scripts-list"
+                        className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                      />
+                      <datalist id="detected-scripts-list">
+                        {nodeDetectedScripts.map((s) => (
+                          <option key={s} value={s} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      Translates to: <code>{nodePkgManager} {nodeScript === 'start' ? 'start' : `run ${nodeScript}`} -- --port {app.port}</code>
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      V8 Memory Limit (--max-old-space-size)
+                    </label>
+                    <select
+                      value={nodeMemLimitMb}
+                      onChange={(e) => setNodeMemLimitMb(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="0">0 (V8 Default ~1.4GB)</option>
+                      <option value="512">512 MB (Lightweight)</option>
+                      <option value="1024">1024 MB (1 GB Standard)</option>
+                      <option value="2048">2048 MB (2 GB Medium)</option>
+                      <option value="4096">4096 MB (4 GB Enterprise)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 font-mono text-[11px] text-slate-600 space-y-1">
+                  <div className="font-bold text-slate-700">Supervisor Unit Drop-in Preview:</div>
+                  <div className="text-purple-700">
+                    ExecStart={nodePkgManager} {nodeScript === 'start' ? 'start' : `run ${nodeScript}`} -- --port {app.port}
+                  </div>
+                  {nodeMemLimitMb > 0 && (
+                    <div className="text-emerald-700">
+                      Environment=&quot;NODE_OPTIONS=--max-old-space-size={nodeMemLimitMb}&quot;
+                    </div>
+                  )}
+                  <div className="text-slate-400">EnvironmentFile=/home/{app.tenantUser}/apps/{app.name}/.env</div>
+                </div>
+              </div>
+            )}
+
+            {/* PYTHON WSGI / ASGI STUDIO */}
+            {app.runtime === 'python' && (
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-purple-600" />
+                      Python WSGI / ASGI Process Runner & Workers
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Configure Gunicorn / Uvicorn server runners, concurrency, and virtual environment.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Runner Engine
+                    </label>
+                    <select
+                      value={pythonWsgi}
+                      onChange={(e) => setPythonWsgi(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="gunicorn">Gunicorn (WSGI / Django / Flask)</option>
+                      <option value="uvicorn">Uvicorn (ASGI / FastAPI / Starlette)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Worker Processes
+                    </label>
+                    <select
+                      value={pythonWorkers}
+                      onChange={(e) => setPythonWorkers(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="1">1 worker</option>
+                      <option value="2">2 workers (Default)</option>
+                      <option value="4">4 workers (Recommended)</option>
+                      <option value="8">8 workers (High Traffic)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Threads per Worker
+                    </label>
+                    <select
+                      value={pythonThreads}
+                      onChange={(e) => setPythonThreads(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="1">1 thread</option>
+                      <option value="2">2 threads</option>
+                      <option value="4">4 threads</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Worker Timeout
+                    </label>
+                    <select
+                      value={pythonTimeout}
+                      onChange={(e) => setPythonTimeout(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="30">30 seconds</option>
+                      <option value="60">60 seconds (Standard)</option>
+                      <option value="120">120 seconds</option>
+                      <option value="300">300 seconds (5 min)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2.5 h-2.5 rounded-full ${pythonVenvExists ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                    <span className="text-xs font-bold text-slate-800">
+                      Virtualenv (.venv): {pythonVenvExists ? 'Detected' : 'Not Found in Site Root'}
+                    </span>
+                    <span className="text-[11px] font-mono text-slate-500">
+                      ({pythonVenvPath || `/home/${app.tenantUser}/apps/${app.name}/.venv`})
+                    </span>
+                  </div>
+                  {!pythonVenvExists && (
+                    <span className="text-[11px] text-amber-700 font-medium">
+                      Tip: initialize via Terminal: <code>python3 -m venv .venv</code>
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* RUBY APPLICATION SERVER STUDIO */}
+            {app.runtime === 'ruby' && (
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-purple-600" />
+                      Ruby Puma Application Server Configuration
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Configure Puma clustered workers, thread pools, and port binding for <code>{app.name}</code>.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Application Server
+                    </label>
+                    <select
+                      value={rubyAppServer}
+                      onChange={(e) => setRubyAppServer(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="puma">Puma (Clustered - Recommended)</option>
+                      <option value="unicorn">Unicorn</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Puma Workers
+                    </label>
+                    <select
+                      value={rubyWorkers}
+                      onChange={(e) => setRubyWorkers(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="1">1 worker</option>
+                      <option value="2">2 workers (Default)</option>
+                      <option value="4">4 workers (Production)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Threads per Worker
+                    </label>
+                    <select
+                      value={rubyThreads}
+                      onChange={(e) => setRubyThreads(parseInt(e.target.value, 10))}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="1">1 thread</option>
+                      <option value="5">5 threads (Puma Default)</option>
+                      <option value="16">16 threads (High Concurrency)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* GO / RUST COMPILED BINARY STUDIO */}
+            {(app.runtime === 'go' || app.runtime === 'rust') && (
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-purple-600" />
+                      Compiled Native Binary Supervision & Startup Flags
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Configure the executable path and arguments passed to the {app.runtime === 'go' ? 'Go' : 'Rust'} service.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Executable Binary Path
+                    </label>
+                    <input
+                      type="text"
+                      value={binaryPath}
+                      onChange={(e) => setBinaryPath(e.target.value)}
+                      placeholder={app.runtime === 'rust' ? './target/release/app' : './bin/app'}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      Relative to <code>/home/{app.tenantUser}/apps/{app.name}/</code>
+                    </span>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Command Line Arguments & Flags
+                    </label>
+                    <input
+                      type="text"
+                      value={binaryArgs}
+                      onChange={(e) => setBinaryArgs(e.target.value)}
+                      placeholder="-env=production -port=8080"
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    />
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      Space-separated CLI flags passed to <code>ExecStart</code>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 font-mono text-[11px] text-slate-600">
+                  <div className="font-bold text-slate-700">Supervisor ExecStart:</div>
+                  <div className="text-purple-700 mt-0.5">
+                    {binaryPath} {binaryArgs}
+                  </div>
+                  <div className="text-slate-400 mt-1">Bound to internal port: 127.0.0.1:{app.port}</div>
+                </div>
+              </div>
+            )}
+
+            {/* STATIC & SPA STUDIO */}
+            {app.runtime === 'static' && (
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Sliders className="w-4 h-4 text-purple-600" />
+                      Static Web & Single Page Application (SPA) Routing
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Configure client-side router fallbacks for React, Vue, Svelte, and static document roots.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                    <div>
+                      <div className="text-xs font-bold text-slate-800">SPA Router Fallback (try_files /index.html)</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        Rewrites unmatched HTTP 404 paths to <code>/index.html</code> for client-side routing.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSpaFallback(!spaFallback)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        spaFallback ? 'bg-purple-600' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          spaFallback ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Document Root Directory
+                    </label>
+                    <select
+                      value={docRoot}
+                      onChange={(e) => setDocRoot(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:bg-white"
+                    >
+                      <option value="public">public (Standard)</option>
+                      <option value="dist">dist (Vite / React)</option>
+                      <option value="build">build (CRA / Next Export)</option>
+                      <option value=".">. (Site Root)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

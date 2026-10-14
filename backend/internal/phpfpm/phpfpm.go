@@ -14,6 +14,17 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 )
 
+// Directives holds per-site php_admin_value and process manager customizations.
+type Directives struct {
+	MemoryLimit        string `json:"memoryLimit,omitempty"`
+	UploadMaxSize      string `json:"uploadMaxSize,omitempty"`
+	PostMaxSize        string `json:"postMaxSize,omitempty"`
+	MaxExecutionTime   int    `json:"maxExecutionTime,omitempty"`
+	MaxInputVars       int    `json:"maxInputVars,omitempty"`
+	MaxInputTime       int    `json:"maxInputTime,omitempty"`
+	ProcessIdleTimeout string `json:"processIdleTimeout,omitempty"`
+}
+
 // Spec describes one site's pool.
 type Spec struct {
 	Tenant      string
@@ -21,6 +32,7 @@ type Spec struct {
 	Socket      string // unix socket path; nginx connects to it
 	MaxChildren int    // pm.max_children, from the package's memory allowance
 	MemoryMB    int    // PHP's own memory_limit, from the package
+	Directives  Directives
 }
 
 // SocketIn is where a site's pool socket lives: inside the site directory, so it is
@@ -54,6 +66,23 @@ func Config(s Spec) string {
 	if children <= 0 {
 		children = MaxChildren(s.MemoryMB)
 	}
+	idleTimeout := strings.TrimSpace(s.Directives.ProcessIdleTimeout)
+	if idleTimeout == "" {
+		idleTimeout = "10s"
+	}
+	memLimit := strings.TrimSpace(s.Directives.MemoryLimit)
+	if memLimit == "" {
+		memLimit = fmt.Sprintf("%dM", mem)
+	}
+	uploadMax := strings.TrimSpace(s.Directives.UploadMaxSize)
+	if uploadMax == "" {
+		uploadMax = "64M"
+	}
+	postMax := strings.TrimSpace(s.Directives.PostMaxSize)
+	if postMax == "" {
+		postMax = "64M"
+	}
+
 	var b strings.Builder
 	b.WriteString("; Managed by BarePod Panel — do not edit by hand.\n")
 	b.WriteString("[global]\n")
@@ -68,7 +97,7 @@ func Config(s Spec) string {
 	b.WriteString("listen.mode = 0660\n")
 	b.WriteString("pm = ondemand\n")
 	fmt.Fprintf(&b, "pm.max_children = %d\n", children)
-	b.WriteString("pm.process_idle_timeout = 10s\n")
+	fmt.Fprintf(&b, "pm.process_idle_timeout = %s\n", idleTimeout)
 	b.WriteString("pm.max_requests = 500\n")
 	b.WriteString("catch_workers_output = yes\n")
 	fmt.Fprintf(&b, "chdir = %s\n", s.SiteDir)
@@ -77,9 +106,18 @@ func Config(s Spec) string {
 	fmt.Fprintf(&b, "php_admin_value[open_basedir] = %s:/tmp\n", s.SiteDir)
 	b.WriteString("php_admin_flag[log_errors] = on\n")
 	fmt.Fprintf(&b, "php_admin_value[error_log] = %s\n", filepath.Join(s.SiteDir, "php-error.log"))
-	fmt.Fprintf(&b, "php_admin_value[memory_limit] = %dM\n", mem)
-	b.WriteString("php_admin_value[upload_max_filesize] = 64M\n")
-	b.WriteString("php_admin_value[post_max_size] = 64M\n")
+	fmt.Fprintf(&b, "php_admin_value[memory_limit] = %s\n", memLimit)
+	fmt.Fprintf(&b, "php_admin_value[upload_max_filesize] = %s\n", uploadMax)
+	fmt.Fprintf(&b, "php_admin_value[post_max_size] = %s\n", postMax)
+	if s.Directives.MaxExecutionTime > 0 {
+		fmt.Fprintf(&b, "php_admin_value[max_execution_time] = %d\n", s.Directives.MaxExecutionTime)
+	}
+	if s.Directives.MaxInputVars > 0 {
+		fmt.Fprintf(&b, "php_admin_value[max_input_vars] = %d\n", s.Directives.MaxInputVars)
+	}
+	if s.Directives.MaxInputTime > 0 {
+		fmt.Fprintf(&b, "php_admin_value[max_input_time] = %d\n", s.Directives.MaxInputTime)
+	}
 	return b.String()
 }
 
