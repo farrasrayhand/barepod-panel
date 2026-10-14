@@ -94,17 +94,74 @@ func (h *Host) Materialises() bool { return h.Mode() == "real" }
 
 // SitePath is the working directory of a website:
 // <sitesRoot>/<tenant>/web/<slug>. If legacy <sitesRoot>/<tenant>/apps/<slug>
-// exists and web/<slug> does not, it gracefully falls back to the legacy location.
+// exists as a physical directory and web/<slug> does not, it migrates it to web.
 func (h *Host) SitePath(tenant, slug string) string {
-	web := filepath.Join(h.SitesRoot, tenant, "web", slug)
-	legacy := filepath.Join(h.SitesRoot, tenant, "apps", slug)
-	if _, err := os.Stat(web); err == nil {
-		return web
-	}
-	if _, err := os.Stat(legacy); err == nil {
-		return legacy
+	home := filepath.Join(h.SitesRoot, tenant)
+	web := filepath.Join(home, "web", slug)
+	legacy := filepath.Join(home, "apps", slug)
+
+	// If legacy apps/<slug> exists as a real directory and web/<slug> does not, auto-migrate to web!
+	if fi, err := os.Lstat(legacy); err == nil && fi.Mode()&os.ModeSymlink == 0 {
+		if _, errTarget := os.Stat(web); os.IsNotExist(errTarget) {
+			_ = os.MkdirAll(filepath.Dir(web), 0o750)
+			_ = os.Rename(legacy, web)
+		}
 	}
 	return web
+}
+
+// MigrateLegacyTenants scans the sites root for legacy tenant layouts (apps/ directory)
+// and cleanly migrates all sites to web/, creating a backward-compatible symlink apps -> web.
+func (h *Host) MigrateLegacyTenants(ctx context.Context) error {
+	entries, err := os.ReadDir(h.SitesRoot)
+	if err != nil {
+		return nil
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		tenant := entry.Name()
+		home := filepath.Join(h.SitesRoot, tenant)
+		legacyApps := filepath.Join(home, "apps")
+
+		fi, err := os.Lstat(legacyApps)
+		if err != nil {
+			continue
+		}
+		// If legacyApps is already a symlink, nothing to migrate
+		if fi.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		if !fi.IsDir() {
+			continue
+		}
+
+		// legacyApps is a real directory: migrate all sites inside it to web/
+		webDir := filepath.Join(home, "web")
+		if err := os.MkdirAll(webDir, 0o750); err != nil {
+			continue
+		}
+
+		appEntries, err := os.ReadDir(legacyApps)
+		if err == nil {
+			for _, appEntry := range appEntries {
+				src := filepath.Join(legacyApps, appEntry.Name())
+				dst := filepath.Join(webDir, appEntry.Name())
+				if _, errDst := os.Stat(dst); os.IsNotExist(errDst) {
+					_ = os.Rename(src, dst)
+				}
+			}
+		}
+
+		// Remove legacyApps if empty, and replace with symlink apps -> web
+		_ = os.Remove(legacyApps)
+		if _, err := os.Lstat(legacyApps); os.IsNotExist(err) {
+			_ = os.Symlink("web", legacyApps)
+		}
+	}
+	return nil
 }
 
 // EnsureSiteDir creates the tenant/site layout and returns the site path.
@@ -122,6 +179,11 @@ func (h *Host) EnsureSiteDir(ctx context.Context, tenant, slug string) (string, 
 		if _, errTarget := os.Stat(target); os.IsNotExist(errTarget) {
 			_ = os.Rename(legacy, target)
 		}
+	}
+
+	legacyApps := filepath.Join(home, "apps")
+	if _, err := os.Lstat(legacyApps); os.IsNotExist(err) {
+		_ = os.Symlink("web", legacyApps)
 	}
 
 	path := h.SitePath(tenant, slug)
