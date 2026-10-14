@@ -27,8 +27,9 @@ interface SidebarProps {
   currentTab: NavItem;
   onSelectTab: (tab: NavItem) => void;
   collapsed: boolean;
-  /** The host file browser is an administrator's tool. */
+  /** The host file browser and settings are administrator tools. */
   isAdmin?: boolean;
+  can?: (capability: string) => boolean;
 }
 
 interface NavGroupItem {
@@ -37,12 +38,14 @@ interface NavGroupItem {
   icon: LucideIcon;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed, isAdmin = false }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed, isAdmin = false, can }) => {
   const [copiedIp, setCopiedIp] = useState(false);
   // The address this panel is being used on — the only one the panel can honestly name. Behind NAT
   // the public address is not discoverable from inside, and the sidebar used to hardcode one.
   const panelAddress = typeof window !== 'undefined' ? window.location.hostname : '';
   const panelAddressKind = describeAddress(panelAddress);
+
+  const canDo = (perm: string) => isAdmin || (can ? can(perm) : false);
 
   const handleCopyIp = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -54,33 +57,35 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
   const serviceItems: NavGroupItem[] = [
     { id: 'web', label: 'Websites', icon: Layers },
     { id: 'pods', label: 'Pods (Containers)', icon: Box },
-    { id: 'databases', label: 'Database', icon: Database },
+    ...(canDo('databases') ? [{ id: 'databases' as NavItem, label: 'Database', icon: Database }] : []),
   ];
 
   const infraItems: NavGroupItem[] = [
-    { id: 'monitoring', label: 'Server Monitoring', icon: Activity },
-    { id: 'backup', label: 'Backup & Migration', icon: Archive },
-    { id: 'domains', label: 'Domains & SSL', icon: Globe },
-    { id: 'tunnels', label: 'Cloudflare Tunnels', icon: CloudRain },
+    ...(canDo('monitoring') ? [{ id: 'monitoring' as NavItem, label: 'Server Monitoring', icon: Activity }] : []),
+    ...(canDo('backups') ? [{ id: 'backup' as NavItem, label: 'Backup & Migration', icon: Archive }] : []),
+    ...(canDo('domains') ? [{ id: 'domains' as NavItem, label: 'Domains & SSL', icon: Globe }] : []),
+    ...(canDo('cloudflareTunnels') ? [{ id: 'tunnels' as NavItem, label: 'Cloudflare Tunnels', icon: CloudRain }] : []),
   ];
 
   const devItems: NavGroupItem[] = [
-    { id: 'terminal', label: 'Isolated Web Terminal', icon: Terminal },
+    ...(canDo('terminal') ? [{ id: 'terminal' as NavItem, label: 'Isolated Web Terminal', icon: Terminal }] : []),
     ...(isAdmin ? [{ id: 'files' as NavItem, label: 'Host Files', icon: FolderTree }] : []),
     ...(isAdmin ? [{ id: 'stack' as NavItem, label: 'Stack', icon: Server }] : []),
-    { id: 'api', label: 'API & MCP', icon: Webhook },
-    { id: 'users', label: 'Users & Packages', icon: Users },
-    { id: 'settings', label: 'Panel Settings', icon: Settings },
+    ...(canDo('apiTokens') ? [{ id: 'api' as NavItem, label: 'API & MCP', icon: Webhook }] : []),
+    ...(canDo('users') ? [{ id: 'users' as NavItem, label: 'Users & Packages', icon: Users }] : []),
+    ...(isAdmin ? [{ id: 'settings' as NavItem, label: 'Panel Settings', icon: Settings }] : []),
   ];
 
-  const renderNavGroup = (title: string, items: NavGroupItem[]) => (
-    <div className="mb-6">
-      {!collapsed && title && (
-        <div className="px-4 mb-2 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-          {title}
-        </div>
-      )}
-      <div className="space-y-1 px-2">
+  const renderNavGroup = (title: string, items: NavGroupItem[]) => {
+    if (items.length === 0) return null;
+    return (
+      <div className="mb-6">
+        {!collapsed && title && (
+          <div className="px-4 mb-2 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+            {title}
+          </div>
+        )}
+        <div className="space-y-1 px-2">
         {items.map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
@@ -107,6 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
       </div>
     </div>
   );
+};
 
   return (
     <aside

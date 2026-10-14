@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Server } from 'lucide-react';
 import type { NavItem, WebApp } from './types';
 import { Sidebar } from './components/Sidebar';
@@ -337,17 +337,29 @@ export function App() {
   // Interactive Toast State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  const showToast = (title: string, message?: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showToast = useCallback((title: string, message?: string, type: 'success' | 'error' | 'info' = 'success') => {
     const id = `toast-${Date.now()}-${Math.random()}`;
     setToasts((prev) => [...prev, { id, title, message, type }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4000);
-  };
+  }, []);
 
   const dismissToast = (id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
+
+  // Protect admin-only routes from regular users navigating directly via URL
+  useEffect(() => {
+    if (session.mode !== 'live' || !session.user) return;
+    if (route.tab === 'users' && !isAdmin && !session.can('users')) {
+      showToast('Access restricted', 'Your account does not have permission to manage users.', 'info');
+      setCurrentTab('web');
+    } else if (route.tab === 'settings' && !isAdmin) {
+      showToast('Access restricted', 'Panel settings are restricted to administrators.', 'info');
+      setCurrentTab('web');
+    }
+  }, [route.tab, session.mode, session.user, isAdmin, session.can]);
 
   // A path that is not a panel route is corrected to a real one, so the address
   // bar always matches what is on screen instead of silently rendering Websites
@@ -585,6 +597,7 @@ export function App() {
         onSelectTab={navigate}
         collapsed={sidebarCollapsed}
         isAdmin={isAdmin}
+        can={session.can}
       />
 
       {/* Main Content Area */}
@@ -595,6 +608,8 @@ export function App() {
           onOpenTerminal={() => navigate('terminal')}
           activeTab={currentTab}
           onNavigatePath={navigatePath}
+          currentUser={session.user}
+          isAdmin={isAdmin}
           onLogout={() => {
             if (session.mode === 'live') {
               void session.signOut();
@@ -674,7 +689,7 @@ export function App() {
           )}
 
           {currentTab === 'tunnels' && (
-            <CloudflareTunnelView onShowToast={showToast} />
+            <CloudflareTunnelView onShowToast={showToast} currentUser={currentUser.username} />
           )}
 
           {currentTab === 'terminal' && (
@@ -720,7 +735,12 @@ export function App() {
           )}
 
           {currentTab === 'profile' && (
-            <ProfileView onShowToast={showToast} onNavigatePath={navigatePath} />
+            <ProfileView
+              onShowToast={showToast}
+              onNavigatePath={navigatePath}
+              currentUser={session.user}
+              permissions={session.permissions}
+            />
           )}
 
           {currentTab === 'backup' && (
@@ -747,6 +767,8 @@ export function App() {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onAddApp={handleAddApp}
+        currentUsername={currentUser.username}
+        isAdmin={isAdmin}
       />
 
       {/* The deploy's own log, straight from the daemon (see POST /websites: 202). */}

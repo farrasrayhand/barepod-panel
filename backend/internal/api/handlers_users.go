@@ -216,9 +216,9 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request, actor 
 		password = id.Token(12)
 		generated = true
 	}
-	if len(password) < 12 {
+	if len(password) < 8 {
 		writeJSON(w, http.StatusBadRequest, validationResponse(
-			map[string]string{"password": "a password must be at least 12 characters"}, "Invalid password"))
+			map[string]string{"password": "a password must be at least 8 characters"}, "Invalid password"))
 		return
 	}
 
@@ -508,9 +508,9 @@ func (s *Server) handleResetUserPassword(w http.ResponseWriter, r *http.Request,
 		password = id.Token(12)
 		generated = true
 	}
-	if len(password) < 12 {
+	if len(password) < 8 {
 		writeJSON(w, http.StatusBadRequest, validationResponse(
-			map[string]string{"password": "a password must be at least 12 characters"}, "Invalid password"))
+			map[string]string{"password": "a password must be at least 8 characters"}, "Invalid password"))
 		return
 	}
 	hash, err := auth.HashPassword(password)

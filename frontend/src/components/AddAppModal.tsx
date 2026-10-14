@@ -42,6 +42,8 @@ interface AddAppModalProps {
    * bytes reach the website, and the caller is what talks to the daemon.
    */
   onAddApp: (newApp: Partial<WebApp>, archive?: File) => void;
+  currentUsername?: string;
+  isAdmin?: boolean;
 }
 
 type WizardStep = 'basics' | 'engine' | 'source' | 'database' | 'upstream' | 'review';
@@ -178,14 +180,16 @@ const defaultPortFor = (runtime: RuntimeType): number =>
 const isValidDomain = (value: string): boolean =>
   /^([a-z0-9](?:-*[a-z0-9])*)(?:\.([a-z0-9](?:-*[a-z0-9])*))+$/i.test(value);
 
-export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAddApp }) => {
+export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAddApp, currentUsername, isAdmin = false }) => {
+  const defaultTenant = currentUsername || 'farras';
   const [appMode, setAppMode] = useState<'standard' | 'proxy' | 'static'>('standard');
   const [stepIndex, setStepIndex] = useState(0);
 
   // Basics
   const [name, setName] = useState('');
   const [domain, setDomain] = useState('');
-  const [tenantUser, setTenantUser] = useState('farras');
+  const [tenantUser, setTenantUser] = useState(defaultTenant);
+  const [availableTenants, setAvailableTenants] = useState<string[]>([]);
   const [tunnelEnabled, setTunnelEnabled] = useState(true);
 
   // Engine & runtime
@@ -324,17 +328,31 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
 
   useEffect(() => {
     if (!isOpen) return;
+    setTenantUser(currentUsername || 'farras');
     void (async () => {
       try {
         if (await apiReachable()) {
           const s = await api.stack();
           setStackStatus(s);
+          if (isAdmin) {
+            try {
+              const u = await api.users();
+              if (u.items && u.items.length > 0) {
+                setAvailableTenants(u.items.map((it) => it.username));
+              }
+            } catch {
+              setAvailableTenants([currentUsername || 'farras']);
+            }
+          } else {
+            setAvailableTenants([currentUsername || 'farras']);
+          }
         }
       } catch {
         // simulation or offline mode fallback
+        setAvailableTenants([currentUsername || 'farras']);
       }
     })();
-  }, [isOpen]);
+  }, [isOpen, currentUsername, isAdmin]);
 
   const runtimeConfigs: Record<RuntimeType, { versions: string[]; frameworks: string[] }> = useMemo(() => {
     const getVersions = (name: string, fallback: string[]) => {
@@ -844,11 +862,24 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Isolated Tenant User</label>
-                  <select value={tenantUser} onChange={(e) => setTenantUser(e.target.value)} className={inputClass}>
-                    <option value="farras">farras (Root Tenant)</option>
-                    <option value="tenant_alex">tenant_alex (Isolated Jail)</option>
-                    <option value="tenant_clientB">tenant_clientB (Isolated Jail)</option>
-                  </select>
+                  {isAdmin ? (
+                    <select value={tenantUser} onChange={(e) => setTenantUser(e.target.value)} className={inputClass}>
+                      {availableTenants.length > 0 ? (
+                        availableTenants.map((u) => (
+                          <option key={u} value={u}>
+                            {u} {u === currentUsername ? '(You)' : ''}
+                          </option>
+                        ))
+                      ) : (
+                        <option value={defaultTenant}>{defaultTenant} (You)</option>
+                      )}
+                    </select>
+                  ) : (
+                    <div className="px-3 py-2 text-xs font-mono bg-slate-100 text-slate-700 rounded-lg border border-slate-200 flex items-center justify-between">
+                      <span>{tenantUser}</span>
+                      <span className="text-[10px] font-sans font-medium text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">Your Account</span>
+                    </div>
+                  )}
                 </div>
                 <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
                   <input type="checkbox" checked={tunnelEnabled} onChange={(e) => setTunnelEnabled(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-blue-600" />

@@ -19,9 +19,13 @@ import { PERMISSION_MATRIX } from '../data/permissions';
 import { api, apiReachable } from '../api/client';
 import { describeDevice, describeError, timeAgo } from '../utils/format';
 
+import type { PanelUser } from '../api/client';
+
 interface ProfileViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   onNavigatePath?: (path: string) => void;
+  currentUser?: PanelUser | null;
+  permissions?: Record<string, boolean>;
 }
 
 interface SessionItem {
@@ -39,7 +43,7 @@ const MOCK_SESSIONS: SessionItem[] = [
   { id: 's3', device: 'CLI · barepod-mcp', ip: '45.33.32.156', lastActive: 'Yesterday' },
 ];
 
-export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigatePath }) => {
+export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigatePath, currentUser, permissions }) => {
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -157,7 +161,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
     }
   };
 
-  const grantedPermissions = PERMISSION_MATRIX.filter((item) => item.key !== 'users' || true);
+  const username = currentUser?.username ?? 'farras';
+  const email = currentUser?.email || `${username}@barepod.cloud`;
+  const initials = username.slice(0, 2).toUpperCase();
+  const isAdmin = currentUser?.role === 'admin';
+  const roleLabel = isAdmin ? 'Root / Admin' : 'User';
+  const groupLabel = currentUser?.groupName || (isAdmin ? 'Unlimited' : 'Basic');
+  const homeDir = `/home/${username}`;
+
+  const grantedPermissions = PERMISSION_MATRIX.filter((item) => {
+    if (isAdmin) return true;
+    return Boolean(permissions?.[item.key]);
+  });
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-6">
@@ -169,24 +184,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
 
       {/* Identity */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs flex flex-col sm:flex-row sm:items-center gap-5">
-        <div className="w-16 h-16 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg border border-blue-200 shrink-0">
-          FR
+        <div className="w-16 h-16 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg border border-blue-200 shrink-0 uppercase">
+          {initials}
         </div>
         <div className="flex-1 space-y-1.5">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-lg font-bold text-slate-900">farras</span>
-            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">Root / Admin</span>
+            <span className="text-lg font-bold text-slate-900">{username}</span>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${isAdmin ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}`}>
+              {roleLabel}
+            </span>
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">Active</span>
           </div>
           <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
             <span className="inline-flex items-center gap-1.5">
-              <Mail className="w-3.5 h-3.5 text-slate-400" /> farras@barepod.cloud
+              <Mail className="w-3.5 h-3.5 text-slate-400" /> {email}
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-slate-400" /> Package: Unlimited
+              <User className="w-3.5 h-3.5 text-slate-400" /> Package: {groupLabel}
             </span>
           </div>
-          <p className="text-[11px] text-slate-400 font-mono">/home/farras · member since 2026-09-22</p>
+          <p className="text-[11px] text-slate-400 font-mono">{homeDir}</p>
         </div>
       </div>
 

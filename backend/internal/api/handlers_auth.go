@@ -98,8 +98,8 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request, us
 		writeError(w, http.StatusBadRequest, "bad_request", "Invalid JSON body")
 		return
 	}
-	if len(req.NewPassword) < 12 {
-		writeError(w, http.StatusBadRequest, "validation_error", "A panel password must be at least 12 characters")
+	if len(req.NewPassword) < 8 {
+		writeError(w, http.StatusBadRequest, "validation_error", "A panel password must be at least 8 characters")
 		return
 	}
 	ok, err := auth.VerifyPassword(req.CurrentPassword, user.PasswordHash)

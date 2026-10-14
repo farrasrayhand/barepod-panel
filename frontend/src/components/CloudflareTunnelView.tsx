@@ -37,11 +37,11 @@ interface TenantTunnelData {
 
 interface CloudflareTunnelViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+  currentUser?: string;
 }
 
-export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onShowToast }) => {
-  // Simulated logged-in user (Default to tenant_alex to demonstrate that regular users configure their own tunnel)
-  const [activeUser, setActiveUser] = useState<string>('tenant_alex');
+export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onShowToast, currentUser }) => {
+  const [activeUser, setActiveUser] = useState<string>(currentUser || 'farras');
 
   // Multi-Tenant Personal Tunnels (Isolated State per User)
   const [userTunnels, setUserTunnels] = useState<Record<string, TenantTunnelData>>({

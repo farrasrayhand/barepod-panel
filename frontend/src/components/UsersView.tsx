@@ -16,6 +16,7 @@ import {
   UserPlus,
   KeyRound,
   Loader2,
+  ShieldAlert,
 } from 'lucide-react';
 import { useSubRoute } from '../hooks/useSubRoute';
 import { PERMISSION_MATRIX } from '../data/permissions';
@@ -86,9 +87,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [accessDenied, setAccessDenied] = useState(false);
 
-  const [users, setUsers] = useState<ApiUser[]>(MOCK_USERS);
-  const [groups, setGroups] = useState<GroupRow[]>(MOCK_GROUPS);
+  const [users, setUsers] = useState<ApiUser[]>([]);
+  const [groups, setGroups] = useState<GroupRow[]>([]);
 
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<ApiUser | null>(null);
@@ -97,21 +99,35 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
   const [pendingDelete, setPendingDelete] = useState<{ kind: 'user' | 'group'; id: string; name: string } | null>(null);
   const [resetTarget, setResetTarget] = useState<ApiUser | null>(null);
 
+  const onShowToastRef = React.useRef(onShowToast);
+  onShowToastRef.current = onShowToast;
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const reachable = await apiReachable();
       if (cancelled) return;
       setLive(reachable);
-      if (!reachable) return;
+      if (!reachable) {
+        setUsers(MOCK_USERS);
+        setGroups(MOCK_GROUPS);
+        return;
+      }
       setLoading(true);
+      setAccessDenied(false);
       try {
         const [userList, groupList] = await Promise.all([api.users(), api.groups()]);
         if (cancelled) return;
         setUsers(userList.items ?? []);
         setGroups(groupList.items ?? []);
       } catch (err) {
-        if (!cancelled) onShowToast?.('Could not load the tenants', describeError(err), 'error');
+        if (cancelled) return;
+        const msg = describeError(err);
+        if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('forbidden')) {
+          setAccessDenied(true);
+        } else {
+          onShowToastRef.current?.('Could not load the tenants', msg, 'error');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -119,7 +135,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
     return () => {
       cancelled = true;
     };
-  }, [reloadKey, onShowToast]);
+  }, [reloadKey]);
 
   const reload = () => setReloadKey((k) => k + 1);
   const groupByName = (name: string) => groups.find((g) => g.name === name);
@@ -166,12 +182,12 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
     }
   };
 
-  const resetPassword = async (): Promise<string | null> => {
+  const resetPassword = async (customPassword?: string): Promise<string | null> => {
     if (!resetTarget) return null;
     try {
-      const result = await api.resetUserPassword(resetTarget.id);
+      const result = await api.resetUserPassword(resetTarget.id, customPassword);
       reload();
-      return result.password ?? null;
+      return result.password ?? customPassword ?? 'Updated';
     } catch (err) {
       onShowToast?.('Could not reset the password', describeError(err), 'error');
       return null;
@@ -241,6 +257,32 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
       setBusy(false);
     }
   };
+
+  if (accessDenied) {
+    return (
+      <div className="p-8 max-w-4xl mx-auto space-y-6">
+        <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs text-center space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-200">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-lg font-bold text-slate-900">Administrator Privileges Required</h2>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              Your account (<span className="font-mono font-medium text-slate-700">{selfUsername}</span>) does not have the <code className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded">users</code> permission. Managing user accounts and resource packages is restricted to administrators.
+            </p>
+          </div>
+          <div className="pt-2">
+            <a
+              href="/web"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs"
+            >
+              Return to Websites
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
