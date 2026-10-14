@@ -442,6 +442,7 @@ export interface CreateWebsitePayload {
   runtime: string;
   version?: string;
   framework?: string;
+  frameworkVersion?: string;
   webServer: string;
   port?: number;
   tunnelEnabled?: boolean;

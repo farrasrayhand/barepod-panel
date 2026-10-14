@@ -18,10 +18,21 @@ func Scaffold(framework, version string) []string {
 		if version == "" {
 			version = "12"
 		}
-		// The version belongs to the framework, not to the PHP runtime.
-		return []string{"composer", "create-project", "laravel/laravel:" + version, "."}
+		verConstraint := version
+		if !strings.HasPrefix(verConstraint, "^") && !strings.Contains(verConstraint, "*") {
+			verConstraint = "^" + verConstraint
+		}
+		return []string{"composer", "create-project", "laravel/laravel:" + verConstraint, "."}
 	case "symfony":
+		if version != "" {
+			return []string{"composer", "create-project", "symfony/skeleton:" + version + ".*", "."}
+		}
 		return []string{"composer", "create-project", "symfony/skeleton", "."}
+	case "drupal":
+		if version == "" {
+			version = "11"
+		}
+		return []string{"composer", "create-project", "drupal/recommended-project:^" + version, "."}
 	case "wordpress":
 		return []string{"wp", "core", "download", "--locale=en_US"}
 	case "codeigniter":
@@ -29,7 +40,11 @@ func Scaffold(framework, version string) []string {
 	case "cakephp":
 		return []string{"composer", "create-project", "cakephp/app", "."}
 	case "nextjs":
-		return []string{"npx", "create-next-app@latest", ".", "--ts", "--eslint", "--app", "--yes"}
+		tag := "latest"
+		if version != "" {
+			tag = version
+		}
+		return []string{"npx", "create-next-app@" + tag, ".", "--ts", "--eslint", "--app", "--yes"}
 	case "nuxt":
 		return []string{"npx", "nuxi@latest", "init", ".", "--packageManager", "npm", "--no-install"}
 	case "astro":
@@ -37,7 +52,10 @@ func Scaffold(framework, version string) []string {
 	case "nestjs":
 		return []string{"npx", "@nestjs/cli@latest", "new", ".", "--package-manager", "npm", "--skip-git"}
 	case "express":
-		return []string{"npm", "init", "-y"}
+		if version == "5" {
+			return []string{"npx", "express-generator@next", "."}
+		}
+		return []string{"npx", "express-generator@latest", "."}
 	case "django", "flask", "fastapi":
 		bin := "python3"
 		if version != "" {

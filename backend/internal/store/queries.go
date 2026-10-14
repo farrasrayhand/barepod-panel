@@ -253,6 +253,26 @@ func (s *Store) WebsiteBySlug(slug string) (*Website, error) {
 	return &w, nil
 }
 
+// WebsiteByDomain looks a website up by its primary domain.
+func (s *Store) WebsiteByDomain(domain string) (*Website, error) {
+	var w Website
+	err := s.DB.QueryRow(
+		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
+		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
+		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
+		 FROM websites WHERE lower(domain) = ?`, strings.ToLower(strings.TrimSpace(domain)),
+	).Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version, &w.Framework,
+		&w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable, &w.Port, &w.CreatedAt,
+		&w.SourceKind, &w.SourceRepo, &w.SourceBranch, &w.DeployHookToken, &w.AutoDeploy, &w.DeployScript)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &w, nil
+}
+
 // CreateWebsite inserts a website row.
 func (s *Store) CreateWebsite(w *Website) error {
 	if w.ID == "" {

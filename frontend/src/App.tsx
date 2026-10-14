@@ -426,7 +426,7 @@ export function App() {
     };
   }, [session.mode, session.user]);
 
-  const handleAddApp = (newApp: Partial<WebApp>, archive?: File) => {
+  const handleAddApp = async (newApp: Partial<WebApp>, archive?: File): Promise<void> => {
     const created: WebApp = {
       id: `app-${Date.now()}`,
       name: newApp.name || 'new-app',
@@ -454,48 +454,48 @@ export function App() {
     // screen can look like a deploy while the daemon never hears about it.
     if (session.mode === 'live' && session.user) {
       const slug = created.name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
-      void (async () => {
-        try {
-          const result = await api.createWebsite({
-            slug,
-            domain: created.domain,
-            tenantUser: created.tenantUser,
-            runtime: created.runtime,
-            version: newApp.version,
-            framework: created.framework,
-            webServer: created.webServer,
-            port: newApp.port,
-            tunnelEnabled: created.tunnelEnabled,
-            source: {
-              kind: newApp.sourceKind ?? (newApp.gitRepo ? 'github' : 'existing'),
-              repo: newApp.gitRepo,
-              branch: newApp.gitBranch,
-            },
-            database:
-              newApp.dbAutoProvision && newApp.dbEngine
-                ? { engine: newApp.dbEngine, name: newApp.dbName, user: newApp.dbUser }
-                : undefined,
-            cache: newApp.cacheAutoProvision ? { engine: 'redis' } : undefined,
-            autoEnv: newApp.autoEnv,
-            deployScript: newApp.buildScript,
-          });
-          // An "Upload Archive" source has to actually arrive: the bytes go to the site,
-          // then the pipeline runs again so it builds with the code present (the create
-          // ran before anything was uploaded).
-          if (archive) {
-            await api.uploadFiles(slug, '', [archive]);
-            const again = await api.redeploy(slug);
-            showToast('Archive uploaded', `${archive.name} sent to ${slug}; rebuilding (job ${again.deployId}).`, 'success');
-            setDeployWatch({ slug, deployId: again.deployId });
-            setAppsLoaded(true);
-            return;
-          }
-          showToast('Deploy started', `${slug} — ${result.mode}. Its log is streaming below.`, 'success');
-          setDeployWatch({ slug, deployId: result.deployId });
-        } catch (err) {
-          showToast('Deploy refused', err instanceof Error ? err.message : 'The daemon refused.', 'error');
+      try {
+        const result = await api.createWebsite({
+          slug,
+          domain: created.domain,
+          tenantUser: created.tenantUser,
+          runtime: created.runtime,
+          version: newApp.version,
+          framework: created.framework,
+          frameworkVersion: newApp.frameworkVersion,
+          webServer: created.webServer,
+          port: newApp.port,
+          tunnelEnabled: created.tunnelEnabled,
+          source: {
+            kind: newApp.sourceKind ?? (newApp.gitRepo ? 'github' : 'existing'),
+            repo: newApp.gitRepo,
+            branch: newApp.gitBranch,
+          },
+          database:
+            newApp.dbAutoProvision && newApp.dbEngine
+              ? { engine: newApp.dbEngine, name: newApp.dbName, user: newApp.dbUser }
+              : undefined,
+          cache: newApp.cacheAutoProvision ? { engine: 'redis' } : undefined,
+          autoEnv: newApp.autoEnv,
+          deployScript: newApp.buildScript,
+        });
+        // An "Upload Archive" source has to actually arrive: the bytes go to the site,
+        // then the pipeline runs again so it builds with the code present (the create
+        // ran before anything was uploaded).
+        if (archive) {
+          await api.uploadFiles(slug, '', [archive]);
+          const again = await api.redeploy(slug);
+          showToast('Archive uploaded', `${archive.name} sent to ${slug}; rebuilding (job ${again.deployId}).`, 'success');
+          setDeployWatch({ slug, deployId: again.deployId });
+          setAppsLoaded(true);
+          return;
         }
-      })();
+        showToast('Deploy started', `${slug} — ${result.mode}. Its log is streaming below.`, 'success');
+        setDeployWatch({ slug, deployId: result.deployId });
+      } catch (err) {
+        showToast('Deploy refused', err instanceof Error ? err.message : 'The daemon refused.', 'error');
+        throw err;
+      }
       return;
     }
 
@@ -763,6 +763,7 @@ export function App() {
         onAddApp={handleAddApp}
         currentUsername={currentUser.username}
         isAdmin={isAdmin}
+        existingApps={apps}
       />
 
       {/* The deploy's own log, straight from the daemon (see POST /websites: 202). */}

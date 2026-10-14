@@ -27,6 +27,7 @@ import {
   GitBranch,
   KeyRound,
   AlertCircle,
+  AlertTriangle,
   User,
 } from 'lucide-react';
 import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../types';
@@ -42,19 +43,29 @@ interface AddAppModalProps {
    * The archive is handed over as well: an "Upload Archive" source is only real if those
    * bytes reach the website, and the caller is what talks to the daemon.
    */
-  onAddApp: (newApp: Partial<WebApp>, archive?: File) => void;
+  onAddApp: (newApp: Partial<WebApp>, archive?: File) => Promise<void> | void;
   currentUsername?: string;
   isAdmin?: boolean;
+  existingApps?: WebApp[];
 }
 
 type WizardStep = 'basics' | 'source' | 'engine' | 'database' | 'upstream' | 'review';
 type SourceKind = 'scaffold' | 'github' | 'upload' | 'existing' | 'default';
 
+export interface FrameworkVersionOption {
+  value: string;
+  label: string;
+  badge?: string;
+  minRuntime?: string;
+}
+
 export interface ScaffoldPreset {
   id: string;
   name: string;
   runtime: RuntimeType;
-  version: string;
+  defaultVersion: string;
+  frameworkVersions?: FrameworkVersionOption[];
+  defaultFrameworkVersion?: string;
   category: string;
   desc: string;
   databaseEngine?: DatabaseEngine;
@@ -62,17 +73,301 @@ export interface ScaffoldPreset {
 }
 
 export const POPULAR_SCAFFOLDS: ScaffoldPreset[] = [
-  { id: 'laravel-12', name: 'Laravel 12', runtime: 'php', version: '8.4', category: 'PHP', desc: 'Modern PHP web framework with artisan, migrations, queue', databaseEngine: 'mariadb', cacheEngine: 'redis' },
-  { id: 'wordpress', name: 'WordPress', runtime: 'php', version: '8.3', category: 'PHP', desc: 'World most popular CMS with WP-CLI auto-setup', databaseEngine: 'mariadb' },
-  { id: 'woocommerce', name: 'WooCommerce', runtime: 'php', version: '8.3', category: 'PHP', desc: 'E-commerce platform for WordPress', databaseEngine: 'mariadb' },
-  { id: 'nextjs', name: 'Next.js', runtime: 'nodejs', version: '20', category: 'Node.js', desc: 'React framework with SSR & API routes', databaseEngine: 'postgres' },
-  { id: 'fastapi', name: 'FastAPI', runtime: 'python', version: '3.11', category: 'Python', desc: 'Modern high performance Python async API', databaseEngine: 'postgres' },
-  { id: 'express', name: 'Express', runtime: 'nodejs', version: '20', category: 'Node.js', desc: 'Minimalist & flexible Node.js web server', databaseEngine: 'postgres' },
-  { id: 'django', name: 'Django', runtime: 'python', version: '3.11', category: 'Python', desc: 'The web framework for perfectionists with deadlines', databaseEngine: 'postgres', cacheEngine: 'redis' },
-  { id: 'symfony-7', name: 'Symfony 7', runtime: 'php', version: '8.3', category: 'PHP', desc: 'Enterprise-grade PHP web framework', databaseEngine: 'mariadb' },
-  { id: 'gin', name: 'Gin', runtime: 'go', version: '1.23', category: 'Go', desc: 'High-performance HTTP web framework for Go', databaseEngine: 'postgres' },
-  { id: 'rails', name: 'Ruby on Rails', runtime: 'ruby', version: '3.3', category: 'Ruby', desc: 'Full-stack framework for developer happiness', databaseEngine: 'postgres', cacheEngine: 'redis' },
+  {
+    id: 'laravel',
+    name: 'Laravel',
+    runtime: 'php',
+    defaultVersion: '8.4',
+    frameworkVersions: [
+      { value: '12', label: '12', badge: 'Latest', minRuntime: '8.2' },
+      { value: '11', label: '11', badge: 'LTS', minRuntime: '8.2' },
+      { value: '10', label: '10', minRuntime: '8.1' },
+    ],
+    defaultFrameworkVersion: '12',
+    category: 'PHP',
+    desc: 'Modern PHP web framework with artisan, migrations, queue',
+    databaseEngine: 'mariadb',
+    cacheEngine: 'redis',
+  },
+  {
+    id: 'symfony',
+    name: 'Symfony',
+    runtime: 'php',
+    defaultVersion: '8.3',
+    frameworkVersions: [
+      { value: '8', label: '8', badge: 'Next', minRuntime: '8.3' },
+      { value: '7', label: '7', badge: 'Current', minRuntime: '8.2' },
+      { value: '6.4', label: '6.4', badge: 'LTS', minRuntime: '8.1' },
+    ],
+    defaultFrameworkVersion: '7',
+    category: 'PHP',
+    desc: 'Enterprise-grade PHP web framework',
+    databaseEngine: 'mariadb',
+  },
+  {
+    id: 'wordpress',
+    name: 'WordPress',
+    runtime: 'php',
+    defaultVersion: '8.3',
+    frameworkVersions: [
+      { value: 'latest', label: 'Latest', badge: 'Auto-Update' },
+    ],
+    defaultFrameworkVersion: 'latest',
+    category: 'PHP',
+    desc: 'World most popular CMS with WP-CLI auto-setup',
+    databaseEngine: 'mariadb',
+  },
+  {
+    id: 'woocommerce',
+    name: 'WooCommerce',
+    runtime: 'php',
+    defaultVersion: '8.3',
+    frameworkVersions: [
+      { value: 'latest', label: 'Latest', badge: 'Auto-Update' },
+    ],
+    defaultFrameworkVersion: 'latest',
+    category: 'PHP',
+    desc: 'E-commerce platform for WordPress',
+    databaseEngine: 'mariadb',
+  },
+  {
+    id: 'nextjs',
+    name: 'Next.js',
+    runtime: 'nodejs',
+    defaultVersion: '20',
+    frameworkVersions: [
+      { value: '15', label: '15', badge: 'React 19', minRuntime: '18.18' },
+      { value: '14', label: '14', badge: 'Stable', minRuntime: '18.17' },
+      { value: '13', label: '13', minRuntime: '16.14' },
+    ],
+    defaultFrameworkVersion: '15',
+    category: 'Node.js',
+    desc: 'React framework with SSR & API routes',
+    databaseEngine: 'postgres',
+  },
+  {
+    id: 'fastapi',
+    name: 'FastAPI',
+    runtime: 'python',
+    defaultVersion: '3.11',
+    frameworkVersions: [
+      { value: 'latest', label: 'Latest', badge: 'Async API' },
+    ],
+    defaultFrameworkVersion: 'latest',
+    category: 'Python',
+    desc: 'Modern high performance Python async API',
+    databaseEngine: 'postgres',
+  },
+  {
+    id: 'express',
+    name: 'Express',
+    runtime: 'nodejs',
+    defaultVersion: '20',
+    frameworkVersions: [
+      { value: '4', label: '4', badge: 'Stable' },
+      { value: '5', label: '5', badge: 'Next' },
+    ],
+    defaultFrameworkVersion: '4',
+    category: 'Node.js',
+    desc: 'Minimalist & flexible Node.js web server',
+    databaseEngine: 'postgres',
+  },
+  {
+    id: 'django',
+    name: 'Django',
+    runtime: 'python',
+    defaultVersion: '3.11',
+    frameworkVersions: [
+      { value: '5.1', label: '5.1', badge: 'Latest', minRuntime: '3.10' },
+      { value: '4.2', label: '4.2', badge: 'LTS', minRuntime: '3.8' },
+    ],
+    defaultFrameworkVersion: '5.1',
+    category: 'Python',
+    desc: 'The web framework for perfectionists with deadlines',
+    databaseEngine: 'postgres',
+    cacheEngine: 'redis',
+  },
+  {
+    id: 'gin',
+    name: 'Gin',
+    runtime: 'go',
+    defaultVersion: '1.23',
+    frameworkVersions: [
+      { value: 'latest', label: 'Latest', badge: 'Fast HTTP' },
+    ],
+    defaultFrameworkVersion: 'latest',
+    category: 'Go',
+    desc: 'High-performance HTTP web framework for Go',
+    databaseEngine: 'postgres',
+  },
+  {
+    id: 'rails',
+    name: 'Ruby on Rails',
+    runtime: 'ruby',
+    defaultVersion: '3.3',
+    frameworkVersions: [
+      { value: '8.0', label: '8.0', badge: 'Latest', minRuntime: '3.2' },
+      { value: '7.2', label: '7.2', badge: 'Stable', minRuntime: '3.1' },
+    ],
+    defaultFrameworkVersion: '8.0',
+    category: 'Ruby',
+    desc: 'Full-stack framework for developer happiness',
+    databaseEngine: 'postgres',
+    cacheEngine: 'redis',
+  },
 ];
+
+export interface RuntimeCompatibilityResult {
+  versions: string[];
+  recommended: string;
+  note?: string;
+}
+
+export const getCompatibleRuntimeVersions = (
+  runtime: RuntimeType,
+  framework: string,
+  frameworkVersion: string,
+  allAvailableVersions: string[],
+): RuntimeCompatibilityResult => {
+  const fw = (framework || '').toLowerCase();
+  const fv = (frameworkVersion || '').toLowerCase();
+  const fallback = allAvailableVersions[0] || '8.4';
+
+  if (runtime === 'php') {
+    if (fw.includes('laravel')) {
+      if (fv.startsWith('12') || fw.includes('12')) {
+        const allowed = ['8.4', '8.3', '8.2'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        return {
+          versions: filtered.length ? filtered : allowed,
+          recommended: (allAvailableVersions.includes('8.4') ? '8.4' : filtered[0]) || '8.4',
+          note: 'Laravel 12 membutuhkan PHP ≥ 8.2 (Direkomendasikan: PHP 8.4)',
+        };
+      }
+      if (fv.startsWith('11') || fw.includes('11')) {
+        const allowed = ['8.4', '8.3', '8.2'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        return {
+          versions: filtered.length ? filtered : allowed,
+          recommended: (allAvailableVersions.includes('8.3') ? '8.3' : filtered[0]) || '8.3',
+          note: 'Laravel 11 membutuhkan PHP ≥ 8.2 (Direkomendasikan: PHP 8.3)',
+        };
+      }
+      if (fv.startsWith('10') || fw.includes('10')) {
+        const allowed = ['8.3', '8.2', '8.1'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        return {
+          versions: filtered.length ? filtered : allowed,
+          recommended: (allAvailableVersions.includes('8.2') ? '8.2' : filtered[0]) || '8.2',
+          note: 'Laravel 10 membutuhkan PHP 8.1 - 8.3 (Direkomendasikan: PHP 8.2)',
+        };
+      }
+    }
+
+    if (fw.includes('symfony')) {
+      if (fv.startsWith('8') || fw.includes('8')) {
+        const allowed = ['8.4', '8.3'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        return {
+          versions: filtered.length ? filtered : allowed,
+          recommended: (allAvailableVersions.includes('8.4') ? '8.4' : filtered[0]) || '8.4',
+          note: 'Symfony 8 membutuhkan PHP ≥ 8.3 (Direkomendasikan: PHP 8.4)',
+        };
+      }
+      if (fv.startsWith('7') || fw.includes('7')) {
+        const allowed = ['8.4', '8.3', '8.2'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        return {
+          versions: filtered.length ? filtered : allowed,
+          recommended: (allAvailableVersions.includes('8.3') ? '8.3' : filtered[0]) || '8.3',
+          note: 'Symfony 7 membutuhkan PHP ≥ 8.2 (Direkomendasikan: PHP 8.3)',
+        };
+      }
+      if (fv.startsWith('6') || fw.includes('6')) {
+        const allowed = ['8.3', '8.2', '8.1'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        return {
+          versions: filtered.length ? filtered : allowed,
+          recommended: (allAvailableVersions.includes('8.2') ? '8.2' : filtered[0]) || '8.2',
+          note: 'Symfony 6.4 membutuhkan PHP ≥ 8.1 (Direkomendasikan: PHP 8.2)',
+        };
+      }
+    }
+
+    if (fw.includes('drupal')) {
+      if (fv.startsWith('11') || fw.includes('11')) {
+        const allowed = ['8.4', '8.3'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        return {
+          versions: filtered.length ? filtered : allowed,
+          recommended: '8.3',
+          note: 'Drupal 11 membutuhkan PHP ≥ 8.3',
+        };
+      }
+    }
+
+    if (fw.includes('woocommerce')) {
+      const allowed = ['8.3', '8.2', '8.1'];
+      const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+      return {
+        versions: filtered.length ? filtered : allowed,
+        recommended: '8.3',
+        note: 'WooCommerce direkomendasikan dengan PHP 8.1 - 8.3',
+      };
+    }
+  }
+
+  if (runtime === 'nodejs') {
+    if (fw.includes('next')) {
+      if (fv.startsWith('15') || fw.includes('15')) {
+        const allowed = ['22', '20'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        return {
+          versions: filtered.length ? filtered : allowed,
+          recommended: (allAvailableVersions.includes('22') ? '22' : filtered[0]) || '22',
+          note: 'Next.js 15 membutuhkan Node.js ≥ 18.18 (Direkomendasikan: Node 20 atau 22)',
+        };
+      }
+      if (fv.startsWith('14') || fw.includes('14')) {
+        const allowed = ['20', '18'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        return {
+          versions: filtered.length ? filtered : allowed,
+          recommended: '20',
+          note: 'Next.js 14 mendukung Node.js 18 & 20',
+        };
+      }
+    }
+  }
+
+  if (runtime === 'python') {
+    if (fw.includes('django')) {
+      if (fv.startsWith('5') || fw.includes('5')) {
+        const allowed = ['3.12', '3.11', '3.10'];
+        const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+        return {
+          versions: filtered.length ? filtered : allowed,
+          recommended: (allAvailableVersions.includes('3.12') ? '3.12' : filtered[0]) || '3.12',
+          note: 'Django 5.1 membutuhkan Python ≥ 3.10 (Direkomendasikan: Python 3.12)',
+        };
+      }
+    }
+  }
+
+  if (runtime === 'ruby') {
+    if (fw.includes('rails') && (fv.startsWith('8') || fw.includes('8'))) {
+      const allowed = ['3.3'];
+      const filtered = allAvailableVersions.filter((v) => allowed.includes(v));
+      return {
+        versions: filtered.length ? filtered : allowed,
+        recommended: '3.3',
+        note: 'Rails 8.0 membutuhkan Ruby ≥ 3.2 (Direkomendasikan: Ruby 3.3)',
+      };
+    }
+  }
+
+  return { versions: allAvailableVersions, recommended: fallback };
+};
 
 export interface SupportedDbEngine {
   engine: DatabaseEngine;
@@ -205,7 +500,14 @@ const defaultPortFor = (runtime: RuntimeType): number =>
 const isValidDomain = (value: string): boolean =>
   /^([a-z0-9](?:-*[a-z0-9])*)(?:\.([a-z0-9](?:-*[a-z0-9])*))+$/i.test(value);
 
-export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAddApp, currentUsername, isAdmin = false }) => {
+export const AddAppModal: React.FC<AddAppModalProps> = ({
+  isOpen,
+  onClose,
+  onAddApp,
+  currentUsername,
+  isAdmin = false,
+  existingApps = [],
+}) => {
   const defaultTenant = currentUsername || 'farras';
   const [appMode, setAppMode] = useState<'standard' | 'proxy' | 'static'>('standard');
   const [stepIndex, setStepIndex] = useState(0);
@@ -217,10 +519,35 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const [availableUsers, setAvailableUsers] = useState<Array<{ username: string; role: string; groupName?: string }>>([]);
   const [tunnelEnabled, setTunnelEnabled] = useState(true);
 
+  // Real-time duplicate validation
+  const normalizedSlug = useMemo(() => {
+    return name.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
+  }, [name]);
+
+  const duplicateNameSite = useMemo(() => {
+    if (!normalizedSlug || !existingApps.length) return null;
+    return existingApps.find(
+      (a) =>
+        a.name.toLowerCase() === normalizedSlug ||
+        a.id.toLowerCase() === normalizedSlug ||
+        a.name.toLowerCase().trim() === name.toLowerCase().trim()
+    );
+  }, [normalizedSlug, name, existingApps]);
+
+  const duplicateDomainSite = useMemo(() => {
+    const clean = domain.trim().toLowerCase();
+    if (!clean || !existingApps.length) return null;
+    return existingApps.find((a) => a.domain.toLowerCase().trim() === clean);
+  }, [domain, existingApps]);
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
   // Engine & runtime
   const [webServer, setWebServer] = useState<WebServerType>('nginx');
   const [runtime, setRuntime] = useState<RuntimeType>('php');
-  const [framework, setFramework] = useState('Laravel 12');
+  const [framework, setFramework] = useState('Laravel');
+  const [frameworkVersion, setFrameworkVersion] = useState('12');
   const [version, setVersion] = useState('8.4');
 
   // Source
@@ -254,7 +581,14 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
       setVersion(fw.version);
     }
     if (fw.title) {
-      setFramework(fw.title);
+      const match = fw.title.match(/(\d+(\.\d+)?)/);
+      if (match) {
+        setFramework(fw.title.replace(/\s*\d+(\.\d+)?/g, '').trim() || fw.title);
+        setFrameworkVersion(match[1]);
+      } else {
+        setFramework(fw.title);
+        setFrameworkVersion('latest');
+      }
     }
     if (fw.databaseEngine) {
       setCreateDb(true);
@@ -491,10 +825,32 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const resolvedDbName = dbName || `${name || 'website'}_db`;
   const resolvedDbUser = dbUser || `${tenantUser}_user`;
 
-  const plan = getProvisionPlan(runtime, framework);
+  const plan = getProvisionPlan(runtime, framework, frameworkVersion);
   const isGenericFramework = /generic|custom/i.test(framework);
   const effectiveSource: SourceKind = appMode === 'static' && sourceKind === 'scaffold' ? 'upload' : sourceKind;
   const domainValid = isValidDomain(domain.trim());
+
+  const activeScaffold = useMemo(() => {
+    return POPULAR_SCAFFOLDS.find(
+      (s) =>
+        s.name.toLowerCase() === framework.toLowerCase() ||
+        s.name.toLowerCase() === (detectedFw?.title || '').toLowerCase()
+    );
+  }, [framework, detectedFw]);
+
+  const rawAvailableVersions = useMemo(() => {
+    return runtimeConfigs[runtime]?.versions ?? [];
+  }, [runtime, runtimeConfigs]);
+
+  const compatibleRuntimes = useMemo(() => {
+    return getCompatibleRuntimeVersions(runtime, framework, frameworkVersion, rawAvailableVersions);
+  }, [runtime, framework, frameworkVersion, rawAvailableVersions]);
+
+  useEffect(() => {
+    if (compatibleRuntimes.versions.length > 0 && !compatibleRuntimes.versions.includes(version)) {
+      setVersion(compatibleRuntimes.recommended);
+    }
+  }, [compatibleRuntimes, version]);
 
   // Keep the selected template inside the available list if current framework isn't custom
   useEffect(() => {
@@ -506,7 +862,10 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({ isOpen, onClose, onAdd
   const handleSelectScaffold = (s: ScaffoldPreset) => {
     setFramework(s.name);
     setRuntime(s.runtime);
-    setVersion(s.version);
+    const defaultFwVer = s.defaultFrameworkVersion ?? s.frameworkVersions?.[0]?.value ?? 'latest';
+    setFrameworkVersion(defaultFwVer);
+    const comp = getCompatibleRuntimeVersions(s.runtime, s.name, defaultFwVer, runtimeConfigs[s.runtime]?.versions ?? []);
+    setVersion(comp.recommended);
     if (s.databaseEngine) {
       setCreateDb(true);
       setDbType(s.databaseEngine);
@@ -701,13 +1060,14 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
   if (!isOpen) return null;
 
   const canContinue =
-    (currentStepId !== 'basics' || (name.trim() !== '' && domainValid)) &&
+    (currentStepId !== 'basics' ||
+      (name.trim() !== '' && domainValid && !duplicateNameSite && !duplicateDomainSite)) &&
     (currentStepId !== 'source' || sourceValidForMode);
 
   const next = () => setStepIndex((i) => Math.min(i + 1, steps.length - 1));
   const back = () => setStepIndex((i) => Math.max(i - 1, 0));
 
-  const handleDeploy = () => {
+  const handleDeploy = async () => {
     const resolvedPort = appMode === 'proxy'
       ? Number((upstreamUrl.match(/:(\d+)/) || [])[1] || 8080)
       : defaultPortFor(runtime);
@@ -719,49 +1079,59 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
           ? `git pull origin ${gitBranch || 'main'}\n${plan.steps.join('\n')}`
           : plan.steps.join('\n');
 
-    onAddApp({
-      name,
-      domain,
-      runtime,
-      version,
-      framework,
-      webServer,
-      tenantUser,
-      tunnelEnabled,
-      ssl: true,
-      port: resolvedPort,
-      memoryUsage: '36 MB',
-      cpuUsage: '0.1%',
-      status: 'running',
-      upstreamUrl: appMode === 'proxy' ? upstreamUrl : undefined,
-      proxyWebsocket,
-      proxyPreserveHost,
-      proxyRealIp,
-      proxyTimeoutSecs,
-      dbAutoProvision: !isStaticSite && createDb,
-      dbEngine: (!isStaticSite && createDb) ? dbType : undefined,
-      dbName: (!isStaticSite && createDb) ? resolvedDbName : undefined,
-      dbUser: (!isStaticSite && createDb) ? resolvedDbUser : undefined,
-      cacheAutoProvision: !isStaticSite && effectiveCreateCache,
-      cacheEngine: (!isStaticSite && effectiveCreateCache) ? 'redis' : undefined,
-      autoEnv: isStaticSite ? false : autoEnv,
-      sourceKind: effectiveSource,
-      provisionMode: effectiveSource === 'scaffold' ? 'download' : 'generic',
-      automationSteps: plan.steps.length ? plan.steps : undefined,
-      gitRepo: effectiveSource === 'github' ? gitRepo : undefined,
-      gitBranch: effectiveSource === 'github' ? gitBranch : undefined,
-      autoDeploy: effectiveSource === 'github' ? autoDeploy : undefined,
-      buildScript: buildScript || undefined,
-    }, effectiveSource === 'upload' ? (uploadArchive ?? undefined) : undefined);
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onAddApp({
+        name,
+        domain,
+        runtime,
+        version,
+        framework,
+        frameworkVersion: frameworkVersion || undefined,
+        webServer,
+        tenantUser,
+        tunnelEnabled,
+        ssl: true,
+        port: resolvedPort,
+        memoryUsage: '36 MB',
+        cpuUsage: '0.1%',
+        status: 'running',
+        upstreamUrl: appMode === 'proxy' ? upstreamUrl : undefined,
+        proxyWebsocket,
+        proxyPreserveHost,
+        proxyRealIp,
+        proxyTimeoutSecs,
+        dbAutoProvision: !isStaticSite && createDb,
+        dbEngine: (!isStaticSite && createDb) ? dbType : undefined,
+        dbName: (!isStaticSite && createDb) ? resolvedDbName : undefined,
+        dbUser: (!isStaticSite && createDb) ? resolvedDbUser : undefined,
+        cacheAutoProvision: !isStaticSite && effectiveCreateCache,
+        cacheEngine: (!isStaticSite && effectiveCreateCache) ? 'redis' : undefined,
+        autoEnv: isStaticSite ? false : autoEnv,
+        sourceKind: effectiveSource,
+        provisionMode: effectiveSource === 'scaffold' ? 'download' : 'generic',
+        automationSteps: plan.steps.length ? plan.steps : undefined,
+        gitRepo: effectiveSource === 'github' ? gitRepo : undefined,
+        gitBranch: effectiveSource === 'github' ? gitBranch : undefined,
+        autoDeploy: effectiveSource === 'github' ? autoDeploy : undefined,
+        buildScript: buildScript || undefined,
+      }, effectiveSource === 'upload' ? (uploadArchive ?? undefined) : undefined);
 
-    onClose();
-    resetForm();
+      onClose();
+      resetForm();
+    } catch (err: any) {
+      setSubmitError(err instanceof Error ? err.message : 'Penerapan website ditolak oleh server.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const resetForm = () => {
     setStepIndex(0);
     setName('');
     setDomain('');
+    setSubmitError(null);
   };
 
   const inputClass =
@@ -816,6 +1186,23 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
 
         {/* Body */}
         <div className="p-6 overflow-y-auto space-y-5 flex-1">
+          {submitError && (
+            <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl flex items-start gap-2.5 text-xs animate-in fade-in">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <span className="font-bold block">Penerapan Website Ditolak Server:</span>
+                <p className="mt-0.5 text-rose-700 leading-relaxed">{submitError}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSubmitError(null)}
+                className="text-rose-400 hover:text-rose-600 font-bold px-1.5 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {detectedFw && (
             <div className="p-3.5 bg-gradient-to-r from-purple-500/10 via-indigo-500/10 to-emerald-500/10 border border-purple-500/30 rounded-xl flex items-start gap-3">
               <div className="p-2 bg-purple-500/20 text-purple-600 rounded-lg shrink-0 mt-0.5">
@@ -878,7 +1265,25 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Website Name</label>
-                  <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. larastore-commerce" className={inputClass} />
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g. larastore-commerce"
+                    className={`${inputClass} ${
+                      duplicateNameSite ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900' : ''
+                    }`}
+                  />
+                  {duplicateNameSite ? (
+                    <p className="text-[11px] font-medium text-rose-600 mt-1 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      Nama / slug "{normalizedSlug}" sudah digunakan oleh website "{duplicateNameSite.name}".
+                    </p>
+                  ) : name.trim() !== '' ? (
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Slug: <code className="font-mono text-slate-600">{normalizedSlug}</code>
+                    </p>
+                  ) : null}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Domain (FQDN)</label>
@@ -888,14 +1293,25 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     onChange={(e) => setDomain(e.target.value)}
                     placeholder="app.example.com"
                     className={`${inputClass} ${
-                      domain.trim() !== '' && !domainValid ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40' : ''
+                      duplicateDomainSite || (domain.trim() !== '' && !domainValid)
+                        ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900'
+                        : ''
                     }`}
                   />
-                  {domain.trim() !== '' && !domainValid && (
-                    <p className="text-[11px] text-rose-600 mt-1">
-                      Enter a valid domain without a scheme, e.g. <code className="font-mono">app.example.com</code>
+                  {duplicateDomainSite ? (
+                    <p className="text-[11px] font-medium text-rose-600 mt-1 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      Domain "{domain.trim()}" sudah digunakan oleh website "{duplicateDomainSite.name}".
                     </p>
-                  )}
+                  ) : domain.trim() !== '' && !domainValid ? (
+                    <p className="text-[11px] text-rose-600 mt-1">
+                      Masukkan domain FQDN yang valid tanpa skema, contoh: <code className="font-mono">app.example.com</code>
+                    </p>
+                  ) : name.trim() !== '' && domain.trim() !== '' && name.trim().toLowerCase() === domain.trim().toLowerCase() ? (
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Info: Nama website akan menggunakan slug <code className="font-mono">{normalizedSlug}</code>.
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
@@ -1014,9 +1430,51 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       );
                     })}
                   </div>
+                  {activeScaffold?.frameworkVersions && activeScaffold.frameworkVersions.length > 1 && (
+                    <div className="p-3 rounded-xl border border-blue-200 bg-white space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-800">Pilih Versi {framework}:</span>
+                        {compatibleRuntimes.note && (
+                          <span className="text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded font-medium flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3 text-blue-600" />
+                            {compatibleRuntimes.note}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {activeScaffold.frameworkVersions.map((fv) => {
+                          const isVerSelected = frameworkVersion === fv.value;
+                          return (
+                            <button
+                              key={fv.value}
+                              type="button"
+                              onClick={() => {
+                                setFrameworkVersion(fv.value);
+                                const comp = getCompatibleRuntimeVersions(runtime, framework, fv.value, rawAvailableVersions);
+                                setVersion(comp.recommended);
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                                isVerSelected
+                                  ? 'bg-blue-600 text-white shadow-xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                              }`}
+                            >
+                              <span>v{fv.label}</span>
+                              {fv.badge && (
+                                <span className={`text-[9px] px-1 py-0.2 rounded font-bold uppercase ${isVerSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                                  {fv.badge}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="p-3 rounded-xl border border-blue-200 bg-blue-50/50 text-xs text-blue-900 flex items-center justify-between">
                     <div>
-                      <span className="font-semibold">Selected: {framework} ({version})</span>
+                      <span className="font-semibold">Selected: {framework} {frameworkVersion ? `v${frameworkVersion}` : ''} ({runtime.toUpperCase()} {version})</span>
                       <p className="text-[11px] text-blue-700 mt-0.5">
                         Target directory: <code className="font-mono">/home/{tenantUser}/web/{name || '<website>'}</code>
                       </p>
@@ -1327,10 +1785,18 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                         <span className="text-[10px] text-slate-400">Pilih versi runtime</span>
                       </div>
                       <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass}>
-                        {runtimeConfigs[runtime].versions.map((ver) => (
-                          <option key={ver} value={ver}>{ver}</option>
+                        {compatibleRuntimes.versions.map((ver) => (
+                          <option key={ver} value={ver}>
+                            {ver} {ver === compatibleRuntimes.recommended ? '(Direkomendasikan)' : ''}
+                          </option>
                         ))}
                       </select>
+                      {compatibleRuntimes.note && (
+                        <p className="text-[11px] text-blue-700 mt-1.5 flex items-center gap-1 font-medium bg-blue-50/80 px-2.5 py-1 rounded-md border border-blue-100">
+                          <ShieldCheck className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span>{compatibleRuntimes.note}</span>
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -1670,7 +2136,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     ? ([
                         ['Web server', webServer.toUpperCase()],
                         ['Runtime', `${runtime.toUpperCase()} ${version}`],
-                        ['Framework', framework],
+                        ['Framework', frameworkVersion ? `${framework} v${frameworkVersion}` : framework],
                         ['Source', effectiveSource === 'scaffold' ? 'Scaffold / download' : effectiveSource === 'github' ? `GitHub ${gitRepo || '(repo)'} @ ${gitBranch}` : effectiveSource === 'upload' ? `Upload ${uploadFile ?? '(archive)'}` : 'Existing files'],
                       ] as [string, string][])
                     : ([['Upstream', upstreamUrl]] as [string, string][])),
@@ -1751,11 +2217,20 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               <button
                 type="button"
                 onClick={handleDeploy}
-                disabled={!sourceValidForMode}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={!sourceValidForMode || isSubmitting}
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
               >
-                <Server className="w-3.5 h-3.5" />
-                <span>Deploy Website</span>
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deploying…</span>
+                  </>
+                ) : (
+                  <>
+                    <Server className="w-3.5 h-3.5" />
+                    <span>Deploy Website</span>
+                  </>
+                )}
               </button>
             ) : (
               <button

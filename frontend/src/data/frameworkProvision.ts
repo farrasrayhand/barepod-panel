@@ -20,14 +20,15 @@ const frameworkMajor = (framework: string): string => {
   return match ? match[1] : '';
 };
 
-export const getProvisionPlan = (runtime: RuntimeType, framework: string): ProvisionPlan => {
+export const getProvisionPlan = (runtime: RuntimeType, framework: string, frameworkVersion?: string): ProvisionPlan => {
   const f = (framework || '').toLowerCase();
+  const v = (frameworkVersion || '').trim();
 
   if (f.includes('generic') || f.includes('custom')) return GENERIC;
 
   if (runtime === 'php') {
     if (f.includes('laravel')) {
-      const major = frameworkMajor(framework) || '12';
+      const major = v || frameworkMajor(framework) || '12';
       return {
         mode: 'download',
         install: `composer create-project laravel/laravel:^${major} .`,
@@ -56,7 +57,7 @@ export const getProvisionPlan = (runtime: RuntimeType, framework: string): Provi
       };
     }
     if (f.includes('symfony')) {
-      const major = frameworkMajor(framework) || '7';
+      const major = v || frameworkMajor(framework) || '7';
       return {
         mode: 'download',
         install: `composer create-project symfony/skeleton:"${major}.*" .`,
@@ -65,7 +66,7 @@ export const getProvisionPlan = (runtime: RuntimeType, framework: string): Provi
       };
     }
     if (f.includes('drupal')) {
-      const major = frameworkMajor(framework) || '10';
+      const major = v || frameworkMajor(framework) || '11';
       return {
         mode: 'download',
         install: `composer create-project drupal/recommended-project:^${major} .`,
@@ -99,11 +100,12 @@ export const getProvisionPlan = (runtime: RuntimeType, framework: string): Provi
 
   if (runtime === 'nodejs') {
     if (f.includes('next')) {
+      const verTag = v ? `@${v}` : '@latest';
       return {
         mode: 'download',
-        install: 'npx create-next-app@latest . --ts --app --eslint --src-dir --use-npm',
+        install: `npx create-next-app${verTag} . --ts --app --eslint --src-dir --use-npm`,
         steps: ['npm install', 'npm run build'],
-        note: 'Scaffolds a new Next.js app (runtime Node version is selected separately).',
+        note: `Scaffolds a new Next.js ${v || 'latest'} app (runtime Node version is selected separately).`,
       };
     }
     if (f.includes('nuxt')) {
@@ -116,18 +118,20 @@ export const getProvisionPlan = (runtime: RuntimeType, framework: string): Provi
       return { mode: 'download', install: 'npx @nestjs/cli@latest new . --package-manager npm --skip-git', steps: ['npm install', 'npm run build'], note: 'Scaffolds a new NestJS project.' };
     }
     if (f.includes('express')) {
-      return { mode: 'download', install: 'npx express-generator@latest .', steps: ['npm install'], note: 'Scaffolds an Express app skeleton.' };
+      const pkg = v === '5' ? 'express-generator@next' : 'express-generator@latest';
+      return { mode: 'download', install: `npx ${pkg} .`, steps: ['npm install'], note: `Scaffolds an Express ${v || '4'} app skeleton.` };
     }
     return { mode: 'generic', install: '', steps: ['npm install', 'npm run build'], note: 'Bring your own Node project — dependencies are installed automatically.' };
   }
 
   if (runtime === 'python') {
     if (f.includes('django')) {
+      const dVer = v ? `~=${v}.0` : '';
       return {
         mode: 'download',
-        install: 'python -m venv venv && . venv/bin/activate && pip install django && django-admin startproject config .',
+        install: `python -m venv venv && . venv/bin/activate && pip install "django${dVer}" && django-admin startproject config .`,
         steps: ['pip install -r requirements.txt --quiet', 'python manage.py migrate --noinput'],
-        note: 'Creates a virtualenv and scaffolds a new Django project.',
+        note: `Creates a virtualenv and scaffolds a new Django ${v || 'latest'} project.`,
       };
     }
     const pkg = f.includes('flask') ? 'Flask' : f.includes('fastapi') ? 'FastAPI' : '';
@@ -142,11 +146,12 @@ export const getProvisionPlan = (runtime: RuntimeType, framework: string): Provi
 
   if (runtime === 'ruby') {
     if (f.includes('rails')) {
+      const rVer = v ? `-v "~> ${v}.0"` : '';
       return {
         mode: 'download',
-        install: 'gem install rails && rails new . --skip-bundle --database=$DB_ADAPTER',
+        install: `gem install rails ${rVer} && rails new . --skip-bundle --database=$DB_ADAPTER`,
         steps: ['bundle install', 'bin/rails db:migrate'],
-        note: 'Scaffolds a new Ruby on Rails application.',
+        note: `Scaffolds a new Ruby on Rails ${v || 'latest'} application.`,
       };
     }
     return { mode: 'generic', install: '', steps: ['bundle install'], note: 'Gemfile dependencies are installed automatically.' };

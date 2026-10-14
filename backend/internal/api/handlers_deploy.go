@@ -143,8 +143,20 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 	}
 	if _, err := s.store.WebsiteBySlug(req.Slug); err == nil {
 		writeJSON(w, http.StatusConflict, validationResponse(
-			map[string]string{"slug": "this name is already in use"},
+			map[string]string{"slug": "this website name is already in use"},
 			"A website with this name already exists"))
+		return
+	}
+	if dom, err := s.store.GetDomainByName(req.Domain); err == nil && dom != nil {
+		writeJSON(w, http.StatusConflict, validationResponse(
+			map[string]string{"domain": fmt.Sprintf("domain '%s' is already in use by website '%s'", req.Domain, dom.WebsiteSlug)},
+			"This domain is already in use by another website"))
+		return
+	}
+	if existing, err := s.store.WebsiteByDomain(req.Domain); err == nil && existing != nil {
+		writeJSON(w, http.StatusConflict, validationResponse(
+			map[string]string{"domain": fmt.Sprintf("domain '%s' is already registered for website '%s'", req.Domain, existing.Slug)},
+			"This domain is already in use by another website"))
 		return
 	}
 	// Only admins deploy for another tenant.

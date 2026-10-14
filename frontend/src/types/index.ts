@@ -35,6 +35,7 @@ export interface WebApp {
   runtime: RuntimeType;
   version: string;
   framework?: string;
+  frameworkVersion?: string;
   webServer: WebServerType;
   tenantUser: string;
   status: 'running' | 'stopped' | 'suspended' | 'building' | 'error';
