@@ -739,6 +739,17 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = %q)\gexec`,
 		s.logOutput(out)
 		if err != nil {
 			s.log("stderr", "warning: wp config create failed: "+err.Error())
+		} else {
+			// Inject reverse-proxy SSL support so WordPress outputs https:// assets and avoids Mixed Content
+			wpConfigPath := filepath.Join(s.siteDir, "wp-config.php")
+			if content, err := os.ReadFile(wpConfigPath); err == nil {
+				str := string(content)
+				if !strings.Contains(str, "HTTP_X_FORWARDED_PROTO") {
+					snippet := "<?php\n// Reverse proxy & Cloudflare SSL detection\nif (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) {\n    $_SERVER['HTTPS'] = 'on';\n}\n"
+					str = strings.Replace(str, "<?php", snippet, 1)
+					_ = os.WriteFile(wpConfigPath, []byte(str), 0o644)
+				}
+			}
 		}
 	}
 
