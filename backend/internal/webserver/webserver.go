@@ -233,7 +233,7 @@ server {
 `, nil
 	case Caddy:
 		return `# Managed by BarePod Panel — the catch-all site (barepod-default.caddy).
-:80 {
+http:// {
     respond "Nothing is hosted here yet." 404
 }
 `, nil
