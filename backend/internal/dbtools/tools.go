@@ -323,7 +323,7 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 }
 
 // startupWait is how long a freshly started tool may take to answer.
-const startupWait = 20 * time.Second
+const startupWait = 35 * time.Second
 
 // containerRetryWait is how long to let Docker release a name and a loopback port before
 // starting the replacement for a container that was just removed, and
