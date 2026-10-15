@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { siteSupportsShell, siteSupportsFiles, siteSupportsCI, siteHasGit, siteShellNote, siteFilesNote, siteCINote, siteTabSupport } from '../utils/siteRuntime';
 import { 
   ArrowLeft, 
@@ -82,6 +82,7 @@ interface AppDetailPageProps {
   onUpdateApp?: (updated: WebApp) => void;
   onDeleteApp?: (slug: string, options?: { databases?: 'keep' | 'delete' }) => Promise<void> | void;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
+  onWatchDeploy?: (slug: string, deployId?: string) => void;
   activeTab?: AppDetailTab;
   onTabChange?: (tab: AppDetailTab) => void;
 }
@@ -95,6 +96,7 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   onUpdateApp,
   onDeleteApp,
   onShowToast,
+  onWatchDeploy,
   activeTab: activeTabProp,
   onTabChange,
 }) => {
@@ -292,6 +294,71 @@ npm run build`;
   const [isDeployingNow, setIsDeployingNow] = useState(false);
   const [copiedDeployWebhook, setCopiedDeployWebhook] = useState(false);
   const [deployLogs, setDeployLogs] = useState<string[]>([]);
+  const [isLoadingDeployLogs, setIsLoadingDeployLogs] = useState(false);
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  const loadDeployLogs = useCallback((force = false) => {
+    if (!force && deployLogs.length > 0) return () => {};
+    setIsLoadingDeployLogs(true);
+    let cancelled = false;
+    let receivedAny = false;
+
+    const stop = subscribeDeploy(
+      app.name,
+      undefined,
+      (line) => {
+        if (cancelled) return;
+        receivedAny = true;
+        setIsLoadingDeployLogs(false);
+        setDeployLogs((prev) => {
+          const formatted = `[${line.stream}] ${line.line}`;
+          return prev.includes(formatted) ? prev : [...prev, formatted];
+        });
+      },
+      (job) => {
+        if (cancelled) return;
+        setIsLoadingDeployLogs(false);
+        if (job.status === 'failed' && job.error) {
+          setDeployLogs((prev) => {
+            const failLine = `[FAIL] ${job.error}`;
+            return prev.includes(failLine) ? prev : [...prev, failLine];
+          });
+        }
+      },
+      () => {
+        if (cancelled) return;
+        setIsLoadingDeployLogs(false);
+      }
+    );
+
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled && !receivedAny) {
+        setIsLoadingDeployLogs(false);
+      }
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimer);
+      stop();
+    };
+  }, [app.name, deployLogs.length]);
+
+  // Auto-fetch latest deploy logs when entering deploy tab
+  useEffect(() => {
+    if (activeTab === 'deploy') {
+      const cleanup = loadDeployLogs();
+      return cleanup;
+    }
+  }, [activeTab, loadDeployLogs]);
+
+  // Auto-scroll terminal when logs update
+  useEffect(() => {
+    if (deployLogs.length > 0) {
+      terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [deployLogs.length]);
+
   const [gitStatus, setGitStatus] = useState<ApiWebsiteGitStatus | null>(null);
   const [loadingGitStatus, setLoadingGitStatus] = useState(false);
   const [deployKeyInfo, setDeployKeyInfo] = useState<ApiDeployKey | null>(null);
@@ -1692,10 +1759,17 @@ QUEUE_CONNECTION=redis`;
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => setActiveTab('deploy')}
-              className="px-3.5 py-2 text-xs font-bold text-rose-900 bg-white border border-rose-300 rounded-xl hover:bg-rose-100 transition-colors cursor-pointer shadow-2xs"
+              onClick={() => {
+                setActiveTab('deploy');
+                onWatchDeploy?.(app.name);
+                setTimeout(() => {
+                  document.getElementById('deploy-log-terminal')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 100);
+              }}
+              className="px-3.5 py-2 text-xs font-bold text-rose-900 bg-white border border-rose-300 rounded-xl hover:bg-rose-100 transition-colors cursor-pointer shadow-2xs flex items-center gap-1.5"
             >
-              View Build Logs
+              <Terminal className="w-3.5 h-3.5 text-rose-700" />
+              <span>View Build Logs</span>
             </button>
             <button
               type="button"
@@ -1842,6 +1916,23 @@ QUEUE_CONNECTION=redis`;
             >
               <Archive className={`w-3.5 h-3.5 text-blue-600 ${isExportingBackup ? 'animate-spin' : ''}`} />
               <span>{isExportingBackup ? 'Packaging...' : 'Backup (.bpod)'}</span>
+            </button>
+
+            {/* View Build Logs Button */}
+            <button
+              type="button"
+              onClick={() => {
+                onWatchDeploy?.(app.name);
+                setActiveTab('deploy');
+                setTimeout(() => {
+                  document.getElementById('deploy-log-terminal')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 100);
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
+              title="View live build logs and deployment output"
+            >
+              <Terminal className="w-3.5 h-3.5 text-slate-600" />
+              <span>Build Logs</span>
             </button>
 
             {/* Direct Redeploy / Retry Button in Header Quick Actions */}
@@ -5289,24 +5380,93 @@ QUEUE_CONNECTION=redis`}
             </div>
 
             {/* Deployment Live Log Terminal */}
-            <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <div id="deploy-log-terminal" className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-2">
                 <div className="flex items-center gap-2">
                   <Terminal className="w-4 h-4 text-slate-600" />
                   <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                     Live Build & Deployment Output
                   </h4>
+                  {isLoadingDeployLogs && (
+                    <RefreshCw className="w-3 h-3 text-blue-500 animate-spin" />
+                  )}
                 </div>
-                <span className="text-[11px] text-emerald-600 font-semibold font-mono">
-                  Zero-Downtime Atomic Symlink Active
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onWatchDeploy?.(app.name)}
+                    className="px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                    title="Open live log streaming monitor popup"
+                  >
+                    <ExternalLink className="w-3 h-3 text-blue-600" />
+                    <span>Open Floating Monitor</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (deployLogs.length > 0) {
+                        navigator.clipboard.writeText(deployLogs.join('\n'));
+                        onShowToast?.('Logs Copied', 'Deployment build logs copied to clipboard.', 'success');
+                      }
+                    }}
+                    disabled={deployLogs.length === 0}
+                    className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <Copy className="w-3 h-3 text-slate-600" />
+                    <span>Copy</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => loadDeployLogs(true)}
+                    disabled={isLoadingDeployLogs}
+                    className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3 h-3 text-slate-600 ${isLoadingDeployLogs ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
               </div>
-              <div className="bg-slate-950 rounded-xl p-4 border border-slate-800 font-mono text-xs text-slate-200 min-h-[140px] max-h-[220px] overflow-y-auto space-y-1.5 shadow-inner">
-                {deployLogs.map((log, idx) => (
-                  <div key={idx} className={log.includes('[OK]') ? 'text-emerald-400 font-bold' : log.includes('[FAIL]') ? 'text-rose-400 font-bold' : 'text-slate-300'}>
-                    {log}
+              <div className="bg-slate-950 rounded-xl p-4 border border-slate-800 font-mono text-xs text-slate-200 min-h-[160px] max-h-[300px] overflow-y-auto space-y-1.5 shadow-inner">
+                {deployLogs.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-center text-slate-500">
+                    {isLoadingDeployLogs ? (
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
+                        <span>Fetching build logs from server...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <Terminal className="w-6 h-6 text-slate-600 mb-2" />
+                        <p className="text-xs text-slate-400">No deployment logs available yet for this website.</p>
+                        <button
+                          type="button"
+                          onClick={() => loadDeployLogs(true)}
+                          className="mt-2 px-3 py-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                        >
+                          Check for latest logs
+                        </button>
+                      </>
+                    )}
                   </div>
-                ))}
+                ) : (
+                  deployLogs.map((log, idx) => (
+                    <div
+                      key={idx}
+                      className={
+                        log.includes('[OK]') || log.includes('SUCCESS')
+                          ? 'text-emerald-400 font-bold'
+                          : log.includes('[FAIL]') || log.toLowerCase().includes('error') || log.toLowerCase().includes('failed')
+                            ? 'text-rose-400 font-bold'
+                            : log.includes('[CMD]')
+                              ? 'text-cyan-400 font-semibold'
+                              : 'text-slate-300'
+                      }
+                    >
+                      {log}
+                    </div>
+                  ))
+                )}
+                <div ref={terminalEndRef} />
               </div>
             </div>
           </div>

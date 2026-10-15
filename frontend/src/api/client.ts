@@ -1415,6 +1415,7 @@ export function subscribeDeploy(
   deployId: string | undefined,
   onLine: (line: DeployLogLine) => void,
   onDone?: (job: DeployJob) => void,
+  onError?: (err: Event) => void,
 ): () => void {
   const source = new EventSource(api.deployStreamUrl(slug, deployId), { withCredentials: true });
 
@@ -1434,6 +1435,13 @@ export function subscribeDeploy(
     }
     source.close();
   });
+
+  source.onerror = (err) => {
+    onError?.(err);
+    if (source.readyState === EventSource.CLOSED) {
+      source.close();
+    }
+  };
 
   return () => source.close();
 }

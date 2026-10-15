@@ -47,7 +47,7 @@ interface AppsViewProps {
   onDeleteApp?: (slug: string, options?: { databases?: 'keep' | 'delete' }) => Promise<void> | void;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   /** Hands a running deploy to the log panel: it shows the daemon's own stream. */
-  onWatchDeploy?: (slug: string, deployId: string) => void;
+  onWatchDeploy?: (slug: string, deployId?: string) => void;
 }
 
 export const AppsView: React.FC<AppsViewProps> = ({
@@ -138,6 +138,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
           onUpdateApp={handleUpdateAppDetail}
           onDeleteApp={onDeleteApp}
           onShowToast={onShowToast}
+          onWatchDeploy={onWatchDeploy}
         />
 
         {/* GitHub Redeployment Modal over Website Detail Page */}
