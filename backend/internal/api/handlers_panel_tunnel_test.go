@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -106,6 +107,28 @@ func TestTunnelStatusNeverReturnsSavedTokens(t *testing.T) {
 	}
 	if !strings.Contains(body, "tokenMasked") {
 		t.Errorf("the masked token is missing from the response: %s", body)
+	}
+}
+
+// Deleting a website takes its tunnel routes with it: only the deleted site's routes are purged, and
+// the rest are left alone. (No Cloudflare tunnel is configured here, so nothing goes over the wire.)
+func TestPurgeCloudflareRoutesRemovesOnlyTheDeletedSite(t *testing.T) {
+	s := newPanelTunnelServer(t)
+	if _, err := s.store.CreateCloudflareTunnelRoute("admin", "site.example.com", "http://127.0.0.1:80", "my-site"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.CreateCloudflareTunnelRoute("admin", "other.example.com", "http://127.0.0.1:80", "other-site"); err != nil {
+		t.Fatal(err)
+	}
+
+	s.purgeCloudflareRoutes(context.Background(), "admin", "my-site")
+
+	routes, err := s.store.ListCloudflareTunnelRoutes("admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routes) != 1 || routes[0].AppName != "other-site" {
+		t.Errorf("routes after purge = %+v, want only other-site", routes)
 	}
 }
 

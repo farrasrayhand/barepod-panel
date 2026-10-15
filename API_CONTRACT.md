@@ -342,6 +342,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
   - Synchronizes changes directly to Cloudflare Zero Trust tunnel configuration and auto-syncs website domain alias in real time.
 - `DELETE /api/v1/tunnels/routes/:id` (query `?user=<tenant>`) → `200 { ok: true }`.
   - Removes the route from local SQLite database, automatically deletes the public hostname rule in Cloudflare Zero Trust via API, and cleans up non-primary alias entries from `website_domains` while reloading the web server.
+  - The panel UI no longer exposes a per-route delete — routes are **lifecycle-managed** (see the cascade below). The endpoint stays available to the API/MCP surface.
 - `POST /api/v1/tunnels/sync` (query `?user=<tenant>`) → `200 TunnelStatusResponse`.
   - Bidirectional sync: queries Cloudflare Zero Trust API for all active ingress rules on this tunnel and synchronizes them into BarePod local database.
 - `POST /api/v1/tunnels/restart` (query `?user=<tenant>`) → `200 TunnelStatusResponse`.
@@ -356,7 +357,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
     - Removes the ingress rule + route and clears `panel_fqdn` and `panel_use_cloudflare`.
   - **Host binding:** while `panel_use_cloudflare` is on and `panel_fqdn` is set, the daemon answers **only** on that hostname (or any IP literal / loopback); any other hostname pointed at the box gets `403 host_not_allowed`. With Cloudflare off the panel answers on any address (the public-IP default) and IP access always works.
 - **Cascade Deletion & Orphaned Domain Pruning**:
-  - `DELETE /api/v1/websites/:slug` cascades and permanently deletes child records from `website_domains`, `website_security`, `website_cron_jobs`, `website_secrets`, and `cloudflare_tunnel_routes`.
+  - `DELETE /api/v1/websites/:slug` cascades and permanently deletes child records from `website_domains`, `website_security`, `website_cron_jobs`, `website_secrets`, and `cloudflare_tunnel_routes`. Its Cloudflare Tunnel routes are removed **in Cloudflare too** (ingress rule + DNS record, via `Client.DeleteHostname`), so a deleted site leaves no live hostname behind. Best-effort: a Cloudflare outage does not block the delete.
   - `GET /api/v1/domains` joins `websites w ON d.website_slug = w.slug` ensuring orphaned domains from deleted websites never display in the global `/domains` registry.
 - **Edge Ingress Anti-Redirect Loop Pattern (`ERR_TOO_MANY_REDIRECTS` Prevention)**:
   - All web traffic from Cloudflare Tunnels arrives on plain HTTP port 80 (`http://127.0.0.1:80`).

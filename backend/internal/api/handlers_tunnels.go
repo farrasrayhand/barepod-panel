@@ -549,6 +549,30 @@ func (s *Server) handleDeleteTunnelRoute(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// purgeCloudflareRoutes removes every ingress route a website owns, in Cloudflare and locally. It runs
+// on teardown so deleting a site does not leave public hostnames (and DNS records) pointing at a
+// tunnel for a site that no longer exists. Best-effort: a Cloudflare outage must not block the delete.
+func (s *Server) purgeCloudflareRoutes(ctx context.Context, tenantUser, slug string) {
+	routes, err := s.store.ListCloudflareTunnelRoutes(tenantUser)
+	if err != nil {
+		return
+	}
+	tunnel, _ := s.store.GetCloudflareTunnel(tenantUser)
+	ready := tunnel != nil && tunnel.ApiToken != "" && tunnel.AccountID != "" && tunnel.TunnelID != ""
+	for _, route := range routes {
+		if route.AppName != slug {
+			continue
+		}
+		if ready {
+			cf := cloudflare.NewClient(tunnel.ApiToken, tunnel.AccountID, tunnel.TunnelID)
+			if err := cf.DeleteHostname(ctx, route.Hostname); err != nil {
+				log.Printf("cloudflare: purge route %s on teardown: %v", route.Hostname, err)
+			}
+		}
+		_ = s.store.DeleteCloudflareTunnelRoute(tenantUser, route.ID)
+	}
+}
+
 // handleUpdateTunnelRoute updates an ingress route for this tenant and syncs with Cloudflare if API token is present.
 func (s *Server) handleUpdateTunnelRoute(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	id := r.PathValue("id")

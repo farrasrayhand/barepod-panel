@@ -1131,11 +1131,6 @@ export const api = {
       body: JSON.stringify({ hostname, service, appName, noTLSVerify, user }),
     }),
 
-  deleteTunnelRoute: (idOrHostname: string, user?: string) =>
-    request<{ ok: boolean }>(`/tunnels/routes/${encodeURIComponent(idOrHostname)}${user ? `?user=${encodeURIComponent(user)}` : ''}`, {
-      method: 'DELETE',
-    }),
-
   tunnelZones: (user?: string) =>
     request<{ zones: CloudflareZone[]; error?: string }>(`/tunnels/zones${user ? `?user=${encodeURIComponent(user)}` : ''}`),
 

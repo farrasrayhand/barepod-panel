@@ -13,7 +13,6 @@ import {
   Lock,
   Eye,
   EyeOff,
-  Trash2,
   Cpu,
   Layers,
   Sparkles,
@@ -374,21 +373,6 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
       onShowToast?.('Failed to Save Ingress Route', err?.message || 'Server error', 'error');
     } finally {
       setIsSavingRoute(false);
-    }
-  };
-
-  // Delete Route
-  const handleDeleteRoute = async (idOrHostname: string, hostnameDisplay: string) => {
-    try {
-      await api.deleteTunnelRoute(idOrHostname, activeUser);
-      await fetchTunnel(activeUser, true);
-      onShowToast?.(
-        'Ingress Domain Removed',
-        `Hostname ${hostnameDisplay} was removed from your tunnel.`,
-        'info'
-      );
-    } catch (err: any) {
-      onShowToast?.('Failed to Delete Route', err?.message || 'Server error', 'error');
     }
   };
 
@@ -1074,13 +1058,6 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         title="Edit Ingress Route"
                       >
                         <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteRoute(route.id, route.hostname)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                        title="Remove this domain from the tunnel"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </td>

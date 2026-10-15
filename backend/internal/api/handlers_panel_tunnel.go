@@ -132,7 +132,7 @@ func (s *Server) handleUnpublishPanel(w http.ResponseWriter, r *http.Request, us
 	tunnel, ready := s.adminTunnel(user)
 	if fqdn != "" && ready {
 		cf := cloudflare.NewClient(tunnel.ApiToken, tunnel.AccountID, tunnel.TunnelID)
-		if err := cf.DeleteIngressRule(r.Context(), fqdn); err != nil {
+		if err := cf.DeleteHostname(r.Context(), fqdn); err != nil {
 			log.Printf("cloudflare: unpublish panel at %s: %v", fqdn, err)
 		}
 		_ = s.store.DeleteCloudflareTunnelRoute(user.Username, fqdn)

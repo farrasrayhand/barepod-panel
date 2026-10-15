@@ -312,15 +312,13 @@ func (c *Client) DeleteIngressRule(ctx context.Context, hostname string) error {
 	return nil
 }
 
-// EnsureDNSCname finds the corresponding zone and ensures a CNAME record exists pointing to the tunnel.
-func (c *Client) EnsureDNSCname(ctx context.Context, hostname string) error {
+// findZone returns the Cloudflare zone id that owns a hostname, by testing domain suffixes
+// (e.g. app.example.com -> example.com -> com).
+func (c *Client) findZone(ctx context.Context, hostname string) (string, error) {
 	parts := strings.Split(hostname, ".")
 	if len(parts) < 2 {
-		return errors.New("invalid hostname")
+		return "", errors.New("invalid hostname")
 	}
-
-	// Try finding zone by testing domain suffixes (e.g. tjkt-project.my.id, my.id)
-	var zoneID string
 	for i := 0; i < len(parts)-1; i++ {
 		candidateZone := strings.Join(parts[i:], ".")
 		resp, err := c.request(ctx, "GET", "/zones?name="+candidateZone, nil)
@@ -330,14 +328,18 @@ func (c *Client) EnsureDNSCname(ctx context.Context, hostname string) error {
 				Name string `json:"name"`
 			}
 			if err := json.Unmarshal(resp.Result, &zones); err == nil && len(zones) > 0 {
-				zoneID = zones[0].ID
-				break
+				return zones[0].ID, nil
 			}
 		}
 	}
+	return "", fmt.Errorf("could not locate Cloudflare Zone for hostname: %s", hostname)
+}
 
-	if zoneID == "" {
-		return fmt.Errorf("could not locate Cloudflare Zone for hostname: %s", hostname)
+// EnsureDNSCname finds the corresponding zone and ensures a CNAME record exists pointing to the tunnel.
+func (c *Client) EnsureDNSCname(ctx context.Context, hostname string) error {
+	zoneID, err := c.findZone(ctx, hostname)
+	if err != nil {
+		return err
 	}
 
 	tunnelTarget := fmt.Sprintf("%s.cfargotunnel.com", c.tunnelID)
@@ -380,6 +382,48 @@ func (c *Client) EnsureDNSCname(ctx context.Context, hostname string) error {
 	return err
 }
 
+// DeleteDNSCname removes the DNS record(s) for a hostname in its zone, if any exist.
+func (c *Client) DeleteDNSCname(ctx context.Context, hostname string) error {
+	zoneID, err := c.findZone(ctx, hostname)
+	if err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("/zones/%s/dns_records?name=%s", zoneID, hostname)
+	resp, err := c.request(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return err
+	}
+	var records []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(resp.Result, &records); err != nil {
+		return err
+	}
+
+	var firstErr error
+	for _, record := range records {
+		if _, err := c.request(ctx, "DELETE", fmt.Sprintf("/zones/%s/dns_records/%s", zoneID, record.ID), nil); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// DeleteHostname removes everything this panel published for a hostname: the tunnel ingress rule and
+// the DNS record. Used when the thing behind it goes away — a deleted website, an unpublished panel.
+//
+// The ingress rule is what actually routes traffic, so its error is the one returned; DNS cleanup is
+// best-effort and a leftover record there is harmless (it points at the tunnel, which no longer has a
+// rule for it).
+func (c *Client) DeleteHostname(ctx context.Context, hostname string) error {
+	if err := c.DeleteIngressRule(ctx, hostname); err != nil {
+		return err
+	}
+	_ = c.DeleteDNSCname(ctx, hostname)
+	return nil
+}
+
 // Zone represents a DNS zone in Cloudflare.
 type Zone struct {
 	ID     string `json:"id"`
@@ -399,4 +443,3 @@ func (c *Client) ListZones(ctx context.Context) ([]Zone, error) {
 	}
 	return zones, nil
 }
-

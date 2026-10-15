@@ -585,6 +585,9 @@ func (s *Server) handleDeleteWebsite(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 
+	// The website's Cloudflare Tunnel routes go with it — removed in Cloudflare too, not just locally.
+	s.purgeCloudflareRoutes(r.Context(), site.TenantUser, slug)
+
 	steps, err := s.deploy.Teardown(r.Context(), slug)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Teardown failed: "+err.Error())

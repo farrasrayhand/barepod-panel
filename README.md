@@ -18,7 +18,9 @@
 - **Recycle bin for databases**: deleting a database suspends it and moves it to a recycle bin — apps can no longer connect, but the data is kept. Restore it, delete it permanently, or let it auto-purge after 30 days.
 - **File Manager Pro**: per-file checkboxes with select-all, multi-file batch actions (download as `.zip`, delete, copy/cut/paste), right-click context menu, in-browser previewers (image / SVG / PDF), and a code editor with syntax highlighting.
 - **GitHub push-to-deploy & one-click redeploy**: webhook-triggered `git pull` + build + zero-downtime reload, plus manual redeploy with streaming build logs.
-- **Zero-NAT Cloudflare Tunnel**: per-tenant tunnel tokens expose domains and containers to the internet without a static public IP or port forwarding.
+- **Zero-NAT Cloudflare Tunnel**: per-tenant tunnel tokens expose domains and containers to the internet without a static public IP or port forwarding. The panel can also **publish its own hostname** through the administrator's Cloudflare account (Settings → General): it is reached at its public address by default, and once the Cloudflare hostname is on the daemon **binds to it** — any other hostname pointed at the box is refused, while IP access still works.
+- **Tokens are write-only**: saved Cloudflare run/API tokens are never returned to the browser (only masked forms, with `has*` flags). A token can be replaced, never revealed or copied.
+- **Tunnel routes follow their app**: deleting a website (or unpublishing the panel) removes its ingress rule and DNS record from Cloudflare too, so no hostname is left pointing at a tunnel for something that no longer exists.
 - **Dedicated reverse proxy mode & multi-engine path routing**: forward traffic to internal ports with WebSocket pass-through, real-IP preservation, auto-SSL, upstream ping tests, and live vhost preview.
 - **World traffic map & streaming telemetry**: an interactive equirectangular world map with pulsing visitor pins, per-country filtering (latency, ISP), and a console log studio with light/dark themes, text-wrap toggle, and expandable request inspectors.
 - **Backup & migration hub**: one-click server-to-server live migration (pull from an old VPS with a 2-hour token), portable `.bpod` snapshots with SHA-256/AES-256, drag-and-drop restore, and scheduled cloud sync to Cloudflare R2 / AWS S3 / Google Cloud Storage / Wasabi (MinIO) with retention policies.
@@ -115,7 +117,8 @@ exactly when someone reaches for it.
 ```
 BarePod-Panel/
 ├── frontend/             # Dashboard web UI (React + Vite + TypeScript + Tailwind CSS)
-├── backend/              # Core daemon (Go) — Phase 2 skeleton (SQLite, auth, websites API)
+├── backend/              # Core daemon (Go) — SQLite/WAL, auth + RBAC, websites, files,
+│                         #   terminal, databases, monitoring, Cloudflare tunnels, metrics
 ├── scripts/              # install.sh, install-engines.sh, uninstall.sh, restore.sh (Ubuntu/Debian)
 ├── MASTER_PLAN.md        # Architecture, decisions with the measurements behind them, roadmap
 ├── API_CONTRACT.md       # What the daemon serves, endpoint by endpoint
