@@ -560,18 +560,27 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     let active = true;
+    setCfZones([]);
+    setSelectedCfZone('');
     const fetchZones = async () => {
       try {
         setLoadingCfZones(true);
         const res = await api.tunnelZones(tenantUser);
-        if (active && res.zones && Array.isArray(res.zones)) {
-          setCfZones(res.zones);
-          if (res.zones.length > 0) {
-            setSelectedCfZone((prev) => prev || res.zones[0].name);
+        if (active) {
+          if (res.zones && Array.isArray(res.zones) && res.zones.length > 0) {
+            setCfZones(res.zones);
+            setSelectedCfZone(res.zones[0].name);
+          } else {
+            setCfZones([]);
+            setSelectedCfZone('');
           }
         }
       } catch (err) {
         console.warn('Failed to load Cloudflare zones:', err);
+        if (active) {
+          setCfZones([]);
+          setSelectedCfZone('');
+        }
       } finally {
         if (active) setLoadingCfZones(false);
       }
