@@ -62,46 +62,181 @@ func httpsPort(listen string) string {
 // browser's "This site can't be reached". The web-server module replaces it with a
 // default vhost of its own once a site owns the port.
 const statusPageTemplate = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{code}} · BarePod Panel</title>
-<style>
-*{box-sizing:border-box}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f1f5f9;color:#0f172a;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px}
-.card{width:100%;max-width:34rem;background:#fff;border:1px solid #e2e8f0;border-radius:20px;box-shadow:0 10px 30px rgba(15,23,42,.06);padding:40px 36px;text-align:center}
-@keyframes bounce{0%,100%{transform:translateY(-18%);animation-timing-function:cubic-bezier(.8,0,1,1)}50%{transform:none;animation-timing-function:cubic-bezier(0,0,.2,1)}}
-@keyframes ping{75%,100%{transform:scale(2.4);opacity:0}}
-.icon{position:relative;width:80px;height:80px;border-radius:24px;background:#eef2ff;border:1px solid #c7d2fe;color:#4f46e5;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;animation:bounce 1.6s infinite}
-.icon svg{width:40px;height:40px}
-.pill{position:absolute;top:-8px;right:-10px;background:#6366f1;color:#fff;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:999px}
-h1{margin:0 0 8px;font-size:24px;font-weight:900;letter-spacing:-.02em}
-p{margin:0;color:#475569}
-.box{margin-top:24px;text-align:left;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden}
-.row{display:flex;justify-content:space-between;gap:12px;padding:12px 16px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0}
-.row:last-child{border-bottom:0}
-.row b,.row code{color:#0f172a;font-weight:700}
-.row code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:500}
-.dot{position:relative;display:inline-block;width:8px;height:8px;border-radius:999px;background:#f59e0b;margin-right:6px}
-.dot::after{content:"";position:absolute;inset:0;border-radius:999px;background:#f59e0b;animation:ping 1.4s cubic-bezier(0,0,.2,1) infinite}
-.amber{color:#b45309;font-weight:700}
-a{color:#2563eb;font-weight:600;text-decoration:none}
-a:hover{text-decoration:underline}
-.footer{margin-top:20px;font-size:11px;color:#94a3b8}
-@media (prefers-reduced-motion: reduce){.icon,.dot::after{animation:none}}
-</style></head>
-<body><main class="card">
-<div class="icon">
-<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
-<span class="pill">{{badge}}</span>
-</div>
-<h1>{{title}}</h1>
-<p>{{message}}</p>
-<div class="box">
-<div class="row"><span>Server</span><b>BarePod Web Engine</b></div>
-<div class="row"><span>Requested host</span><code>{{host}}</code></div>
-<div class="row"><span>Status</span><span class="amber"><span class="dot"></span>{{reason}}</span></div>
-</div>
-<p class="footer">{{footer}}</p>
-</main></body></html>`
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{code}} · BarePod Panel</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: #080c14;
+      background-image:
+        radial-gradient(at 0% 0%, rgba(30, 58, 138, 0.25) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(15, 23, 42, 0.4) 0px, transparent 50%);
+      color: #f1f5f9;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: 24px;
+      line-height: 1.6;
+    }
+    .container {
+      width: 100%;
+      max-width: 680px;
+      background: #0f172a;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      padding: 40px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: #fbbf24;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      margin-bottom: 20px;
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 9999px;
+      background: #f59e0b;
+      box-shadow: 0 0 10px #f59e0b;
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 800;
+      color: #ffffff;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      font-size: 14px;
+      color: #94a3b8;
+      margin-bottom: 24px;
+    }
+    .host-highlight {
+      display: inline-block;
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: #60a5fa;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-weight: 600;
+      word-break: break-all;
+    }
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+    .pipe-step {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .pipe-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748b;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pipe-val {
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .status-ok { color: #34d399; }
+    .status-warn { color: #fbbf24; }
+    .guidance-card {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 28px;
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    .guidance-card h2 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .footer {
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: #64748b;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="badge">
+      <span class="pulse-dot"></span>
+      {{badge}}
+    </div>
+    <h1>{{title}}</h1>
+    <p class="subtitle">{{message}}</p>
+
+    <div class="pipeline">
+      <div class="pipe-step">
+        <div class="pipe-label"><span>🌐</span> Requested Host</div>
+        <div class="pipe-val"><span class="host-highlight">{{host}}</span></div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-label"><span>⚡</span> Web Server</div>
+        <div class="pipe-val status-ok">✓ Online &amp; Responding</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-label"><span>📊</span> Response Status</div>
+        <div class="pipe-val status-warn">{{reason}}</div>
+      </div>
+    </div>
+
+    <div class="guidance-card">
+      <h2>ℹ️ Information</h2>
+      <p>{{footer}}</p>
+    </div>
+
+    <div class="footer">
+      <span>BarePod Web Engine</span>
+      <span>HTTP {{code}}</span>
+    </div>
+  </div>
+</body>
+</html>`
 
 // statusPage is one branded page the server answers with when a website cannot
 // serve the request: no site for this host (404), maintenance (503), and so on.
@@ -119,10 +254,10 @@ var (
 	noSitePage = statusPage{
 		Code:    404,
 		Badge:   "No site",
-		Title:   "Domain Belum Terhubung ke Website",
-		Message: "Domain <b>{{host}}</b> mengarah ke IP server ini, namun belum didaftarkan pada konfigurasi website manapun.",
-		Reason:  "404 — domain belum terdaftar",
-		Footer:  "Daftarkan domain dari panel BarePod agar otomatis aktif melayani website.",
+		Title:   "Domain Not Connected to a Website",
+		Message: "The domain <b>{{host}}</b> resolves to this server's IP address, but has not been configured for any active website.",
+		Reason:  "404 — unregistered domain",
+		Footer:  "Configure and add this domain in the BarePod panel to begin serving your website.",
 	}
 	// maintenancePage is the same page for a site under maintenance; the web-server
 	// module serves it (HTTP 503) once it owns the port.

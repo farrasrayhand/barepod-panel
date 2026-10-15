@@ -10,15 +10,15 @@ import (
 func Default404HTML(host string) string {
 	escapedHost := html.EscapeString(host)
 	if escapedHost == "" {
-		escapedHost = "domain ini"
+		escapedHost = "this domain"
 	}
 
 	tmpl := `<!doctype html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>404 Not Found — Domain Belum Terdaftar</title>
+  <title>404 Not Found — Domain Not Configured</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -65,6 +65,11 @@ func Default404HTML(host string) string {
       border-radius: 9999px;
       background: #f59e0b;
       box-shadow: 0 0 10px #f59e0b;
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
     }
     h1 {
       font-size: 26px;
@@ -117,7 +122,6 @@ func Default404HTML(host string) string {
     }
     .status-ok { color: #34d399; }
     .status-warn { color: #fbbf24; }
-    .status-err { color: #f87171; }
     .guidance-grid {
       display: grid;
       gap: 16px;
@@ -168,39 +172,39 @@ func Default404HTML(host string) string {
       <span class="pulse-dot"></span>
       HTTP 404 • UNREGISTERED DOMAIN
     </div>
-    <h1>Domain Belum Terhubung ke Website</h1>
-    <p class="subtitle">Domain <span id="host-placeholder" class="host-highlight">` + escapedHost + `</span> berhasil mengarah ke IP server ini, namun belum didaftarkan pada konfigurasi website manapun.</p>
+    <h1>Domain Not Connected to a Website</h1>
+    <p class="subtitle">The domain <span id="host-placeholder" class="host-highlight">` + escapedHost + `</span> resolves to this server's IP address, but has not been configured for any active website.</p>
 
     <div class="pipeline">
       <div class="pipe-step">
         <div class="pipe-label"><span>🌐</span> DNS Resolution</div>
-        <div class="pipe-val status-ok">✓ Terhubung ke IP Server</div>
+        <div class="pipe-val status-ok">✓ Resolves to Server IP</div>
       </div>
       <div class="pipe-step">
         <div class="pipe-label"><span>⚡</span> Web Server</div>
-        <div class="pipe-val status-ok">✓ Aktif & Merespons</div>
+        <div class="pipe-val status-ok">✓ Online &amp; Responding</div>
       </div>
       <div class="pipe-step">
         <div class="pipe-label"><span>📁</span> Virtual Host</div>
-        <div class="pipe-val status-warn">⚠ Belum Didaftarkan</div>
+        <div class="pipe-val status-warn">⚠ Not Configured</div>
       </div>
     </div>
 
     <div class="guidance-grid">
       <div class="guidance-card">
-        <h2>🛠️ Untuk Pemilik Domain / Administrator</h2>
+        <h2>🛠️ For Domain Owners &amp; Administrators</h2>
         <ol>
-          <li>Pastikan nama domain ini sudah ditambahkan ke menu <b>Websites</b> pada kontrol panel server Anda.</li>
-          <li>Jika menggunakan Cloudflare Tunnel atau Reverse Proxy, pastikan Public Hostname telah diarahkan ke port website yang sesuai.</li>
-          <li>Setelah website ditambahkan dan dideploy, web server akan langsung menampilkan website Anda secara otomatis.</li>
+          <li>Ensure this domain name is added under the <b>Websites</b> section in your BarePod control panel.</li>
+          <li>If using Cloudflare Tunnel or an external reverse proxy, ensure the public hostname is routed to the designated web port.</li>
+          <li>Once the website is added and deployed, the web server will automatically begin serving your application.</li>
         </ol>
       </div>
 
       <div class="guidance-card">
-        <h2>👤 Untuk Pengunjung</h2>
+        <h2>👤 For Visitors</h2>
         <ul>
-          <li>Halaman ini muncul karena alamat domain yang Anda tuju belum dihubungkan ke aplikasi aktif oleh pemiliknya.</li>
-          <li>Silakan periksa kembali penulisan alamat URL di browser atau hubungi pemilik website.</li>
+          <li>This page is displayed because the domain address you visited has not yet been linked to an active website or service.</li>
+          <li>Please verify the URL in your browser address bar or contact the website administrator.</li>
         </ul>
       </div>
     </div>

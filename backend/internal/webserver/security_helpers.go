@@ -114,164 +114,233 @@ func WriteMaintenancePage(slug, title, message string) (string, error) {
 	return dest, nil
 }
 
-// RenderMaintenanceHTML creates a responsive, clean, dark-mode 503 status page.
+// RenderMaintenanceHTML creates a responsive, clean, dark-mode 503 status page
+// that is 100% consistent with BarePod's default landing page design system.
 func RenderMaintenanceHTML(title, message string) string {
 	t := strings.TrimSpace(title)
 	if t == "" {
-		t = "System Maintenance in Progress"
+		t = "Scheduled Maintenance"
 	}
 	m := strings.TrimSpace(message)
 	if m == "" {
-		m = "We are currently performing scheduled maintenance and updates to improve your experience. We will be back online shortly."
+		m = "We are currently performing scheduled maintenance and system upgrades. Service will be back online shortly."
 	}
 
 	escapedTitle := html.EscapeString(t)
 	escapedMessage := html.EscapeString(m)
 
-	return fmt.Sprintf(`<!DOCTYPE html>
+	return fmt.Sprintf(`<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>503 Service Unavailable &mdash; %s</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>503 Service Unavailable — %s</title>
   <style>
-    :root {
-      --bg: #090d16;
-      --card-bg: rgba(17, 24, 39, 0.85);
-      --border: rgba(255, 255, 255, 0.08);
-      --text: #f3f4f6;
-      --text-muted: #9ca3af;
-      --amber: #f59e0b;
-      --amber-bg: rgba(245, 158, 11, 0.12);
-      --blue: #3b82f6;
-    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: radial-gradient(circle at 50%% 0%%, #172554 0%%, var(--bg) 60%%);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 1.5rem;
+      background-color: #080c14;
+      background-image:
+        radial-gradient(at 0%% 0%%, rgba(30, 58, 138, 0.25) 0px, transparent 50%%),
+        radial-gradient(at 100%% 100%%, rgba(15, 23, 42, 0.4) 0px, transparent 50%%);
+      color: #f1f5f9;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: 24px;
+      line-height: 1.6;
     }
-    .card {
-      background: var(--card-bg);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid var(--border);
-      border-radius: 1.5rem;
-      max-width: 32rem;
+    .container {
       width: 100%%;
-      padding: 2.5rem;
-      text-align: center;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+      max-width: 680px;
+      background: #0f172a;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      padding: 40px;
     }
     .badge {
       display: inline-flex;
       align-items: center;
-      gap: 0.5rem;
-      background: var(--amber-bg);
-      border: 1px solid rgba(245, 158, 11, 0.25);
-      color: var(--amber);
-      font-size: 0.75rem;
+      gap: 8px;
+      background: rgba(249, 115, 22, 0.12);
+      border: 1px solid rgba(249, 115, 22, 0.3);
+      color: #fb923c;
+      font-size: 11px;
       font-weight: 700;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      padding: 0.35rem 0.85rem;
+      padding: 6px 14px;
       border-radius: 9999px;
-      margin-bottom: 1.5rem;
+      margin-bottom: 20px;
     }
-    .badge-dot {
-      width: 0.5rem;
-      height: 0.5rem;
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
       border-radius: 9999px;
-      background: var(--amber);
-      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      background: #f97316;
+      box-shadow: 0 0 10px #f97316;
+      animation: pulse 1.8s infinite;
     }
     @keyframes pulse {
       0%%, 100%% { opacity: 1; transform: scale(1); }
       50%% { opacity: 0.4; transform: scale(0.85); }
     }
     h1 {
-      font-size: 1.5rem;
+      font-size: 26px;
       font-weight: 800;
       color: #ffffff;
-      margin-bottom: 0.75rem;
-      line-height: 1.25;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
     }
-    p {
-      color: var(--text-muted);
-      font-size: 0.925rem;
-      line-height: 1.6;
-      margin-bottom: 2rem;
+    .subtitle {
+      font-size: 14px;
+      color: #94a3b8;
+      margin-bottom: 24px;
     }
-    .countdown {
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+    .pipe-step {
       background: rgba(255, 255, 255, 0.03);
-      border: 1px dashed var(--border);
-      border-radius: 1rem;
-      padding: 1rem;
-      margin-bottom: 1.75rem;
-      font-size: 0.85rem;
-      color: var(--text-muted);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 14px 16px;
     }
-    .countdown strong {
-      color: #60a5fa;
-      font-family: monospace;
-      font-size: 1rem;
+    .pipe-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748b;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pipe-val {
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .status-ok { color: #34d399; }
+    .status-warn { color: #fbbf24; }
+    .status-orange { color: #fb923c; }
+    .guidance-card {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      padding: 18px 20px;
+      margin-bottom: 28px;
+    }
+    .guidance-card h2 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .guidance-card p {
+      font-size: 13px;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+    .action-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      flex-wrap: wrap;
     }
     .btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 0.5rem;
+      gap: 6px;
       background: #1e293b;
       color: #ffffff;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      padding: 0.7rem 1.5rem;
-      border-radius: 0.75rem;
-      font-size: 0.875rem;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-size: 12px;
       font-weight: 600;
       cursor: pointer;
       text-decoration: none;
       transition: all 0.15s ease;
-      width: 100%%;
     }
     .btn:hover {
       background: #334155;
-      border-color: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.25);
     }
     .footer {
-      margin-top: 2rem;
-      font-size: 0.75rem;
-      color: #6b7280;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: #64748b;
+      flex-wrap: wrap;
+      gap: 8px;
     }
   </style>
 </head>
 <body>
-  <div class="card">
+  <div class="container">
     <div class="badge">
-      <span class="badge-dot"></span>
-      Maintenance Mode (HTTP 503)
+      <span class="pulse-dot"></span>
+      HTTP 503 • SCHEDULED MAINTENANCE
     </div>
     <h1>%s</h1>
-    <p>%s</p>
-    <div class="countdown">
-      Auto-refreshing in <strong id="timer">30</strong> seconds...
+    <p class="subtitle">%s</p>
+
+    <div class="pipeline">
+      <div class="pipe-step">
+        <div class="pipe-label"><span>⚡</span> Web Server</div>
+        <div class="pipe-val status-ok">✓ Online &amp; Responding</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-label"><span>🛡️</span> Maintenance Mode</div>
+        <div class="pipe-val status-orange">⚠ Active (HTTP 503)</div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-label"><span>⚙️</span> Service Status</div>
+        <div class="pipe-val status-warn">⏳ Maintenance In Progress</div>
+      </div>
     </div>
-    <button class="btn" onclick="window.location.reload()">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-      Check Again Now
-    </button>
+
+    <div class="guidance-card">
+      <h2>🛠️ System Maintenance Information</h2>
+      <p>Access is temporarily restricted to ensure data consistency and integrity during scheduled updates. As soon as maintenance is complete, this site will resume normal operation.</p>
+      
+      <div class="action-row">
+        <span style="font-size: 12px; color: #94a3b8;">
+          Automatic check in <strong id="timer" style="color: #60a5fa; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px;">30</strong> seconds…
+        </span>
+        <button class="btn" onclick="window.location.reload()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+          Check Again Now
+        </button>
+      </div>
+    </div>
+
     <div class="footer">
-      Powered by BarePod Panel &bull; Edge Gateway
+      <span>BarePod Web Engine</span>
+      <span>Status: 503 Service Unavailable</span>
     </div>
   </div>
+
   <script>
-    let timeLeft = 30;
-    const timerElem = document.getElementById('timer');
-    setInterval(() => {
+    var timeLeft = 30;
+    var timerElem = document.getElementById('timer');
+    setInterval(function() {
       timeLeft--;
       if (timerElem) timerElem.textContent = timeLeft;
       if (timeLeft <= 0) {
@@ -280,8 +349,7 @@ func RenderMaintenanceHTML(title, message string) string {
     }, 1000);
   </script>
 </body>
-</html>
-`, escapedTitle, escapedTitle, escapedMessage)
+</html>`, escapedTitle, escapedTitle, escapedMessage)
 }
 
 // ParseIPList splits a comma- or newline-separated string of IP/CIDR entries and cleans them.
