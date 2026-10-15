@@ -431,6 +431,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/v1/tunnels/routes/{id}", tunnels(s.handleUpdateTunnelRoute))
 	mux.HandleFunc("DELETE /api/v1/tunnels/routes/{id}", tunnels(s.handleDeleteTunnelRoute))
 
+	// The panel's own hostname, published through the admin's Cloudflare Tunnel. Admin only: the
+	// panel's own domain must never be reachable through a tenant's account.
+	mux.HandleFunc("GET /api/v1/panel/tunnel", s.requireAuth(s.handlePanelTunnelStatus))
+	mux.HandleFunc("POST /api/v1/panel/tunnel/publish", s.requireAuth(s.handlePublishPanel))
+	mux.HandleFunc("POST /api/v1/panel/tunnel/unpublish", s.requireAuth(s.handleUnpublishPanel))
+
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)
 

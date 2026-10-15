@@ -1,4 +1,4 @@
-import { api, type PhpDefaultsConfig } from '../api/client';
+import { api, type CloudflareZone, type PanelTunnelStatus, type PhpDefaultsConfig } from '../api/client';
 import React, { useEffect, useState } from 'react';
 import { GuardCard } from './GuardCard';
 import { 
@@ -65,6 +65,9 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   // seeing that is the difference between trusting it and hoping.
   const [trustedDraft, setTrustedDraft] = useState('');
   const [trustedSaving, setTrustedSaving] = useState(false);
+  // The panel's own public hostname: readable by anyone signed in, published by an admin through
+  // their Cloudflare Tunnel. Declared here because the settings fetch above loads it.
+  const [panelFqdn, setPanelFqdn] = useState('');
   // Measured, not written into the screen: the settings page used to state the engines' ports and the
   // panel's, and SSH was missing entirely.
   const [ports, setPorts] = useState<{
@@ -126,6 +129,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
         const settings = await api.panelSettings();
         if (alive) {
           setExternalAddress(settings.externalAddress || '');
+          setPanelFqdn(settings.panelFqdn || '');
           setTrustedDraft((settings.trustedAddresses || []).join('\n'));
         }
       } catch {
@@ -306,11 +310,78 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
   // 1. General Settings
   const [panelPort, setPanelPort] = useState(8443);
-  const [panelDomain, setPanelDomain] = useState('panel.barepod.cloud');
+  // The panel's own hostname as detected from the admin's Cloudflare account: whether publishing is
+  // possible, and the zones (domains) to pick from.
+  const [panelTunnel, setPanelTunnel] = useState<PanelTunnelStatus | null>(null);
+  const [panelZones, setPanelZones] = useState<CloudflareZone[]>([]);
+  const [panelZone, setPanelZone] = useState('');
+  const [panelSubdomain, setPanelSubdomain] = useState('panel');
+  const [panelPublishing, setPanelPublishing] = useState(false);
   const [defaultWebServer, setDefaultWebServer] = useState<WebServerType>('openlitespeed');
   const [timezone, setTimezone] = useState('Asia/Jakarta');
   const [language, setLanguage] = useState('id');
   const [autoUpdate, setAutoUpdate] = useState(true);
+
+  // Detection for the panel's own domain. Admin only: the panel may only ever be published through
+  // the administrator's Cloudflare account, so the zone picker is filled from that account.
+  useEffect(() => {
+    if (!isAdmin) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const status = await api.panelTunnelStatus();
+        if (!alive) return;
+        setPanelTunnel(status);
+        setPanelFqdn(status.fqdn || '');
+        if (status.configured) {
+          const res = await api.tunnelZones();
+          if (alive && res.zones && Array.isArray(res.zones)) {
+            setPanelZones(res.zones);
+            if (res.zones.length > 0) setPanelZone(res.zones[0].name);
+          }
+        }
+      } catch {
+        // Not an admin, or the daemon refused: the field stays a plain text input.
+      }
+    })();
+    return () => { alive = false; };
+  }, [isAdmin]);
+
+  // The hostname the publish button sends: the picked zone with the subdomain in front of it.
+  const computedPanelFqdn = panelZone && panelZone !== 'custom'
+    ? (panelSubdomain.trim() ? `${panelSubdomain.trim().toLowerCase()}.${panelZone}` : panelZone)
+    : panelFqdn.trim().toLowerCase();
+
+  const publishPanel = async () => {
+    const hostname = computedPanelFqdn;
+    if (!hostname || panelPublishing) return;
+    setPanelPublishing(true);
+    try {
+      const status = await api.publishPanelTunnel(hostname);
+      setPanelTunnel(status);
+      setPanelFqdn(status.fqdn);
+      onShowToast?.('Panel published', `Reachable at https://${status.fqdn} through Cloudflare.`, 'success');
+    } catch (err) {
+      onShowToast?.('Publish failed', err instanceof Error ? err.message : 'unknown error', 'error');
+    } finally {
+      setPanelPublishing(false);
+    }
+  };
+
+  const unpublishPanel = async () => {
+    if (panelPublishing) return;
+    setPanelPublishing(true);
+    try {
+      const status = await api.unpublishPanelTunnel();
+      setPanelTunnel(status);
+      setPanelFqdn('');
+      onShowToast?.('Panel unpublished', 'The Cloudflare hostname was removed.', 'info');
+    } catch (err) {
+      onShowToast?.('Unpublish failed', err instanceof Error ? err.message : 'unknown error', 'error');
+    } finally {
+      setPanelPublishing(false);
+    }
+  };
 
   // 2. Security Settings
   const [forceHttps, setForceHttps] = useState(true);
@@ -504,13 +575,73 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Panel FQDN Domain
                   </label>
-                  <input
-                    type="text"
-                    value={panelDomain}
-                    onChange={(e) => setPanelDomain(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this domain yet.</p>
+
+                  {isAdmin && panelTunnel?.configured ? (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <input
+                          value={panelSubdomain}
+                          onChange={(e) => setPanelSubdomain(e.target.value)}
+                          placeholder="panel"
+                          className="w-36 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
+                        />
+                        {panelZones.length > 0 ? (
+                          <select
+                            value={panelZone}
+                            onChange={(e) => setPanelZone(e.target.value)}
+                            className="flex-1 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
+                          >
+                            {panelZones.map((z) => (
+                              <option key={z.id} value={z.name}>{z.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="flex-1 px-3 py-2 text-xs text-slate-400 bg-slate-50 border border-slate-200 rounded-lg">
+                            No zones found in this Cloudflare account
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void publishPanel()}
+                          disabled={panelPublishing || !computedPanelFqdn}
+                          className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors"
+                        >
+                          {panelPublishing ? 'Publishing…' : 'Publish via Cloudflare'}
+                        </button>
+                        {panelTunnel?.fqdn && (
+                          <button
+                            type="button"
+                            onClick={() => void unpublishPanel()}
+                            disabled={panelPublishing}
+                            className="px-3.5 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors"
+                          >
+                            Unpublish
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <input
+                      type="text"
+                      value={panelFqdn}
+                      onChange={(e) => setPanelFqdn(e.target.value)}
+                      disabled={!isAdmin}
+                      placeholder="panel.example.com"
+                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500 disabled:opacity-60"
+                    />
+                  )}
+
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    {!isAdmin
+                      ? "Only an administrator can publish the panel's own domain."
+                      : panelTunnel?.configured
+                        ? (panelTunnel.fqdn
+                            ? `Published via Cloudflare: https://${panelTunnel.fqdn} (account ${panelTunnel.accountId}).`
+                            : `Cloudflare connected — pick a domain from the account and publish. Target: ${panelTunnel.service}.`)
+                        : 'Cloudflare not configured yet. Add your API token on the Cloudflare Tunnel page first.'}
+                  </p>
                 </div>
               </div>
 

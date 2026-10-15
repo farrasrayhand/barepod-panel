@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/validate"
 )
 
 // externalAddressKey is the panel-wide setting for "the address an external client should use".
@@ -19,10 +20,20 @@ import (
 // ISP address that is not reachable at all).
 const externalAddressKey = "external_address"
 
+// panelFQDNKey is the panel's own public hostname, published through the administrator's Cloudflare
+// Tunnel. It is a setting rather than a measurement: behind a tunnel there is nothing on the host to
+// detect, and the name only exists because the operator picked it in their Cloudflare account.
+const panelFQDNKey = "panel_fqdn"
+
 // handlePanelSettings reads the panel-wide settings. Any signed-in user may look: these values end
 // up in the snippets an operator hands out, and they are not secrets.
 func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
 	address, err := s.store.PanelSetting(externalAddressKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
+	fqdn, err := s.store.PanelSetting(panelFQDNKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
 		return
@@ -34,6 +45,7 @@ func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"externalAddress": address,
+		"panelFqdn":       fqdn,
 		// The addresses the lockout must never ban, and the reason it matters that they are visible:
 		// this list can be empty without anything saying so, which is exactly the foot-gun it exists to
 		// remove. The operator's own address is added by any successful sign-in.
@@ -46,13 +58,14 @@ func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *
 func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	var body struct {
 		ExternalAddress  *string   `json:"externalAddress"`
+		PanelFQDN        *string   `json:"panelFqdn"`
 		TrustedAddresses *[]string `json:"trustedAddresses"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "could not read the settings")
 		return
 	}
-	if body.ExternalAddress == nil && body.TrustedAddresses == nil {
+	if body.ExternalAddress == nil && body.PanelFQDN == nil && body.TrustedAddresses == nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "nothing to change")
 		return
 	}
@@ -81,8 +94,23 @@ func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request,
 		_ = s.store.Audit(user.ID, "panel.trusted", "bruteforce", clientIP(r),
 			fmt.Sprintf("%d entry/entries: %s", len(clean), strings.Join(clean, ",")))
 	}
+	if body.PanelFQDN != nil {
+		fqdn := strings.ToLower(strings.TrimSpace(*body.PanelFQDN))
+		// Empty clears it, which is how the hostname is removed rather than left saying something
+		// stale; anything else has to be a domain a tunnel could actually route.
+		if fqdn != "" && !validate.FQDN(fqdn) {
+			writeError(w, http.StatusBadRequest, "invalid_domain", "that does not look like a domain name")
+			return
+		}
+		if err := s.store.SavePanelSetting(panelFQDNKey, fqdn); err != nil {
+			writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+			return
+		}
+		_ = s.store.Audit(user.ID, "panel.settings", "panel_fqdn", clientIP(r), "set to "+fqdn)
+	}
 	if body.ExternalAddress == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"trustedAddresses": clean})
+		fqdn, _ := s.store.PanelSetting(panelFQDNKey)
+		writeJSON(w, http.StatusOK, map[string]any{"panelFqdn": fqdn, "trustedAddresses": clean})
 		return
 	}
 	address := strings.TrimSpace(*body.ExternalAddress)

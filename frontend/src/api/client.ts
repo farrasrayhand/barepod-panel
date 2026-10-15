@@ -689,10 +689,10 @@ export const api = {
     }),
 
   panelSettings: () =>
-    request<{ externalAddress: string; trustedAddresses: string[] }>('/system/settings'),
+    request<{ externalAddress: string; panelFqdn: string; trustedAddresses: string[] }>('/system/settings'),
 
-  savePanelSettings: (settings: { externalAddress?: string; trustedAddresses?: string[] }) =>
-    request<{ externalAddress?: string; trustedAddresses?: string[] }>('/system/settings', {
+  savePanelSettings: (settings: { externalAddress?: string; panelFqdn?: string; trustedAddresses?: string[] }) =>
+    request<{ externalAddress?: string; panelFqdn?: string; trustedAddresses?: string[] }>('/system/settings', {
       method: 'PATCH',
       body: JSON.stringify(settings),
     }),
@@ -1138,6 +1138,21 @@ export const api = {
 
   tunnelZones: (user?: string) =>
     request<{ zones: CloudflareZone[]; error?: string }>(`/tunnels/zones${user ? `?user=${encodeURIComponent(user)}` : ''}`),
+
+  // --- The panel's own hostname, published through the admin's Cloudflare Tunnel ----------
+  panelTunnelStatus: () => request<PanelTunnelStatus>('/panel/tunnel'),
+
+  publishPanelTunnel: (hostname: string) =>
+    request<PanelTunnelStatus>('/panel/tunnel/publish', {
+      method: 'POST',
+      body: JSON.stringify({ hostname }),
+    }),
+
+  unpublishPanelTunnel: () =>
+    request<PanelTunnelStatus>('/panel/tunnel/unpublish', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
 
   // --- metrics & host operations ------------------------------------------
   systemMetrics: (range = '1h') =>
@@ -1984,6 +1999,14 @@ export interface CloudflareZone {
   id: string;
   name: string;
   status: string;
+}
+
+export interface PanelTunnelStatus {
+  configured: boolean;
+  fqdn: string;
+  service: string;
+  accountId: string;
+  tunnelId: string;
 }
 
 
