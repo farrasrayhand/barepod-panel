@@ -30,6 +30,7 @@ import {
   AlertTriangle,
   User,
   Sparkles,
+  Loader2,
 } from 'lucide-react';
 import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../types';
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
@@ -543,7 +544,9 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   const [domain, setDomain] = useState('');
   const [tenantUser, setTenantUser] = useState(defaultTenant);
   const [availableUsers, setAvailableUsers] = useState<Array<{ username: string; role: string; groupName?: string }>>([]);
-  const [tunnelEnabled, setTunnelEnabled] = useState(true);
+  const [tunnelEnabled, setTunnelEnabled] = useState(false);
+  const [hasTunnelConfigured, setHasTunnelConfigured] = useState(false);
+  const [checkingTunnel, setCheckingTunnel] = useState(false);
 
   // Cloudflare Zones state
   const [cfZones, setCfZones] = useState<CloudflareZone[]>([]);
@@ -562,11 +565,27 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
     let active = true;
     setCfZones([]);
     setSelectedCfZone('');
-    const fetchZones = async () => {
+    const fetchTunnelAndZones = async () => {
       try {
         setLoadingCfZones(true);
-        const res = await api.tunnelZones(tenantUser);
-        if (active) {
+        setCheckingTunnel(true);
+        const [statusResult, zonesResult] = await Promise.allSettled([
+          api.tunnelStatus(tenantUser),
+          api.tunnelZones(tenantUser),
+        ]);
+
+        if (!active) return;
+
+        let tunnelReady = false;
+        if (statusResult.status === 'fulfilled') {
+          const s = statusResult.value;
+          tunnelReady = Boolean(s && (s.hasToken || s.status === 'connected'));
+        }
+        setHasTunnelConfigured(tunnelReady);
+        setTunnelEnabled(tunnelReady);
+
+        if (zonesResult.status === 'fulfilled') {
+          const res = zonesResult.value;
           if (res.zones && Array.isArray(res.zones) && res.zones.length > 0) {
             setCfZones(res.zones);
             setSelectedCfZone(res.zones[0].name);
@@ -574,18 +593,26 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
             setCfZones([]);
             setSelectedCfZone('');
           }
+        } else {
+          setCfZones([]);
+          setSelectedCfZone('');
         }
       } catch (err) {
-        console.warn('Failed to load Cloudflare zones:', err);
+        console.warn('Failed to load Cloudflare tunnel or zones:', err);
         if (active) {
+          setHasTunnelConfigured(false);
+          setTunnelEnabled(false);
           setCfZones([]);
           setSelectedCfZone('');
         }
       } finally {
-        if (active) setLoadingCfZones(false);
+        if (active) {
+          setLoadingCfZones(false);
+          setCheckingTunnel(false);
+        }
       }
     };
-    fetchZones();
+    fetchTunnelAndZones();
     return () => { active = false; };
   }, [isOpen, tenantUser]);
 
@@ -1570,15 +1597,50 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     Path: <code className="font-mono text-slate-500">/home/{tenantUser}/web/{name || '<website>'}</code>
                   </p>
                 </div>
-                <label className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer">
-                  <input type="checkbox" checked={tunnelEnabled} onChange={(e) => setTunnelEnabled(e.target.checked)} className="mt-0.5 rounded border-slate-300 text-blue-600" />
-                  <span className="text-xs">
-                    <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                      <CloudRain className="w-3.5 h-3.5 text-blue-500" /> Cloudflare Tunnel (Zero-NAT)
+                {checkingTunnel ? (
+                  <div className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50/50 text-xs text-slate-500">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+                    <span>Checking Cloudflare Tunnel status for @{tenantUser}...</span>
+                  </div>
+                ) : hasTunnelConfigured ? (
+                  <label className="flex items-start gap-3 p-3 rounded-xl border border-blue-200 bg-blue-50/30 hover:bg-blue-50/60 cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={tunnelEnabled}
+                      onChange={(e) => setTunnelEnabled(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-xs">
+                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                        <CloudRain className="w-3.5 h-3.5 text-blue-500" /> Cloudflare Tunnel (Zero-NAT)
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                          Configured
+                        </span>
+                      </span>
+                      <span className="text-slate-500 block mt-0.5">
+                        Publish domain secara otomatis & aman tanpa IP publik atau port forwarding.
+                      </span>
                     </span>
-                    <span className="text-slate-500 block mt-0.5">Publish the domain without a public IP or port forwarding.</span>
-                  </span>
-                </label>
+                  </label>
+                ) : (
+                  <div className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/50 text-xs">
+                    <Globe className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-700">Direct Web Server ({webServer.toUpperCase()})</span>
+                        <span className="text-[10px] font-medium text-slate-500 bg-slate-200/60 px-1.5 py-0.5 rounded">
+                          Standard Port
+                        </span>
+                      </div>
+                      <span className="text-slate-500 block mt-0.5 text-[11px] leading-relaxed">
+                        Cloudflare Tunnel belum dikonfigurasi untuk akun <strong>@{tenantUser}</strong>. Website akan diakses langsung melalui web server port / local reverse proxy.
+                      </span>
+                      <span className="text-blue-600 block mt-1 text-[11px] font-medium">
+                        💡 Ingin Zero-NAT & domain otomatis tanpa IP publik? Setup tunnel terlebih dahulu di menu <strong>Cloudflare Tunnels</strong>.
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
