@@ -182,7 +182,8 @@ func (h *Host) MigrateLegacyTenants(ctx context.Context) error {
 func (h *Host) EnsureSiteDir(ctx context.Context, tenant, slug string) (string, error) {
 	home := filepath.Join(h.SitesRoot, tenant)
 	webDir := filepath.Join(home, "web")
-	_ = os.MkdirAll(webDir, 0o750)
+	_ = os.MkdirAll(webDir, 0o755)
+	_ = os.Chmod(webDir, 0o755)
 
 	legacy := filepath.Join(home, "apps", slug)
 	target := filepath.Join(webDir, slug)
@@ -200,13 +201,17 @@ func (h *Host) EnsureSiteDir(ctx context.Context, tenant, slug string) (string, 
 	}
 
 	path := h.SitePath(tenant, slug)
-	if err := os.MkdirAll(path, 0o750); err != nil {
+	if err := os.MkdirAll(path, 0o755); err != nil {
 		return "", fmt.Errorf("host: create %s: %w", path, err)
 	}
+	_ = os.Chmod(path, 0o755)
+
 	if h.Materialises() {
 		if out, err := h.Runner.Run(ctx, "", "chown", "-R", tenant+":"+tenant, home); err != nil {
 			return "", fmt.Errorf("host: chown %s: %w (%s)", tenant, err, strings.TrimSpace(out))
 		}
+		_, _ = h.Runner.Run(ctx, "", "chmod", "0755", webDir)
+		_, _ = h.Runner.Run(ctx, "", "chmod", "0755", path)
 	}
 	return path, nil
 }
@@ -535,6 +540,8 @@ func (h *Host) ChownSite(ctx context.Context, tenant, slug string) error {
 	if out, err := h.Runner.Run(ctx, "", "chown", "-R", tenant+":"+tenant, dir); err != nil {
 		return fmt.Errorf("host: chown -R %s: %w (%s)", dir, err, strings.TrimSpace(out))
 	}
+	// Web servers (Caddy, Nginx, Apache) require traversal and read permission (0755)
+	_, _ = h.Runner.Run(ctx, "", "chmod", "0755", dir)
 	return nil
 }
 
