@@ -346,6 +346,15 @@ Normative: a client must not offer a control the site type cannot use, and the s
   - Bidirectional sync: queries Cloudflare Zero Trust API for all active ingress rules on this tunnel and synchronizes them into BarePod local database.
 - `POST /api/v1/tunnels/restart` (query `?user=<tenant>`) → `200 TunnelStatusResponse`.
   - Executes `systemctl restart barepod-tunnel@<tenant>.service` to refresh the daemon process.
+- **Token hygiene — the saved tokens can never be read back:** no endpoint returns the Cloudflare run token or API token. `GET|POST /tunnels/status` expose only `hasToken`, `tokenMasked`, `hasApiToken`, `apiTokenMasked`. A token can be **replaced** (`POST /tunnels/token`) but never revealed or copied from the panel.
+- **Panel's own hostname (admin only)** — publishing the panel itself through the administrator's Cloudflare Tunnel, reusing the same zones:
+  - `GET /api/v1/panel/tunnel` → `200 { configured, fqdn, service, accountId, tunnelId }`.
+    - Detection only: `configured` is true when the admin's Cloudflare API token, account id and tunnel id are saved. `service` is the panel's own origin (`https://127.0.0.1:<panel port>`).
+  - `POST /api/v1/panel/tunnel/publish` → Body `{ hostname }` → `200 PanelTunnelStatus`.
+    - Validates the hostname (`validate.FQDN`), writes the ingress rule + DNS CNAME in Cloudflare, records the route (`app_name = "BarePod Panel"`), stores `panel_fqdn`, and turns `panel_use_cloudflare` on. `400 cloudflare_not_configured` when Cloudflare is not set up; `403 admin_required` for a non-admin.
+  - `POST /api/v1/panel/tunnel/unpublish` → `200 PanelTunnelStatus`.
+    - Removes the ingress rule + route and clears `panel_fqdn` and `panel_use_cloudflare`.
+  - **Host binding:** while `panel_use_cloudflare` is on and `panel_fqdn` is set, the daemon answers **only** on that hostname (or any IP literal / loopback); any other hostname pointed at the box gets `403 host_not_allowed`. With Cloudflare off the panel answers on any address (the public-IP default) and IP access always works.
 - **Cascade Deletion & Orphaned Domain Pruning**:
   - `DELETE /api/v1/websites/:slug` cascades and permanently deletes child records from `website_domains`, `website_security`, `website_cron_jobs`, `website_secrets`, and `cloudflare_tunnel_routes`.
   - `GET /api/v1/domains` joins `websites w ON d.website_slug = w.slug` ensuring orphaned domains from deleted websites never display in the global `/domains` registry.
@@ -497,8 +506,9 @@ Normative: a client must not offer a control the site type cannot use, and the s
   Returns baseline PHP tuning blueprint directives (`memoryLimit`, `uploadMaxSize`, `postMaxSize`, `maxExecutionTime`, `maxInputTime`, `maxInputVars`, OPcache settings, and `recommendedExtensions[]`) from SQLite `panel_settings` (defaults if unset) and lists all installed PHP versions on the host (`phpext.InstalledVersions()`).
 - `PUT /system/settings/php-defaults` → Payload `{ config: PhpDefaultsConfig, applyToHost?: bool }`
   Validates parameters and saves the global blueprint preset to SQLite `panel_settings`. When `applyToHost: true`, writes `/etc/php/<version>/mods-available/99-barepod-tuning.ini` across all installed PHP versions, executes `phpenmod -v <version> 99-barepod-tuning`, ensures recommended extensions in the blueprint are enabled via `phpenmod -v <version> <ext>`, and reloads `php<version>-fpm`. Audited as `panel.php_defaults`.
-- `GET /system/settings` → `{ externalAddress, trustedAddresses }`
-- `PATCH /system/settings` → `{ externalAddress?: string, trustedAddresses?: string[] }`
+- `GET /system/settings` → `{ externalAddress, panelFqdn, useCloudflare, trustedAddresses }`
+- `PATCH /system/settings` → `{ externalAddress?: string, panelFqdn?: string, useCloudflare?: boolean, trustedAddresses?: string[] }`
+  - `panelFqdn` (a validated FQDN; empty clears it) and `useCloudflare` record how the panel itself is reached: the public IP by default, or the Cloudflare Tunnel hostname once turned on. See §4.7 for publishing the panel's own hostname.
 - `GET /system/ports` → `{ panel: number, ssh: number, engines: map, sshPorts: number[] }`
 - `POST /system/ports/panel` → `{ port: number }`
 - `POST /system/ports/ssh` → `{ port: number, action: "add" | "remove" }`
