@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/cloudflare"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/provision"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
@@ -232,6 +234,10 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 	if err := s.store.CreateWebsite(site); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Could not record the website")
 		return
+	}
+
+	if req.TunnelEnabled {
+		s.ensureWebsiteTunnelRoute(r.Context(), req.TenantUser, req.Domain, req.Slug)
 	}
 
 	job, err := s.deploy.Start(deploy.Request{
@@ -665,6 +671,10 @@ func (s *Server) handleRedeployWebsite(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusInternalServerError, "internal", "Could not start the redeploy")
 		return
 	}
+
+	if site.TunnelEnable {
+		s.ensureWebsiteTunnelRoute(r.Context(), site.TenantUser, site.Domain, site.Slug)
+	}
 	_ = s.store.Audit(user.ID, "website.redeploy", slug, clientIP(r), "job="+job.ID)
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
@@ -774,3 +784,44 @@ func (s *Server) handleWebsiteExecCommand(w http.ResponseWriter, r *http.Request
 		"durationMs": duration.Milliseconds(),
 	})
 }
+
+// ensureWebsiteTunnelRoute creates or updates the Cloudflare ingress route for a website if tunnel is enabled.
+func (s *Server) ensureWebsiteTunnelRoute(ctx context.Context, tenantUser, domain, slug string) {
+	hostname := strings.ToLower(strings.TrimSpace(domain))
+	if hostname == "" {
+		return
+	}
+	service := "http://127.0.0.1:80"
+	_, err := s.store.CreateCloudflareTunnelRoute(tenantUser, hostname, service, slug)
+	if err != nil {
+		log.Printf("cloudflare: failed to record tunnel route for %s: %v", hostname, err)
+		return
+	}
+	tunnel, err := s.store.GetCloudflareTunnel(tenantUser)
+	if err == nil && tunnel != nil && tunnel.ApiToken != "" && tunnel.AccountID != "" && tunnel.TunnelID != "" {
+		go func() {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			cf := cloudflare.NewClient(tunnel.ApiToken, tunnel.AccountID, tunnel.TunnelID)
+			if err := cf.AddIngressRule(bgCtx, hostname, service, false); err != nil {
+				log.Printf("cloudflare: auto-sync tunnel route failed for %s: %v", hostname, err)
+			}
+		}()
+	}
+}
+
+// reconcileWebsiteTunnelRoutes ensures all active websites with tunnel enabled have an ingress route recorded.
+func (s *Server) reconcileWebsiteTunnelRoutes() {
+	sites, err := s.store.ListWebsites()
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, site := range sites {
+		if site.TunnelEnable && site.Domain != "" {
+			s.ensureWebsiteTunnelRoute(ctx, site.TenantUser, site.Domain, site.Slug)
+		}
+	}
+}
+

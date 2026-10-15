@@ -127,6 +127,8 @@ func New(d Deps) http.Handler {
 		telemetry:      telemetry.NewService(d.Store),
 	}
 
+	go s.reconcileWebsiteTunnelRoutes()
+
 	mux := http.NewServeMux()
 
 	// Public
