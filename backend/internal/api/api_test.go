@@ -279,6 +279,45 @@ func TestFileManagerIsScopedToTheCaller(t *testing.T) {
 	}
 }
 
+func TestFileManagerCompressAndExtract(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+	base := "/api/v1/websites/admin-site/files"
+
+	// Create test file
+	resp, body := panel.do(t, http.MethodPut, base+"/content", map[string]string{
+		"path": "test.txt", "content": "hello compression",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("write status = %d (%s)", resp.StatusCode, body)
+	}
+
+	// Compress
+	resp, body = panel.do(t, http.MethodPost, base+"/compress", map[string]any{
+		"paths":       []string{"test.txt"},
+		"destination": "archive.zip",
+		"format":      "zip",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("compress status = %d (%s)", resp.StatusCode, body)
+	}
+
+	// Extract
+	resp, body = panel.do(t, http.MethodPost, base+"/extract", map[string]any{
+		"path":        "archive.zip",
+		"destination": "extracted",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("extract status = %d (%s)", resp.StatusCode, body)
+	}
+
+	// Verify extracted file
+	resp, body = panel.do(t, http.MethodGet, base+"/content?path=extracted/test.txt", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("read extracted status = %d (%s)", resp.StatusCode, body)
+	}
+}
+
 func TestFileManagerRequiresTheCapability(t *testing.T) {
 	panel := newTestPanel(t)
 	group, err := panel.store.GroupByName("Basic")

@@ -344,6 +344,7 @@ func (s *Server) handleScopedUpload(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 	dir := r.URL.Query().Get("path")
+	autoExtract := r.URL.Query().Get("autoExtract") == "true"
 
 	reader, err := r.MultipartReader()
 	if err != nil {
@@ -364,19 +365,38 @@ func (s *Server) handleScopedUpload(w http.ResponseWriter, r *http.Request, user
 		if part.FileName() == "" {
 			continue
 		}
-		name := path.Base(strings.ReplaceAll(part.FileName(), "\\", "/"))
-		target := path.Join(strings.TrimPrefix(dir, "/"), name)
+		cleanName := filepath.Clean(filepath.ToSlash(part.FileName()))
+		if strings.HasPrefix(cleanName, "../") || cleanName == ".." || filepath.IsAbs(cleanName) {
+			cleanName = path.Base(cleanName)
+		}
+		cleanName = strings.TrimPrefix(cleanName, "/")
+		if cleanName == "" {
+			continue
+		}
+
+		target := path.Join(strings.TrimPrefix(dir, "/"), cleanName)
 
 		data, err := io.ReadAll(scope.manager.LimitReader(part))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "bad_request", "The upload could not be read")
 			return
 		}
+		if parent := path.Dir(target); parent != "." && parent != "" {
+			_ = scope.manager.Mkdir(parent)
+		}
 		if _, err := scope.manager.Write(target, data); err != nil {
 			s.block(w, r, user, scope, target, err)
 			return
 		}
 		written = append(written, target)
+
+		if autoExtract {
+			lower := strings.ToLower(target)
+			if strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") || strings.HasSuffix(lower, ".tar") {
+				targetDir := path.Dir(target)
+				_, _ = scope.manager.Extract(target, targetDir)
+			}
+		}
 	}
 	if len(written) == 0 {
 		writeError(w, http.StatusBadRequest, "bad_request", "No file was uploaded")
@@ -393,7 +413,7 @@ func (s *Server) handleScopedCompress(w http.ResponseWriter, r *http.Request, us
 	if !ok {
 		return
 	}
-	var req pathsRequest
+	var req compressRequest
 	if err := decodeJSON(r, &req); err != nil || len(req.Paths) == 0 {
 		writeError(w, http.StatusBadRequest, "bad_request", "At least one path is required")
 		return
@@ -403,12 +423,26 @@ func (s *Server) handleScopedCompress(w http.ResponseWriter, r *http.Request, us
 		return
 	}
 
+	if strings.TrimSpace(req.Destination) != "" {
+		if err := scope.manager.Compress(req.Paths, req.Destination, req.Format); err != nil {
+			s.block(w, r, user, scope, req.Destination, err)
+			return
+		}
+		_ = s.store.Audit(user.ID, "files.compress", scope.auditTarget(req.Destination), clientIP(r),
+			fmt.Sprintf("compressed %d items into %s", len(req.Paths), req.Destination))
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":   true,
+			"path": strings.TrimPrefix(req.Destination, "/"),
+		})
+		return
+	}
+
 	archive, err := scope.manager.Zip(req.Paths)
 	if err != nil {
 		s.block(w, r, user, scope, strings.Join(req.Paths, ", "), err)
 		return
 	}
-	_ = s.store.Audit(user.ID, "files.compress", scope.auditTarget(""), clientIP(r), fmt.Sprintf("%d item(s)", len(req.Paths)))
+	_ = s.store.Audit(user.ID, "files.compress_download", scope.auditTarget(""), clientIP(r), fmt.Sprintf("%d item(s)", len(req.Paths)))
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+scope.label+"-"+time.Now().UTC().Format("20060102-150405")+".zip\"")

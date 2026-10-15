@@ -307,6 +307,9 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/websites/{slug}/files/move", files(s.handleMoveFiles))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/files/delete", files(s.handleDeleteFiles))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/files/compress", files(s.handleCompressFiles))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/files/extract", files(s.handleExtractFiles))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/files/upload-chunk", files(s.handleUploadChunk))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/files/upload-chunk", files(s.handleUploadChunkStatus))
 
 	// Host-wide browser. An admin may look anywhere; the daemon enforces that the
 	// system trees (/etc, /usr, /boot, /var/lib, /proc, /sys, …) are read-only, so
@@ -327,6 +330,9 @@ func New(d Deps) http.Handler {
 	}))
 	mux.HandleFunc("POST /api/v1/files/delete", files(s.handleScopedDelete))
 	mux.HandleFunc("POST /api/v1/files/compress", files(s.handleScopedCompress))
+	mux.HandleFunc("POST /api/v1/files/extract", files(s.handleScopedExtract))
+	mux.HandleFunc("POST /api/v1/files/upload-chunk", files(s.handleScopedUploadChunk))
+	mux.HandleFunc("GET /api/v1/files/upload-chunk", files(s.handleScopedUploadChunkStatus))
 	// The picker behind the host-wide browser: which accounts have a home.
 	mux.HandleFunc("GET /api/v1/tenants", files(s.handleListTenants))
 

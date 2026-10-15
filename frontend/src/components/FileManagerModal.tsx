@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Folder,
   File,
@@ -18,6 +18,7 @@ import {
   Terminal,
   ShieldCheck,
   Maximize2,
+  Minimize2,
   Image as ImageIcon,
   FileCheck,
   Copy,
@@ -32,9 +33,25 @@ import {
   Loader2,
   TriangleAlert,
   Lock,
+  Search,
+  Pause,
+  Play,
+  Layers,
+  Info,
+  Clock,
+  HardDrive,
+  KeyRound,
+  FileArchive,
+  ChevronDown,
 } from 'lucide-react';
 import type { WebApp } from '../types';
-import { api, apiReachable, type FileScope, type FileEntry as ApiFileEntry } from '../api/client';
+import {
+  api,
+  apiReachable,
+  type FileScope,
+  type FileEntry as ApiFileEntry,
+  uploadFileResumable,
+} from '../api/client';
 import { createZip } from '../utils/zip';
 import { describeError } from '../utils/format';
 import { highlightCode } from '../utils/highlight';
@@ -64,8 +81,11 @@ interface FileOps {
   copy(from: string, to: string): Promise<unknown>;
   move(from: string, to: string): Promise<unknown>;
   remove(paths: string[]): Promise<unknown>;
-  compress(paths: string[]): Promise<Blob>;
-  upload(path: string, files: File[]): Promise<{ uploaded: string[] }>;
+  compress(paths: string[], destination?: string, format?: string): Promise<{ ok: boolean; path: string } | Blob>;
+  extract(path: string, destination?: string): Promise<{ ok: boolean; destination: string; extracted: string[] }>;
+  upload(path: string, files: File[], autoExtract?: boolean): Promise<{ uploaded: string[] }>;
+  uploadChunk(form: FormData): Promise<{ uploadId: string; chunkIndex?: number; completed: boolean; path?: string; extracted?: string[] }>;
+  uploadChunkStatus(uploadId: string): Promise<{ uploadId: string; chunks: number[] }>;
   downloadUrl(path: string): string;
 }
 
@@ -89,8 +109,11 @@ const buildFileOps = (scope: 'site' | 'host' | 'tenant', target: string): FileOp
       copy: (from, to) => api.copyFiles(slug, from, to),
       move: (from, to) => api.moveFiles(slug, from, to),
       remove: (paths) => api.deleteFiles(slug, paths),
-      compress: (paths) => api.compressFiles(slug, paths),
-      upload: (path, files) => api.uploadFiles(slug, path, files),
+      compress: (paths, destination, format) => api.compressFiles(slug, paths, destination, format),
+      extract: (path, destination) => api.extractFiles(slug, path, destination),
+      upload: (path, files, autoExtract) => api.uploadFiles(slug, path, files, autoExtract),
+      uploadChunk: (form) => api.uploadChunk(slug, form),
+      uploadChunkStatus: (uploadId) => api.uploadChunkStatus(slug, uploadId),
       downloadUrl: (path) => api.downloadUrl(slug, path),
     };
   }
@@ -110,27 +133,27 @@ const buildFileOps = (scope: 'site' | 'host' | 'tenant', target: string): FileOp
     copy: (from, to) => scoped.copy(fileScope, from, to),
     move: (from, to) => scoped.move(fileScope, from, to),
     remove: (paths) => scoped.remove(fileScope, paths),
-    compress: (paths) => scoped.compress(fileScope, paths),
-    upload: (path, files) => scoped.uploadFiles(fileScope, path, files),
+    compress: (paths, destination, format) => scoped.compress(fileScope, paths, destination, format),
+    extract: (path, destination) => scoped.extract(fileScope, path, destination),
+    upload: (path, files, autoExtract) => scoped.uploadFiles(fileScope, path, files, autoExtract),
+    uploadChunk: (form) => scoped.uploadChunk(fileScope, form),
+    uploadChunkStatus: (uploadId) => scoped.uploadChunkStatus(fileScope, uploadId),
     downloadUrl: (path) => scoped.downloadUrl(fileScope, path),
   };
 };
 
-interface FileEntry {
+export interface FileEntry {
   name: string;
   type: 'file' | 'folder';
   size: string;
+  rawSize?: number;
   modified: string;
   permissions: string;
-  /** Path relative to the site root, as the daemon expects it (live mode). */
   apiPath?: string;
-  /** Authenticated download URL, used for previews (live mode). */
   previewUrl?: string;
-  /** Simulation mode only. */
   content?: string;
-  mediaType?: 'text' | 'image' | 'pdf' | 'audio' | 'video';
+  mediaType?: 'text' | 'image' | 'pdf' | 'audio' | 'video' | 'archive';
   symlinkTarget?: string;
-  /** A system path: readable, never writable (set by a host-scope listing). */
   protected?: boolean;
 }
 
@@ -140,7 +163,34 @@ interface ClipboardState {
   sourcePath: string;
 }
 
-const detectMediaType = (fileName: string): 'text' | 'image' | 'pdf' | 'audio' | 'video' => {
+export interface UploadQueueItem {
+  id: string;
+  file: File;
+  name: string;
+  relPath: string;
+  size: number;
+  progress: number;
+  speedBytesPerSec: number;
+  status: 'queued' | 'uploading' | 'paused' | 'completed' | 'error';
+  error?: string;
+  extracted?: string[];
+  controller?: AbortController;
+}
+
+export const isArchiveName = (fileName: string): boolean => {
+  const lower = fileName.toLowerCase();
+  return (
+    lower.endsWith('.zip') ||
+    lower.endsWith('.tar.gz') ||
+    lower.endsWith('.tgz') ||
+    lower.endsWith('.tar') ||
+    lower.endsWith('.rar') ||
+    lower.endsWith('.7z')
+  );
+};
+
+const detectMediaType = (fileName: string): 'text' | 'image' | 'pdf' | 'audio' | 'video' | 'archive' => {
+  if (isArchiveName(fileName)) return 'archive';
   const ext = fileName.split('.').pop()?.toLowerCase();
   if (['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif', 'ico'].includes(ext || '')) return 'image';
   if (ext === 'pdf') return 'pdf';
@@ -168,11 +218,8 @@ const formatWhen = (iso: string): string => {
   return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
-/** UI path ("/public") → daemon path ("public"). */
 const toApiPath = (uiPath: string): string => uiPath.replace(/^\/+/, '').replace(/\/+$/, '');
-/** Child UI path. */
 const joinUiPath = (dir: string, name: string): string => (dir === '/' ? `/${name}` : `${dir}/${name}`);
-/** Child daemon path. */
 const joinApiPath = (dir: string, name: string): string => {
   const parent = toApiPath(dir);
   return parent ? `${parent}/${name}` : name;
@@ -189,15 +236,70 @@ const toEntry = (item: ApiFileEntry, ops: FileOps): FileEntry => {
     name: item.name,
     type: isFolder ? 'folder' : 'file',
     size: isFolder ? '—' : formatSize(item.size),
+    rawSize: isFolder ? undefined : item.size,
     modified: formatWhen(item.modifiedAt),
     permissions: item.mode,
     apiPath: item.path,
     previewUrl: isFolder ? undefined : ops.downloadUrl(item.path),
-    mediaType: detectMediaType(item.name),
+    mediaType: isFolder ? undefined : detectMediaType(item.name),
     symlinkTarget: item.symlinkTarget,
     protected: item.protected,
   };
 };
+
+/** Helper to extract all files recursively from a folder drop */
+async function getFilesFromDataTransfer(items: DataTransferItemList): Promise<File[]> {
+  const files: File[] = [];
+
+  async function traverseEntry(entry: any, currentPath = ''): Promise<void> {
+    if (!entry) return;
+    if (entry.isFile) {
+      const file = await new Promise<File>((resolve, reject) => entry.file(resolve, reject));
+      const relPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+      Object.defineProperty(file, 'webkitRelativePath', {
+        value: relPath,
+        writable: true,
+      });
+      files.push(file);
+    } else if (entry.isDirectory) {
+      const dirReader = entry.createReader();
+      const readEntries = async (): Promise<any[]> => {
+        return new Promise((resolve, reject) => {
+          dirReader.readEntries(resolve, reject);
+        });
+      };
+      let entries: any[] = [];
+      let batch: any[];
+      do {
+        batch = await readEntries();
+        entries = entries.concat(batch);
+      } while (batch && batch.length > 0);
+
+      const nextPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+      for (const child of entries) {
+        await traverseEntry(child, nextPath);
+      }
+    }
+  }
+
+  const entriesToTraverse: any[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.webkitGetAsEntry) {
+      const entry = item.webkitGetAsEntry();
+      if (entry) entriesToTraverse.push(entry);
+    } else {
+      const f = item.getAsFile();
+      if (f) files.push(f);
+    }
+  }
+
+  for (const entry of entriesToTraverse) {
+    await traverseEntry(entry);
+  }
+
+  return files;
+}
 
 export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   isOpen,
@@ -208,21 +310,27 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   tenant = '',
 }) => {
   const scopeTarget = scope === 'site' ? app?.name ?? '' : tenant;
-  const ops = React.useMemo(() => buildFileOps(scope, scopeTarget), [scope, scopeTarget]);
+  const ops = useMemo(() => buildFileOps(scope, scopeTarget), [scope, scopeTarget]);
   const [readOnlyRoot, setReadOnlyRoot] = useState(false);
 
   const [currentPath, setCurrentPath] = useState('/');
+  const [searchFilter, setSearchFilter] = useState('');
   const [selectedFile, setSelectedFile] = useState<FileEntry | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [editingFile, setEditingFile] = useState<FileEntry | null>(null);
   const [editorContent, setEditorContent] = useState('');
   const [editorEncoding, setEditorEncoding] = useState<'utf-8' | 'base64'>('utf-8');
   const [editorNote, setEditorNote] = useState('');
+  const [editorMaximized, setEditorMaximized] = useState(false);
+  const [showInspector, setShowInspector] = useState(false);
   const [busy, setBusy] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+
   const editorPreRef = useRef<HTMLPreElement>(null);
-  const uploadInputRef = useRef<HTMLInputElement>(null);
-  const { size: panelSize, height: panelHeight, setSize: setPanelSize } = usePanelSize({ sm: 420, md: 600, lg: 820 });
+  const fileUploadInputRef = useRef<HTMLInputElement>(null);
+  const folderUploadInputRef = useRef<HTMLInputElement>(null);
+  const { size: panelSize, height: panelHeight, setSize: setPanelSize } = usePanelSize({ sm: 460, md: 650, lg: 850 });
 
   // Real files (daemon reachable) or the prototype's mock tree.
   const [live, setLive] = useState<boolean | null>(null);
@@ -238,78 +346,79 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: FileEntry | null } | null>(null);
 
-  // Modal Dialogs for File Operations
+  // Upload Queue State & Drawer
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
+  const [uploadDrawerOpen, setUploadDrawerOpen] = useState(false);
+  const [autoExtractOnUpload, setAutoExtractOnUpload] = useState(true);
+
+  // Modal Dialogs
   const [renameModal, setRenameModal] = useState<{ isOpen: boolean; file: FileEntry | null; newName: string }>({
     isOpen: false,
     file: null,
-    newName: ''
+    newName: '',
   });
   const [newFileModal, setNewFileModal] = useState<{ isOpen: boolean; name: string }>({
     isOpen: false,
-    name: ''
+    name: '',
   });
   const [newFolderModal, setNewFolderModal] = useState<{ isOpen: boolean; name: string }>({
     isOpen: false,
-    name: ''
+    name: '',
+  });
+  const [compressModal, setCompressModal] = useState<{
+    isOpen: boolean;
+    paths: string[];
+    filename: string;
+    format: 'zip' | 'tar.gz';
+  }>({
+    isOpen: false,
+    paths: [],
+    filename: '',
+    format: 'zip',
+  });
+  const [extractModal, setExtractModal] = useState<{
+    isOpen: boolean;
+    file: FileEntry | null;
+    destination: string;
+  }>({
+    isOpen: false,
+    file: null,
+    destination: '',
   });
   const [previewModal, setPreviewModal] = useState<{ isOpen: boolean; file: FileEntry | null; zoom: number }>({
     isOpen: false,
     file: null,
-    zoom: 1
+    zoom: 1,
   });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 2500);
+    setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Sample SVG for image preview in simulation mode
-  const sampleSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240" width="100%" height="100%">
-    <defs>
-      <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#2563eb" />
-        <stop offset="100%" stop-color="#7c3aed" />
-      </linearGradient>
-    </defs>
-    <rect width="400" height="240" rx="16" fill="url(#grad)" />
-    <circle cx="200" cy="90" r="45" fill="#ffffff" opacity="0.15" />
-    <path d="M175 105 L200 65 L225 105 Z" fill="#ffffff" />
-    <text x="200" y="155" fill="#ffffff" font-family="system-ui, sans-serif" font-weight="bold" font-size="20" text-anchor="middle">BarePod Cloud Assets</text>
-    <text x="200" y="180" fill="#93c5fd" font-family="monospace" font-size="12" text-anchor="middle">Vector Graphic • Scalable Production Asset</text>
-  </svg>`;
-
-  // Simulation file tree — only used when the daemon does not answer.
+  // Mock FS for Simulation fallback
   const [mockFs, setMockFs] = useState<Record<string, FileEntry[]>>({});
 
   useEffect(() => {
     if (!app) return;
     setMockFs({
       '/': [
-        { name: '.env', type: 'file', size: '420 B', modified: 'Oct 10 16:30', permissions: '0600', mediaType: 'text', content: `APP_NAME="${app.name}"\nAPP_ENV=production\nAPP_KEY=base64:X8fJk88219PqLo01...\nAPP_DEBUG=false\nAPP_URL="https://${app.domain}"\n\nDB_CONNECTION=pgsql\nDB_HOST=127.0.0.1\nDB_PORT=5432\nDB_DATABASE=app_production\nDB_USERNAME=barepod_user\nDB_PASSWORD=secret_password\n\nREDIS_HOST=127.0.0.1\nREDIS_PORT=6379\n` },
+        { name: '.env', type: 'file', size: '420 B', rawSize: 420, modified: 'Oct 10 16:30', permissions: '0600', mediaType: 'text', content: `APP_NAME="${app.name}"\nAPP_ENV=production\nAPP_KEY=base64:X8fJk88219PqLo01...\nAPP_DEBUG=false\nAPP_URL="https://${app.domain}"\n\nDB_CONNECTION=pgsql\nDB_HOST=127.0.0.1\nDB_PORT=5432\nDB_DATABASE=app_production\nDB_USERNAME=barepod_user\nDB_PASSWORD=secret_password\n\nREDIS_HOST=127.0.0.1\nREDIS_PORT=6379\n` },
         { name: 'app', type: 'folder', size: '4.0 KB', modified: 'Oct 10 16:20', permissions: '0755' },
-        { name: 'config', type: 'folder', size: '4.0 KB', modified: 'Oct 10 16:15', permissions: '0755' },
         { name: 'public', type: 'folder', size: '4.0 KB', modified: 'Oct 10 16:25', permissions: '0755' },
-        { name: 'routes', type: 'folder', size: '4.0 KB', modified: 'Oct 10 16:10', permissions: '0755' },
-        { name: 'storage', type: 'folder', size: '12.4 MB', modified: 'Oct 10 16:35', permissions: '0775' },
-        { name: 'composer.json', type: 'file', size: '1.8 KB', modified: 'Oct 10 16:05', permissions: '0644', mediaType: 'text', content: `{\n  "name": "barepod/${app.name}",\n  "type": "project",\n  "require": {\n    "php": "^8.2",\n    "laravel/framework": "^11.0"\n  }\n}` },
-        { name: 'package.json', type: 'file', size: '840 B', modified: 'Oct 10 16:05', permissions: '0644', mediaType: 'text', content: `{\n  "name": "${app.name}",\n  "private": true,\n  "scripts": {\n    "dev": "vite",\n    "build": "vite build"\n  }\n}` },
-        { name: 'README.md', type: 'file', size: '1.2 KB', modified: 'Oct 10 16:00', permissions: '0644', mediaType: 'text', content: `# ${app.name}\nDeployed on BarePod Panel with isolated runtime.` },
-        { name: 'logo.svg', type: 'file', size: '4.2 KB', modified: 'Oct 10 15:45', permissions: '0644', mediaType: 'image', content: sampleSvg },
-        { name: 'app-spec.pdf', type: 'file', size: '240 KB', modified: 'Oct 10 15:30', permissions: '0644', mediaType: 'pdf' },
+        { name: 'backup-site.zip', type: 'file', size: '1.2 MB', rawSize: 1258291, modified: 'Oct 11 08:30', permissions: '0644', mediaType: 'archive' },
+        { name: 'composer.json', type: 'file', size: '1.8 KB', rawSize: 1840, modified: 'Oct 10 16:05', permissions: '0644', mediaType: 'text', content: `{\n  "name": "barepod/${app.name}",\n  "type": "project",\n  "require": {\n    "php": "^8.2",\n    "laravel/framework": "^11.0"\n  }\n}` },
+        { name: 'package.json', type: 'file', size: '840 B', rawSize: 840, modified: 'Oct 10 16:05', permissions: '0644', mediaType: 'text', content: `{\n  "name": "${app.name}",\n  "private": true,\n  "scripts": {\n    "dev": "vite",\n    "build": "vite build"\n  }\n}` },
+        { name: 'README.md', type: 'file', size: '1.2 KB', rawSize: 1200, modified: 'Oct 10 16:00', permissions: '0644', mediaType: 'text', content: `# ${app.name}\nDeployed on BarePod Panel.` },
       ],
       '/public': [
-        { name: 'index.php', type: 'file', size: '1.2 KB', modified: 'Oct 10 16:25', permissions: '0644', mediaType: 'text', content: `<?php\n\ndefine('LARAVEL_START', microtime(true));\n\nrequire __DIR__.'/../vendor/autoload.php';\n\n$app = require_once __DIR__.'/../bootstrap/app.php';\n\n$kernel = $app->make(Illuminate\\Contracts\\Http\\Kernel::class);\n$response = $kernel->handle(\n    $request = Illuminate\\Http\\Request::capture()\n)->send();\n\n$kernel->terminate($request, $response);\n` },
-        { name: '.htaccess', type: 'file', size: '520 B', modified: 'Oct 10 16:20', permissions: '0644', mediaType: 'text', content: `<IfModule mod_rewrite.c>\n    RewriteEngine On\n    RewriteCond %{REQUEST_FILENAME} !-d\n    RewriteCond %{REQUEST_FILENAME} !-f\n    RewriteRule ^ index.php [L]\n</IfModule>` },
-        { name: 'robots.txt', type: 'file', size: '48 B', modified: 'Oct 10 16:00', permissions: '0644', mediaType: 'text', content: 'User-agent: *\nDisallow:' },
-        { name: 'hero-banner.svg', type: 'file', size: '5.8 KB', modified: 'Oct 10 15:50', permissions: '0644', mediaType: 'image', content: sampleSvg },
-        { name: 'invoice-sample.pdf', type: 'file', size: '185 KB', modified: 'Oct 10 15:40', permissions: '0644', mediaType: 'pdf' },
-      ]
+        { name: 'index.php', type: 'file', size: '1.2 KB', rawSize: 1200, modified: 'Oct 10 16:25', permissions: '0644', mediaType: 'text', content: `<?php\n\ndefine('LARAVEL_START', microtime(true));\n\nrequire __DIR__.'/../vendor/autoload.php';\n` },
+        { name: '.htaccess', type: 'file', size: '520 B', rawSize: 520, modified: 'Oct 10 16:20', permissions: '0644', mediaType: 'text', content: `<IfModule mod_rewrite.c>\n    RewriteEngine On\n    RewriteCond %{REQUEST_FILENAME} !-d\n    RewriteCond %{REQUEST_FILENAME} !-f\n    RewriteRule ^ index.php [L]\n</IfModule>` },
+      ],
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app?.name]);
 
-  // Is the daemon answering? The prototype keeps working on mock files when not.
   useEffect(() => {
     let cancelled = false;
     apiReachable()
@@ -318,10 +427,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     return () => { cancelled = true; };
   }, []);
 
-  // The real listing: one call per directory change.
   useEffect(() => {
-    // The host scope needs no target (it is the whole machine); a tenant scope
-    // does. Requiring one for both is why the host root first came up empty.
     if (live !== true) return;
     if (scope !== 'host' && !scopeTarget) return;
     let cancelled = false;
@@ -339,21 +445,20 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     return () => { cancelled = true; };
   }, [live, scopeTarget, ops, currentPath, reloadKey]);
 
-  // Close context menu on outside click
   useEffect(() => {
-    const handleGlobalClick = () => {
-      setContextMenu(null);
-    };
+    const handleGlobalClick = () => setContextMenu(null);
     window.addEventListener('click', handleGlobalClick);
     return () => window.removeEventListener('click', handleGlobalClick);
   }, []);
 
-  if (!isOpen && !inline) return null;
-  // A website scope needs a website; the host-wide browser does not have one.
-  if (scope === 'site' && !app) return null;
+  const rawFiles = live ? liveEntries : mockFs[currentPath] || [];
+  const currentFiles = useMemo(() => {
+    if (!searchFilter.trim()) return rawFiles;
+    const q = searchFilter.toLowerCase();
+    return rawFiles.filter((f) => f.name.toLowerCase().includes(q));
+  }, [rawFiles, searchFilter]);
 
-  const currentFiles = live ? liveEntries : mockFs[currentPath] || [];
-
+  // Handle open file / folder
   const handleOpenFile = async (file: FileEntry) => {
     if (file.type === 'folder') {
       setCurrentPath(joinUiPath(currentPath, file.name));
@@ -361,11 +466,22 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       setSelectedFiles([]);
       return;
     }
+
+    if (isArchiveName(file.name)) {
+      setExtractModal({
+        isOpen: true,
+        file,
+        destination: currentPath,
+      });
+      return;
+    }
+
     const media = file.mediaType || detectMediaType(file.name);
     if (media !== 'text') {
       setPreviewModal({ isOpen: true, file, zoom: 1 });
       return;
     }
+
     setEditingFile(file);
     setEditorNote('');
     setEditorEncoding('utf-8');
@@ -391,16 +507,14 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
   const handleToggleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedFiles(currentFiles.map(f => f.name));
+      setSelectedFiles(currentFiles.map((f) => f.name));
     } else {
       setSelectedFiles([]);
     }
   };
 
   const handleToggleSelectFile = (fileName: string, checked: boolean) => {
-    setSelectedFiles(prev =>
-      checked ? [...prev, fileName] : prev.filter(name => name !== fileName)
-    );
+    setSelectedFiles((prev) => (checked ? [...prev, fileName] : prev.filter((name) => name !== fileName)));
   };
 
   const triggerDownload = (url: string, filename: string) => {
@@ -414,7 +528,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
   const handleDownload = (file: FileEntry) => {
     if (live && file.apiPath !== undefined) {
-      // The daemon sets Content-Disposition; the cookie authenticates it.
       triggerDownload(ops.downloadUrl(file.apiPath), file.name);
       showToast(`Downloading ${file.name}`);
       return;
@@ -430,7 +543,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   const handleDownloadSelected = async () => {
     if (selectedFiles.length === 0) return;
     const chosen = selectedFiles
-      .map(fileName => currentFiles.find(item => item.name === fileName))
+      .map((fileName) => currentFiles.find((item) => item.name === fileName))
       .filter((f): f is FileEntry => Boolean(f));
 
     if (live) {
@@ -442,8 +555,8 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       setBusy(true);
       try {
         const blob = await ops.compress(paths);
-        const url = URL.createObjectURL(blob);
-        triggerDownload(url, `${app?.name ?? 'selection'}-selection.zip`);
+        const url = URL.createObjectURL(blob as Blob);
+        triggerDownload(url, `${app?.name ?? 'selection'}-files.zip`);
         URL.revokeObjectURL(url);
         showToast(`Downloading ${paths.length} items as a .zip archive`);
       } catch (err) {
@@ -458,10 +571,12 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       handleDownload(chosen[0]);
       return;
     }
-    const blob = createZip(chosen.map(f => ({
-      name: f.name,
-      content: f.content ?? `// Content of ${f.name}\n// Exported from BarePod Panel\n`,
-    })));
+    const blob = createZip(
+      chosen.map((f) => ({
+        name: f.name,
+        content: f.content ?? `// Content of ${f.name}\n// Exported from BarePod Panel\n`,
+      })),
+    );
     const url = URL.createObjectURL(blob);
     triggerDownload(url, `${app?.name || 'files'}-export.zip`);
     URL.revokeObjectURL(url);
@@ -485,24 +600,16 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       }
       return;
     }
-    setMockFs(prev => {
+    setMockFs((prev) => {
       const list = prev[currentPath] || [];
       return {
         ...prev,
-        [currentPath]: list.map(f => f.name === editingFile.name ? { ...f, content: editorContent } : f)
+        [currentPath]: list.map((f) => (f.name === editingFile.name ? { ...f, content: editorContent } : f)),
       };
     });
     setIsSaved(true);
     showToast(`Saved ${editingFile.name}`);
     setTimeout(() => setIsSaved(false), 1500);
-  };
-
-  // Clipboard Actions (supports single selection & multi-select / Select All)
-  const getSelectedEntries = (): FileEntry[] => {
-    if (selectedFiles.length > 0) {
-      return currentFiles.filter(f => selectedFiles.includes(f.name));
-    }
-    return selectedFile ? [selectedFile] : [];
   };
 
   const resolveUniqueName = (name: string, taken: string[]): string => {
@@ -518,17 +625,13 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   const handleCopy = (files: FileEntry[]) => {
     if (files.length === 0) return;
     setClipboard({ files, operation: 'copy', sourcePath: currentPath });
-    showToast(files.length === 1
-      ? `Copied to clipboard: ${files[0].name}`
-      : `${files.length} items copied to clipboard`);
+    showToast(files.length === 1 ? `Copied to clipboard: ${files[0].name}` : `${files.length} items copied`);
   };
 
   const handleCut = (files: FileEntry[]) => {
     if (files.length === 0) return;
     setClipboard({ files, operation: 'cut', sourcePath: currentPath });
-    showToast(files.length === 1
-      ? `Cut to clipboard: ${files[0].name}`
-      : `${files.length} items ready to move (cut)`);
+    showToast(files.length === 1 ? `Cut: ${files[0].name}` : `${files.length} items ready to move`);
   };
 
   const handlePaste = async () => {
@@ -549,9 +652,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             await ops.move(file.apiPath ?? '', to);
           }
         }
-        showToast(operation === 'copy'
-          ? `${files.length} items pasted into ${currentPath}`
-          : `${files.length} items moved to ${currentPath}`);
+        showToast(operation === 'copy' ? `${files.length} items pasted` : `${files.length} items moved`);
         if (operation === 'cut') setClipboard(null);
         reload();
       } catch (err) {
@@ -563,13 +664,13 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     }
 
     const { sourcePath } = clipboard;
-    const movingNames = files.map(f => f.name);
+    const movingNames = files.map((f) => f.name);
 
-    setMockFs(prev => {
+    setMockFs((prev) => {
       const currentList = [...(prev[currentPath] || [])];
       const added: FileEntry[] = [];
-      files.forEach(file => {
-        const targetName = resolveUniqueName(file.name, [...currentList, ...added].map(f => f.name));
+      files.forEach((file) => {
+        const targetName = resolveUniqueName(file.name, [...currentList, ...added].map((f) => f.name));
         added.push({ ...file, name: targetName, modified: 'Just now' });
       });
 
@@ -580,18 +681,16 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
       if (operation === 'cut') {
         if (sourcePath === currentPath) {
-          next[currentPath] = next[currentPath].filter(f => !movingNames.includes(f.name));
+          next[currentPath] = next[currentPath].filter((f) => !movingNames.includes(f.name));
         } else {
-          next[sourcePath] = (prev[sourcePath] || []).filter(f => !movingNames.includes(f.name));
+          next[sourcePath] = (prev[sourcePath] || []).filter((f) => !movingNames.includes(f.name));
         }
       }
 
       return next;
     });
 
-    showToast(operation === 'copy'
-      ? `${files.length} items pasted into ${currentPath}`
-      : `${files.length} items moved to ${currentPath}`);
+    showToast(operation === 'copy' ? `${files.length} items pasted` : `${files.length} items moved`);
     if (operation === 'cut') setClipboard(null);
   };
 
@@ -601,6 +700,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       try {
         await ops.remove([file.apiPath ?? '']);
         showToast(`Deleted ${file.name}`);
+        if (selectedFile?.name === file.name) setSelectedFile(null);
         reload();
       } catch (err) {
         setError(describeError(err));
@@ -609,14 +709,14 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       }
       return;
     }
-    setMockFs(prev => ({
+    setMockFs((prev) => ({
       ...prev,
-      [currentPath]: (prev[currentPath] || []).filter(f => f.name !== file.name)
+      [currentPath]: (prev[currentPath] || []).filter((f) => f.name !== file.name),
     }));
     if (selectedFile?.name === file.name) setSelectedFile(null);
     if (editingFile?.name === file.name) setEditingFile(null);
-    setSelectedFiles(prev => prev.filter(n => n !== file.name));
-    showToast(`File ${file.name} deleted.`);
+    setSelectedFiles((prev) => prev.filter((n) => n !== file.name));
+    showToast(`Deleted ${file.name}`);
   };
 
   const handleDeleteSelected = async () => {
@@ -633,7 +733,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         await ops.remove(paths);
         setSelectedFiles([]);
         setSelectedFile(null);
-        showToast(`${count} items deleted.`);
+        showToast(`${count} items deleted`);
         reload();
       } catch (err) {
         setError(describeError(err));
@@ -643,18 +743,18 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    setMockFs(prev => ({
+    setMockFs((prev) => ({
       ...prev,
-      [currentPath]: (prev[currentPath] || []).filter(f => !selectedFiles.includes(f.name))
+      [currentPath]: (prev[currentPath] || []).filter((f) => !selectedFiles.includes(f.name)),
     }));
     if (selectedFile && selectedFiles.includes(selectedFile.name)) setSelectedFile(null);
     if (editingFile && selectedFiles.includes(editingFile.name)) setEditingFile(null);
     setSelectedFiles([]);
-    showToast(`${count} items deleted.`);
+    showToast(`${count} items deleted`);
   };
 
   const handleDuplicate = async (file: FileEntry) => {
-    const newName = resolveUniqueName(file.name, currentFiles.map(f => f.name));
+    const newName = resolveUniqueName(file.name, currentFiles.map((f) => f.name));
 
     if (live) {
       setBusy(true);
@@ -670,9 +770,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    setMockFs(prev => ({
+    setMockFs((prev) => ({
       ...prev,
-      [currentPath]: [...(prev[currentPath] || []), { ...file, name: newName, modified: 'Just now' }]
+      [currentPath]: [...(prev[currentPath] || []), { ...file, name: newName, modified: 'Just now' }],
     }));
     showToast(`Duplicated ${newName}`);
   };
@@ -698,9 +798,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    setMockFs(prev => ({
+    setMockFs((prev) => ({
       ...prev,
-      [currentPath]: (prev[currentPath] || []).map(f => f.name === target.name ? { ...f, name: newName } : f)
+      [currentPath]: (prev[currentPath] || []).map((f) => (f.name === target.name ? { ...f, name: newName } : f)),
     }));
     showToast(`Renamed to ${newName}`);
     setRenameModal({ isOpen: false, file: null, newName: '' });
@@ -726,20 +826,24 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    setMockFs(prev => ({
+    setMockFs((prev) => ({
       ...prev,
-      [currentPath]: [...(prev[currentPath] || []), {
-        name,
-        type: 'file',
-        size: '0 B',
-        modified: 'Just now',
-        permissions: '0644',
-        mediaType: detectMediaType(name),
-        content: ''
-      }]
+      [currentPath]: [
+        ...(prev[currentPath] || []),
+        {
+          name,
+          type: 'file',
+          size: '0 B',
+          rawSize: 0,
+          modified: 'Just now',
+          permissions: '0644',
+          mediaType: detectMediaType(name),
+          content: '',
+        },
+      ],
     }));
     setNewFileModal({ isOpen: false, name: '' });
-    showToast(`File ${name} created.`);
+    showToast(`File ${name} created`);
   };
 
   const handleCreateFolderSubmit = async (e: React.FormEvent) => {
@@ -762,46 +866,251 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    setMockFs(prev => ({
+    setMockFs((prev) => ({
       ...prev,
-      [currentPath]: [...(prev[currentPath] || []), {
-        name,
-        type: 'folder',
-        size: '4.0 KB',
-        modified: 'Just now',
-        permissions: '0755'
-      }]
+      [currentPath]: [
+        ...(prev[currentPath] || []),
+        {
+          name,
+          type: 'folder',
+          size: '4.0 KB',
+          modified: 'Just now',
+          permissions: '0755',
+        },
+      ],
     }));
     setNewFolderModal({ isOpen: false, name: '' });
-    showToast(`Folder ${name} created.`);
+    showToast(`Folder ${name} created`);
   };
 
-  const handleUpload = async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return;
-    const files = Array.from(fileList);
+  // --- Compress and Extract Action Handlers ---
+  const handleOpenCompressModal = (filesToCompress: FileEntry[]) => {
+    if (filesToCompress.length === 0) return;
+    const paths = filesToCompress.map((f) => f.apiPath || f.name);
+    const defaultName = filesToCompress.length === 1 ? `${filesToCompress[0].name}.zip` : 'archive.zip';
+    setCompressModal({
+      isOpen: true,
+      paths,
+      filename: defaultName,
+      format: 'zip',
+    });
+  };
+
+  const handleCompressSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (compressModal.paths.length === 0 || !compressModal.filename.trim()) return;
     setBusy(true);
-    setError('');
     try {
-      const result = await ops.upload(toApiPath(currentPath), files);
-      showToast(`Uploaded ${result.uploaded.length} file${result.uploaded.length === 1 ? '' : 's'}`);
+      const dest = joinApiPath(currentPath, compressModal.filename.trim());
+      await ops.compress(compressModal.paths, dest, compressModal.format);
+      setCompressModal((prev) => ({ ...prev, isOpen: false }));
+      showToast(`Created archive ${compressModal.filename}`);
       reload();
     } catch (err) {
       setError(describeError(err));
     } finally {
       setBusy(false);
-      if (uploadInputRef.current) uploadInputRef.current.value = '';
+    }
+  };
+
+  const handleExtractSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!extractModal.file) return;
+    setBusy(true);
+    try {
+      const targetPath = extractModal.file.apiPath || extractModal.file.name;
+      const dest = toApiPath(extractModal.destination.trim() || currentPath);
+      const res = await ops.extract(targetPath, dest);
+      setExtractModal({ isOpen: false, file: null, destination: '' });
+      showToast(`Extracted ${res.extracted?.length || 0} items successfully`);
+      reload();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // --- Resumable Chunked Upload Engine ---
+  const enqueueUploads = (fileList: File[]) => {
+    if (!fileList || fileList.length === 0) return;
+    const newItems: UploadQueueItem[] = fileList.map((file) => {
+      const relPath = (file as any).webkitRelativePath || (file as any).relativePath || file.name;
+      return {
+        id: `up_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+        file,
+        name: file.name,
+        relPath,
+        size: file.size,
+        progress: 0,
+        speedBytesPerSec: 0,
+        status: 'queued',
+      };
+    });
+
+    setUploadQueue((prev) => [...prev, ...newItems]);
+    setUploadDrawerOpen(true);
+  };
+
+  // Process upload queue item by item
+  useEffect(() => {
+    const activeUpload = uploadQueue.find((item) => item.status === 'uploading');
+    if (activeUpload) return; // already one in progress
+
+    const nextItem = uploadQueue.find((item) => item.status === 'queued');
+    if (!nextItem) return;
+
+    let isAborted = false;
+    const controller = new AbortController();
+
+    setUploadQueue((prev) =>
+      prev.map((item) => (item.id === nextItem.id ? { ...item, status: 'uploading', controller } : item)),
+    );
+
+    const runUpload = async () => {
+      try {
+        if (!live) {
+          // Simulation upload fallback
+          for (let p = 10; p <= 100; p += 25) {
+            await new Promise((r) => setTimeout(r, 120));
+            setUploadQueue((prev) =>
+              prev.map((it) => (it.id === nextItem.id ? { ...it, progress: p, speedBytesPerSec: 1024 * 1024 * 3 } : it)),
+            );
+          }
+          setUploadQueue((prev) =>
+            prev.map((it) => (it.id === nextItem.id ? { ...it, status: 'completed', progress: 100 } : it)),
+          );
+          showToast(`Uploaded ${nextItem.name}`);
+          return;
+        }
+
+        const res = await uploadFileResumable({
+          uploadId: nextItem.id,
+          file: nextItem.file,
+          targetDir: toApiPath(currentPath),
+          autoExtract: autoExtractOnUpload,
+          uploadChunkFn: ops.uploadChunk,
+          uploadStatusFn: ops.uploadChunkStatus,
+          signal: controller.signal,
+          onProgress: ({ percent, speedBytesPerSec }) => {
+            setUploadQueue((prev) =>
+              prev.map((it) => (it.id === nextItem.id ? { ...it, progress: percent, speedBytesPerSec } : it)),
+            );
+          },
+        });
+
+        setUploadQueue((prev) =>
+          prev.map((it) =>
+            it.id === nextItem.id
+              ? {
+                  ...it,
+                  status: 'completed',
+                  progress: 100,
+                  extracted: res.extracted,
+                }
+              : it,
+          ),
+        );
+        const extractNote = res.extracted && res.extracted.length > 0 ? ` (Auto-extracted ${res.extracted.length} files)` : '';
+        showToast(`Uploaded ${nextItem.name}${extractNote}`);
+        reload();
+      } catch (err: any) {
+        if (controller.signal.aborted || err?.name === 'AbortError') {
+          // upload paused or cancelled
+          return;
+        }
+        setUploadQueue((prev) =>
+          prev.map((it) =>
+            it.id === nextItem.id ? { ...it, status: 'error', error: describeError(err) } : it,
+          ),
+        );
+      }
+    };
+
+    void runUpload();
+  }, [uploadQueue, live, currentPath, autoExtractOnUpload, ops]);
+
+  const handlePauseUpload = (id: string) => {
+    setUploadQueue((prev) =>
+      prev.map((it) => {
+        if (it.id === id) {
+          it.controller?.abort();
+          return { ...it, status: 'paused', speedBytesPerSec: 0 };
+        }
+        return it;
+      }),
+    );
+  };
+
+  const handleResumeUpload = (id: string) => {
+    setUploadQueue((prev) =>
+      prev.map((it) => {
+        if (it.id === id) {
+          return { ...it, status: 'queued', error: undefined };
+        }
+        return it;
+      }),
+    );
+  };
+
+  const handleCancelUpload = (id: string) => {
+    setUploadQueue((prev) => {
+      const it = prev.find((x) => x.id === id);
+      it?.controller?.abort();
+      return prev.filter((x) => x.id !== id);
+    });
+  };
+
+  // Drag and Drop support for files and folders
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+
+    if (e.dataTransfer?.items) {
+      const droppedFiles = await getFilesFromDataTransfer(e.dataTransfer.items);
+      if (droppedFiles.length > 0) {
+        enqueueUploads(droppedFiles);
+      }
+    } else if (e.dataTransfer?.files) {
+      enqueueUploads(Array.from(e.dataTransfer.files));
     }
   };
 
   const getFileIcon = (file: FileEntry) => {
-    if (file.type === 'folder') return <Folder className="w-4 h-4 text-amber-500 fill-amber-100 shrink-0" />;
-    const media = file.mediaType || detectMediaType(file.name);
-    if (media === 'image') return <ImageIcon className="w-4 h-4 text-purple-500 shrink-0" />;
-    if (media === 'pdf') return <FileCheck className="w-4 h-4 text-rose-500 shrink-0" />;
-    if (file.name.endsWith('.php') || file.name.endsWith('.py') || file.name.endsWith('.js') || file.name.endsWith('.json')) {
-      return <FileCode className="w-4 h-4 text-blue-500 shrink-0" />;
+    if (file.type === 'folder') {
+      return <Folder className="w-4 h-4 text-amber-400 fill-amber-400/20 shrink-0" />;
     }
-    if (file.name.startsWith('.env')) return <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />;
+    if (isArchiveName(file.name)) {
+      return <Archive className="w-4 h-4 text-purple-400 shrink-0" />;
+    }
+    const media = file.mediaType || detectMediaType(file.name);
+    if (media === 'image') return <ImageIcon className="w-4 h-4 text-pink-400 shrink-0" />;
+    if (media === 'pdf') return <FileCheck className="w-4 h-4 text-rose-400 shrink-0" />;
+    if (
+      file.name.endsWith('.php') ||
+      file.name.endsWith('.py') ||
+      file.name.endsWith('.js') ||
+      file.name.endsWith('.ts') ||
+      file.name.endsWith('.tsx') ||
+      file.name.endsWith('.json') ||
+      file.name.endsWith('.go')
+    ) {
+      return <FileCode className="w-4 h-4 text-cyan-400 shrink-0" />;
+    }
+    if (file.name.startsWith('.env')) return <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />;
     return <FileText className="w-4 h-4 text-slate-400 shrink-0" />;
   };
 
@@ -813,86 +1122,113 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       ? '/'
       : scope === 'tenant'
         ? `/home/${tenant}`
-        : (app?.path || `/home/${app?.tenantUser ?? ''}/web/${app?.name ?? ''}`);
-  /** A protected entry can be opened and downloaded, never changed. */
+        : app?.path || `/home/${app?.tenantUser ?? ''}/web/${app?.name ?? ''}`;
   const isLocked = (file: FileEntry | null | undefined) => Boolean(file?.protected);
 
+  const selectedEntries = currentFiles.filter((f) => selectedFiles.includes(f.name));
+  const activeFile = selectedFile || (selectedEntries.length === 1 ? selectedEntries[0] : null);
+
   return (
-    <div className={inline ? 'block' : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200'}>
+    <div
+      className={
+        inline
+          ? 'block w-full font-sans antialiased text-slate-100'
+          : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200 font-sans antialiased text-slate-100'
+      }
+    >
       <div
-        className={inline
-          ? 'bg-white rounded-2xl border border-slate-200 shadow-2xs w-full flex flex-col overflow-hidden relative'
-          : 'bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-6xl w-full h-[90vh] flex flex-col overflow-hidden relative'}
+        className={
+          inline
+            ? 'bg-slate-900/95 rounded-2xl border border-slate-800/80 shadow-2xl w-full flex flex-col overflow-hidden relative'
+            : 'bg-slate-900/95 rounded-2xl border border-slate-800/80 shadow-2xl max-w-7xl w-full h-[92vh] flex flex-col overflow-hidden relative'
+        }
         style={inline ? { height: panelHeight } : undefined}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
+        {/* Drag Overlay visual feedback */}
+        {isDraggingOver && (
+          <div className="absolute inset-0 z-50 bg-blue-600/20 backdrop-blur-xs border-2 border-dashed border-blue-400 rounded-2xl flex flex-col items-center justify-center pointer-events-none animate-in fade-in duration-150">
+            <div className="p-4 rounded-2xl bg-slate-900/90 border border-blue-500/40 shadow-2xl text-center space-y-2">
+              <Upload className="w-10 h-10 text-blue-400 mx-auto animate-bounce" />
+              <p className="text-sm font-bold text-white">Drop files or folders here</p>
+              <p className="text-xs text-slate-400">Preserves folder hierarchy &amp; supports instant auto-extract</p>
+            </div>
+          </div>
+        )}
 
         {/* Toast Notification */}
         {toastMessage && (
-          <div className="absolute top-16 right-6 z-50 px-4 py-2 bg-slate-900 text-white rounded-xl shadow-lg border border-slate-700 text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+          <div className="absolute top-16 right-6 z-50 px-4 py-2.5 bg-slate-800/95 text-white rounded-xl shadow-2xl border border-slate-700 text-xs font-semibold flex items-center gap-2.5 animate-in fade-in slide-in-from-top-3">
             <Check className="w-4 h-4 text-emerald-400" />
             <span>{toastMessage}</span>
           </div>
         )}
 
         {/* Top Header */}
-        <div className="px-6 py-3.5 bg-slate-900 text-white flex items-center justify-between shrink-0">
+        <div className="px-6 py-3.5 bg-slate-950/80 border-b border-slate-800/80 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white">
+            <div className="w-8 h-8 rounded-lg bg-blue-600/30 border border-blue-500/40 flex items-center justify-center text-blue-400 shadow-inner">
               <Folder className="w-4 h-4" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-sm">File Manager — {scopeLabel}</span>
-                <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-sm text-white">File Manager — {scopeLabel}</span>
+                <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono border border-slate-700">
                   {scopePath}
                 </span>
                 {live === true && (
-                  <span className="text-[10px] bg-emerald-500/15 text-emerald-300 px-2 py-0.5 rounded font-semibold">
+                  <span className="text-[10px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     Live
                   </span>
                 )}
                 {live === false && (
-                  <span className="text-[10px] bg-amber-500/15 text-amber-300 px-2 py-0.5 rounded font-semibold">
-                    Simulation (mock data)
+                  <span className="text-[10px] bg-amber-500/15 border border-amber-500/30 text-amber-300 px-2 py-0.5 rounded font-semibold">
+                    Simulation
                   </span>
                 )}
                 {live === true && readOnlyRoot && (
-                  <span className="flex items-center gap-1 text-[10px] bg-amber-500/15 text-amber-200 px-2 py-0.5 rounded font-semibold">
-                    <Lock className="w-3 h-3" /> System paths are read-only
+                  <span className="flex items-center gap-1 text-[10px] bg-amber-500/15 border border-amber-500/30 text-amber-200 px-2 py-0.5 rounded font-semibold">
+                    <Lock className="w-3 h-3" /> System paths read-only
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-slate-400 mt-0.5">
                 {live === true
                   ? scope === 'site'
-                    ? 'Files on the host, read and written as the tenant account'
-                    : 'Everything is readable; the system keeps its own files safe from edits'
-                  : 'No daemon on this machine — showing mock files'}
+                    ? 'Host files isolated in tenant environment with fast chunked uploads & extraction'
+                    : 'System tree guarded from accidental deletion'
+                  : 'Demonstration environment with mock data'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={onClose}
-              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            {!inline && (
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
           </div>
         </div>
 
         {/* Action Toolbar */}
-        <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="px-5 py-2.5 bg-slate-900/60 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
           {/* Breadcrumb Path */}
-          <div className="flex items-center gap-1.5 text-xs text-slate-600 font-mono">
+          <div className="flex items-center gap-1.5 text-xs text-slate-300 font-mono overflow-x-auto py-1 max-w-full">
             <button
               onClick={() => {
                 setCurrentPath('/');
                 setSelectedFile(null);
                 setSelectedFiles([]);
               }}
-              className="hover:text-blue-600 font-bold cursor-pointer"
+              className="px-2 py-1 rounded bg-slate-800/60 hover:bg-slate-800 hover:text-blue-400 font-semibold cursor-pointer border border-slate-700/60 transition-colors"
             >
               root
             </button>
@@ -901,14 +1237,18 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               const isLast = index === breadcrumbSegments.length - 1;
               return (
                 <React.Fragment key={target}>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />
                   <button
                     onClick={() => {
                       setCurrentPath(target);
                       setSelectedFile(null);
                       setSelectedFiles([]);
                     }}
-                    className={isLast ? 'text-slate-800 font-semibold' : 'hover:text-blue-600'}
+                    className={`px-2 py-1 rounded transition-colors ${
+                      isLast
+                        ? 'bg-blue-600/20 text-blue-300 font-semibold border border-blue-500/30'
+                        : 'bg-slate-800/60 hover:bg-slate-800 hover:text-blue-400 border border-slate-700/60'
+                    }`}
                   >
                     {segment}
                   </button>
@@ -917,171 +1257,240 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             })}
           </div>
 
-          {/* Action Buttons Toolbar */}
-          <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Search & Actions Toolbar */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Real-time search filter */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Filter files..."
+                value={searchFilter}
+                onChange={(e) => setSearchFilter(e.target.value)}
+                className="pl-8 pr-6 py-1.5 bg-slate-950/80 border border-slate-700/70 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-hidden focus:border-blue-500 w-36 sm:w-44 transition-all"
+              />
+              {searchFilter && (
+                <button
+                  onClick={() => setSearchFilter('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
             <button
               onClick={reload}
               disabled={live !== true}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
-              title="Reload this directory"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 rounded-lg text-xs text-slate-200 font-medium cursor-pointer transition-colors"
+              title="Refresh directory"
             >
-              {loading && live === true ? <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" /> : <RotateCw className="w-3.5 h-3.5 text-slate-500" />}
-              <span>Refresh</span>
+              {loading && live === true ? (
+                <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+              ) : (
+                <RotateCw className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <span className="hidden sm:inline">Refresh</span>
             </button>
 
-            {live === true && (
+            {/* Upload Files Button */}
+            <button
+              onClick={() => fileUploadInputRef.current?.click()}
+              disabled={busy || readOnlyRoot}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors"
+              title="Upload files (chunked & resumable)"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Upload Files</span>
+            </button>
+
+            {/* Upload Folder Button */}
+            <button
+              onClick={() => folderUploadInputRef.current?.click()}
+              disabled={busy || readOnlyRoot}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-semibold text-slate-200 shadow-xs cursor-pointer transition-colors"
+              title="Upload an entire folder hierarchy"
+            >
+              <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
+              <span>Upload Folder</span>
+            </button>
+
+            {/* Extract Action (when archive is selected) */}
+            {selectedFile && isArchiveName(selectedFile.name) && (
               <button
-                onClick={() => uploadInputRef.current?.click()}
-                disabled={busy || readOnlyRoot}
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
-                title="Upload files into this directory"
+                onClick={() =>
+                  setExtractModal({
+                    isOpen: true,
+                    file: selectedFile,
+                    destination: currentPath,
+                  })
+                }
+                disabled={busy}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600/30 hover:bg-purple-600/40 text-purple-200 border border-purple-500/40 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+                title="Decompress / Extract archive"
               >
-                <Upload className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Upload</span>
+                <FileArchive className="w-3.5 h-3.5 text-purple-400" />
+                <span>Extract</span>
+              </button>
+            )}
+
+            {/* Compress Action (when 1 or more items selected) */}
+            {(selectedFiles.length > 0 || selectedFile) && (
+              <button
+                onClick={() => handleOpenCompressModal(selectedEntries.length > 0 ? selectedEntries : selectedFile ? [selectedFile] : [])}
+                disabled={busy}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-200 border border-amber-500/40 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+                title="Compress selected files into .zip or .tar.gz"
+              >
+                <Archive className="w-3.5 h-3.5 text-amber-400" />
+                <span>Compress</span>
               </button>
             )}
 
             {/* Batch Selection Banner & Actions */}
             {selectedFiles.length > 0 && (
               <>
-                <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 px-2.5 py-1 rounded-lg text-xs font-semibold">
-                  <Check className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{selectedFiles.length} selected</span>
-                  <button
-                    onClick={() => setSelectedFiles([])}
-                    className="ml-1 text-slate-500 hover:text-slate-900 text-[10px] underline cursor-pointer"
-                  >
-                    Clear
-                  </button>
-                </div>
-
                 <button
                   onClick={handleDownloadSelected}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
-                  title="Download selected files"
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-200 cursor-pointer"
+                  title="Download selection"
                 >
-                  <Download className="w-3.5 h-3.5 text-blue-600" />
+                  <Download className="w-3.5 h-3.5 text-blue-400" />
                   <span>Download ({selectedFiles.length})</span>
                 </button>
 
                 <button
                   onClick={handleDeleteSelected}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg text-xs font-semibold cursor-pointer"
-                  title="Delete all selected"
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-800/60 rounded-lg text-xs font-semibold cursor-pointer"
+                  title="Delete selection"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
                   <span>Delete ({selectedFiles.length})</span>
                 </button>
-
-                <div className="h-4 w-px bg-slate-200 mx-1" />
               </>
             )}
 
+            {/* New File & New Folder */}
+            <div className="h-4 w-px bg-slate-800 mx-1 hidden sm:block" />
+
             <button
-              disabled={readOnlyRoot}
               onClick={() => setNewFileModal({ isOpen: true, name: '' })}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
+              disabled={busy || readOnlyRoot}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 rounded-lg text-xs text-slate-300 font-medium cursor-pointer transition-colors"
+              title="Create new file"
             >
-              <Plus className="w-3.5 h-3.5 text-blue-600" />
+              <Plus className="w-3.5 h-3.5 text-blue-400" />
               <span>New File</span>
             </button>
 
             <button
-              disabled={readOnlyRoot}
               onClick={() => setNewFolderModal({ isOpen: true, name: '' })}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
+              disabled={busy || readOnlyRoot}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 rounded-lg text-xs text-slate-300 font-medium cursor-pointer transition-colors"
+              title="Create new directory"
             >
-              <FolderPlus className="w-3.5 h-3.5 text-amber-500" />
+              <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
               <span>New Folder</span>
             </button>
 
-            <div className="h-4 w-px bg-slate-200 mx-1" />
-
-            {/* Clipboard Toolbar Buttons */}
-            <button
-              disabled={!selectedFile && selectedFiles.length === 0}
-              onClick={() => handleCopy(getSelectedEntries())}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
-              title="Copy Selected File(s)"
-            >
-              <Copy className="w-3.5 h-3.5 text-slate-600" />
-              <span>Copy{selectedFiles.length > 1 ? ` (${selectedFiles.length})` : ''}</span>
-            </button>
-
-            <button
-              disabled={!selectedFile && selectedFiles.length === 0}
-              onClick={() => handleCut(getSelectedEntries())}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white rounded-lg text-xs text-slate-700 shadow-2xs font-medium cursor-pointer"
-              title="Cut Selected File(s)"
-            >
-              <Scissors className="w-3.5 h-3.5 text-slate-600" />
-              <span>Cut{selectedFiles.length > 1 ? ` (${selectedFiles.length})` : ''}</span>
-            </button>
-
-            <button
-              disabled={!clipboard || clipboard.files.length === 0}
-              onClick={handlePaste}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold shadow-2xs cursor-pointer transition-colors ${
-                clipboard
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-white border border-slate-200 text-slate-400 opacity-40'
-              }`}
-              title={clipboard ? `Paste ${clipboard.files.length} items into ${currentPath}` : 'Clipboard empty'}
-            >
-              <Clipboard className="w-3.5 h-3.5" />
-              <span>Paste {clipboard ? `(${clipboard.files.length})` : ''}</span>
-            </button>
-
-            {selectedFile && selectedFiles.length === 0 && (
+            {/* Paste Action */}
+            {clipboard && clipboard.files.length > 0 && (
               <button
-                onClick={() => handleDelete(selectedFile)}
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100 rounded-lg text-xs font-medium cursor-pointer"
-                title="Delete selected file"
+                onClick={handlePaste}
+                disabled={busy || readOnlyRoot}
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+                title={`Paste ${clipboard.files.length} items`}
               >
-                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                <span>Delete</span>
+                <Clipboard className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Paste ({clipboard.files.length})</span>
               </button>
             )}
+
+            {/* Upload Queue Indicator */}
+            {uploadQueue.length > 0 && (
+              <button
+                onClick={() => setUploadDrawerOpen((prev) => !prev)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-950/60 hover:bg-blue-900/60 text-blue-300 border border-blue-800/80 rounded-lg text-xs font-semibold cursor-pointer"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Uploads ({uploadQueue.filter((x) => x.status === 'uploading' || x.status === 'queued').length})</span>
+              </button>
+            )}
+
+            {/* Toggle Inspector Sidebar */}
+            <button
+              onClick={() => setShowInspector((prev) => !prev)}
+              className={`p-1.5 rounded-lg border text-xs cursor-pointer transition-colors ${
+                showInspector
+                  ? 'bg-blue-600 text-white border-blue-500'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border-slate-700'
+              }`}
+              title="Toggle Details Inspector"
+            >
+              <Info className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
+        {/* Error Banner */}
         {error && (
-          <div className="px-6 py-2 bg-rose-50 border-b border-rose-200 text-rose-800 text-xs flex items-center gap-2 shrink-0">
-            <TriangleAlert className="w-3.5 h-3.5 shrink-0" />
-            <span className="flex-1">{error}</span>
-            <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-800 cursor-pointer">
+          <div className="px-5 py-2.5 bg-rose-950/40 border-b border-rose-900/60 text-xs text-rose-300 flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-2">
+              <TriangleAlert className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{error}</span>
+            </div>
+            <button onClick={() => setError('')} className="text-rose-400 hover:text-rose-200">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
+        {/* Hidden Upload Inputs */}
         <input
-          ref={uploadInputRef}
+          ref={fileUploadInputRef}
           type="file"
           multiple
           className="hidden"
-          onChange={(e) => void handleUpload(e.target.files)}
+          onChange={(e) => {
+            if (e.target.files) enqueueUploads(Array.from(e.target.files));
+            e.target.value = '';
+          }}
+        />
+        <input
+          ref={folderUploadInputRef}
+          type="file"
+          // @ts-expect-error webkitdirectory is non-standard but widely supported
+          webkitdirectory=""
+          directory=""
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files) enqueueUploads(Array.from(e.target.files));
+            e.target.value = '';
+          }}
         />
 
-        {/* Main Content Area: Split File Table & Code Editor */}
-        <div className="flex-1 flex min-h-0 bg-slate-50">
-          {/* File List Grid / Table */}
+        {/* Main Workspace Area */}
+        <div className="flex-1 flex min-h-0 bg-slate-950/40 overflow-hidden relative">
+          {/* File Table Column */}
           <div
-            className={`${editingFile ? 'w-1/2 hidden md:block' : 'w-full'} border-r border-slate-200 bg-white overflow-y-auto select-none`}
+            className={`flex-1 flex flex-col min-w-0 bg-slate-900/40 overflow-y-auto select-none ${
+              editingFile && !editorMaximized ? 'hidden md:flex md:w-1/2 md:border-r md:border-slate-800' : 'w-full'
+            }`}
             onContextMenu={(e) => {
               e.preventDefault();
               setContextMenu({ x: e.clientX, y: e.clientY, file: null });
             }}
           >
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 font-semibold text-slate-500 text-[11px] sticky top-0 z-10">
+              <thead className="bg-slate-900/90 border-b border-slate-800 text-[11px] font-semibold text-slate-400 sticky top-0 z-10 backdrop-blur-xs">
                 <tr>
                   <th className="py-2.5 px-3 w-10 text-center">
                     <input
                       type="checkbox"
                       checked={currentFiles.length > 0 && selectedFiles.length === currentFiles.length}
                       onChange={(e) => handleToggleSelectAll(e.target.checked)}
-                      className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer accent-blue-600"
+                      className="w-4 h-4 rounded text-blue-500 border-slate-700 bg-slate-800 focus:ring-blue-500 cursor-pointer accent-blue-600"
                       title="Select all"
                     />
                   </th>
@@ -1091,7 +1500,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   <th className="py-2.5 px-3">Last Modified</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-850">
                 {currentPath !== '/' && (
                   <tr
                     onClick={() => {
@@ -1099,38 +1508,49 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                       setSelectedFile(null);
                       setSelectedFiles([]);
                     }}
-                    className="hover:bg-slate-50 cursor-pointer font-medium text-slate-600"
+                    className="hover:bg-slate-800/50 cursor-pointer font-medium text-slate-400 transition-colors"
                   >
                     <td colSpan={5} className="py-2 px-4 flex items-center gap-2">
-                      <Folder className="w-4 h-4 text-slate-400" />
-                      <span>.. (up one level)</span>
+                      <Folder className="w-4 h-4 text-slate-500" />
+                      <span className="font-mono text-xs">.. (up one level)</span>
                     </td>
                   </tr>
                 )}
+
                 {live === true && loading && currentFiles.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-6 px-4 text-center text-slate-400">
-                      <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
-                      Reading the directory…
+                    <td colSpan={5} className="py-12 px-4 text-center text-slate-400">
+                      <Loader2 className="w-5 h-5 text-blue-400 animate-spin inline mr-2" />
+                      Loading files in {currentPath}…
                     </td>
                   </tr>
                 )}
-                {live === true && !loading && currentFiles.length === 0 && !error && (
+
+                {(!loading || currentFiles.length > 0) && currentFiles.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-6 px-4 text-center text-slate-400">
-                      This directory is empty.
+                    <td colSpan={5} className="py-12 px-4 text-center text-slate-500 space-y-2">
+                      <Folder className="w-8 h-8 text-slate-600 mx-auto" />
+                      <p className="text-xs">This directory is empty.</p>
+                      <p className="text-[11px] text-slate-600">Drag &amp; drop files or folders here to upload.</p>
                     </td>
                   </tr>
                 )}
+
                 {currentFiles.map((file, idx) => {
                   const isSelected = selectedFile?.name === file.name;
                   const isChecked = selectedFiles.includes(file.name);
-                  const isBeingCut = clipboard?.operation === 'cut' && clipboard.files.some(f => f.name === file.name) && clipboard.sourcePath === currentPath;
+                  const isBeingCut =
+                    clipboard?.operation === 'cut' &&
+                    clipboard.files.some((f) => f.name === file.name) &&
+                    clipboard.sourcePath === currentPath;
 
                   return (
                     <tr
                       key={`${file.name}-${idx}`}
-                      onClick={() => setSelectedFile(file)}
+                      onClick={() => {
+                        setSelectedFile(file);
+                        setShowInspector(true);
+                      }}
                       onDoubleClick={() => void handleOpenFile(file)}
                       onContextMenu={(e) => {
                         e.preventDefault();
@@ -1140,44 +1560,60 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                       }}
                       className={`cursor-pointer transition-colors group ${
                         isChecked
-                          ? 'bg-blue-50/80 border-l-4 border-blue-500'
+                          ? 'bg-blue-900/30 border-l-2 border-blue-500 text-blue-100'
                           : isSelected
-                          ? 'bg-blue-100/70 border-l-4 border-blue-600'
-                          : 'hover:bg-slate-50/80'
+                            ? 'bg-slate-800/80 border-l-2 border-blue-400 text-white'
+                            : 'hover:bg-slate-800/40 text-slate-200'
                       } ${isBeingCut ? 'opacity-40 italic' : ''}`}
                     >
-                      <td className="py-2.5 px-3 w-10 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="py-2 px-3 w-10 text-center" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={isChecked}
                           onChange={(e) => handleToggleSelectFile(file.name, e.target.checked)}
-                          className="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500 cursor-pointer accent-blue-600"
+                          className="w-4 h-4 rounded text-blue-500 border-slate-700 bg-slate-800 focus:ring-blue-500 cursor-pointer accent-blue-600"
                         />
                       </td>
-                      <td className="py-2.5 px-3 font-mono">
+                      <td className="py-2 px-3 font-mono">
                         <div className="flex items-center gap-2.5">
                           {getFileIcon(file)}
-                          <span className={`font-medium ${file.type === 'folder' ? 'text-slate-900 font-semibold' : 'text-slate-800'}`}>
+                          <span
+                            className={`truncate ${
+                              file.type === 'folder'
+                                ? 'text-amber-200 font-semibold'
+                                : isArchiveName(file.name)
+                                  ? 'text-purple-300 font-medium'
+                                  : 'text-slate-100'
+                            }`}
+                          >
                             {file.name}
                           </span>
+
+                          {isArchiveName(file.name) && (
+                            <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.2 rounded font-sans font-bold">
+                              ARCHIVE
+                            </span>
+                          )}
+
                           {file.symlinkTarget && (
                             <span className="text-[10px] text-slate-400 font-mono" title={`Symlink → ${file.symlinkTarget}`}>
                               → {file.symlinkTarget}
                             </span>
                           )}
+
                           {file.protected && (
                             <span
-                              className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded"
-                              title="Protected (read-only): the panel lets you read this path but never change it"
+                              className="flex items-center gap-1 text-[10px] font-semibold text-slate-400 bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded"
+                              title="System protected (read-only)"
                             >
-                              <Lock className="w-3 h-3" /> Protected
+                              <Lock className="w-3 h-3 text-amber-400" /> Read-only
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px]">{file.size}</td>
-                      <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px]">{file.permissions}</td>
-                      <td className="py-2.5 px-3 text-slate-400 text-[11px]">{file.modified}</td>
+                      <td className="py-2 px-3 text-slate-400 font-mono text-[11px]">{file.size}</td>
+                      <td className="py-2 px-3 text-slate-400 font-mono text-[11px]">{file.permissions}</td>
+                      <td className="py-2 px-3 text-slate-400 text-[11px]">{file.modified}</td>
                     </tr>
                   );
                 })}
@@ -1186,10 +1622,14 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
           </div>
 
           {/* Code Editor Panel */}
-          {editingFile ? (
-            <div className="flex-1 flex flex-col bg-slate-900 text-slate-100 overflow-hidden">
+          {editingFile && (
+            <div
+              className={`flex flex-col bg-slate-950 overflow-hidden ${
+                editorMaximized ? 'absolute inset-0 z-20' : 'w-full md:w-1/2 border-l border-slate-800'
+              }`}
+            >
               {/* Editor Bar */}
-              <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between shrink-0">
+              <div className="px-4 py-2.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2 font-mono text-xs">
                   <FileCode className="w-4 h-4 text-blue-400" />
                   <span className="font-bold text-white">{editingFile.name}</span>
@@ -1198,15 +1638,33 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
                 <div className="flex items-center gap-2">
                   <button
+                    onClick={() => setEditorMaximized((prev) => !prev)}
+                    className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                    title={editorMaximized ? 'Restore View' : 'Maximize Editor'}
+                  >
+                    {editorMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                  </button>
+
+                  <button
                     onClick={handleSaveFile}
                     disabled={busy || isLocked(editingFile)}
                     className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded text-xs font-semibold shadow-xs transition-colors cursor-pointer"
                   >
-                    {isSaved ? <Check className="w-3.5 h-3.5" /> : busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>{isSaved ? 'Saved!' : 'Save Changes'}</span>
+                    {isSaved ? (
+                      <Check className="w-3.5 h-3.5" />
+                    ) : busy ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Save className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isSaved ? 'Saved!' : 'Save'}</span>
                   </button>
+
                   <button
-                    onClick={() => setEditingFile(null)}
+                    onClick={() => {
+                      setEditingFile(null);
+                      setEditorMaximized(false);
+                    }}
                     className="p-1 text-slate-400 hover:text-white cursor-pointer"
                     title="Close Editor"
                   >
@@ -1229,12 +1687,12 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 </div>
               )}
 
-              {/* Code Editor with syntax highlighting (overlay technique) */}
-              <div className="relative flex-1 overflow-hidden bg-slate-900">
+              {/* Code Editor Area */}
+              <div className="relative flex-1 overflow-hidden bg-slate-950 font-mono text-xs leading-relaxed">
                 <pre
                   ref={editorPreRef}
                   aria-hidden
-                  className="absolute inset-0 m-0 p-4 overflow-hidden pointer-events-none font-mono text-xs leading-relaxed whitespace-pre text-slate-100"
+                  className="absolute inset-0 m-0 p-4 overflow-hidden pointer-events-none whitespace-pre text-slate-200 font-mono text-xs"
                   dangerouslySetInnerHTML={{ __html: `${highlightCode(editorContent, editingFile.name)}\n` }}
                 />
                 <textarea
@@ -1252,26 +1710,273 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 />
               </div>
             </div>
-          ) : (
-            <div className="hidden md:flex flex-1 items-center justify-center p-8 text-center text-slate-400">
-              <div>
-                <Edit3 className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                <p className="text-xs font-medium text-slate-600">Double-click a file to open the editor or preview</p>
+          )}
+
+          {/* Inspector Slide-over (When toggled on) */}
+          {showInspector && !editingFile && (
+            <div className="w-72 bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 animate-in slide-in-from-right-4 duration-150">
+              <div className="p-3.5 border-b border-slate-800 flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-blue-400" /> Item Details
+                </span>
+                <button
+                  onClick={() => setShowInspector(false)}
+                  className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
+
+              {activeFile ? (
+                <div className="p-4 space-y-4 overflow-y-auto text-xs">
+                  {/* File Preview Icon / Thumbnail */}
+                  <div className="p-4 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-col items-center justify-center text-center space-y-2">
+                    <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center">
+                      {activeFile.type === 'folder' ? (
+                        <Folder className="w-6 h-6 text-amber-400" />
+                      ) : isArchiveName(activeFile.name) ? (
+                        <Archive className="w-6 h-6 text-purple-400" />
+                      ) : (
+                        <FileText className="w-6 h-6 text-slate-300" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-bold text-white font-mono break-all">{activeFile.name}</p>
+                      <p className="text-[11px] text-slate-400 capitalize">{activeFile.type}</p>
+                    </div>
+                  </div>
+
+                  {/* Metadata List */}
+                  <div className="space-y-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800/60">
+                    <div className="flex justify-between py-1 border-b border-slate-850">
+                      <span className="text-slate-400">Size</span>
+                      <span className="font-mono text-slate-200">{activeFile.size}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-850">
+                      <span className="text-slate-400">Permissions</span>
+                      <span className="font-mono text-slate-200">{activeFile.permissions}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-850">
+                      <span className="text-slate-400">Modified</span>
+                      <span className="text-slate-200 text-[11px]">{activeFile.modified}</span>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-slate-400">Location</span>
+                      <span className="font-mono text-slate-300 truncate max-w-[120px]">{currentPath}</span>
+                    </div>
+                  </div>
+
+                  {/* Quick Action Buttons */}
+                  <div className="space-y-2 pt-2">
+                    {activeFile.type === 'file' && !isArchiveName(activeFile.name) && (
+                      <button
+                        onClick={() => void handleOpenFile(activeFile)}
+                        className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit / View</span>
+                      </button>
+                    )}
+
+                    {isArchiveName(activeFile.name) && (
+                      <button
+                        onClick={() =>
+                          setExtractModal({
+                            isOpen: true,
+                            file: activeFile,
+                            destination: currentPath,
+                          })
+                        }
+                        className="w-full py-2 px-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <FileArchive className="w-3.5 h-3.5" />
+                        <span>Extract Archive</span>
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => handleDownload(activeFile)}
+                      className="w-full py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Download</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleOpenCompressModal([activeFile])}
+                      className="w-full py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <Archive className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Compress</span>
+                    </button>
+
+                    <button
+                      onClick={() => setRenameModal({ isOpen: true, file: activeFile, newName: activeFile.name })}
+                      disabled={isLocked(activeFile)}
+                      className="w-full py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
+                    >
+                      <span>Rename</span>
+                    </button>
+
+                    <button
+                      onClick={() => void handleDelete(activeFile)}
+                      disabled={isLocked(activeFile)}
+                      className="w-full py-1.5 px-3 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-900/60 rounded-lg font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-8 text-center text-slate-500 space-y-2">
+                  <Info className="w-8 h-8 mx-auto text-slate-600" />
+                  <p className="text-xs">Select any file or folder to view its details and quick actions.</p>
+                </div>
+              )}
             </div>
           )}
         </div>
 
+        {/* Floating Upload Queue Drawer */}
+        {uploadDrawerOpen && uploadQueue.length > 0 && (
+          <div className="absolute bottom-4 right-4 z-40 w-96 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-200">
+            {/* Drawer Header */}
+            <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Upload className="w-4 h-4 text-blue-400" />
+                <span className="text-xs font-bold text-white">Uploads &amp; Queue ({uploadQueue.length})</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setUploadDrawerOpen(false)}
+                  className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Auto Extract Checkbox */}
+            <div className="px-4 py-2 bg-slate-850/60 border-b border-slate-800 flex items-center justify-between text-xs">
+              <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoExtractOnUpload}
+                  onChange={(e) => setAutoExtractOnUpload(e.target.checked)}
+                  className="w-4 h-4 rounded text-blue-600 border-slate-700 bg-slate-800 cursor-pointer accent-blue-600"
+                />
+                <span>Auto-extract archives (.zip, .tar.gz)</span>
+              </label>
+              {uploadQueue.some((x) => x.status === 'completed') && (
+                <button
+                  onClick={() => setUploadQueue((prev) => prev.filter((x) => x.status !== 'completed'))}
+                  className="text-[11px] text-slate-400 hover:text-white underline"
+                >
+                  Clear Done
+                </button>
+              )}
+            </div>
+
+            {/* Upload Tasks List */}
+            <div className="max-h-60 overflow-y-auto divide-y divide-slate-800/80 p-2 space-y-1">
+              {uploadQueue.map((item) => (
+                <div key={item.id} className="p-2 rounded-lg bg-slate-950/40 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-slate-200 truncate flex-1" title={item.relPath}>
+                      {item.relPath}
+                    </span>
+                    <span className="text-[10px] text-slate-400 shrink-0">{formatSize(item.size)}</span>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-200 ${
+                        item.status === 'completed'
+                          ? 'bg-emerald-400'
+                          : item.status === 'error'
+                            ? 'bg-rose-500'
+                            : item.status === 'paused'
+                              ? 'bg-amber-400'
+                              : 'bg-blue-500'
+                      }`}
+                      style={{ width: `${item.progress}%` }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`capitalize font-semibold ${
+                          item.status === 'completed'
+                            ? 'text-emerald-400'
+                            : item.status === 'uploading'
+                              ? 'text-blue-400'
+                              : item.status === 'paused'
+                                ? 'text-amber-400'
+                                : item.status === 'error'
+                                  ? 'text-rose-400'
+                                  : 'text-slate-400'
+                        }`}
+                      >
+                        {item.status}
+                      </span>
+                      {item.status === 'uploading' && item.speedBytesPerSec > 0 && (
+                        <span>({formatSize(item.speedBytesPerSec)}/s)</span>
+                      )}
+                      {item.status === 'completed' && item.extracted && item.extracted.length > 0 && (
+                        <span className="text-purple-300 font-semibold">Extracted!</span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      {item.status === 'uploading' && (
+                        <button
+                          onClick={() => handlePauseUpload(item.id)}
+                          className="p-1 hover:text-white"
+                          title="Pause"
+                        >
+                          <Pause className="w-3 h-3 text-amber-400" />
+                        </button>
+                      )}
+                      {item.status === 'paused' && (
+                        <button
+                          onClick={() => handleResumeUpload(item.id)}
+                          className="p-1 hover:text-white"
+                          title="Resume"
+                        >
+                          <Play className="w-3 h-3 text-emerald-400" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleCancelUpload(item.id)}
+                        className="p-1 hover:text-rose-400"
+                        title="Remove"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Right Click Context Menu */}
         {contextMenu && (
           <div
-            style={{ top: Math.min(contextMenu.y - 40, window.innerHeight - 280), left: Math.min(contextMenu.x - 20, window.innerWidth - 220) }}
-            className="fixed z-50 w-52 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 text-xs text-slate-700 animate-in fade-in zoom-in-95 duration-100"
+            style={{
+              top: Math.min(contextMenu.y - 30, window.innerHeight - 300),
+              left: Math.min(contextMenu.x - 20, window.innerWidth - 220),
+            }}
+            className="fixed z-50 w-52 bg-slate-900 rounded-xl shadow-2xl border border-slate-700 py-1.5 text-xs text-slate-200 animate-in fade-in zoom-in-95 duration-100"
             onClick={(e) => e.stopPropagation()}
           >
             {contextMenu.file ? (
               <>
-                <div className="px-3 py-1 font-mono text-[10px] text-slate-400 font-semibold border-b border-slate-100 truncate">
+                <div className="px-3 py-1 font-mono text-[10px] text-slate-400 font-semibold border-b border-slate-800 truncate">
                   {contextMenu.file.name}
                 </div>
 
@@ -1280,10 +1985,46 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     if (contextMenu.file) void handleOpenFile(contextMenu.file);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-blue-50 hover:text-blue-600 flex items-center gap-2 cursor-pointer font-medium"
+                  className="w-full px-3 py-1.5 text-left hover:bg-blue-600 hover:text-white flex items-center gap-2 cursor-pointer font-medium"
                 >
-                  <Eye className="w-3.5 h-3.5 text-blue-500" />
-                  <span>{contextMenu.file.type === 'folder' ? 'Open Folder' : 'Open / Preview'}</span>
+                  <Eye className="w-3.5 h-3.5 text-blue-400" />
+                  <span>
+                    {contextMenu.file.type === 'folder'
+                      ? 'Open Folder'
+                      : isArchiveName(contextMenu.file.name)
+                        ? 'Extract Archive…'
+                        : 'Open / Preview'}
+                  </span>
+                </button>
+
+                {isArchiveName(contextMenu.file.name) && (
+                  <button
+                    onClick={() => {
+                      if (contextMenu.file) {
+                        setExtractModal({
+                          isOpen: true,
+                          file: contextMenu.file,
+                          destination: currentPath,
+                        });
+                      }
+                      setContextMenu(null);
+                    }}
+                    className="w-full px-3 py-1.5 text-left hover:bg-purple-600 hover:text-white flex items-center gap-2 cursor-pointer font-medium"
+                  >
+                    <FileArchive className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Extract Archive…</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => {
+                    if (contextMenu.file) handleOpenCompressModal([contextMenu.file]);
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                >
+                  <Archive className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Compress…</span>
                 </button>
 
                 <button
@@ -1291,9 +2032,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     if (contextMenu.file) handleCopy([contextMenu.file]);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                 >
-                  <Copy className="w-3.5 h-3.5 text-slate-500" />
+                  <Copy className="w-3.5 h-3.5 text-slate-400" />
                   <span>Copy</span>
                 </button>
 
@@ -1302,34 +2043,21 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     if (contextMenu.file) handleCut([contextMenu.file]);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                 >
-                  <Scissors className="w-3.5 h-3.5 text-slate-500" />
+                  <Scissors className="w-3.5 h-3.5 text-slate-400" />
                   <span>Cut</span>
                 </button>
 
                 <button
-                  disabled={isLocked(contextMenu.file)}
                   onClick={() => {
                     if (contextMenu.file) void handleDuplicate(contextMenu.file);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                 >
-                  <Copy className="w-3.5 h-3.5 text-emerald-500" />
+                  <Layers className="w-3.5 h-3.5 text-slate-400" />
                   <span>Duplicate</span>
-                </button>
-
-                <button
-                  disabled={isLocked(contextMenu.file)}
-                  onClick={() => {
-                    if (contextMenu.file) setRenameModal({ isOpen: true, file: contextMenu.file, newName: contextMenu.file.name });
-                    setContextMenu(null);
-                  }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
-                >
-                  <Edit3 className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Rename / Move</span>
                 </button>
 
                 <button
@@ -1337,23 +2065,36 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     if (contextMenu.file) handleDownload(contextMenu.file);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                 >
-                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <Download className="w-3.5 h-3.5 text-blue-400" />
                   <span>Download</span>
                 </button>
 
-                <div className="my-1 border-t border-slate-100" />
+                <button
+                  onClick={() => {
+                    if (contextMenu.file) {
+                      setRenameModal({ isOpen: true, file: contextMenu.file, newName: contextMenu.file.name });
+                    }
+                    setContextMenu(null);
+                  }}
+                  disabled={isLocked(contextMenu.file)}
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer disabled:opacity-40"
+                >
+                  <span>Rename…</span>
+                </button>
+
+                <div className="h-px bg-slate-800 my-1" />
 
                 <button
-                  disabled={isLocked(contextMenu.file)}
                   onClick={() => {
                     if (contextMenu.file) void handleDelete(contextMenu.file);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-rose-50 text-rose-600 flex items-center gap-2 cursor-pointer font-medium"
+                  disabled={isLocked(contextMenu.file)}
+                  className="w-full px-3 py-1.5 text-left hover:bg-rose-950/60 text-rose-300 hover:text-rose-200 flex items-center gap-2 cursor-pointer disabled:opacity-40"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
                   <span>Delete</span>
                 </button>
               </>
@@ -1364,9 +2105,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     setNewFileModal({ isOpen: true, name: '' });
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5 text-blue-500" />
+                  <Plus className="w-3.5 h-3.5 text-blue-400" />
                   <span>New File</span>
                 </button>
 
@@ -1375,35 +2116,44 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     setNewFolderModal({ isOpen: true, name: '' });
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                 >
-                  <FolderPlus className="w-3.5 h-3.5 text-amber-500" />
+                  <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
                   <span>New Folder</span>
                 </button>
 
-                {live === true && (
-                  <button
-                    onClick={() => {
-                      uploadInputRef.current?.click();
-                      setContextMenu(null);
-                    }}
-                    className="w-full px-3 py-1.5 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Upload files here</span>
-                  </button>
-                )}
+                <button
+                  onClick={() => {
+                    fileUploadInputRef.current?.click();
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Upload Files…</span>
+                </button>
 
-                {clipboard && (
+                <button
+                  onClick={() => {
+                    folderUploadInputRef.current?.click();
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                >
+                  <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Upload Folder…</span>
+                </button>
+
+                {clipboard && clipboard.files.length > 0 && (
                   <button
                     onClick={() => {
                       void handlePaste();
                       setContextMenu(null);
                     }}
-                    className="w-full px-3 py-1.5 text-left hover:bg-blue-50 text-blue-600 font-semibold flex items-center gap-2 cursor-pointer"
+                    className="w-full px-3 py-1.5 text-left hover:bg-emerald-950/60 text-emerald-300 flex items-center gap-2 cursor-pointer"
                   >
-                    <Clipboard className="w-3.5 h-3.5" />
-                    <span>Paste ({clipboard.files.length})</span>
+                    <Clipboard className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Paste ({clipboard.files.length} items)</span>
                   </button>
                 )}
               </>
@@ -1411,33 +2161,118 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
           </div>
         )}
 
-        {/* Modal: Rename File / Folder */}
-        {renameModal.isOpen && renameModal.file && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-sm w-full p-4 space-y-3">
-              <h4 className="text-xs font-bold text-slate-800">Rename File / Folder</h4>
-              <form onSubmit={handleRenameSubmit} className="space-y-3">
-                <input
-                  type="text"
-                  value={renameModal.newName}
-                  onChange={(e) => setRenameModal(prev => ({ ...prev, newName: e.target.value }))}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:outline-hidden focus:border-blue-500"
-                  autoFocus
-                />
-                <div className="flex items-center justify-end gap-2">
+        {/* Modal: Compress */}
+        {compressModal.isOpen && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
+            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full p-5 space-y-4 text-xs">
+              <div className="flex items-center gap-2 text-sm font-bold text-white border-b border-slate-800 pb-3">
+                <Archive className="w-4 h-4 text-amber-400" />
+                <span>Compress Selected Items</span>
+              </div>
+
+              <form onSubmit={handleCompressSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">Archive Filename</label>
+                  <input
+                    type="text"
+                    value={compressModal.filename}
+                    onChange={(e) => setCompressModal((prev) => ({ ...prev, filename: e.target.value }))}
+                    placeholder="e.g. backup.zip"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 font-mono text-xs focus:outline-hidden focus:border-blue-500"
+                    autoFocus
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">Format</label>
+                  <select
+                    value={compressModal.format}
+                    onChange={(e) =>
+                      setCompressModal((prev) => ({
+                        ...prev,
+                        format: e.target.value as 'zip' | 'tar.gz',
+                        filename: prev.filename.replace(/\.(zip|tar\.gz|tar)$/, '') + (e.target.value === 'zip' ? '.zip' : '.tar.gz'),
+                      }))
+                    }
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 text-xs focus:outline-hidden focus:border-blue-500"
+                  >
+                    <option value="zip">.zip (Standard ZIP Archive)</option>
+                    <option value="tar.gz">.tar.gz (Gzip compressed tarball)</option>
+                  </select>
+                </div>
+
+                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
+                  <p className="font-semibold text-slate-300">Items to compress ({compressModal.paths.length}):</p>
+                  <p className="font-mono text-slate-400 truncate">{compressModal.paths.join(', ')}</p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
                   <button
                     type="button"
-                    onClick={() => setRenameModal({ isOpen: false, file: null, newName: '' })}
-                    className="px-3 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                    onClick={() => setCompressModal((prev) => ({ ...prev, isOpen: false }))}
+                    className="px-3.5 py-1.5 text-slate-300 hover:bg-slate-800 rounded-lg cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={busy}
-                    className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg cursor-pointer"
+                    className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
                   >
-                    Save
+                    {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>Compress Now</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Extract */}
+        {extractModal.isOpen && extractModal.file && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
+            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full p-5 space-y-4 text-xs">
+              <div className="flex items-center gap-2 text-sm font-bold text-white border-b border-slate-800 pb-3">
+                <FileArchive className="w-4 h-4 text-purple-400" />
+                <span>Extract Archive</span>
+              </div>
+
+              <form onSubmit={handleExtractSubmit} className="space-y-4">
+                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-[11px] space-y-1">
+                  <p className="text-slate-400">Archive File:</p>
+                  <p className="font-mono text-white font-bold">{extractModal.file.name}</p>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">Destination Directory</label>
+                  <input
+                    type="text"
+                    value={extractModal.destination}
+                    onChange={(e) => setExtractModal((prev) => ({ ...prev, destination: e.target.value }))}
+                    placeholder="e.g. / or /extracted-folder"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 font-mono text-xs focus:outline-hidden focus:border-blue-500"
+                    autoFocus
+                    required
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">Leave as current directory or specify a target subfolder.</p>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setExtractModal({ isOpen: false, file: null, destination: '' })}
+                    className="px-3.5 py-1.5 text-slate-300 hover:bg-slate-800 rounded-lg cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>Extract Here</span>
                   </button>
                 </div>
               </form>
@@ -1447,32 +2282,32 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: New File */}
         {newFileModal.isOpen && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-sm w-full p-4 space-y-3">
-              <h4 className="text-xs font-bold text-slate-800">New File</h4>
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
+            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs">
+              <h4 className="font-bold text-white text-sm">Create New File</h4>
               <form onSubmit={handleCreateFileSubmit} className="space-y-3">
                 <input
                   type="text"
-                  placeholder="e.g. script.py or styles.css"
+                  placeholder="e.g. index.html or config.json"
                   value={newFileModal.name}
-                  onChange={(e) => setNewFileModal(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:outline-hidden focus:border-blue-500"
+                  onChange={(e) => setNewFileModal((prev) => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 font-mono text-xs focus:outline-hidden focus:border-blue-500"
                   autoFocus
                 />
                 <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setNewFileModal({ isOpen: false, name: '' })}
-                    className="px-3 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                    className="px-3 py-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={busy}
-                    className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg cursor-pointer"
+                    className="px-3.5 py-1.5 font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg cursor-pointer"
                   >
-                    Create File
+                    Create
                   </button>
                 </div>
               </form>
@@ -1482,32 +2317,66 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: New Folder */}
         {newFolderModal.isOpen && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-sm w-full p-4 space-y-3">
-              <h4 className="text-xs font-bold text-slate-800">New Folder</h4>
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
+            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs">
+              <h4 className="font-bold text-white text-sm">Create New Folder</h4>
               <form onSubmit={handleCreateFolderSubmit} className="space-y-3">
                 <input
                   type="text"
-                  placeholder="e.g. assets or uploads"
+                  placeholder="e.g. assets or public"
                   value={newFolderModal.name}
-                  onChange={(e) => setNewFolderModal(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:outline-hidden focus:border-blue-500"
+                  onChange={(e) => setNewFolderModal((prev) => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 font-mono text-xs focus:outline-hidden focus:border-blue-500"
                   autoFocus
                 />
                 <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setNewFolderModal({ isOpen: false, name: '' })}
-                    className="px-3 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                    className="px-3 py-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={busy}
-                    className="px-3 py-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg cursor-pointer"
+                    className="px-3.5 py-1.5 font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg cursor-pointer"
                   >
-                    Create Folder
+                    Create
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Rename */}
+        {renameModal.isOpen && renameModal.file && (
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
+            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs">
+              <h4 className="font-bold text-white text-sm">Rename Item</h4>
+              <form onSubmit={handleRenameSubmit} className="space-y-3">
+                <input
+                  type="text"
+                  value={renameModal.newName}
+                  onChange={(e) => setRenameModal((prev) => ({ ...prev, newName: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 font-mono text-xs focus:outline-hidden focus:border-blue-500"
+                  autoFocus
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRenameModal({ isOpen: false, file: null, newName: '' })}
+                    className="px-3 py-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="px-3.5 py-1.5 font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg cursor-pointer"
+                  >
+                    Rename
                   </button>
                 </div>
               </form>
@@ -1518,25 +2387,25 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         {/* Modal: Media & Document Preview (Image & PDF) */}
         {previewModal.isOpen && previewModal.file && (
           <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-150">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full h-[80vh] flex flex-col overflow-hidden">
+            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-4xl w-full h-[85vh] flex flex-col overflow-hidden">
               {/* Preview Bar */}
-              <div className="px-5 py-3 bg-slate-900 text-white flex items-center justify-between">
+              <div className="px-5 py-3 bg-slate-950 border-b border-slate-800 text-white flex items-center justify-between">
                 <div className="flex items-center gap-2.5 font-mono text-xs">
                   {getFileIcon(previewModal.file)}
-                  <span className="font-bold text-sm">{previewModal.file.name}</span>
+                  <span className="font-bold text-sm text-white">{previewModal.file.name}</span>
                   <span className="text-[11px] text-slate-400">({previewModal.file.size})</span>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setPreviewModal(prev => ({ ...prev, zoom: Math.min(prev.zoom + 0.25, 2.5) }))}
+                    onClick={() => setPreviewModal((prev) => ({ ...prev, zoom: Math.min(prev.zoom + 0.25, 2.5) }))}
                     className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
                     title="Zoom In"
                   >
                     <ZoomIn className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => setPreviewModal(prev => ({ ...prev, zoom: Math.max(prev.zoom - 0.25, 0.5) }))}
+                    onClick={() => setPreviewModal((prev) => ({ ...prev, zoom: Math.max(prev.zoom - 0.25, 0.5) }))}
                     className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
                     title="Zoom Out"
                   >
@@ -1552,47 +2421,34 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               </div>
 
               {/* Preview Canvas */}
-              <div className="flex-1 bg-slate-100 flex items-center justify-center p-6 overflow-auto">
+              <div className="flex-1 bg-slate-950/60 flex items-center justify-center p-6 overflow-auto">
                 {previewModal.file.previewUrl ? (
-                  /* Live: the daemon serves the real bytes (cookie-authenticated) */
                   detectMediaType(previewModal.file.name) === 'image' ? (
                     <img
                       src={previewModal.file.previewUrl}
                       alt={previewModal.file.name}
                       style={{ transform: `scale(${previewModal.zoom})`, transformOrigin: 'center center' }}
-                      className="max-w-full max-h-full object-contain bg-white rounded-xl shadow-lg border border-slate-200 transition-transform duration-150"
+                      className="max-w-full max-h-full object-contain bg-slate-900 rounded-xl shadow-2xl border border-slate-800 transition-transform duration-150"
                     />
                   ) : detectMediaType(previewModal.file.name) === 'pdf' ? (
                     <iframe
                       src={previewModal.file.previewUrl}
                       title={previewModal.file.name}
-                      className="w-full h-full bg-white rounded-xl shadow-lg border border-slate-200"
+                      className="w-full h-full bg-white rounded-xl shadow-lg border border-slate-800"
                     />
                   ) : detectMediaType(previewModal.file.name) === 'audio' ? (
                     <audio src={previewModal.file.previewUrl} controls className="w-full max-w-lg" />
                   ) : (
-                    <video src={previewModal.file.previewUrl} controls className="max-w-full max-h-full rounded-xl shadow-lg" />
+                    <video
+                      src={previewModal.file.previewUrl}
+                      controls
+                      className="max-w-full max-h-full rounded-xl shadow-lg"
+                    />
                   )
-                ) : detectMediaType(previewModal.file.name) === 'image' ? (
-                  <div
-                    style={{ transform: `scale(${previewModal.zoom})`, transformOrigin: 'center center' }}
-                    className="transition-transform duration-150 max-w-full max-h-full flex flex-col items-center justify-center p-4 bg-white rounded-xl shadow-lg border border-slate-200"
-                  >
-                    {previewModal.file.content ? (
-                      <div
-                        dangerouslySetInnerHTML={{ __html: previewModal.file.content }}
-                        className="w-96 h-60 max-w-full flex items-center justify-center"
-                      />
-                    ) : (
-                      <div className="w-96 h-60 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-inner">
-                        <span>Image Preview: {previewModal.file.name}</span>
-                      </div>
-                    )}
-                  </div>
                 ) : (
-                  <div className="text-center text-slate-500 text-xs">
-                    <FileCheck className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                    <p>Preview is available when the daemon is running.</p>
+                  <div className="text-center text-slate-400 space-y-2">
+                    <FileCheck className="w-10 h-10 mx-auto text-slate-600" />
+                    <p className="text-xs">Preview is available when running in live mode.</p>
                   </div>
                 )}
               </div>
@@ -1601,7 +2457,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         )}
 
         {inline && <PanelSizeControl value={panelSize} onChange={setPanelSize} />}
-
       </div>
     </div>
   );

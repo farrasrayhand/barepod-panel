@@ -1241,18 +1241,41 @@ export const api = {
       body: JSON.stringify({ paths }),
     }),
 
-  compressFiles: (slug: string, paths: string[]) =>
-    request<Blob>(`/websites/${slug}/files/compress`, {
+  compressFiles: (slug: string, paths: string[], destination?: string, format?: string) =>
+    destination
+      ? request<{ ok: boolean; path: string }>(`/websites/${slug}/files/compress`, {
+          method: 'POST',
+          body: JSON.stringify({ paths, destination, format }),
+        })
+      : request<Blob>(`/websites/${slug}/files/compress`, {
+          method: 'POST',
+          body: JSON.stringify({ paths }),
+          raw: true,
+        }),
+
+  extractFiles: (slug: string, path: string, destination?: string) =>
+    request<{ ok: boolean; destination: string; extracted: string[] }>(`/websites/${slug}/files/extract`, {
       method: 'POST',
-      body: JSON.stringify({ paths }),
-      raw: true,
+      body: JSON.stringify({ path, destination }),
     }),
+
+  uploadChunk: (slug: string, form: FormData) =>
+    uploadForm<{ uploadId: string; chunkIndex?: number; completed: boolean; path?: string; extracted?: string[] }>(
+      `/websites/${slug}/files/upload-chunk`,
+      form,
+    ),
+
+  uploadChunkStatus: (slug: string, uploadId: string) =>
+    request<{ uploadId: string; chunks: number[] }>(
+      `/websites/${slug}/files/upload-chunk?uploadId=${encodeURIComponent(uploadId)}`,
+    ),
 
   uploadUrl: (slug: string, path = '') =>
     `${API_BASE}/websites/${slug}/files/upload?path=${encodeURIComponent(path)}`,
 
   /** Multipart upload; the URL builder differs per family, the work does not. */
-  uploadFiles: (slug: string, path: string, files: File[]) => uploadTo(api.uploadUrl(slug, path), files),
+  uploadFiles: (slug: string, path: string, files: File[], autoExtract = false) =>
+    uploadTo(`${api.uploadUrl(slug, path)}${autoExtract ? '&autoExtract=true' : ''}`, files),
 
   downloadUrl: (slug: string, path: string) =>
     `${API_BASE}/websites/${slug}/files/download?path=${encodeURIComponent(path)}`,
@@ -1335,17 +1358,39 @@ export const api = {
         body: JSON.stringify({ paths }),
       }),
 
-    compress: (scope: FileScope, paths: string[]) =>
-      request<Blob>(`/files/compress?${fileScopeQuery(scope)}`, {
+    compress: (scope: FileScope, paths: string[], destination?: string, format?: string) =>
+      destination
+        ? request<{ ok: boolean; path: string }>(`/files/compress?${fileScopeQuery(scope)}`, {
+            method: 'POST',
+            body: JSON.stringify({ paths, destination, format }),
+          })
+        : request<Blob>(`/files/compress?${fileScopeQuery(scope)}`, {
+            method: 'POST',
+            body: JSON.stringify({ paths }),
+            raw: true,
+          }),
+
+    extract: (scope: FileScope, path: string, destination?: string) =>
+      request<{ ok: boolean; destination: string; extracted: string[] }>(`/files/extract?${fileScopeQuery(scope)}`, {
         method: 'POST',
-        body: JSON.stringify({ paths }),
-        raw: true,
+        body: JSON.stringify({ path, destination }),
       }),
+
+    uploadChunk: (scope: FileScope, form: FormData) =>
+      uploadForm<{ uploadId: string; chunkIndex?: number; completed: boolean; path?: string; extracted?: string[] }>(
+        `/files/upload-chunk?${fileScopeQuery(scope)}`,
+        form,
+      ),
+
+    uploadChunkStatus: (scope: FileScope, uploadId: string) =>
+      request<{ uploadId: string; chunks: number[] }>(
+        `/files/upload-chunk?${fileScopeQuery(scope)}&uploadId=${encodeURIComponent(uploadId)}`,
+      ),
 
     uploadUrl: (scope: FileScope, path = '') => `${API_BASE}/files/upload?${fileScopeQuery(scope)}&path=${encodeURIComponent(path)}`,
 
-    uploadFiles: (scope: FileScope, path: string, files: File[]) =>
-      uploadTo(api.scopedFiles.uploadUrl(scope, path), files),
+    uploadFiles: (scope: FileScope, path: string, files: File[], autoExtract = false) =>
+      uploadTo(`${api.scopedFiles.uploadUrl(scope, path)}${autoExtract ? '&autoExtract=true' : ''}`, files),
 
     downloadUrl: (scope: FileScope, path: string) =>
       `${API_BASE}/files/download?${fileScopeQuery(scope)}&path=${encodeURIComponent(path)}`,
@@ -1418,8 +1463,118 @@ const fileScopeQuery = (scope: FileScope): string =>
 /** Shared multipart upload: the CSRF header and the error shape live here once. */
 async function uploadTo(url: string, files: File[]): Promise<{ uploaded: string[] }> {
   const form = new FormData();
-  files.forEach((file) => form.append('files', file, file.name));
+  files.forEach((file) => {
+    const rel = (file as any).webkitRelativePath || (file as any).relativePath || file.name;
+    form.append('files', file, rel);
+  });
   return uploadForm<{ uploaded: string[] }>(url, form);
+}
+
+export interface ResumableUploadOptions {
+  uploadId?: string;
+  file: File;
+  targetDir: string;
+  autoExtract?: boolean;
+  uploadChunkFn: (form: FormData) => Promise<{ completed: boolean; path?: string; extracted?: string[] }>;
+  uploadStatusFn: (uploadId: string) => Promise<{ chunks: number[] }>;
+  chunkSize?: number; // default 2MB
+  onProgress?: (info: {
+    bytesUploaded: number;
+    totalBytes: number;
+    percent: number;
+    speedBytesPerSec: number;
+  }) => void;
+  signal?: AbortSignal;
+}
+
+export async function uploadFileResumable(options: ResumableUploadOptions): Promise<{ path?: string; extracted?: string[] }> {
+  const {
+    file,
+    targetDir,
+    autoExtract = false,
+    uploadChunkFn,
+    uploadStatusFn,
+    chunkSize = 2 * 1024 * 1024,
+    onProgress,
+    signal,
+  } = options;
+
+  const uploadId = options.uploadId || `up_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
+
+  // Check which chunks already exist for resumption
+  let completedChunks = new Set<number>();
+  try {
+    const status = await uploadStatusFn(uploadId);
+    if (status && Array.isArray(status.chunks)) {
+      completedChunks = new Set(status.chunks);
+    }
+  } catch {
+    // Brand new upload or status check not yet available
+  }
+
+  let bytesUploaded = 0;
+  completedChunks.forEach((idx) => {
+    const chunkStart = idx * chunkSize;
+    const chunkEnd = Math.min(file.size, (idx + 1) * chunkSize);
+    bytesUploaded += Math.max(0, chunkEnd - chunkStart);
+  });
+
+  let startTime = Date.now();
+  let uploadedSinceStart = 0;
+
+  let finalResult: { path?: string; extracted?: string[] } = {};
+
+  for (let i = 0; i < totalChunks; i++) {
+    if (signal?.aborted) {
+      throw new DOMException('Upload aborted', 'AbortError');
+    }
+
+    if (completedChunks.has(i)) {
+      continue;
+    }
+
+    const start = i * chunkSize;
+    const end = Math.min(file.size, (i + 1) * chunkSize);
+    const chunkBlob = file.slice(start, end);
+
+    const form = new FormData();
+    form.append('uploadId', uploadId);
+    form.append('chunkIndex', String(i));
+    form.append('totalChunks', String(totalChunks));
+    const rel = (file as any).webkitRelativePath || (file as any).relativePath || file.name;
+    form.append('filename', rel);
+    form.append('path', targetDir || '');
+    if (autoExtract) {
+      form.append('autoExtract', 'true');
+    }
+    form.append('chunk', chunkBlob, file.name);
+
+    const chunkStartTime = Date.now();
+    const res = await uploadChunkFn(form);
+    const chunkDuration = (Date.now() - chunkStartTime) / 1000;
+
+    bytesUploaded += chunkBlob.size;
+    uploadedSinceStart += chunkBlob.size;
+    const totalElapsed = (Date.now() - startTime) / 1000;
+    const speedBytesPerSec = totalElapsed > 0 ? uploadedSinceStart / totalElapsed : 0;
+
+    if (onProgress) {
+      const percent = Math.min(100, Math.round((bytesUploaded / Math.max(1, file.size)) * 100));
+      onProgress({
+        bytesUploaded,
+        totalBytes: file.size,
+        percent,
+        speedBytesPerSec,
+      });
+    }
+
+    if (res.completed) {
+      finalResult = { path: res.path, extracted: res.extracted };
+    }
+  }
+
+  return finalResult;
 }
 
 async function uploadForm<T>(url: string, form: FormData): Promise<T> {

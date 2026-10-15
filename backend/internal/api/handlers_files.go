@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -412,13 +413,19 @@ func (s *Server) handleDownloadFile(w http.ResponseWriter, r *http.Request, user
 	_ = info
 }
 
-// handleCompressFiles returns a .zip of the selected entries.
+type compressRequest struct {
+	Paths       []string `json:"paths"`
+	Destination string   `json:"destination,omitempty"`
+	Format      string   `json:"format,omitempty"`
+}
+
+// handleCompressFiles compresses the selected entries in place or streams a zip download.
 func (s *Server) handleCompressFiles(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	manager, site, ok := s.fileManagerFor(w, r, user)
 	if !ok {
 		return
 	}
-	var req pathsRequest
+	var req compressRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "Invalid JSON body")
 		return
@@ -432,12 +439,28 @@ func (s *Server) handleCompressFiles(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 
+	// In-place server compression when destination is specified
+	if strings.TrimSpace(req.Destination) != "" {
+		if err := manager.Compress(req.Paths, req.Destination, req.Format); err != nil {
+			writeFileError(w, err)
+			return
+		}
+		_ = s.store.Audit(user.ID, "files.compress", site.Slug+"/"+strings.TrimPrefix(req.Destination, "/"), clientIP(r),
+			fmt.Sprintf("compressed %d items into %s", len(req.Paths), req.Destination))
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":   true,
+			"path": strings.TrimPrefix(req.Destination, "/"),
+		})
+		return
+	}
+
+	// Backwards-compatible stream download
 	archive, err := manager.Zip(req.Paths)
 	if err != nil {
 		writeFileError(w, err)
 		return
 	}
-	_ = s.store.Audit(user.ID, "files.compress", site.Slug, clientIP(r), fmt.Sprintf("%d item(s)", len(req.Paths)))
+	_ = s.store.Audit(user.ID, "files.compress_download", site.Slug, clientIP(r), fmt.Sprintf("%d item(s)", len(req.Paths)))
 
 	name := site.Slug + "-" + time.Now().UTC().Format("20060102-150405") + ".zip"
 	w.Header().Set("Content-Type", "application/zip")
@@ -447,13 +470,14 @@ func (s *Server) handleCompressFiles(w http.ResponseWriter, r *http.Request, use
 	_, _ = w.Write(archive)
 }
 
-// handleUploadFiles accepts a multipart upload into a directory.
+// handleUploadFiles accepts a multipart upload into a directory (supports folders and auto-extract).
 func (s *Server) handleUploadFiles(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	manager, site, ok := s.fileManagerFor(w, r, user)
 	if !ok {
 		return
 	}
 	dir := r.URL.Query().Get("path")
+	autoExtract := r.URL.Query().Get("autoExtract") == "true"
 
 	reader, err := r.MultipartReader()
 	if err != nil {
@@ -462,6 +486,8 @@ func (s *Server) handleUploadFiles(w http.ResponseWriter, r *http.Request, user 
 	}
 
 	written := []string{}
+	var extractedFiles []string
+
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
@@ -472,11 +498,26 @@ func (s *Server) handleUploadFiles(w http.ResponseWriter, r *http.Request, user 
 			return
 		}
 		if part.FileName() == "" {
+			if part.FormName() == "autoExtract" {
+				b, _ := io.ReadAll(io.LimitReader(part, 16))
+				if strings.TrimSpace(string(b)) == "true" {
+					autoExtract = true
+				}
+			}
 			continue
 		}
-		// Use the base name only: a client must not be able to traverse.
-		name := path.Base(strings.ReplaceAll(part.FileName(), "\\", "/"))
-		target := path.Join(strings.TrimPrefix(dir, "/"), name)
+
+		// Support folder upload: preserve relative directory structure while preventing escape
+		cleanName := filepath.Clean(filepath.ToSlash(part.FileName()))
+		if strings.HasPrefix(cleanName, "../") || cleanName == ".." || filepath.IsAbs(cleanName) {
+			cleanName = path.Base(cleanName)
+		}
+		cleanName = strings.TrimPrefix(cleanName, "/")
+		if cleanName == "" {
+			continue
+		}
+
+		target := path.Join(strings.TrimPrefix(dir, "/"), cleanName)
 
 		data, err := io.ReadAll(manager.LimitReader(part))
 		if err != nil {
@@ -486,11 +527,28 @@ func (s *Server) handleUploadFiles(w http.ResponseWriter, r *http.Request, user 
 		if !s.enforceDiskQuota(w, r, site.TenantUser, int64(len(data))) {
 			return
 		}
+
+		// Ensure parent directory exists for nested folder uploads
+		if parent := path.Dir(target); parent != "." && parent != "" {
+			_ = manager.Mkdir(parent)
+		}
+
 		if _, err := manager.Write(target, data); err != nil {
 			writeFileError(w, err)
 			return
 		}
 		written = append(written, target)
+
+		// Auto-extract if requested and file is an archive (.zip, .tar.gz, etc.)
+		if autoExtract {
+			lower := strings.ToLower(target)
+			if strings.HasSuffix(lower, ".zip") || strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") || strings.HasSuffix(lower, ".tar") {
+				targetDir := path.Dir(target)
+				if ex, err := manager.Extract(target, targetDir); err == nil {
+					extractedFiles = append(extractedFiles, ex...)
+				}
+			}
+		}
 	}
 
 	if len(written) == 0 {
@@ -498,5 +556,8 @@ func (s *Server) handleUploadFiles(w http.ResponseWriter, r *http.Request, user 
 		return
 	}
 	_ = s.store.Audit(user.ID, "files.upload", site.Slug, clientIP(r), strings.Join(written, ", "))
-	writeJSON(w, http.StatusCreated, map[string]any{"uploaded": written})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"uploaded":  written,
+		"extracted": extractedFiles,
+	})
 }
