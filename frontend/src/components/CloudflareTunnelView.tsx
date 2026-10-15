@@ -88,7 +88,8 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
     try {
       const data = await api.tunnelStatus(user);
       setTunnelData(data);
-      setInputToken(data.token || '');
+      // The saved token is never sent back, so the field stays empty: it can be replaced, not read.
+      setInputToken('');
       if (!data.hasToken) {
         setShowTutorial(true);
       }
@@ -164,7 +165,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
         activeUser
       );
       setTunnelData(updated);
-      setInputToken(updated.token || '');
+      setInputToken('');
       setInputApiToken('');
       setIsTokenSaved(true);
       setTimeout(() => setIsTokenSaved(false), 2500);
@@ -848,9 +849,16 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
           {/* Step 1: Tunnel Run Token */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="block text-xs font-bold text-slate-800">
-                1. Cloudflare Zero Trust Tunnel Token (Connector)
-              </label>
+              <div className="flex items-center gap-1.5">
+                <label className="block text-xs font-bold text-slate-800">
+                  1. Cloudflare Zero Trust Tunnel Token (Connector)
+                </label>
+                {tunnelData?.hasToken && (
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.2 rounded border border-emerald-200">
+                    Configured ({tunnelData.tokenMasked})
+                  </span>
+                )}
+              </div>
               <a 
                 href="https://one.dash.cloudflare.com" 
                 target="_blank" 
@@ -866,10 +874,10 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
               <Key className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type={showTokenText ? 'text' : 'password'}
-                required
+                required={!tunnelData?.hasToken}
                 value={inputToken}
                 onChange={(e) => handleTokenInput(e.target.value)}
-                placeholder="Paste token or full command (e.g. sudo cloudflared service install eyJh... or docker run ...)"
+                placeholder={tunnelData?.hasToken ? 'Configured. Paste a new token to replace it…' : 'Paste token or full command (e.g. sudo cloudflared service install eyJh... or docker run ...)'}
                 className="w-full pl-9 pr-10 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white transition-all"
               />
               <button

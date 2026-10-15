@@ -32,7 +32,6 @@ type TunnelStatusResponse struct {
 	TunnelName     string            `json:"tunnelName"`
 	HasToken       bool              `json:"hasToken"`
 	TokenMasked    string            `json:"tokenMasked"`
-	Token          string            `json:"token"`
 	HasApiToken    bool              `json:"hasApiToken"`
 	ApiTokenMasked string            `json:"apiTokenMasked"`
 	AccountID      string            `json:"accountId"`
@@ -271,7 +270,6 @@ func (s *Server) handleGetTunnelStatus(w http.ResponseWriter, r *http.Request, u
 		TunnelName:     tunnelName,
 		HasToken:       token != "",
 		TokenMasked:    maskToken(token),
-		Token:          token,
 		HasApiToken:    apiToken != "",
 		ApiTokenMasked: maskToken(apiToken),
 		AccountID:      accountID,
@@ -653,4 +651,3 @@ func (s *Server) handleListTunnelZones(w http.ResponseWriter, r *http.Request, u
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"zones": zones})
 }
-

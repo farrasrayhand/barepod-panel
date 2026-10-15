@@ -84,6 +84,59 @@ func TestPanelTunnelStatusReportsDetection(t *testing.T) {
 	}
 }
 
+// A saved Cloudflare token must never be handed back to a client: it can be replaced, never read.
+func TestTunnelStatusNeverReturnsSavedTokens(t *testing.T) {
+	s := newPanelTunnelServer(t)
+	const runToken = "SECRET-RUN-TOKEN-0123456789abcdef"
+	const apiToken = "SECRET-API-TOKEN-abcdef0123456789"
+	if _, err := s.store.UpsertCloudflareTunnel("admin", "admin-tunnel", runToken, apiToken, "acct", "tun"); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tunnels/status", nil)
+	s.handleGetTunnelStatus(rec, req, &store.User{Username: "admin", Role: "admin"}, &store.Session{})
+
+	body := rec.Body.String()
+	if strings.Contains(body, runToken) {
+		t.Errorf("the tunnel run token was returned to the client: %s", body)
+	}
+	if strings.Contains(body, apiToken) {
+		t.Errorf("the Cloudflare API token was returned to the client: %s", body)
+	}
+	if !strings.Contains(body, "tokenMasked") {
+		t.Errorf("the masked token is missing from the response: %s", body)
+	}
+}
+
+// The mode flag round-trips: turning Cloudflare off falls back to the public address, and the value
+// the reader sees matches what was written.
+func TestPanelSettingsToggleCloudflare(t *testing.T) {
+	s := newPanelTunnelServer(t)
+	admin := &store.User{Username: "admin", Role: "admin"}
+
+	save := func(body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/system/settings", strings.NewReader(body))
+		s.handleSavePanelSettings(rec, req, admin, &store.Session{})
+		return rec
+	}
+
+	if rec := save(`{"useCloudflare":true}`); rec.Code != http.StatusOK {
+		t.Fatalf("enabling answered %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if got, _ := s.store.PanelSetting(panelUseCloudflareKey); got != "true" {
+		t.Errorf("setting = %q after enabling, want true", got)
+	}
+
+	if rec := save(`{"useCloudflare":false}`); rec.Code != http.StatusOK {
+		t.Fatalf("disabling answered %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if got, _ := s.store.PanelSetting(panelUseCloudflareKey); got != "" {
+		t.Errorf("setting = %q after disabling, want cleared", got)
+	}
+}
+
 // Publishing refuses a bad domain, and refuses to run before Cloudflare is configured rather than
 // calling the API with empty credentials.
 func TestPanelPublishValidatesDomainAndCloudflare(t *testing.T) {

@@ -440,7 +440,7 @@ func New(d Deps) http.Handler {
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)
 
-	return withLogging(mux)
+	return withLogging(s.hostGuard(mux))
 }
 
 // ---- helpers ----

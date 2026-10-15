@@ -169,10 +169,10 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request, user 
 
 	if !allPresent {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"uploadId":      uploadID,
-			"chunkIndex":    chunkIndex,
-			"totalChunks":   totalChunks,
-			"completed":     false,
+			"uploadId":    uploadID,
+			"chunkIndex":  chunkIndex,
+			"totalChunks": totalChunks,
+			"completed":   false,
 		})
 		return
 	}
@@ -432,4 +432,3 @@ func (s *Server) handleScopedUploadChunkStatus(w http.ResponseWriter, r *http.Re
 		"chunks":   chunks,
 	})
 }
-

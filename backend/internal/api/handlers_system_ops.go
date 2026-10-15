@@ -760,4 +760,3 @@ func (s *Server) handleSystemPing(w http.ResponseWriter, r *http.Request, _ *sto
 		"gatewayIp":  gateway,
 	})
 }
-

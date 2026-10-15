@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/farrasrayhand/barepod-panel/backend/internal/phpfpm"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/phpext"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/phpfpm"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/provision"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/supervisor"

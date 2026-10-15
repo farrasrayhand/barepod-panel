@@ -331,4 +331,3 @@ func (s *Server) handleStackRepair(w http.ResponseWriter, r *http.Request, user 
 		"message": fmt.Sprintf("Auto-repair completed: %d action(s) performed.", len(actions)),
 	})
 }
-

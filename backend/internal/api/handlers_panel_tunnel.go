@@ -108,6 +108,8 @@ func (s *Server) handlePublishPanel(w http.ResponseWriter, r *http.Request, user
 		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
+	// Publishing is what "use Cloudflare" means, so keep the mode flag in step with it.
+	_ = s.store.SavePanelSetting(panelUseCloudflareKey, "true")
 	_ = s.store.Audit(user.ID, "panel.publish", hostname, clientIP(r), "Published the panel through Cloudflare at "+hostname)
 
 	writeJSON(w, http.StatusOK, panelTunnelStatus{
@@ -136,6 +138,7 @@ func (s *Server) handleUnpublishPanel(w http.ResponseWriter, r *http.Request, us
 		_ = s.store.DeleteCloudflareTunnelRoute(user.Username, fqdn)
 	}
 	_ = s.store.SavePanelSetting(panelFQDNKey, "")
+	_ = s.store.SavePanelSetting(panelUseCloudflareKey, "")
 	_ = s.store.Audit(user.ID, "panel.unpublish", fqdn, clientIP(r), "Removed the panel's Cloudflare hostname")
 
 	status := panelTunnelStatus{Service: s.panelTunnelService()}

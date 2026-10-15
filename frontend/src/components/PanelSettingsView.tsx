@@ -68,6 +68,9 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   // The panel's own public hostname: readable by anyone signed in, published by an admin through
   // their Cloudflare Tunnel. Declared here because the settings fetch above loads it.
   const [panelFqdn, setPanelFqdn] = useState('');
+  // Which address the panel is reached on: the public IP by default, the Cloudflare hostname once
+  // "Use Cloudflare" is ticked. The server stores it so the choice survives a reload.
+  const [useCloudflare, setUseCloudflare] = useState(false);
   // Measured, not written into the screen: the settings page used to state the engines' ports and the
   // panel's, and SSH was missing entirely.
   const [ports, setPorts] = useState<{
@@ -130,6 +133,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
         if (alive) {
           setExternalAddress(settings.externalAddress || '');
           setPanelFqdn(settings.panelFqdn || '');
+          setUseCloudflare(Boolean(settings.useCloudflare));
           setTrustedDraft((settings.trustedAddresses || []).join('\n'));
         }
       } catch {
@@ -360,6 +364,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       const status = await api.publishPanelTunnel(hostname);
       setPanelTunnel(status);
       setPanelFqdn(status.fqdn);
+      setUseCloudflare(true);
       onShowToast?.('Panel published', `Reachable at https://${status.fqdn} through Cloudflare.`, 'success');
     } catch (err) {
       onShowToast?.('Publish failed', err instanceof Error ? err.message : 'unknown error', 'error');
@@ -375,11 +380,38 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       const status = await api.unpublishPanelTunnel();
       setPanelTunnel(status);
       setPanelFqdn('');
+      setUseCloudflare(false);
       onShowToast?.('Panel unpublished', 'The Cloudflare hostname was removed.', 'info');
     } catch (err) {
       onShowToast?.('Unpublish failed', err instanceof Error ? err.message : 'unknown error', 'error');
     } finally {
       setPanelPublishing(false);
+    }
+  };
+
+  // Ticking "Use Cloudflare" switches the panel's address to the tunnel hostname; unticking it takes
+  // the hostname out of Cloudflare and falls back to the public address.
+  const toggleCloudflare = async (next: boolean) => {
+    if (panelPublishing) return;
+    setUseCloudflare(next);
+    try {
+      if (!next && panelTunnel?.fqdn) {
+        const status = await api.unpublishPanelTunnel();
+        setPanelTunnel(status);
+        setPanelFqdn('');
+      } else {
+        await api.savePanelSettings({ useCloudflare: next });
+      }
+      onShowToast?.(
+        next ? 'Cloudflare enabled' : 'Cloudflare disabled',
+        next
+          ? 'Pick a domain below, then publish. The panel keeps answering on its IP too.'
+          : 'The panel is reached at its public address.',
+        'info',
+      );
+    } catch (err) {
+      setUseCloudflare(!next);
+      onShowToast?.('Could not change', err instanceof Error ? err.message : 'unknown error', 'error');
     }
   };
 
@@ -572,11 +604,24 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               <div className="space-y-4">
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Panel FQDN Domain
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Panel FQDN Domain
+                    </label>
+                    {isAdmin && panelTunnel?.configured && (
+                      <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={useCloudflare}
+                          onChange={(e) => void toggleCloudflare(e.target.checked)}
+                          className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300"
+                        />
+                        Use Cloudflare
+                      </label>
+                    )}
+                  </div>
 
-                  {isAdmin && panelTunnel?.configured ? (
+                  {isAdmin && useCloudflare && panelTunnel?.configured ? (
                     <div className="space-y-2">
                       <div className="flex gap-2">
                         <input
@@ -626,21 +671,22 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     <input
                       type="text"
                       value={panelFqdn}
-                      onChange={(e) => setPanelFqdn(e.target.value)}
-                      disabled={!isAdmin}
-                      placeholder="panel.example.com"
-                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500 disabled:opacity-60"
+                      disabled
+                      placeholder="Using the public IP (no domain)"
+                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono opacity-60"
                     />
                   )}
 
                   <p className="text-[10px] text-slate-400 mt-1">
                     {!isAdmin
-                      ? "Only an administrator can publish the panel's own domain."
-                      : panelTunnel?.configured
-                        ? (panelTunnel.fqdn
-                            ? `Published via Cloudflare: https://${panelTunnel.fqdn} (account ${panelTunnel.accountId}).`
-                            : `Cloudflare connected — pick a domain from the account and publish. Target: ${panelTunnel.service}.`)
-                        : 'Cloudflare not configured yet. Add your API token on the Cloudflare Tunnel page first.'}
+                      ? 'Only an administrator can change this.'
+                      : !panelTunnel?.configured
+                        ? 'Cloudflare not configured yet. The panel is reached at its public address — add your API token on the Cloudflare Tunnel page to use a domain.'
+                        : !useCloudflare
+                          ? 'Reached at its public address. Tick “Use Cloudflare” to answer on a domain instead — the IP keeps working.'
+                          : panelTunnel.fqdn
+                            ? `Published via Cloudflare: https://${panelTunnel.fqdn}. The panel still answers on its IP.`
+                            : `Pick a domain from the account and publish. Target: ${panelTunnel.service}.`}
                   </p>
                 </div>
               </div>

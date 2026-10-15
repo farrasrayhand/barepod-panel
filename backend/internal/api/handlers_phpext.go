@@ -88,4 +88,3 @@ func (s *Server) handleInstallPhpExtensions(w http.ResponseWriter, r *http.Reque
 		"stream":     "/api/v1/system/stack/jobs/stream?id=" + job.ID,
 	})
 }
-

@@ -40,20 +40,20 @@ type cachePayload struct {
 }
 
 type createWebsiteRequest struct {
-	Slug             string           `json:"slug"`
-	Domain           string           `json:"domain"`
-	TenantUser       string           `json:"tenantUser"`
-	Runtime          string           `json:"runtime"`
-	Version          string           `json:"version"`
-	Framework        string           `json:"framework"`
-	FrameworkVersion string           `json:"frameworkVersion"`
-	WebServer        string           `json:"webServer"`
-	Port             int              `json:"port"`
-	SSL              bool             `json:"ssl"`
-	TunnelEnabled    bool             `json:"tunnelEnabled"`
-	Source           sourcePayload    `json:"source"`
-	Database         *databasePayload `json:"database"`
-	Cache            *cachePayload    `json:"cache"`
+	Slug             string            `json:"slug"`
+	Domain           string            `json:"domain"`
+	TenantUser       string            `json:"tenantUser"`
+	Runtime          string            `json:"runtime"`
+	Version          string            `json:"version"`
+	Framework        string            `json:"framework"`
+	FrameworkVersion string            `json:"frameworkVersion"`
+	WebServer        string            `json:"webServer"`
+	Port             int               `json:"port"`
+	SSL              bool              `json:"ssl"`
+	TunnelEnabled    bool              `json:"tunnelEnabled"`
+	Source           sourcePayload     `json:"source"`
+	Database         *databasePayload  `json:"database"`
+	Cache            *cachePayload     `json:"cache"`
 	AutomationSteps  []string          `json:"automationSteps"`
 	DeployScript     string            `json:"deployScript"`
 	Env              map[string]string `json:"env"`
@@ -824,4 +824,3 @@ func (s *Server) reconcileWebsiteTunnelRoutes() {
 		}
 	}
 }
-
