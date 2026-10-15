@@ -4,6 +4,7 @@ package api
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -24,6 +25,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/telemetry"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/tenant"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
 )
 
 // Version is the panel/daemon version (prototype line, see MASTER_PLAN §0).
@@ -462,6 +464,26 @@ func (s *Server) handleSPA(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		writeError(w, http.StatusNotFound, "not_found", "API route not found")
 		return
+	}
+
+	// Do not expose the panel SPA on hosted website domains.
+	host := r.Host
+	if h, _, err := net.SplitHostPort(r.Host); err == nil {
+		host = h
+	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	if s.store != nil {
+		if sites, err := s.store.ListWebsites(); err == nil {
+			for _, site := range sites {
+				if strings.EqualFold(site.Domain, host) {
+					w.Header().Set("Content-Type", "text/html; charset=utf-8")
+					w.Header().Set("Cache-Control", "no-store")
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = w.Write([]byte(webserver.Default404HTML(host)))
+					return
+				}
+			}
+		}
 	}
 
 	index := filepath.Join(s.cfg.StaticDir, "index.html")

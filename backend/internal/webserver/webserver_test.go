@@ -337,7 +337,7 @@ func TestSecurityDirectivesNginxAndCaddy(t *testing.T) {
 		"@ipDenied not client_ip 10.0.0.0/8 192.168.1.50",
 		"respond @ipDenied \"Access Denied\" 403",
 		"basic_auth {",
-		"operator $2a$12$abcdefg",
+		"operator JDJhJDEyJGFiY2RlZmc=",
 		"@maintenance not client_ip 10.0.0.1 192.168.1.100",
 		"handle @maintenance {",
 		"header Retry-After 300",

@@ -228,13 +228,22 @@ server {
     listen 80 default_server;
     listen [::]:80 default_server;
     server_name _;
-    return 404 "Nothing is hosted here yet.\n";
+    root /var/www/barepod;
+
+    location / {
+        try_files /default-404.html =404;
+    }
 }
 `, nil
 	case Caddy:
 		return `# Managed by BarePod Panel — the catch-all site (barepod-default.caddy).
 http:// {
-    respond "Nothing is hosted here yet." 404
+    root * /var/www/barepod
+    rewrite * /default-404.html
+    header Content-Type "text/html; charset=utf-8"
+    file_server {
+        status 404
+    }
 }
 `, nil
 	case Apache:
@@ -242,7 +251,8 @@ http:// {
 <VirtualHost 127.0.0.1:8080>
     ServerName default
     ServerAlias *
-    DocumentRoot /var/www/html
+    DocumentRoot /var/www/barepod
+    DirectoryIndex default-404.html
     <Location />
         Require all granted
     </Location>
@@ -250,7 +260,8 @@ http:// {
 `, nil
 	case OpenLiteSpeed:
 		return `# Managed by BarePod Panel — the catch-all site (barepod-default.conf).
-docRoot /var/www/html
+docRoot                   /var/www/barepod
+indexFiles                default-404.html
 `, nil
 	}
 	return "", fmt.Errorf("webserver: no catch-all for %s", engine)
@@ -430,7 +441,9 @@ func nginxLocations(b *strings.Builder, s Spec) {
 		b.WriteString("    }\n")
 	}
 
-	b.WriteString("\n    location ~ /\\.(?!well-known) {\n        deny all;\n    }\n")
+	b.WriteString("\n    # Block hidden files, dotfiles, and sensitive extensions (.env, .git, etc.)\n")
+	b.WriteString("    location ~ /\\.(?!well-known) {\n        return 404;\n    }\n")
+	b.WriteString("    location ~* \\.(env|git|sh|sql|bak)$ {\n        return 404;\n    }\n")
 }
 
 func nginxServerBody(b *strings.Builder, s Spec) {
@@ -538,6 +551,14 @@ func caddyVhost(s Spec) string {
 	b.WriteString("\t\tX-Frame-Options SAMEORIGIN\n")
 	b.WriteString("\t\tReferrer-Policy strict-origin-when-cross-origin\n")
 	b.WriteString("\t}\n\n")
+
+	// Block hidden files, dotfiles, and sensitive extensions
+	b.WriteString("\t# Block hidden files, dotfiles, and sensitive extensions (.env, .git, etc.)\n")
+	b.WriteString("\t@dotfiles {\n")
+	b.WriteString("\t\tpath /.* */.* *.env* *.git* *.sh *.sql *.bak\n")
+	b.WriteString("\t\tnot path /.well-known/*\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\trespond @dotfiles 404\n\n")
 
 	// Static Assets Browser Caching
 	if s.Kind == "php" || s.Kind == "static" {
@@ -717,6 +738,11 @@ func apacheVhost(s Spec) string {
 		b.WriteString("    </Directory>\n\n")
 	}
 
+	b.WriteString("    # Block hidden files, dotfiles, and sensitive extensions\n")
+	b.WriteString("    <FilesMatch \"(^\\.|\\.env|\\.git|\\.sh|\\.sql|\\.bak)\">\n")
+	b.WriteString("        Require all denied\n")
+	b.WriteString("    </FilesMatch>\n\n")
+
 	switch s.Kind {
 	case "php":
 		b.WriteString("    <FilesMatch \\.php$>\n")
@@ -852,13 +878,21 @@ func WriteDefault(engine, dir string) (string, error) {
 			return "", err
 		}
 	}
+	// Ensure standard 404 page directory and informative file exist
+	_ = os.MkdirAll("/var/www/barepod", 0o755)
+	_ = os.WriteFile("/var/www/barepod/default-404.html", []byte(Default404HTML("")), 0o644)
+
 	body, err := DefaultVhost(engine)
 	if err != nil {
 		return "", err
 	}
 	path := Path(engine, dir, "default")
-	if _, err := os.Stat(path); err == nil {
-		return path, nil // never overwrite one the operator may have edited
+	if existing, err := os.ReadFile(path); err == nil {
+		if !strings.Contains(string(existing), "default-404.html") && strings.Contains(string(existing), "Managed by BarePod Panel") {
+			// rewrite with new informative 404 vhost
+		} else {
+			return path, nil // never overwrite one the operator may have custom edited
+		}
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(body), 0o644); err != nil {

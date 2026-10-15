@@ -431,6 +431,16 @@ func readEnvFileMap(path string) map[string]string {
 }
 
 func stepWriteEnv(ctx context.Context, s *state) error {
+	if s.req.Runtime == "static" {
+		s.log("stdout", "static runtime: skipping .env generation")
+		existingEnv := filepath.Join(s.siteDir, ".env")
+		if _, err := os.Stat(existingEnv); err == nil {
+			_ = os.Remove(existingEnv)
+			s.log("stdout", "static runtime: removed unwanted .env file")
+		}
+		return nil
+	}
+
 	existingPath := filepath.Join(s.siteDir, ".env")
 	examplePath := filepath.Join(s.siteDir, ".env.example")
 

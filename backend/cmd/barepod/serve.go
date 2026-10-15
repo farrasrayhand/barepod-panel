@@ -33,6 +33,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/sysinfo"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/tenant"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/tlscert"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
 )
 
 // dbtoolsSweepInterval is how often idle database managers are checked. The idle
@@ -98,7 +99,6 @@ a:hover{text-decoration:underline}
 <div class="row"><span>Server</span><b>BarePod Web Engine</b></div>
 <div class="row"><span>Requested host</span><code>{{host}}</code></div>
 <div class="row"><span>Status</span><span class="amber"><span class="dot"></span>{{reason}}</span></div>
-<div class="row"><span>Panel</span>{{panel}}</div>
 </div>
 <p class="footer">{{footer}}</p>
 </main></body></html>`
@@ -119,10 +119,10 @@ var (
 	noSitePage = statusPage{
 		Code:    404,
 		Badge:   "No site",
-		Title:   "Nothing is hosted here yet",
-		Message: "This server is running <b>BarePod Panel</b>, but no website is configured for <b>{{host}}</b>.",
-		Reason:  "404 — no website configured",
-		Footer:  "Add a website from the panel and it will answer on this address.",
+		Title:   "Domain Belum Terhubung ke Website",
+		Message: "Domain <b>{{host}}</b> mengarah ke IP server ini, namun belum didaftarkan pada konfigurasi website manapun.",
+		Reason:  "404 — domain belum terdaftar",
+		Footer:  "Daftarkan domain dari panel BarePod agar otomatis aktif melayani website.",
 	}
 	// maintenancePage is the same page for a site under maintenance; the web-server
 	// module serves it (HTTP 503) once it owns the port.
@@ -136,20 +136,21 @@ var (
 	}
 )
 
-// statusPageHandler renders a status page for every request on a web port, with the
-// request's host and the panel's address filled in.
-func statusPageHandler(page statusPage, panelPort string) http.Handler {
+// statusPageHandler renders a status page for every request on a web port.
+func statusPageHandler(page statusPage) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 		if h, _, err := net.SplitHostPort(r.Host); err == nil {
 			host = h
 		}
-		escaped := html.EscapeString(host)
-		panel := "its own port"
-		if panelPort != "" && panelPort != "443" {
-			url := "https://" + escaped + ":" + panelPort
-			panel = `<a href="` + url + `">` + url + `</a>`
+		if page.Code == 404 {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(webserver.Default404HTML(host)))
+			return
 		}
+		escaped := html.EscapeString(host)
 		body := strings.NewReplacer(
 			"{{code}}", strconv.Itoa(page.Code),
 			"{{badge}}", html.EscapeString(page.Badge),
@@ -158,7 +159,6 @@ func statusPageHandler(page statusPage, panelPort string) http.Handler {
 			"{{reason}}", html.EscapeString(page.Reason),
 			"{{footer}}", html.EscapeString(page.Footer),
 			"{{host}}", escaped,
-			"{{panel}}", panel,
 		).Replace(statusPageTemplate)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
@@ -476,7 +476,7 @@ func runServe(args []string) error {
 	if cfg.HTTPListen != "" {
 		go func() {
 			log.Printf("serving the default page on http://%s (no website is configured there yet)", cfg.HTTPListen)
-			if err := http.ListenAndServe(cfg.HTTPListen, statusPageHandler(noSitePage, httpsPort(cfg.Listen))); err != nil {
+			if err := http.ListenAndServe(cfg.HTTPListen, statusPageHandler(noSitePage)); err != nil {
 				log.Printf("the default-page listener on %s stopped: %v", cfg.HTTPListen, err)
 			}
 		}()
@@ -491,7 +491,7 @@ func runServe(args []string) error {
 				log.Printf("the default-page listener on %s stopped: %v", cfg.HTTPSListen, err)
 				return
 			}
-			page := &http.Server{Handler: statusPageHandler(noSitePage, httpsPort(cfg.Listen)), ReadHeaderTimeout: 10 * time.Second}
+			page := &http.Server{Handler: statusPageHandler(noSitePage), ReadHeaderTimeout: 10 * time.Second}
 			redirector := &redirectingListener{
 				Listener:  listener,
 				httpsPort: "443",
