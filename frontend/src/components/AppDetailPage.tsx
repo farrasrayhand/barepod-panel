@@ -111,6 +111,23 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteDatabasesOption, setDeleteDatabasesOption] = useState<'keep' | 'delete'>('keep');
   const [isDeletingApp, setIsDeletingApp] = useState(false);
+  const [associatedDbs, setAssociatedDbs] = useState<{ id: string; name: string; alias: string; engine: string }[]>([]);
+
+  useEffect(() => {
+    if (!showDeleteModal) {
+      setAssociatedDbs([]);
+      return;
+    }
+    api.databases.list()
+      .then((res) => {
+        const slug = app.name || app.id;
+        const matched = (res.items || []).filter(
+          (d) => (d.websiteSlug === slug || d.websiteSlug === app.name) && !d.deletedAt
+        );
+        setAssociatedDbs(matched);
+      })
+      .catch(() => setAssociatedDbs([]));
+  }, [showDeleteModal, app.name, app.id]);
 
   const tabSupport = siteTabSupport(app);
 
@@ -5760,45 +5777,50 @@ QUEUE_CONNECTION=redis`}
           warningDescription={`This action cannot be undone. It will permanently remove all web server configurations, systemd services, site logs, and isolated process groups for ${app.domain || app.name}.`}
           confirmLabel={isDeletingApp ? 'Deleting Website...' : 'Permanently Delete Website'}
         >
-          <div className="space-y-2 pt-2 border-t border-slate-100">
-            <label className="block text-xs font-bold text-slate-700">
-              Associated Databases
-            </label>
-            <div className="space-y-2">
-              <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs">
-                <input
-                  type="radio"
-                  name="databasesOptionDetail"
-                  value="keep"
-                  checked={deleteDatabasesOption === 'keep'}
-                  onChange={() => setDeleteDatabasesOption('keep')}
-                  className="mt-0.5 text-blue-600 focus:ring-blue-500"
-                />
-                <div>
-                  <span className="font-bold text-slate-800">Keep Databases (Recommended)</span>
-                  <p className="text-[11px] text-slate-500">
-                    Preserve all MySQL, PostgreSQL, and SQLite databases associated with this website.
-                  </p>
-                </div>
-              </label>
-              <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-rose-200 bg-rose-50/30 hover:bg-rose-50/60 cursor-pointer text-xs">
-                <input
-                  type="radio"
-                  name="databasesOptionDetail"
-                  value="delete"
-                  checked={deleteDatabasesOption === 'delete'}
-                  onChange={() => setDeleteDatabasesOption('delete')}
-                  className="mt-0.5 text-rose-600 focus:ring-rose-500"
-                />
-                <div>
-                  <span className="font-bold text-rose-800">Delete Associated Databases</span>
-                  <p className="text-[11px] text-rose-600">
-                    Drop and permanently destroy databases owned by this website.
-                  </p>
-                </div>
-              </label>
+          {associatedDbs.length > 0 && (
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                <span>Associated Databases ({associatedDbs.length})</span>
+                <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-mono">
+                  {associatedDbs.map(d => d.alias || d.name).join(', ')}
+                </span>
+              </div>
+              <div className="space-y-2">
+                <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    name="databasesOptionDetail"
+                    value="keep"
+                    checked={deleteDatabasesOption === 'keep'}
+                    onChange={() => setDeleteDatabasesOption('keep')}
+                    className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                  />
+                  <div>
+                    <span className="font-bold text-slate-800">Keep Databases (Recommended)</span>
+                    <p className="text-[11px] text-slate-500">
+                      Preserve all MySQL, PostgreSQL, and SQLite databases associated with this website.
+                    </p>
+                  </div>
+                </label>
+                <label className="flex items-start gap-2.5 p-2.5 rounded-xl border border-rose-200 bg-rose-50/30 hover:bg-rose-50/60 cursor-pointer text-xs">
+                  <input
+                    type="radio"
+                    name="databasesOptionDetail"
+                    value="delete"
+                    checked={deleteDatabasesOption === 'delete'}
+                    onChange={() => setDeleteDatabasesOption('delete')}
+                    className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                  />
+                  <div>
+                    <span className="font-bold text-rose-800">Delete Associated Databases</span>
+                    <p className="text-[11px] text-rose-600">
+                      Drop and permanently destroy {associatedDbs.map(d => d.alias || d.name).join(', ')}.
+                    </p>
+                  </div>
+                </label>
+              </div>
             </div>
-          </div>
+          )}
         </DangerConfirmModal>
       )}
 

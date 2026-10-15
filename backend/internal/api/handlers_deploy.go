@@ -560,6 +560,18 @@ func (s *Server) handleDeleteWebsite(w http.ResponseWriter, r *http.Request, use
 			}
 			_ = s.store.Audit(user.ID, "database.purge", owned[i].Name, clientIP(r), owned[i].Engine+" (with website "+slug+")")
 		}
+		// Also clean up any un-tracked matching daemon databases created for this website
+		if s.host.Materialises() {
+			for _, candidate := range []string{site.TenantUser + "_" + slug + "_db", site.TenantUser + "_" + slug} {
+				mysqlCleanup := fmt.Sprintf(
+					"DROP DATABASE IF EXISTS `%s`; DROP USER IF EXISTS '%s'@'localhost'; DROP USER IF EXISTS '%s'@'127.0.0.1'; FLUSH PRIVILEGES;",
+					candidate, candidate, candidate,
+				)
+				_, _ = s.host.Run(r.Context(), []string{"mysql", "-e", mysqlCleanup})
+				psqlCleanup := fmt.Sprintf("DROP DATABASE IF EXISTS %q WITH (FORCE); DROP ROLE IF EXISTS %q;", candidate, candidate)
+				_, _ = s.host.Run(r.Context(), []string{"sudo", "-u", "postgres", "psql", "-c", psqlCleanup})
+			}
+		}
 	case "":
 		// nothing owned, nothing to decide
 	default:

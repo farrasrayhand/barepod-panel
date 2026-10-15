@@ -605,20 +605,76 @@ func stepProvisionDatabase(ctx context.Context, s *state) error {
 		return nil
 	}
 	engine := strings.ToLower(db.Engine)
+	alias := db.Name
+	if alias == "" {
+		alias = s.req.Slug
+	}
+
 	if engine == "sqlite" {
 		s.log("stdout", "skipped: sqlite is a file inside the site directory, not a daemon")
+		if s.m.store != nil {
+			existing, _ := s.m.store.DatabasesForWebsite(s.req.Slug)
+			alreadyTracked := false
+			for _, ex := range existing {
+				if ex.Alias == alias {
+					alreadyTracked = true
+					break
+				}
+			}
+			if !alreadyTracked {
+				record := &store.Database{
+					Kind:        store.KindDatabase,
+					WebsiteSlug: s.req.Slug,
+					TenantUser:  s.req.Tenant,
+					Engine:      "sqlite",
+					Alias:       alias,
+					Name:        alias,
+					FilePath:    filepath.Join(s.siteDir, alias+".sqlite"),
+					FileBased:   true,
+					Status:      "ready",
+					CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+				}
+				_ = s.m.store.CreateDatabase(record)
+			}
+		}
 		return nil
 	}
 
 	var argv []string
 	switch engine {
 	case "postgres", "postgresql":
-		argv = []string{"sudo", "-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-c",
-			fmt.Sprintf("CREATE ROLE %q LOGIN PASSWORD %q; CREATE DATABASE %q OWNER %q;", s.dbUser, s.dbPass, s.dbName, s.dbUser)}
+		sql := fmt.Sprintf(`DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = %q) THEN
+    CREATE ROLE %q LOGIN PASSWORD %q;
+  ELSE
+    ALTER ROLE %q WITH LOGIN PASSWORD %q;
+  END IF;
+END
+$$;
+SELECT 'CREATE DATABASE %q OWNER %q'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = %q)\gexec`,
+			s.dbUser, s.dbUser, s.dbPass, s.dbUser, s.dbPass, s.dbName, s.dbUser, s.dbName)
+		argv = []string{"sudo", "-u", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-c", sql}
 	case "mysql", "mariadb":
-		argv = []string{"mysql", "-e",
-			fmt.Sprintf("CREATE DATABASE `%s`; CREATE USER '%s'@'localhost' IDENTIFIED BY '%s'; GRANT ALL ON `%s`.* TO '%s'@'localhost';",
-				s.dbName, s.dbUser, s.dbPass, s.dbName, s.dbUser)}
+		sql := fmt.Sprintf(
+			"CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; "+
+				"CREATE USER IF NOT EXISTS '%s'@'localhost' IDENTIFIED BY '%s'; "+
+				"ALTER USER '%s'@'localhost' IDENTIFIED BY '%s'; "+
+				"GRANT ALL PRIVILEGES ON `%s`.* TO '%s'@'localhost'; "+
+				"CREATE USER IF NOT EXISTS '%s'@'127.0.0.1' IDENTIFIED BY '%s'; "+
+				"ALTER USER '%s'@'127.0.0.1' IDENTIFIED BY '%s'; "+
+				"GRANT ALL PRIVILEGES ON `%s`.* TO '%s'@'127.0.0.1'; "+
+				"FLUSH PRIVILEGES;",
+			s.dbName,
+			s.dbUser, s.dbPass,
+			s.dbUser, s.dbPass,
+			s.dbName, s.dbUser,
+			s.dbUser, s.dbPass,
+			s.dbUser, s.dbPass,
+			s.dbName, s.dbUser,
+		)
+		argv = []string{"mysql", "-e", sql}
 	case "mongodb":
 		argv = []string{"mongosh", "--quiet", "--eval",
 			fmt.Sprintf(`db.getSiblingDB(%q).createUser({user:%q,pwd:%q,roles:[{role:"readWrite",db:%q}]})`, s.dbName, s.dbUser, s.dbPass, s.dbName)}
@@ -635,6 +691,38 @@ func stepProvisionDatabase(ctx context.Context, s *state) error {
 	if !s.m.host.Materialises() {
 		s.log("stdout", "[dry-run] no database daemon was contacted")
 	}
+
+	// Register or link this database with the website in store so deletion & lifecycle are tracked
+	if s.m.store != nil {
+		existing, _ := s.m.store.DatabasesForWebsite(s.req.Slug)
+		alreadyTracked := false
+		for _, ex := range existing {
+			if ex.Name == s.dbName || ex.Alias == alias {
+				alreadyTracked = true
+				break
+			}
+		}
+		if !alreadyTracked {
+			record := &store.Database{
+				Kind:        store.KindDatabase,
+				WebsiteSlug: s.req.Slug,
+				TenantUser:  s.req.Tenant,
+				Engine:      engine,
+				Alias:       alias,
+				Name:        s.dbName,
+				User:        s.dbUser,
+				Host:        "127.0.0.1",
+				Port:        provision.DefaultDBPort(engine),
+				Status:      "ready",
+				CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+			}
+			if enc, err := secrets.Encrypt(s.m.key, s.dbPass); err == nil {
+				record.PasswordCipher = enc
+			}
+			_ = s.m.store.CreateDatabase(record)
+		}
+	}
+
 	return nil
 }
 

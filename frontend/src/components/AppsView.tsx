@@ -29,6 +29,7 @@ import type { WebApp, WebServerType } from '../types';
 import { GitDeploymentModal } from './GitDeploymentModal';
 import { AppDetailPage, type AppDetailTab } from './AppDetailPage';
 import { DangerConfirmModal } from './DangerConfirmModal';
+import { api } from '../api/client';
 
 interface AppsViewProps {
   apps: WebApp[];
@@ -75,6 +76,23 @@ export const AppsView: React.FC<AppsViewProps> = ({
   const [appToDelete, setAppToDelete] = useState<WebApp | null>(null);
   const [deleteDatabasesOption, setDeleteDatabasesOption] = useState<'keep' | 'delete'>('keep');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [associatedDbs, setAssociatedDbs] = useState<{ id: string; name: string; alias: string; engine: string }[]>([]);
+
+  React.useEffect(() => {
+    if (!appToDelete) {
+      setAssociatedDbs([]);
+      return;
+    }
+    api.databases.list()
+      .then((res) => {
+        const slug = appToDelete.name || appToDelete.id;
+        const matched = (res.items || []).filter(
+          (d) => (d.websiteSlug === slug || d.websiteSlug === appToDelete.name) && !d.deletedAt
+        );
+        setAssociatedDbs(matched);
+      })
+      .catch(() => setAssociatedDbs([]));
+  }, [appToDelete]);
 
   // Modals
   const [selectedAppForGit, setSelectedAppForGit] = useState<WebApp | null>(null);
@@ -528,46 +546,53 @@ export const AppsView: React.FC<AppsViewProps> = ({
         warningDescription={`This will permanently remove the website ${appToDelete?.name}, stop and remove its systemd service, delete its web server virtual host configuration (${appToDelete?.webServer.toUpperCase()}), and delete all website files in /home/${appToDelete?.tenantUser}/web/${appToDelete?.name}. This action CANNOT be undone.`}
         confirmLabel={isDeleting ? 'Deleting Website...' : 'Permanently Delete Website'}
       >
-        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
-            <Database className="w-3.5 h-3.5 text-blue-600" />
-            <span>Associated Databases</span>
-          </div>
-          <div className="space-y-2 text-xs">
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input
-                type="radio"
-                name="dbAction"
-                value="keep"
-                checked={deleteDatabasesOption === 'keep'}
-                onChange={() => setDeleteDatabasesOption('keep')}
-                className="mt-0.5 text-blue-600 focus:ring-blue-500"
-              />
-              <div>
-                <span className="font-semibold text-slate-800">Keep databases (Recommended)</span>
-                <p className="text-[11px] text-slate-500">
-                  Preserves or detaches existing databases so application data remains safe.
-                </p>
+        {associatedDbs.length > 0 && (
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+              <div className="flex items-center gap-2">
+                <Database className="w-3.5 h-3.5 text-blue-600" />
+                <span>Associated Databases ({associatedDbs.length})</span>
               </div>
-            </label>
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input
-                type="radio"
-                name="dbAction"
-                value="delete"
-                checked={deleteDatabasesOption === 'delete'}
-                onChange={() => setDeleteDatabasesOption('delete')}
-                className="mt-0.5 text-rose-600 focus:ring-rose-500"
-              />
-              <div>
-                <span className="font-semibold text-rose-700">Delete associated databases</span>
-                <p className="text-[11px] text-rose-600">
-                  Permanently drops databases and removes SQLite database files owned by this website.
-                </p>
-              </div>
-            </label>
+              <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-mono">
+                {associatedDbs.map(d => d.alias || d.name).join(', ')}
+              </span>
+            </div>
+            <div className="space-y-2 text-xs">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="dbAction"
+                  value="keep"
+                  checked={deleteDatabasesOption === 'keep'}
+                  onChange={() => setDeleteDatabasesOption('keep')}
+                  className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                />
+                <div>
+                  <span className="font-semibold text-slate-800">Keep databases (Recommended)</span>
+                  <p className="text-[11px] text-slate-500">
+                    Preserves or detaches existing databases so application data remains safe.
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="dbAction"
+                  value="delete"
+                  checked={deleteDatabasesOption === 'delete'}
+                  onChange={() => setDeleteDatabasesOption('delete')}
+                  className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                />
+                <div>
+                  <span className="font-semibold text-rose-700">Delete associated databases</span>
+                  <p className="text-[11px] text-rose-600">
+                    Permanently drops {associatedDbs.map(d => d.alias || d.name).join(', ')} from the database server.
+                  </p>
+                </div>
+              </label>
+            </div>
           </div>
-        </div>
+        )}
       </DangerConfirmModal>
     </div>
   );

@@ -1156,6 +1156,15 @@ func (s *Server) handlePurgeDatabase(kind string) authedHandler {
 	}
 }
 
+func isIgnorablePurgeError(msg string) bool {
+	low := strings.ToLower(msg)
+	return strings.Contains(low, "could not find tuple for role") ||
+		strings.Contains(low, "does not exist") ||
+		strings.Contains(low, "doesn't exist") ||
+		strings.Contains(low, "unknown database") ||
+		strings.Contains(low, "operation drop user failed")
+}
+
 func (s *Server) purgeDatabase(ctx context.Context, record *store.Database) error {
 	engine, _ := s.engineFor(ctx, record.Engine)
 	if engine.FileBased {
@@ -1172,7 +1181,9 @@ func (s *Server) purgeDatabase(ctx context.Context, record *store.Database) erro
 			return err
 		}
 		if err := s.runDatabasePlan(ctx, plan); err != nil {
-			return err
+			if !isIgnorablePurgeError(err.Error()) {
+				return err
+			}
 		}
 	}
 	return s.store.DeleteDatabase(record.ID)
@@ -1187,12 +1198,17 @@ func (s *Server) handleEmptyRecycleBin(kind string) authedHandler {
 			return
 		}
 		purged := []string{}
+		var lastErr error
 		for i := range items {
 			if err := s.purgeDatabase(r.Context(), &items[i]); err != nil {
-				writeError(w, http.StatusBadGateway, "service_error", err.Error())
-				return
+				lastErr = err
+				continue
 			}
 			purged = append(purged, items[i].Name)
+		}
+		if len(purged) == 0 && lastErr != nil && len(items) > 0 {
+			writeError(w, http.StatusBadGateway, "service_error", lastErr.Error())
+			return
 		}
 		_ = s.store.Audit(user.ID, "database.recycle_bin_empty", kind, clientIP(r), strings.Join(purged, ", "))
 		writeJSON(w, http.StatusOK, map[string]any{"purged": purged})
