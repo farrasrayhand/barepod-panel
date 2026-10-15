@@ -723,6 +723,25 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = %q)\gexec`,
 		}
 	}
 
+	if strings.Contains(strings.ToLower(s.req.Framework), "wordpress") && s.dbName != "" {
+		s.log("stdout", "configuring WordPress wp-config.php with database credentials...")
+		wpConfigCmd := []string{
+			"wp", "config", "create",
+			"--dbname=" + s.dbName,
+			"--dbuser=" + s.dbUser,
+			"--dbpass=" + s.dbPass,
+			"--dbhost=127.0.0.1",
+			"--skip-check",
+			"--force",
+			"--allow-root",
+		}
+		out, err := s.m.host.RunInSite(ctx, s.req.Tenant, s.req.Slug, wpConfigCmd)
+		s.logOutput(out)
+		if err != nil {
+			s.log("stderr", "warning: wp config create failed: "+err.Error())
+		}
+	}
+
 	return nil
 }
 

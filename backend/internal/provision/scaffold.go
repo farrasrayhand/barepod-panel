@@ -82,8 +82,6 @@ func PostScaffold(framework string) [][]string {
 		return [][]string{{"./.venv/bin/pip", "install", "flask", "gunicorn"}}
 	case "fastapi":
 		return [][]string{{"./.venv/bin/pip", "install", "fastapi", "uvicorn"}}
-	case "wordpress":
-		return [][]string{{"wp", "config", "create", "--dbname=wordpress", "--skip-check"}, {"wp", "core", "install", "--skip-email"}}
 	case "laravel", "symfony", "codeigniter", "cakephp":
 		return [][]string{{"composer", "install", "--no-interaction"}}
 	default:
