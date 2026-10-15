@@ -341,9 +341,9 @@ func TestSecurityDirectivesNginxAndCaddy(t *testing.T) {
 		"@maintenance not client_ip 10.0.0.1 192.168.1.100",
 		"handle @maintenance {",
 		"header Retry-After 300",
-		"503",
-		"Portal Updating",
-		"We are upgrading the database",
+		"root * /var/lib/barepod/maintenance/portal",
+		"rewrite * /index.html",
+		"status 503",
 		"handle {",
 		"reverse_proxy 127.0.0.1:3000",
 	} {

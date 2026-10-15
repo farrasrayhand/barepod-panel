@@ -569,6 +569,8 @@ npm run build`;
   }, [loadSecurityConfig, loadVhostPreview]);
 
   const handleToggleMaintenance = async () => {
+    const nextState = !maintenanceMode;
+    setMaintenanceMode(nextState);
     try {
       const res = await api.toggleMaintenance(app.name);
       setMaintenanceMode(res.maintenanceMode);
@@ -581,6 +583,7 @@ npm run build`;
       );
       loadVhostPreview();
     } catch (err: any) {
+      setMaintenanceMode(!nextState);
       onShowToast?.('Failed to toggle maintenance mode', err.message || 'Unknown error', 'error');
     }
   };
@@ -608,6 +611,46 @@ npm run build`;
   };
 
   const handleToggleBasicAuth = async () => {
+    const nextState = !basicAuthEnabled;
+
+    // If enabling and user already entered a password in the form, persist credentials automatically
+    if (nextState && basicAuthPassword && basicAuthPassword.trim() !== '') {
+      setIsSavingBasicAuth(true);
+      setBasicAuthEnabled(true);
+      try {
+        const updated = await api.updateWebsiteSecurity(app.name, {
+          basicAuthEnabled: true,
+          basicAuthUser: basicAuthUser || 'admin',
+          basicAuthPassword: basicAuthPassword.trim(),
+          basicAuthRealm: basicAuthRealm || 'Restricted Area',
+          basicAuthBypassIps,
+        });
+        setBasicAuthEnabled(updated.basicAuthEnabled);
+        setBasicAuthUser(updated.basicAuthUser);
+        setBasicAuthRealm(updated.basicAuthRealm);
+        onShowToast?.(
+          'HTTP Basic Auth Enabled',
+          `Access to https://${app.domain} is now password-protected (user: ${updated.basicAuthUser}).`,
+          'info'
+        );
+        loadVhostPreview();
+        return;
+      } catch (err: any) {
+        setBasicAuthEnabled(false);
+        onShowToast?.('Failed to enable Basic Auth', err.message || 'Unknown error', 'error');
+        return;
+      } finally {
+        setIsSavingBasicAuth(false);
+      }
+    }
+
+    // If enabling but no password is typed or saved yet, prompt the user
+    if (nextState && (!basicAuthPassword || basicAuthPassword.trim() === '')) {
+      onShowToast?.('Password Required', 'Please enter or generate an Auth Password below first before enabling Basic Auth.', 'error');
+      return;
+    }
+
+    setBasicAuthEnabled(nextState);
     try {
       const res = await api.toggleBasicAuth(app.name);
       setBasicAuthEnabled(res.basicAuthEnabled);
@@ -620,6 +663,7 @@ npm run build`;
       );
       loadVhostPreview();
     } catch (err: any) {
+      setBasicAuthEnabled(!nextState);
       onShowToast?.('Failed to toggle HTTP Basic Auth', err.message || 'A password must be set first.', 'error');
     }
   };

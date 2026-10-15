@@ -98,6 +98,12 @@ func WriteMaintenancePage(slug, title, message string) (string, error) {
 		return "", fmt.Errorf("write maintenance page: %w", err)
 	}
 	_ = os.Chmod(dest, 0o644)
+
+	// Also write barepod_503.html so Nginx error_page 503 /barepod_503.html finds it immediately
+	dest503 := filepath.Join(dir, "barepod_503.html")
+	if err := os.WriteFile(dest503, []byte(rendered), 0o644); err == nil {
+		_ = os.Chmod(dest503, 0o644)
+	}
 	return dest, nil
 }
 

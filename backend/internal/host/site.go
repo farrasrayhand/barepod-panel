@@ -58,10 +58,16 @@ func (h *Host) VhostsFor(engine string) string {
 	if h.VHostsDir != "" {
 		return h.VHostsDir
 	}
-	if strings.EqualFold(engine, "caddy") {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case "caddy":
 		return DefaultCaddySitesDir
+	case "apache", "apache2":
+		return "/etc/apache2/sites-enabled"
+	case "openlitespeed", "lsws":
+		return "/usr/local/lsws/conf/vhosts"
+	default:
+		return DefaultVhostsDir
 	}
-	return DefaultVhostsDir
 }
 
 // CaddyDir is where Caddy's Caddyfile lives.

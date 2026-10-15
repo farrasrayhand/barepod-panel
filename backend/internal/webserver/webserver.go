@@ -567,27 +567,29 @@ func caddyVhost(s Spec) string {
 
 	// 3. Maintenance Mode
 	if s.Security.MaintenanceMode {
-		htmlBody := RenderMaintenanceHTML(s.Security.MaintenanceTitle, s.Security.MaintenanceMessage)
-		escaped := strings.ReplaceAll(htmlBody, "\"", "\\\"")
-		escaped = strings.ReplaceAll(escaped, "\n", " ")
-		escaped = strings.ReplaceAll(escaped, "\r", "")
-
+		maintDir := filepath.Join(MaintenanceDir, sanitizeSlug(s.Slug))
 		if len(s.Security.MaintenanceBypassIPs) > 0 {
 			bypass := s.Security.MaintenanceBypassIPs
 			fmt.Fprintf(&b, "\t@maintenance not client_ip %s\n", strings.Join(bypass, " "))
 			b.WriteString("\thandle @maintenance {\n")
+			fmt.Fprintf(&b, "\t\troot * %s\n", maintDir)
+			b.WriteString("\t\trewrite * /index.html\n")
 			b.WriteString("\t\theader Retry-After 300\n")
-			b.WriteString("\t\theader Content-Type \"text/html; charset=utf-8\"\n")
-			fmt.Fprintf(&b, "\t\trespond \"%s\" 503\n", escaped)
+			b.WriteString("\t\tfile_server {\n")
+			b.WriteString("\t\t\tstatus 503\n")
+			b.WriteString("\t\t}\n")
 			b.WriteString("\t}\n")
 			b.WriteString("\thandle {\n")
 			caddyAppLocations(&b, s, "\t\t")
 			b.WriteString("\t}\n")
 		} else {
 			b.WriteString("\thandle {\n")
+			fmt.Fprintf(&b, "\t\troot * %s\n", maintDir)
+			b.WriteString("\t\trewrite * /index.html\n")
 			b.WriteString("\t\theader Retry-After 300\n")
-			b.WriteString("\t\theader Content-Type \"text/html; charset=utf-8\"\n")
-			fmt.Fprintf(&b, "\t\trespond \"%s\" 503\n", escaped)
+			b.WriteString("\t\tfile_server {\n")
+			b.WriteString("\t\t\tstatus 503\n")
+			b.WriteString("\t\t}\n")
 			b.WriteString("\t}\n")
 		}
 	} else {
