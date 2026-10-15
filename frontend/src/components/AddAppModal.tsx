@@ -1618,7 +1618,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                         </span>
                       </span>
                       <span className="text-slate-500 block mt-0.5">
-                        Publish domain secara otomatis & aman tanpa IP publik atau port forwarding.
+                        Publish domain securely without a public IP or port forwarding.
                       </span>
                     </span>
                   </label>
@@ -1633,10 +1633,10 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                         </span>
                       </div>
                       <span className="text-slate-500 block mt-0.5 text-[11px] leading-relaxed">
-                        Cloudflare Tunnel belum dikonfigurasi untuk akun <strong>@{tenantUser}</strong>. Website akan diakses langsung melalui web server port / local reverse proxy.
+                        Cloudflare Tunnel is not configured for account <strong>@{tenantUser}</strong>. The website will be served directly via web server port / local reverse proxy.
                       </span>
                       <span className="text-blue-600 block mt-1 text-[11px] font-medium">
-                        💡 Ingin Zero-NAT & domain otomatis tanpa IP publik? Setup tunnel terlebih dahulu di menu <strong>Cloudflare Tunnels</strong>.
+                        💡 Want Zero-NAT & automatic HTTPS without a public IP? Configure your tunnel first in <strong>Cloudflare Tunnels</strong>.
                       </span>
                     </div>
                   </div>

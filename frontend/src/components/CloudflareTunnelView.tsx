@@ -79,7 +79,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
     navigator.clipboard.writeText(text);
     setCopiedKey(label);
     setTimeout(() => setCopiedKey(null), 2000);
-    onShowToast?.('Disalin ke Clipboard', label, 'info');
+    onShowToast?.('Copied to Clipboard', label, 'info');
   };
 
   // Fetch tunnel status from real backend
@@ -547,7 +547,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-bold text-slate-900">
-                    Panduan Setup Cloudflare Tunnel & API Token
+                    Cloudflare Tunnel & API Token Setup Guide
                   </span>
                   <span className="text-[10px] font-bold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-full border border-blue-200">
                     Step-by-Step
@@ -557,12 +557,12 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5 truncate">
-                  Cara mudah menghubungkan domain Cloudflare ke BarePod tanpa IP Publik & konfigurasi DNS otomatis.
+                  Step-by-step instructions to connect your domains to BarePod without a public IP & enable automatic DNS sync.
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-1.5 text-xs font-bold text-blue-600 shrink-0 ml-3">
-              <span>{showTutorial ? 'Sembunyikan Panduan' : 'Buka Tutorial'}</span>
+              <span>{showTutorial ? 'Hide Guide' : 'Open Setup Guide'}</span>
               {showTutorial ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </div>
           </button>
@@ -572,9 +572,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
               {/* Tab Navigation */}
               <div className="flex flex-wrap gap-1.5 border-b border-slate-200/70 pb-2">
                 {[
-                  { id: 'connector', label: '1. Connector Token (Wajib)', icon: Key },
-                  { id: 'apiToken', label: '2. Cloudflare API Token (Otomatisasi)', icon: Sparkles },
-                  { id: 'workflow', label: '3. Cara Deploy & Verifikasi', icon: Globe },
+                  { id: 'connector', label: '1. Connector Token (Required)', icon: Key },
+                  { id: 'apiToken', label: '2. Cloudflare API Token (Automation)', icon: Sparkles },
+                  { id: 'workflow', label: '3. Deployment & Workflow', icon: Globe },
                 ].map((t) => {
                   const Icon = t.icon;
                   const active = tutorialTab === t.id;
@@ -602,9 +602,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200/70 flex items-start gap-2.5">
                     <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                     <div>
-                      <span className="font-bold text-blue-900 block">Apa itu Connector Token?</span>
+                      <span className="font-bold text-blue-900 block">What is a Connector Token?</span>
                       <span className="text-slate-600 text-[11px] leading-relaxed">
-                        Token ini menghubungkan daemon <code className="font-mono text-blue-700 bg-blue-100/50 px-1 rounded">cloudflared@{activeUser}</code> di server Anda ke jaringan Cloudflare secara terenkripsi (Zero-NAT). Server Anda tidak memerlukan IP Publik statis, port forwarding, atau setting firewall khusus.
+                        This token connects the background daemon <code className="font-mono text-blue-700 bg-blue-100/50 px-1 rounded">cloudflared@{activeUser}</code> on your server securely to Cloudflare's edge network via an encrypted tunnel (Zero-NAT). Your server does not require a static public IP, open ports, or router port forwarding.
                       </span>
                     </div>
                   </div>
@@ -615,7 +615,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         1
                       </span>
                       <div className="flex-1">
-                        <span className="font-semibold text-slate-900">Buka Cloudflare Zero Trust Dashboard:</span>
+                        <span className="font-semibold text-slate-900">Open Cloudflare Zero Trust Dashboard:</span>
                         <div className="mt-1">
                           <a
                             href="https://one.dash.cloudflare.com"
@@ -635,9 +635,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         2
                       </span>
                       <div className="flex-1">
-                        <span className="font-semibold text-slate-900">Masuk ke menu Tunnels:</span>
+                        <span className="font-semibold text-slate-900">Navigate to Tunnels:</span>
                         <p className="text-slate-500 mt-0.5">
-                          Pada sidebar sebelah kiri, klik <strong>Networks</strong> → pilih <strong>Tunnels</strong> (atau <strong>Access</strong> → <strong>Tunnels</strong>).
+                          In the left sidebar, click <strong>Networks</strong> → select <strong>Tunnels</strong> (or <strong>Access</strong> → <strong>Tunnels</strong> in older dashboards).
                         </p>
                       </div>
                     </div>
@@ -647,9 +647,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         3
                       </span>
                       <div className="flex-1">
-                        <span className="font-semibold text-slate-900">Buat Tunnel Baru:</span>
+                        <span className="font-semibold text-slate-900">Create a New Tunnel:</span>
                         <p className="text-slate-500 mt-0.5">
-                          Klik tombol <strong>Add a tunnel</strong> → pilih tipe connector <strong>Cloudflared</strong> → beri nama tunnel (misal: <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">barepod-{activeUser}</code>) → klik <strong>Save tunnel</strong>.
+                          Click <strong>Add a tunnel</strong> → choose connector type <strong>Cloudflared</strong> → name your tunnel (e.g. <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">barepod-{activeUser}</code>) → click <strong>Save tunnel</strong>.
                         </p>
                       </div>
                     </div>
@@ -659,13 +659,13 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         4
                       </span>
                       <div className="flex-1">
-                        <span className="font-semibold text-slate-900">Pilih Sistem Operasi & Salin Perintah:</span>
+                        <span className="font-semibold text-slate-900">Select Operating System & Copy Command:</span>
                         <p className="text-slate-500 mt-0.5">
-                          Pada langkah <em>Install and run a connector</em>, klik <strong>Debian</strong> atau <strong>Docker</strong>. Cloudflare akan menampilkan perintah seperti:
+                          Under <em>Install and run a connector</em>, choose <strong>Debian</strong> or <strong>Docker</strong>. Cloudflare will display an installation command such as:
                         </p>
                         <div className="mt-1.5 p-2 rounded-lg bg-slate-900 text-slate-200 font-mono text-[11px] flex items-center justify-between gap-2 overflow-x-auto">
                           <span className="truncate">sudo cloudflared service install eyJh...</span>
-                          <span className="text-[10px] text-blue-400 font-sans shrink-0">(Contoh)</span>
+                          <span className="text-[10px] text-blue-400 font-sans shrink-0">(Example)</span>
                         </div>
                       </div>
                     </div>
@@ -675,9 +675,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         5
                       </span>
                       <div className="flex-1">
-                        <span className="font-semibold text-slate-900">Tempelkan (Paste) ke Kolom 1 di Bawah:</span>
+                        <span className="font-semibold text-slate-900">Paste into Box 1 Below:</span>
                         <p className="text-slate-500 mt-0.5">
-                          Salin seluruh perintah tersebut atau hanya string token panjangnya (<code className="font-mono bg-slate-100 px-1 py-0.5 rounded">eyJh...</code>), lalu tempelkan ke kolom <strong>1. Cloudflare Zero Trust Tunnel Token</strong>. BarePod memiliki <em>Smart-Detection</em> yang otomatis memfilter token aslinya!
+                          Copy the entire command or just the long token string (<code className="font-mono bg-slate-100 px-1 py-0.5 rounded">eyJh...</code>), then paste it into <strong>1. Cloudflare Zero Trust Tunnel Token</strong> below. BarePod's <em>Smart-Detection</em> will automatically isolate the raw token!
                         </p>
                       </div>
                     </div>
@@ -691,9 +691,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200/80 flex items-start gap-2.5">
                     <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                     <div>
-                      <span className="font-bold text-amber-900 block">Mengapa Cloudflare API Token Sangat Disarankan?</span>
+                      <span className="font-bold text-amber-900 block">Why is Cloudflare API Token Strongly Recommended?</span>
                       <span className="text-slate-600 text-[11px] leading-relaxed">
-                        Tanpa API Token, Anda harus membuat DNS CNAME record dan Public Hostname secara manual di dashboard Cloudflare setiap kali membuat situs. Dengan API Token tersimpan, BarePod akan <strong>secara otomatis membuat Public Hostname & DNS CNAME (1-Click Sync)</strong> setiap kali Anda deploy website!
+                        Without an API Token, you must manually create DNS CNAME records and Public Hostnames in the Cloudflare dashboard each time you add a website. With an API Token saved, BarePod will <strong>automatically create Public Hostnames & DNS CNAME records (1-Click Sync)</strong> whenever you deploy a site!
                       </span>
                     </div>
                   </div>
@@ -704,7 +704,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         1
                       </span>
                       <div className="flex-1">
-                        <span className="font-semibold text-slate-900">Buka Halaman API Tokens:</span>
+                        <span className="font-semibold text-slate-900">Open API Tokens Page:</span>
                         <div className="mt-1">
                           <a
                             href="https://dash.cloudflare.com/profile/api-tokens"
@@ -724,9 +724,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         2
                       </span>
                       <div className="flex-1">
-                        <span className="font-semibold text-slate-900">Buat Custom Token:</span>
+                        <span className="font-semibold text-slate-900">Create Custom Token:</span>
                         <p className="text-slate-500 mt-0.5">
-                          Klik tombol <strong>Create Token</strong> → scroll ke bagian paling bawah ke template <strong>Custom Token</strong> → klik <strong>Get started</strong>.
+                          Click <strong>Create Token</strong> → scroll to the bottom template <strong>Custom Token</strong> → click <strong>Get started</strong>.
                         </p>
                       </div>
                     </div>
@@ -736,15 +736,15 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         3
                       </span>
                       <div className="flex-1">
-                        <span className="font-semibold text-slate-900">Beri Nama & Atur Permissions (3 Izin):</span>
+                        <span className="font-semibold text-slate-900">Name & Configure Permissions (3 Permissions):</span>
                         <p className="text-slate-500 mt-0.5">
-                          Beri nama token: <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">BarePod-{activeUser}</code>. Pada bagian <strong>Permissions</strong>, tambahkan 3 baris izin:
+                          Name your token (e.g. <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">BarePod-{activeUser}</code>). Under the <strong>Permissions</strong> section, add these 3 permission rows:
                         </p>
                         <div className="mt-2 rounded-lg border border-slate-200 overflow-hidden text-[11px]">
                           <div className="grid grid-cols-3 bg-slate-100 p-2 font-bold text-slate-700 border-b border-slate-200">
-                            <span>Kategori</span>
-                            <span>Fitur</span>
-                            <span>Level Izin</span>
+                            <span>Category</span>
+                            <span>Feature</span>
+                            <span>Access Level</span>
                           </div>
                           <div className="grid grid-cols-3 p-2 border-b border-slate-100 bg-white items-center">
                             <span className="font-semibold text-blue-700">Zone</span>
@@ -770,10 +770,10 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         4
                       </span>
                       <div className="flex-1">
-                        <span className="font-semibold text-slate-900">Atur Resources (Akun & Zone):</span>
+                        <span className="font-semibold text-slate-900">Set Account & Zone Resources:</span>
                         <p className="text-slate-500 mt-0.5">
-                          - <strong>Account Resources:</strong> Pilih <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">Include → All accounts</code><br />
-                          - <strong>Zone Resources:</strong> Pilih <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">Include → All zones from an account</code> (atau pilih domain Anda)
+                          - <strong>Account Resources:</strong> Select <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">Include → All accounts</code><br />
+                          - <strong>Zone Resources:</strong> Select <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">Include → All zones from an account</code> (or choose your specific domain)
                         </p>
                       </div>
                     </div>
@@ -783,9 +783,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         5
                       </span>
                       <div className="flex-1">
-                        <span className="font-semibold text-slate-900">Salin & Simpan Token:</span>
+                        <span className="font-semibold text-slate-900">Copy & Save Token:</span>
                         <p className="text-slate-500 mt-0.5">
-                          Klik <strong>Continue to summary</strong> → klik <strong>Create Token</strong>. Salin token API yang ditampilkan (contoh: <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">vK9...</code>) lalu tempelkan ke kolom <strong>2. Cloudflare API Token</strong> di bawah.
+                          Click <strong>Continue to summary</strong> → click <strong>Create Token</strong>. Copy the displayed API token (e.g. <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">vK9...</code>) and paste it into <strong>2. Cloudflare API Token</strong> below.
                         </p>
                       </div>
                     </div>
@@ -799,9 +799,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200/70 flex items-start gap-2.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                     <div>
-                      <span className="font-bold text-emerald-900 block">Selesai! Sekarang Bagaimana Alur Kerjanya?</span>
+                      <span className="font-bold text-emerald-900 block">All Set! How Does the Workflow Work?</span>
                       <span className="text-slate-600 text-[11px] leading-relaxed">
-                        Setelah kedua token disimpan, tunnel otomatis aktif dan seluruh proses hosting website di BarePod menjadi instan tanpa ribet setting DNS.
+                        Once both tokens are saved, your tunnel runs continuously in the background and website hosting in BarePod becomes completely seamless without manual DNS configuration.
                       </span>
                     </div>
                   </div>
@@ -811,9 +811,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                       <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 font-bold flex items-center justify-center text-xs">
                         1
                       </div>
-                      <span className="font-bold text-slate-900 block">Simpan & Start Tunnel</span>
+                      <span className="font-bold text-slate-900 block">Save & Start Tunnel</span>
                       <p className="text-slate-500 text-[11px] leading-relaxed">
-                        Klik tombol biru <strong>Save Configuration & Start Tunnel</strong> di bawah. Status daemon akan berubah menjadi <strong>CONNECTED</strong>.
+                        Click the blue <strong>Save Configuration & Start Tunnel</strong> button below. The daemon status will immediately transition to <strong>CONNECTED</strong>.
                       </p>
                     </div>
 
@@ -821,9 +821,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                       <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 font-bold flex items-center justify-center text-xs">
                         2
                       </div>
-                      <span className="font-bold text-slate-900 block">Deploy Website Baru</span>
+                      <span className="font-bold text-slate-900 block">Deploy New Websites</span>
                       <p className="text-slate-500 text-[11px] leading-relaxed">
-                        Buka menu <strong>Websites → Add Website</strong>. Dropdown domain Cloudflare Anda akan langsung terdeteksi. Ketik nama subdomain dan deploy!
+                        Go to <strong>Websites → Add Website</strong>. Your Cloudflare domains will be detected automatically in the dropdown. Choose a subdomain and deploy!
                       </p>
                     </div>
 
@@ -831,9 +831,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                       <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center text-xs">
                         3
                       </div>
-                      <span className="font-bold text-slate-900 block">Online Otomatis</span>
+                      <span className="font-bold text-slate-900 block">Live with Automatic HTTPS</span>
                       <p className="text-slate-500 text-[11px] leading-relaxed">
-                        Website langsung dapat diakses di internet lengkap dengan SSL HTTPS otomatis dari Cloudflare Edge dan proteksi DDoS global.
+                        Your website is immediately accessible globally with valid Cloudflare edge SSL/TLS encryption, caching, and DDoS mitigation.
                       </p>
                     </div>
                   </div>
