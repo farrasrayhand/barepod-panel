@@ -202,36 +202,72 @@ npm run build`;
     }
   };
 
-  const applyPreset = (preset: 'laravel' | 'nextjs' | 'fastapi' | 'go' | 'static') => {
+  const applyPreset = (preset: 'laravel' | 'wordpress' | 'php' | 'nextjs' | 'vite' | 'express' | 'fastapi' | 'django' | 'go' | 'static') => {
     const isGit = isGitConnected;
     const targetBranch = branch.trim() || app?.gitBranch || gitStatus?.branch || 'main';
     const gitPull = isGit ? `git pull origin ${targetBranch}\n` : '';
     let script = '';
+    let presetLabel = preset.toUpperCase();
+
     if (preset === 'laravel') {
+      presetLabel = 'Laravel';
       script = `${gitPull}composer install --no-dev --optimize-autoloader --quiet
 php artisan migrate --force
+php artisan optimize:clear
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
-systemctl reload php8.4-fpm`;
+systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/null || systemctl reload php8.2-fpm 2>/dev/null || true`;
+    } else if (preset === 'wordpress') {
+      presetLabel = 'WordPress';
+      script = `${gitPull}# WordPress maintenance and cache refresh
+wp core update-db --quiet 2>/dev/null || true
+wp rewrite flush --quiet 2>/dev/null || true
+systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/null || systemctl reload php8.2-fpm 2>/dev/null || true`;
+    } else if (preset === 'php') {
+      presetLabel = 'Generic PHP';
+      script = `${gitPull}composer install --no-dev --optimize-autoloader --quiet
+systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/null || systemctl reload php8.2-fpm 2>/dev/null || true`;
     } else if (preset === 'nextjs') {
-      script = `${gitPull}pnpm install --frozen-lockfile
-pnpm run build
-pm2 reload ${app.name} --update-env`;
+      presetLabel = 'Next.js / Nuxt (SSR)';
+      script = `${gitPull}pnpm install --frozen-lockfile 2>/dev/null || npm install
+pnpm run build 2>/dev/null || npm run build
+pm2 reload ${app.name} --update-env 2>/dev/null || pm2 restart ${app.name} 2>/dev/null || pm2 start npm --name "${app.name}" -- start`;
+    } else if (preset === 'vite') {
+      presetLabel = 'Vite / React / Vue (SPA)';
+      script = `${gitPull}pnpm install --frozen-lockfile 2>/dev/null || npm install
+pnpm run build 2>/dev/null || npm run build
+# Static build output generated in dist/`;
+    } else if (preset === 'express') {
+      presetLabel = 'Node.js / Express / NestJS';
+      script = `${gitPull}npm install --production
+npm run build 2>/dev/null || true
+pm2 reload ${app.name} --update-env 2>/dev/null || pm2 restart ${app.name} 2>/dev/null || pm2 start index.js --name "${app.name}"`;
     } else if (preset === 'fastapi') {
-      script = `${gitPull}source venv/bin/activate
+      presetLabel = 'Python / FastAPI / Flask';
+      script = `${gitPull}source venv/bin/activate 2>/dev/null || python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt --quiet
-systemctl reload gunicorn-${app.name}`;
+systemctl reload gunicorn-${app.name} 2>/dev/null || systemctl restart gunicorn 2>/dev/null || true`;
+    } else if (preset === 'django') {
+      presetLabel = 'Python / Django';
+      script = `${gitPull}source venv/bin/activate 2>/dev/null || python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt --quiet
+python manage.py migrate --noinput
+python manage.py collectstatic --noinput
+systemctl reload gunicorn-${app.name} 2>/dev/null || systemctl restart gunicorn 2>/dev/null || true`;
     } else if (preset === 'go') {
+      presetLabel = 'Go Application';
       script = `${gitPull}go build -o bin/server main.go
-systemctl reload ${app.name}`;
+systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev/null || true`;
     } else if (preset === 'static') {
-      script = isGit ? `git pull origin ${targetBranch}` : `# Static website — assets served directly by web server`;
+      presetLabel = 'Static HTML / Web';
+      script = isGit ? `git pull origin ${targetBranch}\n# Static website — HTML/CSS/JS served directly by web server` : `# Static website — HTML/CSS/JS served directly by web server`;
     }
+
     setBuildScript(script);
     onShowToast?.(
       'Preset Applied',
-      `${preset.toUpperCase()} script loaded ${isGit ? `(with branch '${targetBranch}')` : '(without git pull)'}. Click "Save Script" to keep it.`,
+      `${presetLabel} template loaded ${isGit ? `(with branch '${targetBranch}')` : '(without git pull)'}. Click "Save Script" to persist.`,
       'info'
     );
   };
@@ -507,88 +543,12 @@ systemctl reload ${app.name}`;
 
           {/* Build Command Script */}
           <div className="space-y-2">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div className="flex items-center gap-2">
                 <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Code2 className="w-3.5 h-3.5 text-slate-600" />
-                  <span>Deploy & Build Script (Saved for Auto Redeploy)</span>
+                  <span>Deploy & Build Script</span>
                 </label>
-                <span className="text-[10px] text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded font-mono font-semibold">
-                  Per-App Script
-                </span>
-              </div>
-
-              {/* Template Presets */}
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-amber-500" />
-                  <span>Preset:</span>
-                </span>
-                {gitStatus?.framework?.buildCommand && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBuildScript(gitStatus.framework?.buildCommand || '');
-                      onShowToast?.('Preset Applied', `${gitStatus.framework?.title} script loaded. Click 'Save Script Only' to keep it.`, 'info');
-                    }}
-                    className="px-2 py-0.5 text-[10px] font-bold bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded text-indigo-700 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Zap className="w-2.5 h-2.5 text-amber-500" />
-                    <span>{gitStatus.framework.title}</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => applyPreset('laravel')}
-                  className="px-2 py-0.5 text-[10px] font-semibold bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-700"
-                >
-                  Laravel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyPreset('nextjs')}
-                  className="px-2 py-0.5 text-[10px] font-semibold bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-700"
-                >
-                  Node/Next.js
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyPreset('fastapi')}
-                  className="px-2 py-0.5 text-[10px] font-semibold bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-700"
-                >
-                  Python
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyPreset('go')}
-                  className="px-2 py-0.5 text-[10px] font-semibold bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-700"
-                >
-                  Go
-                </button>
-                <button
-                  type="button"
-                  onClick={() => applyPreset('static')}
-                  className="px-2 py-0.5 text-[10px] font-semibold bg-white border border-slate-200 hover:bg-slate-100 rounded text-slate-700"
-                >
-                  Static
-                </button>
-
-                <div className="h-3 w-px bg-slate-200 mx-0.5" />
-
-                <button
-                  type="button"
-                  onClick={handleToggleGitPull}
-                  title={buildScript.includes('git pull') ? 'Remove "git pull" step from build script' : 'Prepend "git pull" step to build script'}
-                  className={`px-2 py-0.5 text-[10px] font-semibold border rounded flex items-center gap-1 transition-colors ${
-                    buildScript.includes('git pull')
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'
-                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  <GitBranch className="w-2.5 h-2.5" />
-                  <span>{buildScript.includes('git pull') ? 'git pull: ON' : '+ git pull'}</span>
-                </button>
-
                 <span
                   className={`text-[9px] px-1.5 py-0.5 rounded font-medium border ${
                     isGitConnected
@@ -599,6 +559,70 @@ systemctl reload ${app.name}`;
                 >
                   {isGitConnected ? `Git: ${branch.trim() || 'main'}` : 'No Git'}
                 </span>
+              </div>
+
+              {/* Template Presets Dropdown & Git pull toggle */}
+              <div className="flex items-center gap-1.5">
+                {gitStatus?.framework?.buildCommand && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBuildScript(gitStatus.framework?.buildCommand || '');
+                      onShowToast?.('Preset Applied', `${gitStatus.framework?.title} script loaded. Click 'Save Script Only' to keep it.`, 'info');
+                    }}
+                    className="px-2 py-1 text-[10px] font-bold bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded text-indigo-700 flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    <Zap className="w-2.5 h-2.5 text-amber-500" />
+                    <span>{gitStatus.framework.title}</span>
+                  </button>
+                )}
+
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      applyPreset(e.target.value as any);
+                      e.target.value = '';
+                    }
+                  }}
+                  className="text-[11px] font-semibold bg-white hover:bg-slate-50 border border-slate-200 rounded text-slate-700 py-1 pl-2 pr-6 focus:ring-1 focus:ring-purple-500 focus:outline-none cursor-pointer"
+                >
+                  <option value="" disabled>⚡ Load Framework Preset...</option>
+                  <optgroup label="🐘 PHP">
+                    <option value="laravel">Laravel (Artisan, Migrate, Cache)</option>
+                    <option value="wordpress">WordPress (WP-CLI, DB, Rewrite)</option>
+                    <option value="php">Generic PHP (Composer)</option>
+                  </optgroup>
+                  <optgroup label="🟢 Node.js">
+                    <option value="nextjs">Next.js / Nuxt (Build & PM2)</option>
+                    <option value="vite">Vite / React / Vue (SPA Build)</option>
+                    <option value="express">Express / NestJS (API & PM2)</option>
+                  </optgroup>
+                  <optgroup label="🐍 Python">
+                    <option value="fastapi">FastAPI / Flask (Pip & Gunicorn)</option>
+                    <option value="django">Django (Migrate & Collectstatic)</option>
+                  </optgroup>
+                  <optgroup label="🐹 Go">
+                    <option value="go">Go (Build Binary & Reload)</option>
+                  </optgroup>
+                  <optgroup label="🌐 Static">
+                    <option value="static">Static HTML / CSS / JS</option>
+                  </optgroup>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={handleToggleGitPull}
+                  title={buildScript.includes('git pull') ? 'Remove "git pull" step from build script' : 'Prepend "git pull" step to build script'}
+                  className={`px-2 py-1 text-[10px] font-semibold border rounded flex items-center gap-1 transition-colors cursor-pointer shrink-0 ${
+                    buildScript.includes('git pull')
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <GitBranch className="w-2.5 h-2.5" />
+                  <span>{buildScript.includes('git pull') ? 'git pull: ON' : '+ git pull'}</span>
+                </button>
               </div>
             </div>
 
