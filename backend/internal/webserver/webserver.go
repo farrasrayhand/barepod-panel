@@ -6,6 +6,7 @@ package webserver
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -560,8 +561,12 @@ func caddyVhost(s Spec) string {
 		if user == "" {
 			user = "admin"
 		}
+		caddyHash := s.Security.BasicAuthHash
+		if strings.HasPrefix(caddyHash, "$2") {
+			caddyHash = base64.StdEncoding.EncodeToString([]byte(caddyHash))
+		}
 		b.WriteString("\tbasic_auth {\n")
-		fmt.Fprintf(&b, "\t\t%s %s\n", user, s.Security.BasicAuthHash)
+		fmt.Fprintf(&b, "\t\t%s %s\n", user, caddyHash)
 		b.WriteString("\t}\n\n")
 	}
 
@@ -864,7 +869,12 @@ func WriteDefault(engine, dir string) (string, error) {
 
 // caddyHeader marks the panel-owned Caddyfile.
 const caddyHeader = "# Managed by BarePod Panel — do not edit by hand. The distro's own Caddyfile,\n" +
-	"# which also defines a :80 site, is kept beside this file as Caddyfile.barepod-bak.\n"
+	"# which also defines a :80 site, is kept beside this file as Caddyfile.barepod-bak.\n" +
+	"{\n" +
+	"    servers {\n" +
+	"        trusted_proxies static private_ranges 127.0.0.1/32 ::1/128\n" +
+	"    }\n" +
+	"}\n"
 
 // writeCaddyConfig takes the Caddyfile over: the distribution's stock config already
 // defines a `:80` site, and two of them make Caddy refuse the whole file with

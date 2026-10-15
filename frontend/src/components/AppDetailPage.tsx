@@ -481,7 +481,7 @@ npm run build`;
   const [maintenanceMessage, setMaintenanceMessage] = useState(
     app.maintenanceMessage || 'We are performing routine infrastructure maintenance and system updates. Service will be back online shortly.'
   );
-  const [maintenanceBypassIps, setMaintenanceBypassIps] = useState(app.maintenanceBypassIps || '127.0.0.1, 103.147.154.82');
+  const [maintenanceBypassIps, setMaintenanceBypassIps] = useState(app.maintenanceBypassIps || '');
   const [isPreviewMaintenanceOpen, setIsPreviewMaintenanceOpen] = useState(false);
   const [isSavingMaintenance, setIsSavingMaintenance] = useState(false);
 
@@ -665,6 +665,32 @@ npm run build`;
     } catch (err: any) {
       setBasicAuthEnabled(!nextState);
       onShowToast?.('Failed to toggle HTTP Basic Auth', err.message || 'A password must be set first.', 'error');
+    }
+  };
+
+  const handleRotateRealm = async () => {
+    const timestamp = new Date().toLocaleTimeString('id-ID', { hour12: false });
+    const newRealm = `Restricted Area [${timestamp}]`;
+    setBasicAuthRealm(newRealm);
+    setIsSavingBasicAuth(true);
+    try {
+      await api.updateWebsiteSecurity(app.name, {
+        basicAuthEnabled: true,
+        basicAuthUser: basicAuthUser || 'admin',
+        basicAuthPassword: basicAuthPassword?.trim() || undefined,
+        basicAuthRealm: newRealm,
+        basicAuthBypassIps,
+      });
+      onShowToast?.(
+        'Realm Rotated & Saved',
+        `Realm title diperbarui ke "${newRealm}". Cache memori browser di-reset — dialog login akan muncul kembali!`,
+        'success'
+      );
+      loadVhostPreview();
+    } catch (err: any) {
+      onShowToast?.('Failed to rotate realm', err.message || 'Unknown error', 'error');
+    } finally {
+      setIsSavingBasicAuth(false);
     }
   };
 
@@ -4355,18 +4381,29 @@ QUEUE_CONNECTION=redis`}
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        IP Whitelist Bypass (Developer / Admin)
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-slate-700">
+                          IP Whitelist Bypass (Developer / Admin)
+                        </label>
+                        {maintenanceBypassIps && (
+                          <button
+                            type="button"
+                            onClick={() => setMaintenanceBypassIps('')}
+                            className="text-[10px] font-bold text-rose-600 hover:text-rose-800 cursor-pointer"
+                          >
+                            ✕ Clear All (Block Everyone)
+                          </button>
+                        )}
+                      </div>
                       <input
                         type="text"
                         value={maintenanceBypassIps}
                         onChange={(e) => setMaintenanceBypassIps(e.target.value)}
-                        placeholder="Example: 127.0.0.1, 103.147.154.82, 192.168.1.100"
+                        placeholder="Kosongkan agar SEMUA pengunjung menerima 503 (e.g. 180.252.10.5)"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono focus:bg-white focus:border-amber-500 focus:outline-hidden"
                       />
-                      <p className="text-[10px] text-slate-400 mt-1">
-                        Separate with commas. These IPs bypass HTTP 503 so you can keep testing.
+                      <p className="text-[10px] text-slate-500 mt-1 leading-normal">
+                        Pisahkan dengan koma. <em>Penting: Jangan isi <code>127.0.0.1</code> jika menggunakan Cloudflare Tunnel, karena koneksi tunnel berasal dari localhost sehingga akan mem-bypass semua pengunjung.</em>
                       </p>
                     </div>
 
@@ -4623,11 +4660,35 @@ QUEUE_CONNECTION=redis`}
                       </button>
                     </div>
 
+                    {/* Browser Credential Cache Notice & Rotate Realm Helper */}
+                    <div className="p-3 bg-purple-50/70 border border-purple-200/80 rounded-xl text-[11px] text-purple-950 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold flex items-center gap-1">
+                          💡 Kenapa browser tidak meminta login lagi setelah login sekali?
+                        </span>
+                        {basicAuthEnabled && (
+                          <button
+                            type="button"
+                            onClick={handleRotateRealm}
+                            disabled={isSavingBasicAuth}
+                            className="px-2.5 py-1 text-[10px] font-bold bg-white text-purple-700 hover:bg-purple-100 border border-purple-300 rounded-lg flex items-center gap-1 shadow-2xs transition-colors cursor-pointer shrink-0"
+                            title="Mengubah Realm ID agar browser dipaksa menampilkan prompt dialog login kembali"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${isSavingBasicAuth ? 'animate-spin' : ''}`} />
+                            <span>Force Re-Login (Rotate Realm)</span>
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-slate-600 leading-relaxed text-[10px]">
+                        Standar HTTP Basic Auth: Browser (Chrome/Firefox/Edge) mengingat username &amp; password Anda di memori tab sampai browser ditutup. Untuk memunculkan dialog login kembali saat pengujian, klik tombol <strong>Force Re-Login</strong> di atas atau buka website di <strong>Incognito / Private Window</strong>.
+                      </p>
+                    </div>
+
                     <div className="pt-2 flex flex-wrap items-center justify-between gap-2">
                       <button
                         type="button"
                         onClick={() => setIsTestBasicAuthOpen(true)}
-                        className="px-3 py-2 text-xs font-bold text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-colors flex items-center gap-1.5"
+                        className="px-3 py-2 text-xs font-bold text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
                       >
                         <Key className="w-3.5 h-3.5 text-purple-600" />
                         <span>Test Prompt Dialog (Simulator)</span>
@@ -4636,7 +4697,7 @@ QUEUE_CONNECTION=redis`}
                       <button
                         type="submit"
                         disabled={isSavingBasicAuth}
-                        className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-sm shadow-purple-500/25"
+                        className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl transition-all shadow-sm shadow-purple-500/25 cursor-pointer"
                       >
                         {isSavingBasicAuth ? 'Saving...' : 'Save .htpasswd'}
                       </button>

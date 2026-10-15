@@ -40,6 +40,9 @@ func EnsureAuthDir() error {
 		}
 		return err
 	}
+	if parent := filepath.Dir(dir); parent != "" && parent != "/" {
+		_ = os.Chmod(parent, 0o755)
+	}
 	_ = os.Chmod(dir, 0o755)
 	return nil
 }
@@ -72,6 +75,10 @@ func RemoveHtpasswd(slug string) error {
 // EnsureMaintenanceDir ensures the maintenance directory exists with world-readable permissions.
 func EnsureMaintenanceDir(slug string) (string, error) {
 	slug = sanitizeSlug(slug)
+	if parent := filepath.Dir(MaintenanceDir); parent != "" && parent != "/" {
+		_ = os.Chmod(parent, 0o755)
+	}
+	_ = os.Chmod(MaintenanceDir, 0o755)
 	dir := filepath.Join(MaintenanceDir, slug)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		// Fallback to temp dir if /var/lib is unwritable (e.g. non-root user or unit test)
