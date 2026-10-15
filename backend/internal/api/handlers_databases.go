@@ -264,9 +264,9 @@ func (s *Server) resourceFor(record *store.Database, secret string) dbengine.Res
 		Secret: secret, Port: record.Port, MaxConn: record.MaxConns,
 	}
 	if record.Engine == "redis" {
-		host, port, adminSecret, err := dbengine.ParseRedisURL(s.cfg.RedisURL)
+		host, port, adminUser, adminSecret, err := dbengine.ParseRedisURL(s.cfg.RedisURL)
 		if err == nil {
-			resource.AdminHost, resource.AdminPort, resource.AdminSecret = host, port, adminSecret
+			resource.AdminHost, resource.AdminPort, resource.AdminUser, resource.AdminSecret = host, port, adminUser, adminSecret
 		}
 	}
 	// A containerised engine is administered over loopback as the administrator
@@ -605,7 +605,7 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 		// A host cache reports the address a client should use, which the admin URL
 		// names. A containerised one already kept the container's own loopback port
 		// from the credential, and must not be pointed at the host's Redis.
-		if host, port, _, err := dbengine.ParseRedisURL(s.cfg.RedisURL); err == nil {
+		if host, port, _, _, err := dbengine.ParseRedisURL(s.cfg.RedisURL); err == nil {
 			record.Host, record.Port = host, port
 		}
 	}

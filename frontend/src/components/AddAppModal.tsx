@@ -35,7 +35,7 @@ import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../type
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
 import { AVAILABLE_ENGINE_VERSIONS, ENGINE_LABELS } from '../data/databaseEngines';
 import { getProvisionPlan } from '../data/frameworkProvision';
-import { api, apiReachable, ApiError, type StackStatus, type DetectedFramework, type CloudflareZone } from '../api/client';
+import { api, apiReachable, ApiError, type StackStatus, type DetectedFramework, type CloudflareZone, type DatabaseRow } from '../api/client';
 
 interface AddAppModalProps {
   isOpen: boolean;
@@ -772,6 +772,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
 
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [stackStatus, setStackStatus] = useState<StackStatus | null>(null);
+  const [existingDbs, setExistingDbs] = useState<DatabaseRow[]>([]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -781,6 +782,14 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
         if (await apiReachable()) {
           const s = await api.stack();
           setStackStatus(s);
+          try {
+            const dbList = await api.databases.list();
+            if (dbList?.items) {
+              setExistingDbs(dbList.items);
+            }
+          } catch {
+            // ignore database listing error
+          }
           if (isAdmin) {
             try {
               const u = await api.users();
@@ -906,6 +915,37 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   const activeCacheVersion = cacheVersions[Math.min(cacheVersionIndex, cacheVersions.length - 1)];
   const resolvedDbName = dbName || `${name || 'website'}_db`;
   const resolvedDbUser = dbUser || `${tenantUser}_user`;
+
+  const targetDbName = isSqlite ? resolvedDbName : `${tenantUser}_${resolvedDbName}`;
+  const dbCollision = useMemo(() => {
+    if (!createDb) return null;
+    return existingDbs.find((d) => {
+      if (d.deletedAt) return false;
+      if (d.name === targetDbName || d.alias === resolvedDbName) {
+        return true;
+      }
+      if (!isSqlite && d.name === resolvedDbName) {
+        return true;
+      }
+      return false;
+    }) ?? null;
+  }, [createDb, existingDbs, targetDbName, resolvedDbName, isSqlite]);
+
+  const handleSuggestDbName = () => {
+    const rawBase = name ? name.toLowerCase().replace(/[^a-z0-9-]+/g, '_').replace(/^_+|_+$/g, '') : 'website';
+    const base = `${rawBase || 'website'}_db`;
+    let counter = 2;
+    let candidate = `${base}_${counter}`;
+    const isTaken = (cand: string) => {
+      const target = isSqlite ? cand : `${tenantUser}_${cand}`;
+      return existingDbs.some((d) => !d.deletedAt && (d.name === target || d.alias === cand || d.name === cand));
+    };
+    while (isTaken(candidate)) {
+      counter++;
+      candidate = `${base}_${counter}`;
+    }
+    setDbName(candidate);
+  };
 
   const plan = getProvisionPlan(runtime, framework, frameworkVersion);
   const isGenericFramework = /generic|custom/i.test(framework);
@@ -2117,10 +2157,69 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">Database Name</label>
-                      <input type="text" value={dbName} onChange={(e) => setDbName(e.target.value)} placeholder={resolvedDbName} className={`${inputClass} font-mono`} />
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-slate-700">Database Name</label>
+                        {!isSqlite && (
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            Prefix host: <span className="font-semibold text-slate-600">{tenantUser}_</span>
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        value={dbName}
+                        onChange={(e) => setDbName(e.target.value)}
+                        placeholder={resolvedDbName}
+                        className={`${inputClass} font-mono ${dbCollision ? 'border-amber-400 focus:border-amber-500 focus:ring-amber-200 bg-amber-50/30' : ''}`}
+                      />
                     </div>
                   </div>
+
+                  {dbCollision && (
+                    <div className="rounded-xl border border-amber-300/80 bg-gradient-to-r from-amber-50 via-amber-50/70 to-orange-50/50 p-3.5 text-xs text-amber-950 shadow-sm animate-in fade-in duration-200">
+                      <div className="flex items-start gap-3">
+                        <div className="p-1.5 rounded-lg bg-amber-100 text-amber-700 shrink-0 mt-0.5">
+                          <AlertTriangle className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-amber-950 text-xs">
+                                Database &ldquo;{dbCollision.name}&rdquo; Sudah Ada
+                              </span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-200/80 font-mono font-medium text-amber-900 uppercase">
+                                {dbCollision.engine}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="text-amber-800 text-[11px] leading-relaxed">
+                            {dbCollision.websiteSlug ? (
+                              <>
+                                Database ini saat ini ditautkan ke website{' '}
+                                <strong className="font-semibold text-amber-950">@{dbCollision.websiteSlug}</strong>.
+                              </>
+                            ) : (
+                              'Database dengan nama ini sudah terdaftar di sistem panel.'
+                            )}
+                            {' '}BarePod akan menghubungkan ke database yang sudah ada tanpa menimpa data, atau gunakan nama baru jika Anda ingin database terisolasi untuk website ini.
+                          </p>
+                          <div className="pt-1 flex items-center gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={handleSuggestDbName}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-medium text-[11px] shadow-sm transition-all"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              Gunakan Nama Baru (Saran Otomatis)
+                            </button>
+                            <span className="text-[10.5px] text-amber-700/80 italic">
+                              atau tetap gunakan untuk berbagi database dengan website yang ada.
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {!isSqlite && (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

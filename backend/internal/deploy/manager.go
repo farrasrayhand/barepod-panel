@@ -768,7 +768,7 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 				adminURL = strings.TrimSpace(string(data))
 			}
 		}
-		host, port, adminSecret, _ := dbengine.ParseRedisURL(adminURL)
+		host, port, adminUser, adminSecret, _ := dbengine.ParseRedisURL(adminURL)
 		if host == "" {
 			host = "127.0.0.1"
 		}
@@ -776,6 +776,9 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 			port = 6379
 		}
 		argv = []string{"redis-cli", "-h", host, "-p", strconv.Itoa(port)}
+		if adminUser != "" {
+			argv = append(argv, "--user", adminUser)
+		}
 		if adminSecret != "" {
 			argv = append(argv, "--no-auth-warning", "-a", adminSecret)
 		}

@@ -227,6 +227,9 @@ func redisPlan(step Step, resource Resource) (Plan, error) {
 	// The admin connection: -a carries the password, --no-auth-warning keeps its
 	// "using a password with -a" note out of the output we parse.
 	base := []string{"redis-cli", "-h", adminHost(resource), "-p", fmt.Sprint(adminPort(resource))}
+	if resource.AdminUser != "" {
+		base = append(base, "--user", resource.AdminUser)
+	}
 	if resource.AdminSecret != "" {
 		base = append(base, "--no-auth-warning", "-a", resource.AdminSecret)
 	}
@@ -256,8 +259,16 @@ func redisPlan(step Step, resource Resource) (Plan, error) {
 	case StepRestore:
 		return Plan{Commands: [][]string{run("on")}}, nil
 	case StepPurge:
+		cmd := []string{"redis-cli", "-h", adminHost(resource), "-p", fmt.Sprint(adminPort(resource))}
+		if resource.AdminUser != "" {
+			cmd = append(cmd, "--user", resource.AdminUser)
+		}
+		if resource.AdminSecret != "" {
+			cmd = append(cmd, "--no-auth-warning", "-a", resource.AdminSecret)
+		}
+		cmd = append(cmd, "ACL", "DELUSER", user)
 		return Plan{
-			Commands: [][]string{{"redis-cli", "-h", adminHost(resource), "-p", fmt.Sprint(adminPort(resource)), "ACL", "DELUSER", user}},
+			Commands: [][]string{cmd},
 			Note:     "The keys under " + prefix + "* are left in place: emptying a cache is not a decision the panel makes for you.",
 		}, nil
 	}
@@ -357,10 +368,10 @@ func adminPort(resource Resource) int {
 
 // ParseRedisURL reads redis://[user][:password@]host[:port] into the parts the
 // plans need.
-func ParseRedisURL(raw string) (host string, port int, secret string, err error) {
+func ParseRedisURL(raw string) (host string, port int, user string, secret string, err error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", 0, "", errors.New("dbengine: no Redis admin connection configured")
+		return "", 0, "", "", errors.New("dbengine: no Redis admin connection configured")
 	}
 	rest := raw
 	if i := strings.Index(rest, "://"); i >= 0 {
@@ -370,6 +381,7 @@ func ParseRedisURL(raw string) (host string, port int, secret string, err error)
 		credentials := rest[:at]
 		rest = rest[at+1:]
 		if colon := strings.Index(credentials, ":"); colon >= 0 {
+			user = credentials[:colon]
 			secret = credentials[colon+1:]
 		} else {
 			secret = credentials
@@ -389,11 +401,11 @@ func ParseRedisURL(raw string) (host string, port int, secret string, err error)
 	if portText != "" {
 		value, convErr := strconv.Atoi(portText)
 		if convErr != nil || value <= 0 || value > 65535 {
-			return "", 0, "", fmt.Errorf("dbengine: %q is not a usable Redis port", portText)
+			return "", 0, "", "", fmt.Errorf("dbengine: %q is not a usable Redis port", portText)
 		}
 		port = value
 	}
-	return host, port, secret, nil
+	return host, port, user, secret, nil
 }
 
 // ClientBinary is the CLI for this engine (mariadb's client when available).

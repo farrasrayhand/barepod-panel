@@ -274,7 +274,7 @@ func (s *Server) redisClient(record *store.Database) (*redis.Client, error) {
 	if err != nil {
 		return nil, errors.New("the credential could not be decrypted")
 	}
-	host, port, _, err := dbengine.ParseRedisURL(s.cfg.RedisURL)
+	host, port, _, _, err := dbengine.ParseRedisURL(s.cfg.RedisURL)
 	if err != nil {
 		return nil, err
 	}

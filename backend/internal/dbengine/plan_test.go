@@ -185,25 +185,26 @@ func TestRedisAdminConnection(t *testing.T) {
 		raw        string
 		host       string
 		port       int
+		user       string
 		secret     string
 		shouldFail bool
 	}{
-		{"redis://127.0.0.1:6379", "127.0.0.1", 6379, "", false},
-		{"redis://:adminpw@10.0.0.5:6380", "10.0.0.5", 6380, "adminpw", false},
-		{"redis://default:pa%3Ass@cache.internal", "cache.internal", 6379, "pa%3Ass", false},
-		{"redis://127.0.0.1:not-a-port", "", 0, "", true},
-		{"", "", 0, "", true},
+		{"redis://127.0.0.1:6379", "127.0.0.1", 6379, "", "", false},
+		{"redis://:adminpw@10.0.0.5:6380", "10.0.0.5", 6380, "", "adminpw", false},
+		{"redis://default:pa%3Ass@cache.internal", "cache.internal", 6379, "default", "pa%3Ass", false},
+		{"redis://127.0.0.1:not-a-port", "", 0, "", "", true},
+		{"", "", 0, "", "", true},
 	}
 	for _, c := range cases {
-		host, port, secret, err := ParseRedisURL(c.raw)
+		host, port, user, secret, err := ParseRedisURL(c.raw)
 		if c.shouldFail {
 			if err == nil {
 				t.Errorf("%q should have failed", c.raw)
 			}
 			continue
 		}
-		if err != nil || host != c.host || port != c.port || secret != c.secret {
-			t.Errorf("%q -> %s:%d secret=%q err=%v", c.raw, host, port, secret, err)
+		if err != nil || host != c.host || port != c.port || user != c.user || secret != c.secret {
+			t.Errorf("%q -> %s:%d user=%q secret=%q err=%v", c.raw, host, port, user, secret, err)
 		}
 	}
 
