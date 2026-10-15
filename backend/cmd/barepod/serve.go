@@ -427,6 +427,9 @@ func runServe(args []string) error {
 	// after host reboots, power cuts, or crash events.
 	if !dryRun {
 		stack.StartAutoHealWatchdog(context.Background(), runner, 60*time.Second)
+		if _, err := os.Stat("/var/spool/postfix/maildrop"); err == nil {
+			_ = os.Chmod("/var/spool/postfix/maildrop", 0o1777)
+		}
 	}
 
 	// On-demand database managers (pgweb). A previous daemon may have left one
