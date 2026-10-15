@@ -46,13 +46,8 @@ export const getProvisionPlan = (runtime: RuntimeType, framework: string, framew
       return {
         mode: 'download',
         install: 'wp core download',
-        steps: [
-          '[ -f wp-config.php ] || wp config create --dbname="${DB_NAME:-wordpress}" --dbuser="${DB_USER:-root}" --dbpass="${DB_PASS:-}" --skip-check --force',
-          'wp core is-installed || wp core install --url="https://${DOMAIN:-localhost}" --title="${SITE_NAME:-WordPress}" --admin_user="${DB_USER:-admin}" --admin_password="${DB_PASS:-admin}" --admin_email="admin@${DOMAIN:-example.com}" --skip-email',
-          ...(f.includes('woocommerce') ? ['wp plugin install woocommerce --activate || true'] : []),
-          'wp rewrite structure "/%postname%/" --hard || true',
-        ],
-        note: 'Downloads WordPress core and runs the installer automatically (admin account = database user).',
+        steps: [],
+        note: 'Downloads WordPress core and configures wp-config.php automatically. You can complete the setup directly in your browser.',
       };
     }
     if (f.includes('symfony')) {
