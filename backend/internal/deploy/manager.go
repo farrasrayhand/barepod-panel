@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/framework"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
@@ -80,14 +81,20 @@ type Request struct {
 
 // Manager owns the deploy pipeline.
 type Manager struct {
-	store *store.Store
-	host  *host.Host
-	key   []byte
+	store    *store.Store
+	host     *host.Host
+	key      []byte
+	redisURL string
 }
 
 // NewManager builds a deploy manager.
 func NewManager(st *store.Store, h *host.Host, key []byte) *Manager {
 	return &Manager{store: st, host: h, key: key}
+}
+
+// SetRedisURL sets the Redis admin URL used to provision tenant ACL users.
+func (m *Manager) SetRedisURL(raw string) {
+	m.redisURL = strings.TrimSpace(raw)
 }
 
 // Mode is the execution mode of the underlying host: "real" or "dry-run".
@@ -119,14 +126,16 @@ func (m *Manager) Start(req Request) (*store.DeployJob, error) {
 
 // state carries what the steps need to share.
 type state struct {
-	m       *Manager
-	job     *store.DeployJob
-	req     Request
-	siteDir string
-	envPath string
-	dbName  string
-	dbUser  string
-	dbPass  string
+	m         *Manager
+	job       *store.DeployJob
+	req       Request
+	siteDir   string
+	envPath   string
+	dbName    string
+	dbUser    string
+	dbPass    string
+	cacheUser string
+	cachePass string
 }
 
 type step struct {
@@ -543,6 +552,7 @@ func stepWriteEnv(ctx context.Context, s *state) error {
 	// 6. Cache & Redis configuration
 	if cache := s.req.Cache; cache != nil {
 		engine := strings.ToLower(cache.Engine)
+		s.cacheUser = s.req.Tenant + "_" + s.req.Slug
 		pass := ""
 		if sec, err := s.m.store.WebsiteSecret(s.req.Slug, "cache_password"); err == nil && sec != "" {
 			if dec, err := secrets.Decrypt(s.m.key, sec); err == nil && dec != "" {
@@ -555,9 +565,10 @@ func stepWriteEnv(ctx context.Context, s *state) error {
 				_ = s.m.store.PutWebsiteSecret(s.req.Slug, "cache_password", enc)
 			}
 		}
+		s.cachePass = pass
 
 		dbPort := provision.DefaultDBPort(engine)
-		env["CACHE_URL"] = provision.DatabaseURL(engine, "default", pass, "", "127.0.0.1", dbPort, "")
+		env["CACHE_URL"] = provision.DatabaseURL(engine, s.cacheUser, pass, "", "127.0.0.1", dbPort, "")
 		if engine == "redis" {
 			env["CACHE_STORE"] = "redis"
 			env["CACHE_DRIVER"] = "redis"
@@ -566,6 +577,7 @@ func stepWriteEnv(ctx context.Context, s *state) error {
 			env["REDIS_CLIENT"] = "phpredis"
 			env["REDIS_HOST"] = "127.0.0.1"
 			env["REDIS_PORT"] = strconv.Itoa(dbPort)
+			env["REDIS_USERNAME"] = s.cacheUser
 			if pass != "" {
 				env["REDIS_PASSWORD"] = pass
 			}
@@ -637,12 +649,49 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 		return nil
 	}
 	engine := strings.ToLower(cache.Engine)
-	pass := id.Token(18)
+	if s.cacheUser == "" {
+		s.cacheUser = s.req.Tenant + "_" + s.req.Slug
+	}
+	pass := s.cachePass
+	if pass == "" {
+		if sec, err := s.m.store.WebsiteSecret(s.req.Slug, "cache_password"); err == nil && sec != "" {
+			if dec, err := secrets.Decrypt(s.m.key, sec); err == nil && dec != "" {
+				pass = dec
+			}
+		}
+	}
+	if pass == "" {
+		pass = id.Token(18)
+		if enc, err := secrets.Encrypt(s.m.key, pass); err == nil {
+			_ = s.m.store.PutWebsiteSecret(s.req.Slug, "cache_password", enc)
+		}
+	}
+	s.cachePass = pass
 
 	var argv []string
 	switch engine {
 	case "redis":
-		argv = []string{"redis-cli", "ACL", "SETUSER", s.req.Tenant + "_" + s.req.Slug, "on", ">" + pass, "~*", "+@all"}
+		adminURL := s.m.redisURL
+		if adminURL == "" {
+			adminURL = os.Getenv("BAREPOD_REDIS_URL")
+		}
+		if adminURL == "" {
+			if data, err := os.ReadFile("/etc/barepod/redis-admin.url"); err == nil {
+				adminURL = strings.TrimSpace(string(data))
+			}
+		}
+		host, port, adminSecret, _ := dbengine.ParseRedisURL(adminURL)
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		if port == 0 {
+			port = 6379
+		}
+		argv = []string{"redis-cli", "-h", host, "-p", strconv.Itoa(port)}
+		if adminSecret != "" {
+			argv = append(argv, "--no-auth-warning", "-a", adminSecret)
+		}
+		argv = append(argv, "ACL", "SETUSER", s.cacheUser, "on", ">"+pass, "~*", "+@all")
 	default:
 		return fmt.Errorf("cache engine %q is not supported yet", cache.Engine)
 	}

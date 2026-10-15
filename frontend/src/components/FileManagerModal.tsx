@@ -57,7 +57,7 @@ import { describeError } from '../utils/format';
 import { highlightCode } from '../utils/highlight';
 import { usePanelSize } from '../hooks/usePanelSize';
 import { PanelSizeControl } from './PanelSizeControl';
-import 'highlight.js/styles/github-dark.css';
+import 'highlight.js/styles/github.css';
 
 interface FileManagerModalProps {
   isOpen: boolean;
@@ -1091,14 +1091,14 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
   const getFileIcon = (file: FileEntry) => {
     if (file.type === 'folder') {
-      return <Folder className="w-4 h-4 text-amber-400 fill-amber-400/20 shrink-0" />;
+      return <Folder className="w-4 h-4 text-amber-500 fill-amber-500/20 shrink-0" />;
     }
     if (isArchiveName(file.name)) {
-      return <Archive className="w-4 h-4 text-purple-400 shrink-0" />;
+      return <Archive className="w-4 h-4 text-purple-600 shrink-0" />;
     }
     const media = file.mediaType || detectMediaType(file.name);
-    if (media === 'image') return <ImageIcon className="w-4 h-4 text-pink-400 shrink-0" />;
-    if (media === 'pdf') return <FileCheck className="w-4 h-4 text-rose-400 shrink-0" />;
+    if (media === 'image') return <ImageIcon className="w-4 h-4 text-pink-500 shrink-0" />;
+    if (media === 'pdf') return <FileCheck className="w-4 h-4 text-rose-500 shrink-0" />;
     if (
       file.name.endsWith('.php') ||
       file.name.endsWith('.py') ||
@@ -1108,9 +1108,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       file.name.endsWith('.json') ||
       file.name.endsWith('.go')
     ) {
-      return <FileCode className="w-4 h-4 text-cyan-400 shrink-0" />;
+      return <FileCode className="w-4 h-4 text-blue-600 shrink-0" />;
     }
-    if (file.name.startsWith('.env')) return <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />;
+    if (file.name.startsWith('.env')) return <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />;
     return <FileText className="w-4 h-4 text-slate-400 shrink-0" />;
   };
 
@@ -1132,15 +1132,15 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     <div
       className={
         inline
-          ? 'block w-full font-sans antialiased text-slate-100'
-          : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200 font-sans antialiased text-slate-100'
+          ? 'block w-full font-sans antialiased text-slate-800'
+          : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200 font-sans antialiased text-slate-800'
       }
     >
       <div
         className={
           inline
-            ? 'bg-slate-900/95 rounded-2xl border border-slate-800/80 shadow-2xl w-full flex flex-col overflow-hidden relative'
-            : 'bg-slate-900/95 rounded-2xl border border-slate-800/80 shadow-2xl max-w-7xl w-full h-[92vh] flex flex-col overflow-hidden relative'
+            ? 'bg-white rounded-2xl border border-slate-200 shadow-xl w-full flex flex-col overflow-hidden relative'
+            : 'bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-7xl w-full h-[92vh] flex flex-col overflow-hidden relative'
         }
         style={inline ? { height: panelHeight } : undefined}
         onDragOver={handleDragOver}
@@ -1149,53 +1149,53 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       >
         {/* Drag Overlay visual feedback */}
         {isDraggingOver && (
-          <div className="absolute inset-0 z-50 bg-blue-600/20 backdrop-blur-xs border-2 border-dashed border-blue-400 rounded-2xl flex flex-col items-center justify-center pointer-events-none animate-in fade-in duration-150">
-            <div className="p-4 rounded-2xl bg-slate-900/90 border border-blue-500/40 shadow-2xl text-center space-y-2">
-              <Upload className="w-10 h-10 text-blue-400 mx-auto animate-bounce" />
-              <p className="text-sm font-bold text-white">Drop files or folders here</p>
-              <p className="text-xs text-slate-400">Preserves folder hierarchy &amp; supports instant auto-extract</p>
+          <div className="absolute inset-0 z-50 bg-blue-600/10 backdrop-blur-xs border-2 border-dashed border-blue-500 rounded-2xl flex flex-col items-center justify-center pointer-events-none animate-in fade-in duration-150">
+            <div className="p-4 rounded-2xl bg-white/95 border border-blue-200 shadow-2xl text-center space-y-2">
+              <Upload className="w-10 h-10 text-blue-600 mx-auto animate-bounce" />
+              <p className="text-sm font-bold text-slate-900">Drop files or folders here</p>
+              <p className="text-xs text-slate-500">Preserves folder hierarchy &amp; supports instant auto-extract</p>
             </div>
           </div>
         )}
 
         {/* Toast Notification */}
         {toastMessage && (
-          <div className="absolute top-16 right-6 z-50 px-4 py-2.5 bg-slate-800/95 text-white rounded-xl shadow-2xl border border-slate-700 text-xs font-semibold flex items-center gap-2.5 animate-in fade-in slide-in-from-top-3">
+          <div className="absolute top-16 right-6 z-50 px-4 py-2.5 bg-slate-900 text-white rounded-xl shadow-2xl border border-slate-800 text-xs font-semibold flex items-center gap-2.5 animate-in fade-in slide-in-from-top-3">
             <Check className="w-4 h-4 text-emerald-400" />
             <span>{toastMessage}</span>
           </div>
         )}
 
         {/* Top Header */}
-        <div className="px-6 py-3.5 bg-slate-950/80 border-b border-slate-800/80 flex items-center justify-between shrink-0">
+        <div className="px-6 py-3.5 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-blue-600/30 border border-blue-500/40 flex items-center justify-center text-blue-400 shadow-inner">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-xs">
               <Folder className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-semibold text-sm text-white">File Manager — {scopeLabel}</span>
-                <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono border border-slate-700">
+                <span className="font-semibold text-sm text-slate-900">File Manager — {scopeLabel}</span>
+                <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono border border-slate-200">
                   {scopePath}
                 </span>
                 {live === true && (
-                  <span className="text-[10px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded font-semibold flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[10px] bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-0.5 rounded font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                     Live
                   </span>
                 )}
                 {live === false && (
-                  <span className="text-[10px] bg-amber-500/15 border border-amber-500/30 text-amber-300 px-2 py-0.5 rounded font-semibold">
+                  <span className="text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 rounded font-semibold">
                     Simulation
                   </span>
                 )}
                 {live === true && readOnlyRoot && (
-                  <span className="flex items-center gap-1 text-[10px] bg-amber-500/15 border border-amber-500/30 text-amber-200 px-2 py-0.5 rounded font-semibold">
+                  <span className="flex items-center gap-1 text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 rounded font-semibold">
                     <Lock className="w-3 h-3" /> System paths read-only
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-400 mt-0.5">
+              <p className="text-[11px] text-slate-500 mt-0.5">
                 {live === true
                   ? scope === 'site'
                     ? 'Host files isolated in tenant environment with fast chunked uploads & extraction'
@@ -1209,7 +1209,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             {!inline && (
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
                 title="Close"
               >
                 <X className="w-5 h-5" />
@@ -1219,16 +1219,16 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         </div>
 
         {/* Action Toolbar */}
-        <div className="px-5 py-2.5 bg-slate-900/60 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="px-5 py-2.5 bg-slate-50/80 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
           {/* Breadcrumb Path */}
-          <div className="flex items-center gap-1.5 text-xs text-slate-300 font-mono overflow-x-auto py-1 max-w-full">
+          <div className="flex items-center gap-1.5 text-xs text-slate-700 font-mono overflow-x-auto py-1 max-w-full">
             <button
               onClick={() => {
                 setCurrentPath('/');
                 setSelectedFile(null);
                 setSelectedFiles([]);
               }}
-              className="px-2 py-1 rounded bg-slate-800/60 hover:bg-slate-800 hover:text-blue-400 font-semibold cursor-pointer border border-slate-700/60 transition-colors"
+              className="px-2 py-1 rounded bg-white hover:bg-slate-100 hover:text-blue-600 font-semibold cursor-pointer border border-slate-200 shadow-xs transition-colors"
             >
               root
             </button>
@@ -1237,17 +1237,17 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               const isLast = index === breadcrumbSegments.length - 1;
               return (
                 <React.Fragment key={target}>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                  <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <button
                     onClick={() => {
                       setCurrentPath(target);
                       setSelectedFile(null);
                       setSelectedFiles([]);
                     }}
-                    className={`px-2 py-1 rounded transition-colors ${
+                    className={`px-2 py-1 rounded transition-colors shadow-xs ${
                       isLast
-                        ? 'bg-blue-600/20 text-blue-300 font-semibold border border-blue-500/30'
-                        : 'bg-slate-800/60 hover:bg-slate-800 hover:text-blue-400 border border-slate-700/60'
+                        ? 'bg-blue-50 text-blue-700 font-semibold border border-blue-200'
+                        : 'bg-white hover:bg-slate-100 hover:text-blue-600 border border-slate-200 text-slate-700'
                     }`}
                   >
                     {segment}
@@ -1267,12 +1267,12 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 placeholder="Filter files..."
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
-                className="pl-8 pr-6 py-1.5 bg-slate-950/80 border border-slate-700/70 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-hidden focus:border-blue-500 w-36 sm:w-44 transition-all"
+                className="pl-8 pr-6 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 w-36 sm:w-44 transition-all shadow-xs"
               />
               {searchFilter && (
                 <button
                   onClick={() => setSearchFilter('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -1282,13 +1282,13 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             <button
               onClick={reload}
               disabled={live !== true}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 rounded-lg text-xs text-slate-200 font-medium cursor-pointer transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-700 font-medium cursor-pointer transition-colors shadow-xs"
               title="Refresh directory"
             >
               {loading && live === true ? (
-                <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
               ) : (
-                <RotateCw className="w-3.5 h-3.5 text-slate-400" />
+                <RotateCw className="w-3.5 h-3.5 text-slate-500" />
               )}
               <span className="hidden sm:inline">Refresh</span>
             </button>
@@ -1297,7 +1297,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             <button
               onClick={() => fileUploadInputRef.current?.click()}
               disabled={busy || readOnlyRoot}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors disabled:opacity-50"
               title="Upload files (chunked & resumable)"
             >
               <Upload className="w-3.5 h-3.5" />
@@ -1308,10 +1308,10 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             <button
               onClick={() => folderUploadInputRef.current?.click()}
               disabled={busy || readOnlyRoot}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-semibold text-slate-200 shadow-xs cursor-pointer transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 shadow-xs cursor-pointer transition-colors disabled:opacity-50"
               title="Upload an entire folder hierarchy"
             >
-              <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
+              <FolderPlus className="w-3.5 h-3.5 text-amber-500" />
               <span>Upload Folder</span>
             </button>
 
@@ -1326,10 +1326,10 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   })
                 }
                 disabled={busy}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600/30 hover:bg-purple-600/40 text-purple-200 border border-purple-500/40 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-xs"
                 title="Decompress / Extract archive"
               >
-                <FileArchive className="w-3.5 h-3.5 text-purple-400" />
+                <FileArchive className="w-3.5 h-3.5 text-purple-600" />
                 <span>Extract</span>
               </button>
             )}
@@ -1339,10 +1339,10 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               <button
                 onClick={() => handleOpenCompressModal(selectedEntries.length > 0 ? selectedEntries : selectedFile ? [selectedFile] : [])}
                 disabled={busy}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-600/20 hover:bg-amber-600/30 text-amber-200 border border-amber-500/40 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-xs"
                 title="Compress selected files into .zip or .tar.gz"
               >
-                <Archive className="w-3.5 h-3.5 text-amber-400" />
+                <Archive className="w-3.5 h-3.5 text-amber-600" />
                 <span>Compress</span>
               </button>
             )}
@@ -1352,44 +1352,44 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               <>
                 <button
                   onClick={handleDownloadSelected}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs text-slate-200 cursor-pointer"
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-700 cursor-pointer shadow-xs"
                   title="Download selection"
                 >
-                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  <Download className="w-3.5 h-3.5 text-blue-600" />
                   <span>Download ({selectedFiles.length})</span>
                 </button>
 
                 <button
                   onClick={handleDeleteSelected}
-                  className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-800/60 rounded-lg text-xs font-semibold cursor-pointer"
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold cursor-pointer shadow-xs"
                   title="Delete selection"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                   <span>Delete ({selectedFiles.length})</span>
                 </button>
               </>
             )}
 
             {/* New File & New Folder */}
-            <div className="h-4 w-px bg-slate-800 mx-1 hidden sm:block" />
+            <div className="h-4 w-px bg-slate-200 mx-1 hidden sm:block" />
 
             <button
               onClick={() => setNewFileModal({ isOpen: true, name: '' })}
               disabled={busy || readOnlyRoot}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 rounded-lg text-xs text-slate-300 font-medium cursor-pointer transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-700 font-medium cursor-pointer transition-colors shadow-xs disabled:opacity-50"
               title="Create new file"
             >
-              <Plus className="w-3.5 h-3.5 text-blue-400" />
+              <Plus className="w-3.5 h-3.5 text-blue-600" />
               <span>New File</span>
             </button>
 
             <button
               onClick={() => setNewFolderModal({ isOpen: true, name: '' })}
               disabled={busy || readOnlyRoot}
-              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 rounded-lg text-xs text-slate-300 font-medium cursor-pointer transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs text-slate-700 font-medium cursor-pointer transition-colors shadow-xs disabled:opacity-50"
               title="Create new directory"
             >
-              <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
+              <FolderPlus className="w-3.5 h-3.5 text-amber-500" />
               <span>New Folder</span>
             </button>
 
@@ -1398,10 +1398,10 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               <button
                 onClick={handlePaste}
                 disabled={busy || readOnlyRoot}
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-xs disabled:opacity-50"
                 title={`Paste ${clipboard.files.length} items`}
               >
-                <Clipboard className="w-3.5 h-3.5 text-emerald-400" />
+                <Clipboard className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Paste ({clipboard.files.length})</span>
               </button>
             )}
@@ -1410,9 +1410,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             {uploadQueue.length > 0 && (
               <button
                 onClick={() => setUploadDrawerOpen((prev) => !prev)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-950/60 hover:bg-blue-900/60 text-blue-300 border border-blue-800/80 rounded-lg text-xs font-semibold cursor-pointer"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold cursor-pointer shadow-xs"
               >
-                <Layers className="w-3.5 h-3.5" />
+                <Layers className="w-3.5 h-3.5 text-blue-600" />
                 <span>Uploads ({uploadQueue.filter((x) => x.status === 'uploading' || x.status === 'queued').length})</span>
               </button>
             )}
@@ -1420,10 +1420,10 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             {/* Toggle Inspector Sidebar */}
             <button
               onClick={() => setShowInspector((prev) => !prev)}
-              className={`p-1.5 rounded-lg border text-xs cursor-pointer transition-colors ${
+              className={`p-1.5 rounded-lg border text-xs cursor-pointer transition-colors shadow-xs ${
                 showInspector
-                  ? 'bg-blue-600 text-white border-blue-500'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border-slate-700'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-200'
               }`}
               title="Toggle Details Inspector"
             >
@@ -1434,12 +1434,12 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Error Banner */}
         {error && (
-          <div className="px-5 py-2.5 bg-rose-950/40 border-b border-rose-900/60 text-xs text-rose-300 flex items-center justify-between gap-2 shrink-0">
+          <div className="px-5 py-2.5 bg-rose-50 border-b border-rose-200 text-xs text-rose-700 flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2">
-              <TriangleAlert className="w-4 h-4 text-rose-400 shrink-0" />
+              <TriangleAlert className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{error}</span>
             </div>
-            <button onClick={() => setError('')} className="text-rose-400 hover:text-rose-200">
+            <button onClick={() => setError('')} className="text-rose-500 hover:text-rose-700">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -1471,11 +1471,11 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         />
 
         {/* Main Workspace Area */}
-        <div className="flex-1 flex min-h-0 bg-slate-950/40 overflow-hidden relative">
+        <div className="flex-1 flex min-h-0 bg-white overflow-hidden relative">
           {/* File Table Column */}
           <div
-            className={`flex-1 flex flex-col min-w-0 bg-slate-900/40 overflow-y-auto select-none ${
-              editingFile && !editorMaximized ? 'hidden md:flex md:w-1/2 md:border-r md:border-slate-800' : 'w-full'
+            className={`flex-1 flex flex-col min-w-0 bg-white overflow-y-auto select-none ${
+              editingFile && !editorMaximized ? 'hidden md:flex md:w-1/2 md:border-r md:border-slate-200' : 'w-full'
             }`}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -1483,14 +1483,14 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             }}
           >
             <table className="w-full text-left text-xs">
-              <thead className="bg-slate-900/90 border-b border-slate-800 text-[11px] font-semibold text-slate-400 sticky top-0 z-10 backdrop-blur-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 sticky top-0 z-10 backdrop-blur-xs">
                 <tr>
                   <th className="py-2.5 px-3 w-10 text-center">
                     <input
                       type="checkbox"
                       checked={currentFiles.length > 0 && selectedFiles.length === currentFiles.length}
                       onChange={(e) => handleToggleSelectAll(e.target.checked)}
-                      className="w-4 h-4 rounded text-blue-500 border-slate-700 bg-slate-800 focus:ring-blue-500 cursor-pointer accent-blue-600"
+                      className="w-4 h-4 rounded text-blue-600 border-slate-300 bg-white focus:ring-blue-500 cursor-pointer accent-blue-600"
                       title="Select all"
                     />
                   </th>
@@ -1500,7 +1500,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   <th className="py-2.5 px-3">Last Modified</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-850">
+              <tbody className="divide-y divide-slate-100">
                 {currentPath !== '/' && (
                   <tr
                     onClick={() => {
@@ -1508,19 +1508,19 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                       setSelectedFile(null);
                       setSelectedFiles([]);
                     }}
-                    className="hover:bg-slate-800/50 cursor-pointer font-medium text-slate-400 transition-colors"
+                    className="hover:bg-slate-50 cursor-pointer font-medium text-slate-600 transition-colors"
                   >
                     <td colSpan={5} className="py-2 px-4 flex items-center gap-2">
-                      <Folder className="w-4 h-4 text-slate-500" />
-                      <span className="font-mono text-xs">.. (up one level)</span>
+                      <Folder className="w-4 h-4 text-slate-400" />
+                      <span className="font-mono text-xs text-slate-600">.. (up one level)</span>
                     </td>
                   </tr>
                 )}
 
                 {live === true && loading && currentFiles.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-12 px-4 text-center text-slate-400">
-                      <Loader2 className="w-5 h-5 text-blue-400 animate-spin inline mr-2" />
+                    <td colSpan={5} className="py-12 px-4 text-center text-slate-500">
+                      <Loader2 className="w-5 h-5 text-blue-600 animate-spin inline mr-2" />
                       Loading files in {currentPath}…
                     </td>
                   </tr>
@@ -1528,10 +1528,10 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
                 {(!loading || currentFiles.length > 0) && currentFiles.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-12 px-4 text-center text-slate-500 space-y-2">
-                      <Folder className="w-8 h-8 text-slate-600 mx-auto" />
-                      <p className="text-xs">This directory is empty.</p>
-                      <p className="text-[11px] text-slate-600">Drag &amp; drop files or folders here to upload.</p>
+                    <td colSpan={5} className="py-12 px-4 text-center text-slate-400 space-y-2">
+                      <Folder className="w-8 h-8 text-slate-300 mx-auto" />
+                      <p className="text-xs font-medium text-slate-600">This directory is empty.</p>
+                      <p className="text-[11px] text-slate-400">Drag &amp; drop files or folders here to upload.</p>
                     </td>
                   </tr>
                 )}
@@ -1560,10 +1560,10 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                       }}
                       className={`cursor-pointer transition-colors group ${
                         isChecked
-                          ? 'bg-blue-900/30 border-l-2 border-blue-500 text-blue-100'
+                          ? 'bg-blue-50/80 border-l-2 border-blue-600 text-blue-900 font-medium'
                           : isSelected
-                            ? 'bg-slate-800/80 border-l-2 border-blue-400 text-white'
-                            : 'hover:bg-slate-800/40 text-slate-200'
+                            ? 'bg-slate-100/90 border-l-2 border-blue-600 text-slate-900 font-medium'
+                            : 'hover:bg-slate-50 text-slate-700'
                       } ${isBeingCut ? 'opacity-40 italic' : ''}`}
                     >
                       <td className="py-2 px-3 w-10 text-center" onClick={(e) => e.stopPropagation()}>
@@ -1571,7 +1571,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                           type="checkbox"
                           checked={isChecked}
                           onChange={(e) => handleToggleSelectFile(file.name, e.target.checked)}
-                          className="w-4 h-4 rounded text-blue-500 border-slate-700 bg-slate-800 focus:ring-blue-500 cursor-pointer accent-blue-600"
+                          className="w-4 h-4 rounded text-blue-600 border-slate-300 bg-white focus:ring-blue-500 cursor-pointer accent-blue-600"
                         />
                       </td>
                       <td className="py-2 px-3 font-mono">
@@ -1580,17 +1580,17 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                           <span
                             className={`truncate ${
                               file.type === 'folder'
-                                ? 'text-amber-200 font-semibold'
+                                ? 'text-amber-800 font-semibold'
                                 : isArchiveName(file.name)
-                                  ? 'text-purple-300 font-medium'
-                                  : 'text-slate-100'
+                                  ? 'text-purple-700 font-medium'
+                                  : 'text-slate-800'
                             }`}
                           >
                             {file.name}
                           </span>
 
                           {isArchiveName(file.name) && (
-                            <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.2 rounded font-sans font-bold">
+                            <span className="text-[9px] bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.2 rounded font-sans font-bold">
                               ARCHIVE
                             </span>
                           )}
@@ -1603,17 +1603,17 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
                           {file.protected && (
                             <span
-                              className="flex items-center gap-1 text-[10px] font-semibold text-slate-400 bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded"
+                              className="flex items-center gap-1 text-[10px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded"
                               title="System protected (read-only)"
                             >
-                              <Lock className="w-3 h-3 text-amber-400" /> Read-only
+                              <Lock className="w-3 h-3 text-amber-600" /> Read-only
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="py-2 px-3 text-slate-400 font-mono text-[11px]">{file.size}</td>
-                      <td className="py-2 px-3 text-slate-400 font-mono text-[11px]">{file.permissions}</td>
-                      <td className="py-2 px-3 text-slate-400 text-[11px]">{file.modified}</td>
+                      <td className="py-2 px-3 text-slate-500 font-mono text-[11px]">{file.size}</td>
+                      <td className="py-2 px-3 text-slate-500 font-mono text-[11px]">{file.permissions}</td>
+                      <td className="py-2 px-3 text-slate-500 text-[11px]">{file.modified}</td>
                     </tr>
                   );
                 })}
@@ -1624,22 +1624,22 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
           {/* Code Editor Panel */}
           {editingFile && (
             <div
-              className={`flex flex-col bg-slate-950 overflow-hidden ${
-                editorMaximized ? 'absolute inset-0 z-20' : 'w-full md:w-1/2 border-l border-slate-800'
+              className={`flex flex-col bg-white overflow-hidden ${
+                editorMaximized ? 'absolute inset-0 z-20' : 'w-full md:w-1/2 border-l border-slate-200'
               }`}
             >
               {/* Editor Bar */}
-              <div className="px-4 py-2.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between shrink-0">
+              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2 font-mono text-xs">
-                  <FileCode className="w-4 h-4 text-blue-400" />
-                  <span className="font-bold text-white">{editingFile.name}</span>
+                  <FileCode className="w-4 h-4 text-blue-600" />
+                  <span className="font-bold text-slate-900">{editingFile.name}</span>
                   <span className="text-[10px] text-slate-500">({editingFile.size})</span>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setEditorMaximized((prev) => !prev)}
-                    className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                    className="p-1 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-200/60 transition-colors cursor-pointer"
                     title={editorMaximized ? 'Restore View' : 'Maximize Editor'}
                   >
                     {editorMaximized ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
@@ -1665,7 +1665,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                       setEditingFile(null);
                       setEditorMaximized(false);
                     }}
-                    className="p-1 text-slate-400 hover:text-white cursor-pointer"
+                    className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded cursor-pointer transition-colors"
                     title="Close Editor"
                   >
                     <X className="w-4 h-4" />
@@ -1674,25 +1674,25 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               </div>
 
               {isLocked(editingFile) && (
-                <div className="px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-[11px] text-amber-200 flex items-center gap-2">
+                <div className="px-4 py-1.5 bg-amber-50 border-b border-amber-200 text-[11px] text-amber-800 flex items-center gap-2">
                   <Lock className="w-3.5 h-3.5 shrink-0" />
                   <span>This is a system file: it is shown read-only, and saving is disabled.</span>
                 </div>
               )}
 
               {editorNote && (
-                <div className="px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-[11px] text-amber-200 flex items-center gap-2">
+                <div className="px-4 py-1.5 bg-amber-50 border-b border-amber-200 text-[11px] text-amber-800 flex items-center gap-2">
                   <TriangleAlert className="w-3.5 h-3.5 shrink-0" />
                   <span>{editorNote}</span>
                 </div>
               )}
 
               {/* Code Editor Area */}
-              <div className="relative flex-1 overflow-hidden bg-slate-950 font-mono text-xs leading-relaxed">
+              <div className="relative flex-1 overflow-hidden bg-white font-mono text-xs leading-relaxed">
                 <pre
                   ref={editorPreRef}
                   aria-hidden
-                  className="absolute inset-0 m-0 p-4 overflow-hidden pointer-events-none whitespace-pre text-slate-200 font-mono text-xs"
+                  className="absolute inset-0 m-0 p-4 overflow-hidden pointer-events-none whitespace-pre text-slate-800 font-mono text-xs"
                   dangerouslySetInnerHTML={{ __html: `${highlightCode(editorContent, editingFile.name)}\n` }}
                 />
                 <textarea
@@ -1706,7 +1706,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   }}
                   spellCheck={false}
                   wrap="off"
-                  className="absolute inset-0 w-full h-full p-4 bg-transparent border-none outline-hidden resize-none overflow-auto font-mono text-xs leading-relaxed whitespace-pre text-transparent caret-emerald-300 focus:ring-0 selection:bg-blue-600/50"
+                  className="absolute inset-0 w-full h-full p-4 bg-transparent border-none outline-hidden resize-none overflow-auto font-mono text-xs leading-relaxed whitespace-pre text-transparent caret-blue-600 focus:ring-0 selection:bg-blue-100"
                 />
               </div>
             </div>
@@ -1714,14 +1714,14 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
           {/* Inspector Slide-over (When toggled on) */}
           {showInspector && !editingFile && (
-            <div className="w-72 bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 animate-in slide-in-from-right-4 duration-150">
-              <div className="p-3.5 border-b border-slate-800 flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                  <Info className="w-3.5 h-3.5 text-blue-400" /> Item Details
+            <div className="w-72 bg-slate-50/80 border-l border-slate-200 flex flex-col shrink-0 animate-in slide-in-from-right-4 duration-150">
+              <div className="p-3.5 border-b border-slate-200 flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-blue-600" /> Item Details
                 </span>
                 <button
                   onClick={() => setShowInspector(false)}
-                  className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800"
+                  className="p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1730,39 +1730,39 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               {activeFile ? (
                 <div className="p-4 space-y-4 overflow-y-auto text-xs">
                   {/* File Preview Icon / Thumbnail */}
-                  <div className="p-4 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-col items-center justify-center text-center space-y-2">
-                    <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center">
+                  <div className="p-4 bg-white rounded-xl border border-slate-200 flex flex-col items-center justify-center text-center space-y-2 shadow-xs">
+                    <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center">
                       {activeFile.type === 'folder' ? (
-                        <Folder className="w-6 h-6 text-amber-400" />
+                        <Folder className="w-6 h-6 text-amber-500" />
                       ) : isArchiveName(activeFile.name) ? (
-                        <Archive className="w-6 h-6 text-purple-400" />
+                        <Archive className="w-6 h-6 text-purple-600" />
                       ) : (
-                        <FileText className="w-6 h-6 text-slate-300" />
+                        <FileText className="w-6 h-6 text-slate-500" />
                       )}
                     </div>
                     <div>
-                      <p className="font-bold text-white font-mono break-all">{activeFile.name}</p>
-                      <p className="text-[11px] text-slate-400 capitalize">{activeFile.type}</p>
+                      <p className="font-bold text-slate-900 font-mono break-all">{activeFile.name}</p>
+                      <p className="text-[11px] text-slate-500 capitalize">{activeFile.type}</p>
                     </div>
                   </div>
 
                   {/* Metadata List */}
-                  <div className="space-y-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800/60">
-                    <div className="flex justify-between py-1 border-b border-slate-850">
-                      <span className="text-slate-400">Size</span>
-                      <span className="font-mono text-slate-200">{activeFile.size}</span>
+                  <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                    <div className="flex justify-between py-1 border-b border-slate-100">
+                      <span className="text-slate-500">Size</span>
+                      <span className="font-mono text-slate-800">{activeFile.size}</span>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-slate-850">
-                      <span className="text-slate-400">Permissions</span>
-                      <span className="font-mono text-slate-200">{activeFile.permissions}</span>
+                    <div className="flex justify-between py-1 border-b border-slate-100">
+                      <span className="text-slate-500">Permissions</span>
+                      <span className="font-mono text-slate-800">{activeFile.permissions}</span>
                     </div>
-                    <div className="flex justify-between py-1 border-b border-slate-850">
-                      <span className="text-slate-400">Modified</span>
-                      <span className="text-slate-200 text-[11px]">{activeFile.modified}</span>
+                    <div className="flex justify-between py-1 border-b border-slate-100">
+                      <span className="text-slate-500">Modified</span>
+                      <span className="text-slate-700 text-[11px]">{activeFile.modified}</span>
                     </div>
                     <div className="flex justify-between py-1">
-                      <span className="text-slate-400">Location</span>
-                      <span className="font-mono text-slate-300 truncate max-w-[120px]">{currentPath}</span>
+                      <span className="text-slate-500">Location</span>
+                      <span className="font-mono text-slate-700 truncate max-w-[120px]">{currentPath}</span>
                     </div>
                   </div>
 
@@ -1771,7 +1771,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     {activeFile.type === 'file' && !isArchiveName(activeFile.name) && (
                       <button
                         onClick={() => void handleOpenFile(activeFile)}
-                        className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                        className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-xs"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                         <span>Edit / View</span>
@@ -1787,7 +1787,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                             destination: currentPath,
                           })
                         }
-                        className="w-full py-2 px-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                        className="w-full py-2 px-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-xs"
                       >
                         <FileArchive className="w-3.5 h-3.5" />
                         <span>Extract Archive</span>
@@ -1796,24 +1796,24 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
                     <button
                       onClick={() => handleDownload(activeFile)}
-                      className="w-full py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                      className="w-full py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-xs"
                     >
-                      <Download className="w-3.5 h-3.5 text-blue-400" />
+                      <Download className="w-3.5 h-3.5 text-blue-600" />
                       <span>Download</span>
                     </button>
 
                     <button
                       onClick={() => handleOpenCompressModal([activeFile])}
-                      className="w-full py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                      className="w-full py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-xs"
                     >
-                      <Archive className="w-3.5 h-3.5 text-amber-400" />
+                      <Archive className="w-3.5 h-3.5 text-amber-500" />
                       <span>Compress</span>
                     </button>
 
                     <button
                       onClick={() => setRenameModal({ isOpen: true, file: activeFile, newName: activeFile.name })}
                       disabled={isLocked(activeFile)}
-                      className="w-full py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
+                      className="w-full py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg font-medium flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50 shadow-xs"
                     >
                       <span>Rename</span>
                     </button>
@@ -1821,16 +1821,16 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     <button
                       onClick={() => void handleDelete(activeFile)}
                       disabled={isLocked(activeFile)}
-                      className="w-full py-1.5 px-3 bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 border border-rose-900/60 rounded-lg font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50"
+                      className="w-full py-1.5 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50 shadow-xs"
                     >
-                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                      <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                       <span>Delete</span>
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="p-8 text-center text-slate-500 space-y-2">
-                  <Info className="w-8 h-8 mx-auto text-slate-600" />
+                <div className="p-8 text-center text-slate-400 space-y-2">
+                  <Info className="w-8 h-8 mx-auto text-slate-300" />
                   <p className="text-xs">Select any file or folder to view its details and quick actions.</p>
                 </div>
               )}
@@ -1840,17 +1840,17 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Floating Upload Queue Drawer */}
         {uploadDrawerOpen && uploadQueue.length > 0 && (
-          <div className="absolute bottom-4 right-4 z-40 w-96 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-200">
+          <div className="absolute bottom-4 right-4 z-40 w-96 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-200">
             {/* Drawer Header */}
-            <div className="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+            <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Upload className="w-4 h-4 text-blue-400" />
-                <span className="text-xs font-bold text-white">Uploads &amp; Queue ({uploadQueue.length})</span>
+                <Upload className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-bold text-slate-900">Uploads &amp; Queue ({uploadQueue.length})</span>
               </div>
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setUploadDrawerOpen(false)}
-                  className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded"
+                  className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1858,20 +1858,20 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             </div>
 
             {/* Auto Extract Checkbox */}
-            <div className="px-4 py-2 bg-slate-850/60 border-b border-slate-800 flex items-center justify-between text-xs">
-              <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+            <div className="px-4 py-2 bg-slate-50/70 border-b border-slate-200 flex items-center justify-between text-xs">
+              <label className="flex items-center gap-2 text-slate-700 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={autoExtractOnUpload}
                   onChange={(e) => setAutoExtractOnUpload(e.target.checked)}
-                  className="w-4 h-4 rounded text-blue-600 border-slate-700 bg-slate-800 cursor-pointer accent-blue-600"
+                  className="w-4 h-4 rounded text-blue-600 border-slate-300 bg-white cursor-pointer accent-blue-600"
                 />
                 <span>Auto-extract archives (.zip, .tar.gz)</span>
               </label>
               {uploadQueue.some((x) => x.status === 'completed') && (
                 <button
                   onClick={() => setUploadQueue((prev) => prev.filter((x) => x.status !== 'completed'))}
-                  className="text-[11px] text-slate-400 hover:text-white underline"
+                  className="text-[11px] text-slate-500 hover:text-slate-800 underline cursor-pointer"
                 >
                   Clear Done
                 </button>
@@ -1879,45 +1879,45 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
             </div>
 
             {/* Upload Tasks List */}
-            <div className="max-h-60 overflow-y-auto divide-y divide-slate-800/80 p-2 space-y-1">
+            <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 p-2 space-y-1">
               {uploadQueue.map((item) => (
-                <div key={item.id} className="p-2 rounded-lg bg-slate-950/40 text-xs space-y-1.5">
+                <div key={item.id} className="p-2 rounded-lg bg-slate-50 border border-slate-100 text-xs space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-slate-200 truncate flex-1" title={item.relPath}>
+                    <span className="font-mono text-slate-800 truncate flex-1" title={item.relPath}>
                       {item.relPath}
                     </span>
-                    <span className="text-[10px] text-slate-400 shrink-0">{formatSize(item.size)}</span>
+                    <span className="text-[10px] text-slate-500 shrink-0">{formatSize(item.size)}</span>
                   </div>
 
                   {/* Progress Bar */}
-                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
                     <div
                       className={`h-full transition-all duration-200 ${
                         item.status === 'completed'
-                          ? 'bg-emerald-400'
+                          ? 'bg-emerald-500'
                           : item.status === 'error'
                             ? 'bg-rose-500'
                             : item.status === 'paused'
-                              ? 'bg-amber-400'
-                              : 'bg-blue-500'
+                              ? 'bg-amber-500'
+                              : 'bg-blue-600'
                       }`}
                       style={{ width: `${item.progress}%` }}
                     />
                   </div>
 
-                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                  <div className="flex items-center justify-between text-[10px] text-slate-500">
                     <div className="flex items-center gap-2">
                       <span
                         className={`capitalize font-semibold ${
                           item.status === 'completed'
-                            ? 'text-emerald-400'
+                            ? 'text-emerald-600'
                             : item.status === 'uploading'
-                              ? 'text-blue-400'
+                              ? 'text-blue-600'
                               : item.status === 'paused'
-                                ? 'text-amber-400'
+                                ? 'text-amber-600'
                                 : item.status === 'error'
-                                  ? 'text-rose-400'
-                                  : 'text-slate-400'
+                                  ? 'text-rose-600'
+                                  : 'text-slate-500'
                         }`}
                       >
                         {item.status}
@@ -1926,7 +1926,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                         <span>({formatSize(item.speedBytesPerSec)}/s)</span>
                       )}
                       {item.status === 'completed' && item.extracted && item.extracted.length > 0 && (
-                        <span className="text-purple-300 font-semibold">Extracted!</span>
+                        <span className="text-purple-600 font-semibold">Extracted!</span>
                       )}
                     </div>
 
@@ -1934,24 +1934,24 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                       {item.status === 'uploading' && (
                         <button
                           onClick={() => handlePauseUpload(item.id)}
-                          className="p-1 hover:text-white"
+                          className="p-1 hover:text-slate-800 cursor-pointer"
                           title="Pause"
                         >
-                          <Pause className="w-3 h-3 text-amber-400" />
+                          <Pause className="w-3 h-3 text-amber-500" />
                         </button>
                       )}
                       {item.status === 'paused' && (
                         <button
                           onClick={() => handleResumeUpload(item.id)}
-                          className="p-1 hover:text-white"
+                          className="p-1 hover:text-slate-800 cursor-pointer"
                           title="Resume"
                         >
-                          <Play className="w-3 h-3 text-emerald-400" />
+                          <Play className="w-3 h-3 text-emerald-500" />
                         </button>
                       )}
                       <button
                         onClick={() => handleCancelUpload(item.id)}
-                        className="p-1 hover:text-rose-400"
+                        className="p-1 hover:text-rose-600 cursor-pointer"
                         title="Remove"
                       >
                         <X className="w-3 h-3" />
@@ -1971,12 +1971,12 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               top: Math.min(contextMenu.y - 30, window.innerHeight - 300),
               left: Math.min(contextMenu.x - 20, window.innerWidth - 220),
             }}
-            className="fixed z-50 w-52 bg-slate-900 rounded-xl shadow-2xl border border-slate-700 py-1.5 text-xs text-slate-200 animate-in fade-in zoom-in-95 duration-100"
+            className="fixed z-50 w-52 bg-white rounded-xl shadow-2xl border border-slate-200 py-1.5 text-xs text-slate-700 animate-in fade-in zoom-in-95 duration-100"
             onClick={(e) => e.stopPropagation()}
           >
             {contextMenu.file ? (
               <>
-                <div className="px-3 py-1 font-mono text-[10px] text-slate-400 font-semibold border-b border-slate-800 truncate">
+                <div className="px-3 py-1 font-mono text-[10px] text-slate-500 font-semibold border-b border-slate-100 truncate">
                   {contextMenu.file.name}
                 </div>
 
@@ -1985,9 +1985,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     if (contextMenu.file) void handleOpenFile(contextMenu.file);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-blue-600 hover:text-white flex items-center gap-2 cursor-pointer font-medium"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-100 hover:text-blue-600 flex items-center gap-2 cursor-pointer font-medium"
                 >
-                  <Eye className="w-3.5 h-3.5 text-blue-400" />
+                  <Eye className="w-3.5 h-3.5 text-blue-600" />
                   <span>
                     {contextMenu.file.type === 'folder'
                       ? 'Open Folder'
@@ -2009,9 +2009,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                       }
                       setContextMenu(null);
                     }}
-                    className="w-full px-3 py-1.5 text-left hover:bg-purple-600 hover:text-white flex items-center gap-2 cursor-pointer font-medium"
+                    className="w-full px-3 py-1.5 text-left hover:bg-purple-50 text-purple-700 flex items-center gap-2 cursor-pointer font-medium"
                   >
-                    <FileArchive className="w-3.5 h-3.5 text-purple-400" />
+                    <FileArchive className="w-3.5 h-3.5 text-purple-600" />
                     <span>Extract Archive…</span>
                   </button>
                 )}
@@ -2021,9 +2021,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     if (contextMenu.file) handleOpenCompressModal([contextMenu.file]);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-100 flex items-center gap-2 cursor-pointer"
                 >
-                  <Archive className="w-3.5 h-3.5 text-amber-400" />
+                  <Archive className="w-3.5 h-3.5 text-amber-500" />
                   <span>Compress…</span>
                 </button>
 
@@ -2032,7 +2032,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     if (contextMenu.file) handleCopy([contextMenu.file]);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-100 flex items-center gap-2 cursor-pointer"
                 >
                   <Copy className="w-3.5 h-3.5 text-slate-400" />
                   <span>Copy</span>
@@ -2043,7 +2043,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     if (contextMenu.file) handleCut([contextMenu.file]);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-100 flex items-center gap-2 cursor-pointer"
                 >
                   <Scissors className="w-3.5 h-3.5 text-slate-400" />
                   <span>Cut</span>
@@ -2054,7 +2054,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     if (contextMenu.file) void handleDuplicate(contextMenu.file);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-100 flex items-center gap-2 cursor-pointer"
                 >
                   <Layers className="w-3.5 h-3.5 text-slate-400" />
                   <span>Duplicate</span>
@@ -2065,9 +2065,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     if (contextMenu.file) handleDownload(contextMenu.file);
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-100 flex items-center gap-2 cursor-pointer"
                 >
-                  <Download className="w-3.5 h-3.5 text-blue-400" />
+                  <Download className="w-3.5 h-3.5 text-blue-600" />
                   <span>Download</span>
                 </button>
 
@@ -2079,12 +2079,12 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     setContextMenu(null);
                   }}
                   disabled={isLocked(contextMenu.file)}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer disabled:opacity-40"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-100 flex items-center gap-2 cursor-pointer disabled:opacity-40"
                 >
                   <span>Rename…</span>
                 </button>
 
-                <div className="h-px bg-slate-800 my-1" />
+                <div className="h-px bg-slate-100 my-1" />
 
                 <button
                   onClick={() => {
@@ -2092,9 +2092,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     setContextMenu(null);
                   }}
                   disabled={isLocked(contextMenu.file)}
-                  className="w-full px-3 py-1.5 text-left hover:bg-rose-950/60 text-rose-300 hover:text-rose-200 flex items-center gap-2 cursor-pointer disabled:opacity-40"
+                  className="w-full px-3 py-1.5 text-left hover:bg-rose-50 text-rose-600 hover:text-rose-700 flex items-center gap-2 cursor-pointer disabled:opacity-40"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                   <span>Delete</span>
                 </button>
               </>
@@ -2105,9 +2105,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     setNewFileModal({ isOpen: true, name: '' });
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-100 flex items-center gap-2 cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5 text-blue-400" />
+                  <Plus className="w-3.5 h-3.5 text-blue-600" />
                   <span>New File</span>
                 </button>
 
@@ -2116,9 +2116,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     setNewFolderModal({ isOpen: true, name: '' });
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-100 flex items-center gap-2 cursor-pointer"
                 >
-                  <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
+                  <FolderPlus className="w-3.5 h-3.5 text-amber-500" />
                   <span>New Folder</span>
                 </button>
 
@@ -2127,9 +2127,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     fileUploadInputRef.current?.click();
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-100 flex items-center gap-2 cursor-pointer"
                 >
-                  <Upload className="w-3.5 h-3.5 text-blue-400" />
+                  <Upload className="w-3.5 h-3.5 text-blue-600" />
                   <span>Upload Files…</span>
                 </button>
 
@@ -2138,9 +2138,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     folderUploadInputRef.current?.click();
                     setContextMenu(null);
                   }}
-                  className="w-full px-3 py-1.5 text-left hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
+                  className="w-full px-3 py-1.5 text-left hover:bg-slate-100 flex items-center gap-2 cursor-pointer"
                 >
-                  <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
+                  <FolderPlus className="w-3.5 h-3.5 text-amber-500" />
                   <span>Upload Folder…</span>
                 </button>
 
@@ -2150,9 +2150,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                       void handlePaste();
                       setContextMenu(null);
                     }}
-                    className="w-full px-3 py-1.5 text-left hover:bg-emerald-950/60 text-emerald-300 flex items-center gap-2 cursor-pointer"
+                    className="w-full px-3 py-1.5 text-left hover:bg-emerald-50 text-emerald-700 flex items-center gap-2 cursor-pointer"
                   >
-                    <Clipboard className="w-3.5 h-3.5 text-emerald-400" />
+                    <Clipboard className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Paste ({clipboard.files.length} items)</span>
                   </button>
                 )}
@@ -2163,29 +2163,29 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: Compress */}
         {compressModal.isOpen && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
-            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full p-5 space-y-4 text-xs">
-              <div className="flex items-center gap-2 text-sm font-bold text-white border-b border-slate-800 pb-3">
-                <Archive className="w-4 h-4 text-amber-400" />
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-5 space-y-4 text-xs text-slate-800">
+              <div className="flex items-center gap-2 text-sm font-bold text-slate-900 border-b border-slate-100 pb-3">
+                <Archive className="w-4 h-4 text-amber-500" />
                 <span>Compress Selected Items</span>
               </div>
 
               <form onSubmit={handleCompressSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Archive Filename</label>
+                  <label className="block text-slate-700 font-semibold mb-1">Archive Filename</label>
                   <input
                     type="text"
                     value={compressModal.filename}
                     onChange={(e) => setCompressModal((prev) => ({ ...prev, filename: e.target.value }))}
                     placeholder="e.g. backup.zip"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 font-mono text-xs focus:outline-hidden focus:border-blue-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 font-mono text-xs focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-xs"
                     autoFocus
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Format</label>
+                  <label className="block text-slate-700 font-semibold mb-1">Format</label>
                   <select
                     value={compressModal.format}
                     onChange={(e) =>
@@ -2195,30 +2195,30 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                         filename: prev.filename.replace(/\.(zip|tar\.gz|tar)$/, '') + (e.target.value === 'zip' ? '.zip' : '.tar.gz'),
                       }))
                     }
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 text-xs focus:outline-hidden focus:border-blue-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 text-xs focus:outline-hidden focus:border-blue-500 shadow-xs"
                   >
                     <option value="zip">.zip (Standard ZIP Archive)</option>
                     <option value="tar.gz">.tar.gz (Gzip compressed tarball)</option>
                   </select>
                 </div>
 
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-[11px] text-slate-400 space-y-1">
-                  <p className="font-semibold text-slate-300">Items to compress ({compressModal.paths.length}):</p>
-                  <p className="font-mono text-slate-400 truncate">{compressModal.paths.join(', ')}</p>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 space-y-1">
+                  <p className="font-semibold text-slate-700">Items to compress ({compressModal.paths.length}):</p>
+                  <p className="font-mono text-slate-600 truncate">{compressModal.paths.join(', ')}</p>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                   <button
                     type="button"
                     onClick={() => setCompressModal((prev) => ({ ...prev, isOpen: false }))}
-                    className="px-3.5 py-1.5 text-slate-300 hover:bg-slate-800 rounded-lg cursor-pointer"
+                    className="px-3.5 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={busy}
-                    className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+                    className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors"
                   >
                     {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     <span>Compress Now</span>
@@ -2231,45 +2231,45 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: Extract */}
         {extractModal.isOpen && extractModal.file && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
-            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-md w-full p-5 space-y-4 text-xs">
-              <div className="flex items-center gap-2 text-sm font-bold text-white border-b border-slate-800 pb-3">
-                <FileArchive className="w-4 h-4 text-purple-400" />
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-5 space-y-4 text-xs text-slate-800">
+              <div className="flex items-center gap-2 text-sm font-bold text-slate-900 border-b border-slate-100 pb-3">
+                <FileArchive className="w-4 h-4 text-purple-600" />
                 <span>Extract Archive</span>
               </div>
 
               <form onSubmit={handleExtractSubmit} className="space-y-4">
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-[11px] space-y-1">
-                  <p className="text-slate-400">Archive File:</p>
-                  <p className="font-mono text-white font-bold">{extractModal.file.name}</p>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] space-y-1">
+                  <p className="text-slate-500">Archive File:</p>
+                  <p className="font-mono text-slate-900 font-bold">{extractModal.file.name}</p>
                 </div>
 
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Destination Directory</label>
+                  <label className="block text-slate-700 font-semibold mb-1">Destination Directory</label>
                   <input
                     type="text"
                     value={extractModal.destination}
                     onChange={(e) => setExtractModal((prev) => ({ ...prev, destination: e.target.value }))}
                     placeholder="e.g. / or /extracted-folder"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 font-mono text-xs focus:outline-hidden focus:border-blue-500"
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 font-mono text-xs focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-xs"
                     autoFocus
                     required
                   />
                   <p className="text-[10px] text-slate-500 mt-1">Leave as current directory or specify a target subfolder.</p>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                   <button
                     type="button"
                     onClick={() => setExtractModal({ isOpen: false, file: null, destination: '' })}
-                    className="px-3.5 py-1.5 text-slate-300 hover:bg-slate-800 rounded-lg cursor-pointer"
+                    className="px-3.5 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={busy}
-                    className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5"
+                    className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors"
                   >
                     {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                     <span>Extract Here</span>
@@ -2282,30 +2282,30 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: New File */}
         {newFileModal.isOpen && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
-            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs">
-              <h4 className="font-bold text-white text-sm">Create New File</h4>
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs text-slate-800">
+              <h4 className="font-bold text-slate-900 text-sm">Create New File</h4>
               <form onSubmit={handleCreateFileSubmit} className="space-y-3">
                 <input
                   type="text"
                   placeholder="e.g. index.html or config.json"
                   value={newFileModal.name}
                   onChange={(e) => setNewFileModal((prev) => ({ ...prev, name: e.target.value }))}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 font-mono text-xs focus:outline-hidden focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 font-mono text-xs focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-xs"
                   autoFocus
                 />
                 <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setNewFileModal({ isOpen: false, name: '' })}
-                    className="px-3 py-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                    className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={busy}
-                    className="px-3.5 py-1.5 font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg cursor-pointer"
+                    className="px-3.5 py-1.5 font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg cursor-pointer transition-colors shadow-xs"
                   >
                     Create
                   </button>
@@ -2317,30 +2317,30 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: New Folder */}
         {newFolderModal.isOpen && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
-            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs">
-              <h4 className="font-bold text-white text-sm">Create New Folder</h4>
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs text-slate-800">
+              <h4 className="font-bold text-slate-900 text-sm">Create New Folder</h4>
               <form onSubmit={handleCreateFolderSubmit} className="space-y-3">
                 <input
                   type="text"
                   placeholder="e.g. assets or public"
                   value={newFolderModal.name}
                   onChange={(e) => setNewFolderModal((prev) => ({ ...prev, name: e.target.value }))}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 font-mono text-xs focus:outline-hidden focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 font-mono text-xs focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-xs"
                   autoFocus
                 />
                 <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setNewFolderModal({ isOpen: false, name: '' })}
-                    className="px-3 py-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                    className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={busy}
-                    className="px-3.5 py-1.5 font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg cursor-pointer"
+                    className="px-3.5 py-1.5 font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg cursor-pointer transition-colors shadow-xs"
                   >
                     Create
                   </button>
@@ -2352,29 +2352,29 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: Rename */}
         {renameModal.isOpen && renameModal.file && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
-            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs">
-              <h4 className="font-bold text-white text-sm">Rename Item</h4>
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs text-slate-800">
+              <h4 className="font-bold text-slate-900 text-sm">Rename Item</h4>
               <form onSubmit={handleRenameSubmit} className="space-y-3">
                 <input
                   type="text"
                   value={renameModal.newName}
                   onChange={(e) => setRenameModal((prev) => ({ ...prev, newName: e.target.value }))}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 font-mono text-xs focus:outline-hidden focus:border-blue-500"
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 font-mono text-xs focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-xs"
                   autoFocus
                 />
                 <div className="flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setRenameModal({ isOpen: false, file: null, newName: '' })}
-                    className="px-3 py-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                    className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={busy}
-                    className="px-3.5 py-1.5 font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg cursor-pointer"
+                    className="px-3.5 py-1.5 font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-lg cursor-pointer transition-colors shadow-xs"
                   >
                     Rename
                   </button>
@@ -2386,34 +2386,34 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: Media & Document Preview (Image & PDF) */}
         {previewModal.isOpen && previewModal.file && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs animate-in fade-in duration-150">
-            <div className="bg-slate-900 rounded-2xl border border-slate-700 shadow-2xl max-w-4xl w-full h-[85vh] flex flex-col overflow-hidden">
+          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full h-[85vh] flex flex-col overflow-hidden text-slate-800">
               {/* Preview Bar */}
-              <div className="px-5 py-3 bg-slate-950 border-b border-slate-800 text-white flex items-center justify-between">
+              <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                 <div className="flex items-center gap-2.5 font-mono text-xs">
                   {getFileIcon(previewModal.file)}
-                  <span className="font-bold text-sm text-white">{previewModal.file.name}</span>
-                  <span className="text-[11px] text-slate-400">({previewModal.file.size})</span>
+                  <span className="font-bold text-sm text-slate-900">{previewModal.file.name}</span>
+                  <span className="text-[11px] text-slate-500">({previewModal.file.size})</span>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setPreviewModal((prev) => ({ ...prev, zoom: Math.min(prev.zoom + 0.25, 2.5) }))}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
+                    className="p-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 shadow-xs cursor-pointer"
                     title="Zoom In"
                   >
                     <ZoomIn className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setPreviewModal((prev) => ({ ...prev, zoom: Math.max(prev.zoom - 0.25, 0.5) }))}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300"
+                    className="p-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 shadow-xs cursor-pointer"
                     title="Zoom Out"
                   >
                     <ZoomOut className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setPreviewModal({ isOpen: false, file: null, zoom: 1 })}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -2421,20 +2421,20 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               </div>
 
               {/* Preview Canvas */}
-              <div className="flex-1 bg-slate-950/60 flex items-center justify-center p-6 overflow-auto">
+              <div className="flex-1 bg-slate-100 flex items-center justify-center p-6 overflow-auto">
                 {previewModal.file.previewUrl ? (
                   detectMediaType(previewModal.file.name) === 'image' ? (
                     <img
                       src={previewModal.file.previewUrl}
                       alt={previewModal.file.name}
                       style={{ transform: `scale(${previewModal.zoom})`, transformOrigin: 'center center' }}
-                      className="max-w-full max-h-full object-contain bg-slate-900 rounded-xl shadow-2xl border border-slate-800 transition-transform duration-150"
+                      className="max-w-full max-h-full object-contain bg-white rounded-xl shadow-lg border border-slate-200 transition-transform duration-150"
                     />
                   ) : detectMediaType(previewModal.file.name) === 'pdf' ? (
                     <iframe
                       src={previewModal.file.previewUrl}
                       title={previewModal.file.name}
-                      className="w-full h-full bg-white rounded-xl shadow-lg border border-slate-800"
+                      className="w-full h-full bg-white rounded-xl shadow-lg border border-slate-200"
                     />
                   ) : detectMediaType(previewModal.file.name) === 'audio' ? (
                     <audio src={previewModal.file.previewUrl} controls className="w-full max-w-lg" />
@@ -2446,8 +2446,8 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     />
                   )
                 ) : (
-                  <div className="text-center text-slate-400 space-y-2">
-                    <FileCheck className="w-10 h-10 mx-auto text-slate-600" />
+                  <div className="text-center text-slate-500 space-y-2">
+                    <FileCheck className="w-10 h-10 mx-auto text-slate-400" />
                     <p className="text-xs">Preview is available when running in live mode.</p>
                   </div>
                 )}

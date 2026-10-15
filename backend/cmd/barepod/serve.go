@@ -420,6 +420,7 @@ func runServe(args []string) error {
 	h := &host.Host{Runner: runner, SitesRoot: cfg.SitesRoot, UnitsDir: cfg.UnitsDir, VHostsDir: cfg.VHostsDir, WebUser: cfg.WebUser}
 	_ = h.MigrateLegacyTenants(context.Background())
 	deploys := deploy.NewManager(st, h, key)
+	deploys.SetRedisURL(cfg.RedisURL)
 	tenants := tenant.New(runner, cfg.SitesRoot, caps)
 
 	// Self-healing watchdog: auto-enables and auto-recovers database engines (MariaDB, Redis, Postgres)

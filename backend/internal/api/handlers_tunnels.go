@@ -639,7 +639,10 @@ func (s *Server) handleListTunnelZones(w http.ResponseWriter, r *http.Request, u
 	}
 
 	tunnel, err := s.store.GetCloudflareTunnel(targetUser)
-	if err != nil || tunnel == nil || tunnel.ApiToken == "" {
+	if (err != nil || tunnel == nil || tunnel.ApiToken == "") && targetUser != "admin" {
+		tunnel, _ = s.store.GetCloudflareTunnel("admin")
+	}
+	if tunnel == nil || tunnel.ApiToken == "" {
 		writeJSON(w, http.StatusOK, map[string]any{"zones": []any{}})
 		return
 	}
