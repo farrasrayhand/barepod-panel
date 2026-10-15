@@ -834,11 +834,65 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 		return nil
 	}
 
-	s.log("stdout", "running build script as tenant "+s.req.Tenant+":")
-	for _, line := range strings.Split(script, "\n") {
-		if strings.TrimSpace(line) != "" {
-			s.log("stdout", "> "+line)
+	domain := s.req.Domain
+	if domain == "" {
+		domain = s.req.Slug + ".local"
+	}
+
+	var pre strings.Builder
+	pre.WriteString("if [ -f .env ]; then set -a; . ./.env 2>/dev/null || true; set +a; fi\n")
+	fmt.Fprintf(&pre, "export DOMAIN=%q\n", domain)
+	fmt.Fprintf(&pre, "export SITE_NAME=%q\n", s.req.Slug)
+	fmt.Fprintf(&pre, "export SLUG=%q\n", s.req.Slug)
+	if s.dbName != "" {
+		fmt.Fprintf(&pre, "export DB_NAME=%q\n", s.dbName)
+		fmt.Fprintf(&pre, "export DB_DATABASE=%q\n", s.dbName)
+	}
+	if s.dbUser != "" {
+		fmt.Fprintf(&pre, "export DB_USER=%q\n", s.dbUser)
+		fmt.Fprintf(&pre, "export DB_USERNAME=%q\n", s.dbUser)
+	}
+	if s.dbPass != "" {
+		fmt.Fprintf(&pre, "export DB_PASS=%q\n", s.dbPass)
+		fmt.Fprintf(&pre, "export DB_PASSWORD=%q\n", s.dbPass)
+	}
+	fmt.Fprintf(&pre, "export DB_HOST=%q\n", "127.0.0.1")
+	if s.cacheUser != "" {
+		fmt.Fprintf(&pre, "export CACHE_USER=%q\n", s.cacheUser)
+		fmt.Fprintf(&pre, "export REDIS_USERNAME=%q\n", s.cacheUser)
+	}
+	if s.cachePass != "" {
+		fmt.Fprintf(&pre, "export CACHE_PASS=%q\n", s.cachePass)
+		fmt.Fprintf(&pre, "export REDIS_PASSWORD=%q\n", s.cachePass)
+	}
+
+	lines := strings.Split(script, "\n")
+	var cleanedLines []string
+	for _, rawLine := range lines {
+		trimmed := strings.TrimSpace(rawLine)
+		if trimmed == "" {
+			continue
 		}
+		// Make WordPress steps resilient against existing wp-config or already-installed site
+		if strings.HasPrefix(trimmed, "wp core config") || strings.HasPrefix(trimmed, "wp config create") {
+			trimmed = "[ -f wp-config.php ] || " + trimmed + " --skip-check --force"
+		} else if strings.HasPrefix(trimmed, "wp core install") {
+			if !strings.Contains(trimmed, "--skip-email") {
+				trimmed += " --skip-email"
+			}
+			if !strings.Contains(trimmed, "--admin_password") {
+				trimmed += " --admin_password=\"${DB_PASS:-admin}\""
+			}
+			trimmed = "wp core is-installed || (" + trimmed + " || wp core is-installed)"
+		} else if strings.HasPrefix(trimmed, "wp rewrite structure") {
+			trimmed = trimmed + " || true"
+		}
+		cleanedLines = append(cleanedLines, trimmed)
+	}
+
+	s.log("stdout", "running build script as tenant "+s.req.Tenant+":")
+	for _, line := range cleanedLines {
+		s.log("stdout", "> "+line)
 	}
 
 	if !s.m.host.Materialises() {
@@ -846,7 +900,8 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 		return nil
 	}
 
-	out, err := s.m.host.RunInSite(ctx, s.req.Tenant, s.req.Slug, []string{"sh", "-c", script})
+	execScript := pre.String() + strings.Join(cleanedLines, "\n")
+	out, err := s.m.host.RunInSite(ctx, s.req.Tenant, s.req.Slug, []string{"sh", "-c", execScript})
 	s.logOutput(out)
 	if err != nil {
 		return fmt.Errorf("build script failed: %w", err)
