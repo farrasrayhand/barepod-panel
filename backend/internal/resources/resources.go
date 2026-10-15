@@ -209,7 +209,7 @@ func (l Limits) Describe() string {
 // scale up/down — a VPS resize, a cgroup change on a running container, a new
 // disk — shows up on the next call without restarting the daemon.
 func DetectCapacity(diskPath string) Capacity {
-	c := Capacity{CPUCores: detectCPUCores(), MemoryMB: detectMemoryMB()}
+	c := Capacity{CPUCores: DetectCPUCores(), MemoryMB: detectMemoryMB()}
 	if diskPath != "" {
 		if total, free, err := diskUsage(diskPath); err == nil {
 			c.DiskGB = int(total / (1024 * 1024 * 1024))

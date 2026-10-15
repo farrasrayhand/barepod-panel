@@ -11,6 +11,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 )
 
 // linuxCollector reads /proc and statfs. Rates are deltas between two samples,
@@ -37,8 +39,8 @@ func (c *linuxCollector) Snapshot(_ Snapshot, elapsed time.Duration) (Snapshot, 
 		Available: true,
 	}
 
-	cores, busy, total := readProcStat()
-	snapshot.CPUCores = cores
+	snapshot.CPUCores = resources.DetectCPUCores()
+	busy, total := readProcStat()
 	if c.primed {
 		snapshot.CPUPercent = Percent(Delta(busy, c.cpuBusy), Delta(total, c.cpuTotal))
 	}
@@ -71,27 +73,23 @@ func (c *linuxCollector) Snapshot(_ Snapshot, elapsed time.Duration) (Snapshot, 
 	return snapshot, nil
 }
 
-// readProcStat returns (cores, busy ticks, total ticks) from /proc/stat.
-func readProcStat() (int, uint64, uint64) {
+// readProcStat returns the cumulative busy and total CPU ticks from /proc/stat.
+//
+// Only the aggregate "cpu" line is summed. The core count is deliberately not
+// derived from the cpuN lines here: inside a container that list can vary from
+// one read to the next, so the count comes from resources.DetectCPUCores.
+func readProcStat() (uint64, uint64) {
 	file, err := os.Open("/proc/stat")
 	if err != nil {
-		return 0, 0, 0
+		return 0, 0
 	}
 	defer func() { _ = file.Close() }()
 
-	var cores int
 	var busy, total uint64
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
-		if len(fields) < 5 || !strings.HasPrefix(fields[0], "cpu") {
-			continue
-		}
-		if fields[0] != "cpu" {
-			var index int
-			if _, err := fmt.Sscanf(fields[0], "cpu%d", &index); err == nil && index+1 > cores {
-				cores = index + 1
-			}
+		if len(fields) < 5 || fields[0] != "cpu" {
 			continue
 		}
 		// Aggregate line: user nice system idle iowait irq softirq steal
@@ -111,7 +109,7 @@ func readProcStat() (int, uint64, uint64) {
 			busy += value
 		}
 	}
-	return cores, busy, total
+	return busy, total
 }
 
 // readMemInfo returns used/total memory and swap, in bytes.

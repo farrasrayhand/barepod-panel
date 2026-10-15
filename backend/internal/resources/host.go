@@ -11,13 +11,16 @@ import (
 	"syscall"
 )
 
-// detectCPUCores reports the CPU capacity that is actually usable right now.
+// DetectCPUCores reports the CPU capacity that is actually usable right now.
 //
 // runtime.NumCPU() is captured when the process starts, so it does NOT follow a
 // cgroup change (a VPS resize, or `lxc-cgroup … cpu.max` on a running container).
 // We therefore prefer the live cgroup v2 limit, then the kernel's online CPU
 // list, and only then fall back to NumCPU.
-func detectCPUCores() int {
+//
+// It is the single source for the host's core count: the capacity guard and the
+// host metrics sampler both report what this returns, so they cannot disagree.
+func DetectCPUCores() int {
 	if cores := cgroupCPUCores(); cores > 0 {
 		return cores
 	}

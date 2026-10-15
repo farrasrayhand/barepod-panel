@@ -5,11 +5,12 @@ package metrics
 import (
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 )
 
 // darwinCollector lets the daemon run on a development Mac and still show real
@@ -36,10 +37,10 @@ func (c *darwinCollector) Snapshot(_ Snapshot, elapsed time.Duration) (Snapshot,
 
 	// iostat already returns a percentage for its own sampling interval, so it is
 	// used directly instead of being turned into a delta (the synthesised
-	// counters would never change and the delta would always be zero).
-	cores, cpuPercent := cpuUsage()
-	snapshot.CPUCores = cores
-	snapshot.CPUPercent = cpuPercent
+	// counters would never change and the delta would always be zero). The core
+	// count comes from the same source as the capacity guard.
+	snapshot.CPUCores = resources.DetectCPUCores()
+	snapshot.CPUPercent = cpuPercent()
 
 	snapshot.MemoryTotal = sysctlUint("hw.memsize")
 	snapshot.MemoryUsedBytes = memoryUsed(snapshot.MemoryTotal)
@@ -80,18 +81,14 @@ func sysctlUint(key string) uint64 {
 	return value
 }
 
-// cpuUsage reports (cores, busy percent) from iostat.
+// cpuPercent reports the busy percentage from iostat.
 //
 // macOS no longer exposes kern.cp_time, so `iostat -c 2` is used: its last line
 // is a real sample over the previous second.
-func cpuUsage() (int, float64) {
-	cores := int(sysctlUint("hw.ncpu"))
-	if cores == 0 {
-		cores = runtime.NumCPU()
-	}
+func cpuPercent() float64 {
 	busy, ok := iostatCPU()
 	if !ok {
-		return cores, 0
+		return 0
 	}
 	if busy < 0 {
 		busy = 0
@@ -99,7 +96,7 @@ func cpuUsage() (int, float64) {
 	if busy > 100 {
 		busy = 100
 	}
-	return cores, busy
+	return busy
 }
 
 // iostatCPU runs `iostat -c 2 -n 2` and returns us+sy of the last sample.
