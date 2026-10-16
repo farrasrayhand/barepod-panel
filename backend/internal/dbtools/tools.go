@@ -328,10 +328,17 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 		// A started process is not yet a usable page.
 		deadline := s.now().Add(startupWait)
 		answered := false
+		startTime := s.now()
 		for s.now().Before(deadline) {
 			if s.running(ctx, spec) {
 				answered = true
 				break
+			}
+			// If a container died early (e.g. permission or boot error), don't keep waiting out the full deadline
+			if spec.Container && s.now().Sub(startTime) > 600*time.Millisecond {
+				if exited, _ := s.containerExited(ctx, spec.ContainerName); exited {
+					break
+				}
 			}
 			select {
 			case <-ctx.Done():
@@ -435,6 +442,21 @@ func (s *Supervisor) containerLogTail(ctx context.Context, name string) string {
 		text = "…" + text[len(text)-limit:]
 	}
 	return text
+}
+
+// containerExited reports whether the container has stopped or crashed.
+func (s *Supervisor) containerExited(ctx context.Context, name string) (bool, string) {
+	probe, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	out, err := s.runner.Run(probe, "", "docker", "inspect", "--format", "{{.State.Status}}:{{.State.ExitCode}}", name)
+	if err != nil {
+		return false, ""
+	}
+	parts := strings.Split(strings.TrimSpace(out), ":")
+	if len(parts) >= 2 && parts[0] == "exited" {
+		return true, parts[1]
+	}
+	return false, ""
 }
 
 // running asks the tool whether it answers on its loopback port.
@@ -710,6 +732,10 @@ func StartArgv(spec Spec, connectionURL string) []string {
 		if spec.Port != 0 {
 			argv = append(argv, "-p", fmt.Sprintf("127.0.0.1:%d:3000", spec.Port))
 		}
+		// Running under a tenant user (--user uid:gid) sets HOME to root (/), which makes Node.js
+		// fail with EACCES when creating /.dbgate. Pointing HOME and WORKSPACE_DIR to /tmp ensures
+		// writable state regardless of which tenant UID runs the container.
+		argv = append(argv, "-e", "HOME=/tmp", "-e", "WORKSPACE_DIR=/tmp/.dbgate")
 		// DbGate's entrypoint script runs `ping -q -c1 dockerhost`. When dockerhost is
 		// missing from /etc/hosts, Linux DNS resolution times out over 20 seconds, causing
 		// startup to take 22s+ instead of 2s. Mapping dockerhost to host-gateway skips this DNS wait.

@@ -218,6 +218,8 @@ func (s *Server) prepareDbGate(ctx context.Context, record *store.Database, moun
 		"ENGINE_bpod=" + engineRef,
 		"SINGLE_CONNECTION=bpod",
 		"SINGLE_DATABASE=" + record.Name,
+		"HOME=/tmp",
+		"WORKSPACE_DIR=/tmp/.dbgate",
 	}
 	switch {
 	case record.FileBased:
