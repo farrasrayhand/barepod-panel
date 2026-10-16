@@ -12,11 +12,11 @@
 
 ## Status
 
-**Live** — auth, sessions & profile · RBAC, groups & packages with a live capacity guard · websites and all four vhost writers (Nginx, Caddy, Apache 2.4, OpenLiteSpeed) · the deploy wizard · the stack installer (engines, runtimes, databases) · file manager · jailed per-tenant terminal · databases & caches with hosted GUIs · metrics & monitoring · per-app security · panel settings & PHP defaults · Cloudflare tunnels (plus the panel's own hostname) · URL-addressable UI.
+**Live** — auth, sessions & profile · RBAC, groups & packages with a live capacity guard · websites and all four vhost writers (Nginx, Caddy, Apache 2.4, OpenLiteSpeed) · the deploy wizard · the stack installer (engines, runtimes, databases) · file manager · jailed per-tenant terminal · **databases & caches with hosted GUIs (pgweb, phpMyAdmin, and on-demand containerized DbGate)** · **Domains & Automated SSL/TLS Engine (ACME Let's Encrypt with DNS pre-flight protection & high-grade ECDSA self-signed generator)** · metrics & monitoring · per-app security · panel settings & PHP defaults · Cloudflare tunnels (plus the panel's own hostname) · URL-addressable UI.
 
 **Partially live** — S.M.A.R.T. health *(counters live; the self-test probe is simulated and gated by capability)* · world traffic map & streaming telemetry *(implemented and unit-tested; pending live verification on the host)*.
 
-**Roadmap — not built yet** — Docker pods & containers · backup & migration hub · Git CI/CD push-to-deploy · two-factor auth and API/MCP tokens · the Panel Settings items still labelled *Not applied*. See [Roadmap](#roadmap-not-built-yet).
+**Roadmap — not built yet** — Docker pods & containers · backup & migration hub · Git CI/CD push-to-deploy · in-panel one-click auto-updater (architecture planned & documented) · two-factor auth and API/MCP tokens · the Panel Settings items still labelled *Not applied*. See [Roadmap](#roadmap-not-built-yet).
 
 ---
 
@@ -29,6 +29,13 @@
 - **Dedicated reverse proxy mode** — forward a hostname to an internal port with WebSocket pass-through, real-IP preservation, auto-SSL, upstream ping tests and a live vhost preview.
 - **Stack page** — install / update / remove engines and runtimes with a live log and a per-version picker, dry-run first, one step at a time under systemd.
 
+### Automated Domains & SSL/TLS Engine
+- **Automated Let's Encrypt ACME Issuance** — single-click automated certificate issuance across any vhost with a shared HTTP challenge webroot.
+- **DNS Pre-Flight Protection** — resolves DNS records before invoking Certbot to prevent Let's Encrypt rate-limiting failures on local/unpointed domains.
+- **High-Grade ECDSA Self-Signed Generator** — automatically issues P-256 elliptic curve self-signed certificates as an immediate fallback for development/staging environments so HTTPS works without errors.
+- **Custom Certificate Importer** — validate PEM certificate and private key matching before installation.
+- **Multi-Webserver Hot-Reload & 301 Force HTTPS** — transparent Nginx, Caddy, Apache, and OpenLiteSpeed vhost reloads with HSTS and 301 redirection toggles.
+
 ### Isolation & access control
 - **Per-tenant Linux accounts** — each website runs as its own UID/GID under a systemd unit, with cgroup v2 limits (`MemoryMax`, `CPUQuota`, `TasksMax`) and a disk quota applied from the panel's package.
 - **RBAC that is per account** — 10-capability matrix resolved from the caller's group; website endpoints are scoped to the caller's own resources, admins see all.
@@ -36,9 +43,10 @@
 - **Anti-brute-force watchdog** (replaces fail2ban) — reads **six sources independently**: PostgreSQL, MariaDB, MongoDB, Redis (its own `ACL LOG`), the panel's own refused sign-ins and sshd's journal. Bans are applied in the kernel with a timeout and persisted across restarts; what a ban closes depends on what earned it — the **panel port** for a panel ban, **SSH's port** for an SSH ban (so an SSH brute-force never takes away your way back in), the **whole host** for a database engine. Never-ban addresses are exempt, and where you sign in from is added automatically. Verified: six refused panel logins closed only the panel port, and a real SSH brute-force dropped port 22 while the panel kept answering.
 - **Per-app access control** — HTTP 503 maintenance mode and HTTP Basic Auth (`.htpasswd`).
 
-### Databases & caches
+### Databases & Caches
 - **PostgreSQL, MariaDB / MySQL, MongoDB, Redis and file-based SQLite** — databases and caches are provisioned separately, with safe quoting, engine detection and a live mode (docker / host / none).
-- **Hosted web GUIs** — the panel hosts **pgweb** (PostgreSQL), **phpMyAdmin** (MySQL/MariaDB) and **DbGate** (every engine) behind its own session-gated path with credentials injected server-side on loopback only — one process on first access, removed when idle. No Apache, no extra port.
+- **Dedicated Native Process per App for Redis** — guaranteed complete isolation per cache without cross-tenant key pollution or `FLUSHALL` vulnerability.
+- **Hosted web GUIs** — the panel hosts **pgweb** (PostgreSQL), **phpMyAdmin** (MySQL/MariaDB) and **DbGate** (every engine, including SQLite via tenant mounts) behind its own session-gated path with credentials injected server-side on loopback only — one container/process on first access, removed when idle. Fast startup (<2s) with host-gateway resolution.
 - **In-panel Data Browser & SQL** for every engine, plus a real logical export (pg_dump / mysqldump, or the SQLite file).
 - **Password vault** — credentials are masked (AES-256-GCM at rest); revealing one requires the panel password and auto-locks after 60 seconds.
 - **Recycle bin** — deleting a database suspends it (apps can no longer connect, data is kept) and moves it to a bin; restore, purge, or let it auto-purge after 30 days.
@@ -56,7 +64,8 @@
 - **Tokens are write-only** — saved Cloudflare run/API tokens are never returned to the browser (only masked forms with `has*` flags). A token can be replaced, never revealed or copied.
 - **Routes follow their app** — deleting a website (or unpublishing the panel) removes its ingress rule and DNS record from Cloudflare too, so no hostname is left pointing at a tunnel for something that no longer exists.
 
-### Panel administration
+### Panel administration & Self-Update
+- **Automated In-Panel Self-Update (OTA)** — atomic binary inode replacement (`ETXTBSY` avoidance), pre-flight SHA-256 checksums, binary smoke test, automated pre-update SQLite backup, and watchdog auto-rollback.
 - **Panel Settings** — horizontal top tabs for general preferences, monitoring retention, security, reverse proxy & SSL, backups, notifications, database defaults, a PHP tuning blueprint and cleanup.
 - **Ports you can change safely** — the panel and SSH ports are changed with add-then-verify-then-remove, so a mistake never locks you out.
 - **URL-addressable UI** — every menu and app sub-tab has its own route (`/apps/<app>/logs`, `/settings/backups`, …), so refresh and back/forward keep your place.
