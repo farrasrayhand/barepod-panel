@@ -787,6 +787,7 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 	s.cachePass = pass
 
 	var argv []string
+	var aclSave []string
 	switch engine {
 	case "redis":
 		adminURL := s.m.redisURL
@@ -805,14 +806,18 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 		if port == 0 {
 			port = 6379
 		}
-		argv = []string{"redis-cli", "-h", host, "-p", strconv.Itoa(port)}
+		base := []string{"redis-cli", "-h", host, "-p", strconv.Itoa(port)}
 		if adminUser != "" {
-			argv = append(argv, "--user", adminUser)
+			base = append(base, "--user", adminUser)
 		}
 		if adminSecret != "" {
-			argv = append(argv, "--no-auth-warning", "-a", adminSecret)
+			base = append(base, "--no-auth-warning", "-a", adminSecret)
 		}
-		argv = append(argv, "ACL", "SETUSER", s.cacheUser, "on", ">"+pass, "~*", "+@all")
+		argv = append(append([]string{}, base...), "ACL", "SETUSER", s.cacheUser, "on", ">"+pass, "~*", "+@all")
+		// ACL SETUSER only changes memory. Without ACL SAVE the user is gone the next
+		// time Redis starts — a plain host reboot did exactly that, and every app whose
+		// .env still named its cache user got WRONGPASS.
+		aclSave = append(append([]string{}, base...), "ACL", "SAVE")
 	default:
 		return fmt.Errorf("cache engine %q is not supported yet", cache.Engine)
 	}
@@ -822,6 +827,12 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 	s.logOutput(out)
 	if err != nil {
 		return fmt.Errorf("cache provisioning failed: %w", err)
+	}
+	if aclSave != nil {
+		if out, err := s.m.host.Run(ctx, aclSave); err != nil {
+			s.logOutput(out)
+			return fmt.Errorf("persisting the cache ACL failed: %w", err)
+		}
 	}
 	if !s.m.host.Materialises() {
 		s.log("stdout", "[dry-run] no cache daemon was contacted")
