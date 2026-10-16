@@ -114,22 +114,33 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState(false);
 
-  const checkUpdates = async () => {
+  const checkUpdates = async (silent = false) => {
     setCheckingUpdate(true);
     try {
       const res = await api.checkUpdates();
       setUpdateInfo(res);
-      if (res.hasUpdate) {
-        onShowToast?.('Update available', `BarePod Panel ${res.release?.tag || res.latestVersion} is ready to install.`, 'info');
-      } else {
-        onShowToast?.('Up to date', `BarePod Panel is on the latest version (${res.currentVersion}).`, 'success');
+      if (!silent) {
+        if (res.hasUpdate) {
+          onShowToast?.('Update available', `BarePod Panel ${res.release?.tag || res.latestVersion} is ready to install.`, 'info');
+        } else {
+          onShowToast?.('Up to date', `BarePod Panel is on the latest version (${res.currentVersion}).`, 'success');
+        }
       }
     } catch (err) {
-      onShowToast?.('Check failed', err instanceof Error ? err.message : 'unknown error', 'error');
+      if (!silent) {
+        onShowToast?.('Check failed', err instanceof Error ? err.message : 'unknown error', 'error');
+      }
     } finally {
       setCheckingUpdate(false);
     }
   };
+
+  // Automatically check updates when entering the updates tab or on initial load
+  useEffect(() => {
+    if (activeTab === 'updates' && !updateInfo && !checkingUpdate) {
+      void checkUpdates(true);
+    }
+  }, [activeTab]);
 
   const startPanelUpdate = async () => {
     if (!updateInfo?.latestVersion || isUpdating) return;
