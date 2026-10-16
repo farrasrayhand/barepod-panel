@@ -372,15 +372,19 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   const plainPassword = revealedPassword ?? mockPasswords[database.id] ?? 'barepod_secret_key_889#';
   const effectivePassword = isUnlocked ? plainPassword : '••••••••••••';
 
-  const isPublic = exposure === 'public';
+  const isPublic = exposure === 'public' && database.type !== 'redis';
   // The operator's answer wins where it applies — when the database is public, because that is when a
   // client outside this host has to reach it and the daemon cannot know the address. A private
-  // database keeps its own host, because loopback is exactly what private means.
-  const effectiveHost = isPublic && externalAddress
-    ? externalAddress
-    : isPublic
-      ? (typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : (database.host || '127.0.0.1'))
-      : (database.host || '127.0.0.1');
+  // database keeps its own host, because loopback is exactly what private means. A Redis cache
+  // never leaves loopback and always uses its own per-app hostname (e.g. redis-<site>).
+  const defaultRedisHost = `redis-${database.name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'cache'}`;
+  const effectiveHost = database.type === 'redis'
+    ? (database.host || defaultRedisHost)
+    : isPublic && externalAddress
+      ? externalAddress
+      : isPublic
+        ? (typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : (database.host || '127.0.0.1'))
+        : (database.host || '127.0.0.1');
 
   const host = effectiveHost;
   const addressKind = describeAddress(host);
@@ -402,8 +406,10 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
         return `mysql://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}`;
       case 'mongodb':
         return `mongodb://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}?authSource=admin`;
-      case 'redis':
-        return `redis://:${pwd}@${effectiveHost}:${port}/0`;
+      case 'redis': {
+        const redisUser = database.username && database.username !== 'default (auth key)' ? database.username : '';
+        return `redis://${redisUser}:${pwd}@${effectiveHost}:${port}/0`;
+      }
       case 'sqlite':
         return database.path ? `sqlite://${database.path}` : `sqlite:///home/${database.tenantUser ?? 'user'}/web/${database.name}.sqlite`;
     }
@@ -443,12 +449,16 @@ DB_PASSWORD=${pwd}`;
 # start — it does not configure an application.
 MONGODB_URI="mongodb://${database.username}:${pwd}@${effectiveHost}:${port}/${database.name}?authSource=admin"
 MONGO_INITDB_DATABASE=${database.name}`;
-      case 'redis':
-        return `# Redis In-Memory Store
-REDIS_URL="redis://:${pwd}@${host}:${port}/0"
+      case 'redis': {
+        const redisUser = database.username && database.username !== 'default (auth key)' ? database.username : database.name;
+        return `# Redis Per-App Isolated Store (loopback-only, synced in-place into linked .env)
+CACHE_URL="redis://${redisUser}:${pwd}@${host}:${port}/0"
+REDIS_URL="redis://${redisUser}:${pwd}@${host}:${port}/0"
 REDIS_HOST=${host}
 REDIS_PORT=${port}
+REDIS_USERNAME=${redisUser}
 REDIS_PASSWORD=${pwd}`;
+      }
       case 'sqlite':
         return `# SQLite (file-based, no daemon)
 DB_CONNECTION=sqlite
@@ -762,25 +772,21 @@ DB_DATABASE=${database.path || `/home/${database.tenantUser ?? 'user'}/web/${dat
                       <Lock className="w-4 h-4 text-slate-600" />
                     </div>
                     <div>
-                      <h3 className="text-sm font-bold text-slate-900">How this cache is protected</h3>
+                      <h3 className="text-sm font-bold text-slate-900">How this cache is isolated &amp; protected</h3>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Port {port}, and no switch to open it — there is nothing here that needs one.
+                        Dedicated per-app loopback instance at <code>{host}:{port}</code> — never exposed outside loopback.
                       </p>
                     </div>
                   </div>
                   <ul className="px-5 py-4 text-xs text-slate-600 space-y-1.5 list-disc list-inside">
                     <li>
-                      It listens on <code>127.0.0.1</code> (and the container gateway, so a manager in a
-                      container can open it) — not on the network; the panel's firewall keeps every other
-                      interface out.
+                      Each cache runs its own ultra-lightweight diskless <code>redis-server</code> (<code>--save &quot;&quot; --appendonly no</code>, <code>databases 1</code>, <code>allkeys-lru</code>) bound to a dedicated loopback alias (<code>{host}:{port}</code>) in <code>/etc/hosts</code>.
                     </li>
                     <li>
-                      <code>default</code> is off: nothing authenticates to it without credentials, and each
-                      record has its own account, scoped to its own key prefix.
+                      <code>default</code> is off and password + ACL authentication are enforced; rotating the password updates linked website <code>.env</code> keys (<code>CACHE_URL</code>, <code>REDIS_HOST</code>, <code>REDIS_PORT</code>, <code>REDIS_USERNAME</code>, <code>REDIS_PASSWORD</code>) in place automatically.
                     </li>
                     <li>
-                      Refused logins are read from Redis's own ACL log by the lockout below, so an address
-                      that keeps failing is kept out of the host — verified by banning one.
+                      Refused logins are read from Redis's own ACL log by the lockout below, and exposure changes are refused with <code>409 not_applicable</code> so a cache never leaves loopback.
                     </li>
                   </ul>
                 </div>
@@ -1282,7 +1288,11 @@ DB_DATABASE=${database.path || `/home/${database.tenantUser ?? 'user'}/web/${dat
                 <div className="p-2 bg-white rounded border border-slate-200">
                   <span className="text-[10px] text-slate-400 font-sans block">Execution Mode</span>
                   <span className="text-slate-800 font-semibold">
-                    {database.type === 'sqlite' ? 'Embedded file (no daemon)' : `Shared Daemon (Port ${port})`}
+                    {database.type === 'sqlite'
+                      ? 'Embedded file (no daemon)'
+                      : database.type === 'redis'
+                        ? `Isolated Loopback (${host}:${port})`
+                        : `Shared Daemon (Port ${port})`}
                   </span>
                 </div>
                 <div className="p-2 bg-white rounded border border-slate-200">

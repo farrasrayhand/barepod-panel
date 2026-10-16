@@ -275,8 +275,13 @@ func (s *Server) redisClient(record *store.Database) (*redis.Client, error) {
 		return nil, errors.New("the credential could not be decrypted")
 	}
 	host, port, _, _, err := dbengine.ParseRedisURL(s.cfg.RedisURL)
-	if err != nil {
+	if err != nil && record.Host == "" {
 		return nil, err
+	}
+	if targetHost, targetPort := s.resolveRedisConnectTarget(record); targetHost != "" && redisAddrListening(targetHost, targetPort) {
+		host, port = targetHost, targetPort
+	} else if host == "" {
+		host, port = targetHost, targetPort
 	}
 	return redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", host, port),

@@ -583,21 +583,25 @@ func stepWriteEnv(ctx context.Context, s *state) error {
 		s.cachePass = pass
 
 		dbPort := provision.DefaultDBPort(engine)
-		env["CACHE_URL"] = provision.DatabaseURL(engine, s.cacheUser, pass, "", "127.0.0.1", dbPort, "")
+		cacheHost := "127.0.0.1"
+		if engine == "redis" {
+			cacheHost = dbengine.RedisInstanceHostname(s.req.Slug)
+		}
+		env["CACHE_URL"] = provision.DatabaseURL(engine, s.cacheUser, pass, "", cacheHost, dbPort, "")
 		if engine == "redis" {
 			env["CACHE_STORE"] = "redis"
 			env["CACHE_DRIVER"] = "redis"
 			env["SESSION_DRIVER"] = "redis"
 			env["QUEUE_CONNECTION"] = "redis"
 			env["REDIS_CLIENT"] = "phpredis"
-			env["REDIS_HOST"] = "127.0.0.1"
+			env["REDIS_HOST"] = cacheHost
 			env["REDIS_PORT"] = strconv.Itoa(dbPort)
 			env["REDIS_USERNAME"] = s.cacheUser
 			if pass != "" {
 				env["REDIS_PASSWORD"] = pass
 			}
 		}
-		s.log("stdout", "cache ("+engine+") configured in environment file")
+		s.log("stdout", "cache ("+engine+" at "+cacheHost+":"+strconv.Itoa(dbPort)+") configured in environment file")
 	}
 
 	path, err := s.m.host.WriteEnvFile(ctx, s.req.Tenant, s.req.Slug, env)
@@ -775,6 +779,7 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 	cache := s.req.Cache
 	if cache == nil {
 		if s.req.Redeploy {
+			s.alignExistingWebsiteCache(ctx)
 			s.log("stdout", "skipped: redeploy keeps the existing cache")
 		} else {
 			s.log("stdout", "skipped: no cache requested")
@@ -803,7 +808,8 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 
 	var argv []string
 	var aclSave []string
-	redisHost, redisPort := "127.0.0.1", 6379
+	redisHost := dbengine.RedisInstanceHostname(s.req.Slug)
+	redisPort := dbengine.DefaultRedisPort
 	switch engine {
 	case "redis":
 		adminURL := s.m.redisURL
@@ -820,9 +826,8 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 			host = "127.0.0.1"
 		}
 		if port == 0 {
-			port = 6379
+			port = dbengine.DefaultRedisPort
 		}
-		redisHost, redisPort = host, port
 		base := []string{"redis-cli", "-h", host, "-p", strconv.Itoa(port)}
 		if adminUser != "" {
 			base = append(base, "--user", adminUser)
@@ -842,7 +847,7 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 		return fmt.Errorf("cache engine %q is not supported yet", cache.Engine)
 	}
 
-	s.log("stdout", "provisioning "+engine+" cache for "+s.req.Slug)
+	s.log("stdout", "provisioning "+engine+" cache for "+s.req.Slug+" ("+redisHost+":"+strconv.Itoa(redisPort)+")")
 	out, err := s.m.host.Run(ctx, argv)
 	s.logOutput(out)
 	if err != nil {
@@ -854,6 +859,9 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 			return fmt.Errorf("persisting the cache ACL failed: %w", err)
 		}
 	}
+	if engine == "redis" {
+		s.provisionIsolatedRedisProcess(ctx, redisHost, redisPort, pass)
+	}
 	// The cache belongs in the ledger, not only in the app's .env: with a row the Caches screen
 	// lists it and DbGate can attach to it, exactly like a cache created from that screen. It is
 	// created once — after that it is the operator's to manage (rotate, reveal, bin).
@@ -863,7 +871,8 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 			err = s.m.store.CreateDatabase(&store.Database{
 				Kind: store.KindCache, WebsiteSlug: s.req.Slug, TenantUser: s.req.Tenant,
 				Engine: "redis", Alias: s.cacheUser, Name: s.cacheUser, User: s.cacheUser,
-				PasswordCipher: cipher, Host: redisHost, Port: redisPort, Status: "ready",
+				PasswordCipher: cipher, Host: redisHost, Port: redisPort,
+				MaxMemoryMB: dbengine.DefaultRedisMaxMemoryMB, Status: "ready",
 			})
 		}
 		if err != nil {
@@ -874,6 +883,74 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 		s.log("stdout", "[dry-run] no cache daemon was contacted")
 	}
 	return nil
+}
+
+func (s *state) provisionIsolatedRedisProcess(ctx context.Context, hostname string, port int, pass string) {
+	if !s.m.host.Materialises() {
+		return
+	}
+	stateDir := "/var/lib/barepod/redis"
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return
+	}
+	rawHosts, _ := os.ReadFile("/etc/hosts")
+	bindIP, usedIPs := dbengine.LookupRedisHostIP(string(rawHosts), hostname, s.cacheUser)
+	if bindIP == "" {
+		bindIP = dbengine.NextRedisLoopbackIP(usedIPs)
+	}
+	_ = dbengine.SyncRedisEtcHosts("/etc/hosts", bindIP, hostname, s.cacheUser)
+	_, _ = s.m.host.Run(ctx, []string{"ip", "addr", "add", bindIP + "/8", "dev", "lo"})
+
+	confPath := filepath.Join(stateDir, s.cacheUser+".conf")
+	cfgContent := dbengine.RedisInstanceConfig(dbengine.RedisInstanceSpec{
+		Name:        s.cacheUser,
+		Hostname:    hostname,
+		BindIP:      bindIP,
+		Port:        port,
+		User:        s.cacheUser,
+		Secret:      pass,
+		MaxMemoryMB: dbengine.DefaultRedisMaxMemoryMB,
+		StateDir:    stateDir,
+	})
+	if err := os.WriteFile(confPath, []byte(cfgContent), 0o600); err == nil {
+		_, _ = s.m.host.Run(ctx, []string{"redis-server", confPath})
+	}
+}
+
+func (s *state) alignExistingWebsiteCache(ctx context.Context) {
+	if s.m.store == nil {
+		return
+	}
+	records, err := s.m.store.DatabasesForTenant(store.KindCache, "", false)
+	if err != nil {
+		return
+	}
+	for i := range records {
+		rec := &records[i]
+		if rec.WebsiteSlug != s.req.Slug || rec.Engine != "redis" {
+			continue
+		}
+		hostname := dbengine.RedisInstanceHostname(s.req.Slug)
+		port := rec.Port
+		if port <= 0 {
+			port = dbengine.DefaultRedisPort
+		}
+		if rec.Host == "" || rec.Host == "127.0.0.1" {
+			rec.Host = hostname
+			_ = s.m.store.SetDatabaseAddress(rec.ID, hostname, port)
+		}
+		pass, _ := secrets.Decrypt(s.m.key, rec.PasswordCipher)
+		envPath := filepath.Join(s.siteDir, ".env")
+		user := rec.User
+		if user == "" {
+			user = rec.Name
+		}
+		_, _ = dbengine.AlignRedisEnvFile(envPath, rec.Host, port, user, pass)
+		if s.m.host.Materialises() {
+			_, _ = s.m.host.Run(ctx, []string{"chown", s.req.Tenant + ":" + s.req.Tenant, envPath})
+		}
+		return
+	}
 }
 
 func stepRunBuildScript(ctx context.Context, s *state) error {

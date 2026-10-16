@@ -4,17 +4,110 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
+
+type redisGatewayBridge struct {
+	gateway string
+	port    int
+	target  string
+	ln      net.Listener
+}
+
+var (
+	redisBridgesMu sync.Mutex
+	redisBridges   = map[string]*redisGatewayBridge{}
+)
+
+// ensureRedisGatewayBridge opens or reuses a lightweight in-process TCP forwarder on the
+// Docker bridge gateway (<gateway>:0 -> <127.0.0.x>:6379) when a per-app Redis instance is
+// listening on its dedicated loopback alias.
+func (s *Server) ensureRedisGatewayBridge(ctx context.Context, record *store.Database) (string, int, bool) {
+	if record == nil || record.Engine != "redis" {
+		return "", 0, false
+	}
+	targetHost, targetPort := s.resolveRedisConnectTarget(record)
+	if !dbengine.IsDedicatedLoopbackIP(targetHost) || !redisAddrListening(targetHost, targetPort) {
+		return "", 0, false
+	}
+	gateway := s.containerGateway(ctx)
+	if gateway == "" {
+		return "", 0, false
+	}
+	targetAddr := net.JoinHostPort(targetHost, strconv.Itoa(targetPort))
+
+	redisBridgesMu.Lock()
+	defer redisBridgesMu.Unlock()
+	if b, ok := redisBridges[record.ID]; ok && b.gateway == gateway && b.target == targetAddr && b.port > 0 {
+		return b.gateway, b.port, true
+	} else if ok && b.ln != nil {
+		_ = b.ln.Close()
+		delete(redisBridges, record.ID)
+	}
+
+	ln, err := net.Listen("tcp", net.JoinHostPort(gateway, "0"))
+	if err != nil {
+		return "", 0, false
+	}
+	tcpAddr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok || tcpAddr.Port <= 0 {
+		_ = ln.Close()
+		return "", 0, false
+	}
+	b := &redisGatewayBridge{
+		gateway: gateway,
+		port:    tcpAddr.Port,
+		target:  targetAddr,
+		ln:      ln,
+	}
+	redisBridges[record.ID] = b
+	go func(listener net.Listener, upstream string) {
+		for {
+			clientConn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer func() { _ = c.Close() }()
+				upConn, err := net.DialTimeout("tcp", upstream, 2*time.Second)
+				if err != nil {
+					return
+				}
+				defer func() { _ = upConn.Close() }()
+				done := make(chan struct{}, 2)
+				go func() { _, _ = io.Copy(upConn, c); done <- struct{}{} }()
+				go func() { _, _ = io.Copy(c, upConn); done <- struct{}{} }()
+				<-done
+			}(clientConn)
+		}
+	}(ln, targetAddr)
+	return b.gateway, b.port, true
+}
+
+func closeRedisGatewayBridge(recordID string) {
+	if recordID == "" {
+		return
+	}
+	redisBridgesMu.Lock()
+	defer redisBridgesMu.Unlock()
+	if b, ok := redisBridges[recordID]; ok {
+		if b.ln != nil {
+			_ = b.ln.Close()
+		}
+		delete(redisBridges, recordID)
+	}
+}
 
 // dbgatePlan is what one database needs for the DbGate container: the env file
 // that preconfigures its single connection, the mounts (a SQLite file's directory
@@ -28,18 +121,18 @@ type dbgatePlan struct {
 
 // dbgateEngineRef maps our engine name to the DbGate plugin that opens it.
 func dbgateEngineRef(engine string) (string, error) {
-	switch engine {
-	case "postgresql":
+	switch {
+	case engine == "postgresql":
 		return "postgres@dbgate-plugin-postgres", nil
-	case "mysql":
+	case engine == "mysql":
 		return "mysql@dbgate-plugin-mysql", nil
-	case "mariadb":
+	case engine == "mariadb":
 		return "mariadb@dbgate-plugin-mysql", nil
-	case "sqlite":
+	case engine == "sqlite":
 		return "sqlite@dbgate-plugin-sqlite", nil
-	case "mongodb":
+	case engine == "mongodb":
 		return "mongo@dbgate-plugin-mongo", nil
-	case "redis":
+	case engine == "redis":
 		return "redis@dbgate-plugin-redis", nil
 	}
 	return "", fmt.Errorf("DbGate does not open %s databases here", engine)
@@ -83,6 +176,9 @@ func (s *Server) dbgateReach(ctx context.Context, engine dbengine.Engine, record
 		return "", false
 	}
 	if record != nil && record.Port > 0 && s.reachesGateway(ctx, record.Port) {
+		return "", false
+	}
+	if _, _, ok := s.ensureRedisGatewayBridge(ctx, record); ok {
 		return "", false
 	}
 	return fmt.Sprintf("DbGate runs as a container and cannot reach %s, which listens on the host's loopback only and has no unix socket to mount — use the panel's own browser or a manager that runs on the host", engine.Label), true
@@ -170,12 +266,16 @@ func (s *Server) prepareDbGate(ctx context.Context, record *store.Database, moun
 			// the container is the container itself. Measured, not assumed: if it only answers on
 			// loopback, the refusal above has already explained why and this stays as it was.
 			host := "127.0.0.1"
-			if record.Port > 0 && s.reachesGateway(ctx, record.Port) {
+			port := record.Port
+			if gwHost, gwPort, ok := s.ensureRedisGatewayBridge(ctx, record); ok {
+				host = gwHost
+				port = gwPort
+			} else if record.Port > 0 && s.reachesGateway(ctx, record.Port) {
 				if gateway := s.containerGateway(ctx); gateway != "" {
 					host = gateway
 				}
 			}
-			lines = append(lines, "SERVER_bpod="+host, "PORT_bpod="+strconv.Itoa(record.Port))
+			lines = append(lines, "SERVER_bpod="+host, "PORT_bpod="+strconv.Itoa(port))
 		}
 	}
 	if err := os.MkdirAll(s.cfg.DbtoolsDir, 0o700); err != nil {

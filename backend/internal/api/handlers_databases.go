@@ -262,6 +262,7 @@ func (s *Server) resourceFor(record *store.Database, secret string) dbengine.Res
 	resource := dbengine.Resource{
 		Engine: record.Engine, Name: record.Name, User: record.User,
 		Secret: secret, Port: record.Port, MaxConn: record.MaxConns,
+		MaxMemoryMB: record.MaxMemoryMB,
 	}
 	if record.Engine == "redis" {
 		// A cache the deploy wizard wired to a website keeps the deploy's rule: the app prefixes its
@@ -554,6 +555,18 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 		return errors.New("the credential could not be stored")
 	}
 	record.PasswordCipher = ciphertext
+	if !engine.FileBased && record.User == "" {
+		record.User = record.Name
+	}
+	if engine.Name == "redis" {
+		hostname, _, port := s.assignRedisIdentity(record)
+		record.Host, record.Port = hostname, port
+		if record.MaxMemoryMB <= 0 {
+			record.MaxMemoryMB = dbengine.DefaultRedisMaxMemoryMB
+		}
+		_ = s.ensureRedisInstance(ctx, record, password, false)
+		_, _ = s.alignWebsiteRedisEnv(ctx, record, password)
+	}
 
 	switch {
 	case engine.FileBased:
@@ -580,7 +593,7 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 			record.Note = err.Error()
 			return nil
 		}
-		if credential != nil {
+		if credential != nil && engine.Name != "redis" {
 			record.Host, record.Port = credential.Host, credential.Port
 		}
 		if engine.Name == "mongodb" {
@@ -604,17 +617,8 @@ func (s *Server) provisionDatabase(ctx context.Context, user *store.User, record
 		return nil
 	}
 
-	if record.User == "" {
-		record.User = record.Name
-	}
-	record.Host = "127.0.0.1"
-	if engine.Name == "redis" && engine.Mode != dbengine.ModeDocker {
-		// A host cache reports the address a client should use, which the admin URL
-		// names. A containerised one already kept the container's own loopback port
-		// from the credential, and must not be pointed at the host's Redis.
-		if host, port, _, _, err := dbengine.ParseRedisURL(s.cfg.RedisURL); err == nil {
-			record.Host, record.Port = host, port
-		}
+	if record.Host == "" {
+		record.Host = "127.0.0.1"
 	}
 	plan, err := dbengine.PlanFor(dbengine.StepProvision, s.resourceFor(record, password))
 	if err != nil {
@@ -791,9 +795,19 @@ func (s *Server) handlePatchDatabase(kind string) authedHandler {
 		// the response says exactly that. Measured: this was the one wire field that silently did
 		// nothing.
 		if patch.MaxMemoryMB > 0 && patch.MaxMemoryMB != record.MaxMemoryMB {
-			response["note"] = "maxMemoryMb is recorded, not applied: no engine here enforces a per-database memory limit (connection limits are applied — see applyConnectionLimit)."
-			_ = s.store.Audit(user.ID, "database.limits", record.Name, clientIP(r),
-				fmt.Sprintf("maxConnections=%d (applied), maxMemoryMb=%d (recorded only)", patch.MaxConnections, patch.MaxMemoryMB))
+			if record.Engine == "redis" {
+				plain, _ := secrets.Decrypt(s.key, record.PasswordCipher)
+				if updated != nil {
+					_ = s.ensureRedisInstance(r.Context(), updated, plain, updated.DeletedAt != "")
+				}
+				response["note"] = fmt.Sprintf("maxMemoryMb (%d MB, allkeys-lru) was applied to this Redis cache instance.", patch.MaxMemoryMB)
+				_ = s.store.Audit(user.ID, "database.limits", record.Name, clientIP(r),
+					fmt.Sprintf("maxConnections=%d, maxMemoryMb=%d (applied to Redis instance)", patch.MaxConnections, patch.MaxMemoryMB))
+			} else {
+				response["note"] = "maxMemoryMb is recorded, not applied: no engine here enforces a per-database memory limit (connection limits are applied — see applyConnectionLimit)."
+				_ = s.store.Audit(user.ID, "database.limits", record.Name, clientIP(r),
+					fmt.Sprintf("maxConnections=%d (applied), maxMemoryMb=%d (recorded only)", patch.MaxConnections, patch.MaxMemoryMB))
+			}
 		}
 		writeJSON(w, http.StatusOK, response)
 	}
@@ -878,11 +892,24 @@ func (s *Server) handleRotateDatabasePassword(kind string) authedHandler {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not save the credential")
 			return
 		}
+		record.PasswordCipher = ciphertext
+		response := map[string]any{"id": record.ID, "password": password}
+		if record.Engine == "redis" {
+			if record.Host == "" || record.Host == "127.0.0.1" {
+				hostname, _, port := s.assignRedisIdentity(record)
+				record.Host, record.Port = hostname, port
+				_ = s.store.SetDatabaseAddress(record.ID, record.Host, record.Port)
+			}
+			_ = s.ensureRedisInstance(r.Context(), record, password, record.DeletedAt != "")
+			if aligned, _ := s.alignWebsiteRedisEnv(r.Context(), record, password); aligned {
+				response["envAligned"] = true
+			}
+		}
 		// A manager that is already open holds the password it was started with, so it
 		// would keep failing with the old one until it restarted: drop it here.
 		s.dropManagers(r.Context(), record)
 		_ = s.store.Audit(user.ID, "database.rotate_password", record.Name, clientIP(r), "")
-		writeJSON(w, http.StatusOK, map[string]any{"id": record.ID, "password": password})
+		writeJSON(w, http.StatusOK, response)
 	}
 }
 
@@ -1082,6 +1109,10 @@ func (s *Server) suspendDatabase(ctx context.Context, record *store.Database) er
 		// never loses the data.
 		return s.moveSQLiteFile(ctx, record, true)
 	}
+	if record.Engine == "redis" {
+		plain, _ := secrets.Decrypt(s.key, record.PasswordCipher)
+		_ = s.ensureRedisInstance(ctx, record, plain, true)
+	}
 	if engine.Name == "mongodb" && engine.Mode == dbengine.ModeDocker && s.host.Materialises() {
 		return s.suspendMongo(ctx, record, engine)
 	}
@@ -1134,6 +1165,10 @@ func (s *Server) handleRestoreDatabase(kind string) authedHandler {
 				return
 			}
 		}
+		if record.Engine == "redis" {
+			plain, _ := secrets.Decrypt(s.key, record.PasswordCipher)
+			_ = s.ensureRedisInstance(r.Context(), record, plain, false)
+		}
 		if err := s.store.RestoreDatabase(record.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not restore the record")
 			return
@@ -1174,6 +1209,9 @@ func isIgnorablePurgeError(msg string) bool {
 
 func (s *Server) purgeDatabase(ctx context.Context, record *store.Database) error {
 	engine, _ := s.engineFor(ctx, record.Engine)
+	if record.Engine == "redis" {
+		s.stopRedisInstance(ctx, record)
+	}
 	if engine.FileBased {
 		if err := s.purgeSQLite(ctx, record); err != nil {
 			return err

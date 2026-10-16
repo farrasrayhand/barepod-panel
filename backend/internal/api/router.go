@@ -133,6 +133,7 @@ func New(d Deps) http.Handler {
 	}
 
 	go s.reconcileWebsiteTunnelRoutes()
+	go s.reconcileRedisCaches()
 
 	mux := http.NewServeMux()
 

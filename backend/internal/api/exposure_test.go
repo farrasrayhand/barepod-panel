@@ -3,6 +3,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -224,3 +227,129 @@ func TestSettingAConfigValue(t *testing.T) {
 		t.Errorf("a missing setting was not added: %s", out)
 	}
 }
+
+func TestCacheExposureIsAlwaysRefused(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+	cacheRec := &store.Database{
+		Kind: store.KindCache, TenantUser: "admin", Engine: "redis", Alias: "Session Cache",
+		Name: "admin_session_cache", User: "admin_session_cache", Host: "redis-admin-site", Port: 6379,
+		Status: "ready",
+	}
+	if err := panel.store.CreateDatabase(cacheRec); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/caches/"+cacheRec.ID+"/exposure",
+		map[string]string{"exposure": "public"})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("cache exposure answered %d (%s), want 409", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "not_applicable") || !strings.Contains(string(body), "loopback") {
+		t.Errorf("unexpected refusal payload: %s", body)
+	}
+}
+
+func TestRedisCacheCreateAndRotateAlignWebsiteEnvInPlace(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	siteDir := filepath.Join(panel.home, "admin", "web", "admin-site")
+	if err := os.MkdirAll(siteDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	envPath := filepath.Join(siteDir, ".env")
+	initialEnv := "APP_NAME=AdminSite\nCUSTOM_TOKEN=keep-me\nREDIS_HOST=127.0.0.1\nREDIS_PASSWORD=oldpass\n"
+	if err := os.WriteFile(envPath, []byte(initialEnv), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/caches", map[string]any{
+		"engine":      "redis",
+		"alias":       "Primary Cache",
+		"websiteSlug": "admin-site",
+		"maxMemoryMb": 128,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create cache = %d (%s)", resp.StatusCode, body)
+	}
+	var created struct {
+		Database struct {
+			ID          string `json:"id"`
+			Host        string `json:"host"`
+			Port        int    `json:"port"`
+			User        string `json:"user"`
+			MaxMemoryMB int    `json:"maxMemoryMb"`
+		} `json:"database"`
+		Password string `json:"password"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Database.Host != "redis-admin-site" || created.Database.Port != 6379 {
+		t.Errorf("expected per-app host redis-admin-site:6379, got %s:%d", created.Database.Host, created.Database.Port)
+	}
+	if created.Database.MaxMemoryMB != 128 {
+		t.Errorf("expected maxMemoryMb=128, got %d", created.Database.MaxMemoryMB)
+	}
+
+	envBytes, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envStr := string(envBytes)
+	for _, want := range []string{
+		"CUSTOM_TOKEN=keep-me",
+		"REDIS_HOST=redis-admin-site",
+		"REDIS_PORT=6379",
+		"REDIS_USERNAME=" + created.Database.User,
+		"REDIS_PASSWORD=" + created.Password,
+		"CACHE_URL=redis://",
+	} {
+		if !strings.Contains(envStr, want) {
+			t.Errorf(".env after create missing %q:\n%s", want, envStr)
+		}
+	}
+
+	// Rotate password and verify .env is updated in-place without losing CUSTOM_TOKEN
+	resp, rotBody := panel.do(t, http.MethodPost, "/api/v1/caches/"+created.Database.ID+"/rotate-password", map[string]string{
+		"password": "rotated-cache-secret-99",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("rotate cache password = %d (%s)", resp.StatusCode, rotBody)
+	}
+	if !strings.Contains(string(rotBody), `"envAligned":true`) {
+		t.Errorf("expected envAligned:true in rotate response: %s", rotBody)
+	}
+	envAfterRot, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterStr := string(envAfterRot)
+	if !strings.Contains(afterStr, "REDIS_PASSWORD=rotated-cache-secret-99") || !strings.Contains(afterStr, "CUSTOM_TOKEN=keep-me") {
+		t.Errorf(".env not aligned after rotate:\n%s", afterStr)
+	}
+}
+
+func TestWriteManagerStartingEmitsAutoPollingHeaderAndScript(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeManagerStarting(rec, "dbgate", "/api/v1/databases/01H/gui/dbgate/", "Pulling container image...")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("X-BarePod-Manager-Status"); got != "starting" {
+		t.Errorf("X-BarePod-Manager-Status = %q, want starting", got)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"Preparing dbgate",
+		"Pulling container image...",
+		"X-BarePod-Manager-Status",
+		"window.location.replace(target)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("starting page missing %q:\n%s", want, body)
+		}
+	}
+}
+

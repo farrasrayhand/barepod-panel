@@ -35,15 +35,16 @@ func writeManagerStarting(w http.ResponseWriter, tool, mount, reason string) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Retry-After", "2")
+	w.Header().Set("Retry-After", "1")
+	w.Header().Set("X-BarePod-Manager-Status", "starting")
 	// The look is the maintenance page's own (light card, amber status dot with the ping
 	// animation, a bouncing icon, prefers-reduced-motion honoured) so a visitor sees one
 	// panel, not two designs. Keep the two in step when either changes.
-	// No `meta refresh`: it reloads for ever when the manager genuinely cannot come up
-	// (a missing file, a port held elsewhere), and a browser answers that with
-	// ERR_TOO_MANY_RETRIES after a few dozen round trips — which is exactly what an
-	// operator saw. The reload is scripted and bounded instead, and when the attempts run
-	// out the page stops and says so, with the reason under it.
+	// Instead of full-page reloads capped at 12 tries (which left the tab stuck on
+	// "It is not coming up" whenever a cold container or retry took longer than ~20s),
+	// the script polls the mount root in the background with fetch(): each poll re-triggers
+	// startGuiToolAsync if the previous attempt exited, updates the status note in place,
+	// and navigates as soon as the manager answers without the starting header.
 	_, _ = fmt.Fprintf(w, `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Preparing %[1]s · BarePod Panel</title>
@@ -80,30 +81,55 @@ a:hover{text-decoration:underline}
 <span class="pill">Starting</span>
 </div>
 <h1>Preparing %[1]s…</h1>
-<p>The manager is starting on demand — one container, loopback only, scoped to this database. This page reloads itself; it will appear as soon as it answers.</p>
+<p>The manager is starting on demand — one container, loopback only, scoped to this database. This page checks automatically and opens as soon as it answers.</p>
 <div class="box">
 <div class="row"><span>Manager</span><b>%[1]s</b></div>
 <div class="row"><span>Server</span><b>BarePod Panel</b></div>
-<div class="row"><span>Status</span><span class="amber"><span class="dot"></span>Starting on demand</span></div>
+<div class="row"><span>Status</span><span class="amber"><span class="dot"></span><span id="status-text">Starting on demand</span></span></div>
 <div class="row"><span>Panel</span><a href="%[2]s/">reload now</a></div>
 </div>
-<p class="reason">%[3]s</p>
-<p class="footer" id="waiting">Nothing needs to be clicked — this page reloads itself until the manager answers.</p>
-<p class="footer" id="stuck" hidden>It is not coming up. The reason above is the daemon's own — <a href="%[2]s/">try again</a>.</p>
+<p class="reason" id="reason">%[3]s</p>
+<p class="footer" id="waiting">Nothing needs to be clicked — checking automatically until the manager answers.</p>
 </main>
 <script>
-// Twelve attempts, about twenty-five seconds: enough for a cold container, few enough
-// that a manager which cannot start stops hammering the panel and the browser.
 (function () {
-  var tries = parseInt(sessionStorage.getItem('bpod.manager.wait') || '0', 10);
-  if (tries >= 12) {
-    document.getElementById('waiting').hidden = true;
-    document.getElementById('stuck').hidden = false;
-    sessionStorage.removeItem('bpod.manager.wait');
-    return;
+  try { sessionStorage.removeItem('bpod.manager.wait'); } catch (_) {}
+  var tries = 0;
+  var target = %[2]q + '/';
+  var reasonEl = document.getElementById('reason');
+  var statusEl = document.getElementById('status-text');
+  var waitingEl = document.getElementById('waiting');
+  function poll() {
+    tries++;
+    fetch(target, {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'same-origin',
+      headers: { 'Accept': 'text/html' }
+    }).then(function (resp) {
+      var state = resp.headers.get('X-BarePod-Manager-Status');
+      if (state !== 'starting' && resp.status < 500) {
+        if (statusEl) statusEl.textContent = 'Ready — opening…';
+        window.location.replace(target);
+        return;
+      }
+      return resp.text().then(function (html) {
+        var match = html && html.match(/<p class="reason" id="reason">([\s\S]*?)<\/p>/);
+        if (match && reasonEl) {
+          var tmp = document.createElement('textarea');
+          tmp.innerHTML = match[1];
+          reasonEl.textContent = tmp.value;
+        }
+        if (waitingEl && tries > 4) {
+          waitingEl.textContent = 'Still preparing (check #' + tries + ') — auto-retrying until the manager is ready…';
+        }
+        setTimeout(poll, tries < 25 ? 800 : 1600);
+      });
+    }).catch(function () {
+      setTimeout(poll, 1200);
+    });
   }
-  sessionStorage.setItem('bpod.manager.wait', String(tries + 1));
-  setTimeout(function () { location.reload(); }, 1800);
+  setTimeout(poll, 700);
 })();
 </script>
 </body></html>
@@ -432,11 +458,53 @@ func (s *Server) handleDatabaseGui(kind string) authedHandler {
 		// The other half of the same record: when the manager really is offered, the trail says
 		// so, so "refused" and "opened" can never be confused again.
 		_ = s.store.Audit(user.ID, "database.gui_open", record.Name, clientIP(r), tool)
+		if tool == "dbgate" && s.tools != nil {
+			s.warmDbGateAsync(record, kind)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"tool": tool, "database": record.ID, "available": true, "path": path,
 			"note": "Open that path: it runs behind this same session, on loopback, with this database's credential injected server-side, and stops when idle.",
 		})
 	}
+}
+
+// warmDbGateAsync starts a DbGate container in the background as soon as the gate
+// endpoint is asked for its URL, giving the container a head start before the browser
+// opens the new tab.
+func (s *Server) warmDbGateAsync(record *store.Database, kind string) {
+	spec, ok := dbtools.Registry()["dbgate"]
+	if !ok || s.tools == nil {
+		return
+	}
+	mount := fmt.Sprintf("/api/v1/%s/%s/gui/dbgate", guiKindPath(kind), record.ID)
+	spec.Prefix = mount
+	spec.ContainerName = dbgateContainerName(record.ID)
+	spec.PortMin, spec.PortMax = dbgatePortMin, dbgatePortMax
+	if s.guiServedFor(spec.Key()) == record.ID {
+		return
+	}
+	port, ok := s.tools.Port(spec)
+	if !ok {
+		return
+	}
+	spec.Port = port
+	password := ""
+	if !record.FileBased {
+		plain, err := secrets.Decrypt(s.key, record.PasswordCipher)
+		if err != nil {
+			return
+		}
+		password = plain
+	}
+	engine, engineFound := s.engineFor(context.Background(), record.Engine)
+	plan, err := s.prepareDbGate(context.Background(), record, mount, engine)
+	if err != nil {
+		return
+	}
+	spec.EnvFile = plan.envPath
+	spec.Volumes = plan.volumes
+	spec.User = plan.user
+	s.startGuiToolAsync(spec, record, guiConnectionString(*record, password), engine, engineFound)
 }
 
 // handleDatabaseGuiProxy serves a hosted manager under the panel's own path.
@@ -501,10 +569,21 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 				return
 			}
 		}
-		if reason, runnable := s.guiToolRunnable(spec); !runnable {
-			refuseGui(w, r, http.StatusNotImplemented, "not_installed",
-				fmt.Sprintf("%s cannot be opened here: %s", tool, reason))
-			return
+		mount := fmt.Sprintf("/api/v1/%s/%s/gui/%s", guiKindPath(kind), record.ID, tool)
+		spec.Prefix = mount
+		if spec.Name == "dbgate" {
+			// Set the per-record container name before any spec.Key() lookup so
+			// s.guiServedFor(spec.Key()) matches the key stored by ensureGuiTool.
+			spec.ContainerName = dbgateContainerName(record.ID)
+			spec.PortMin, spec.PortMax = dbgatePortMin, dbgatePortMax
+		}
+		alreadyServing := s.guiServedFor(spec.Key()) == record.ID
+		if !alreadyServing {
+			if reason, runnable := s.guiToolRunnable(spec); !runnable {
+				refuseGui(w, r, http.StatusNotImplemented, "not_installed",
+					fmt.Sprintf("%s cannot be opened here: %s", tool, reason))
+				return
+			}
 		}
 		if s.tools == nil {
 			writeError(w, http.StatusServiceUnavailable, "service_error",
@@ -522,7 +601,6 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 			}
 			password = plain
 		}
-		mount := fmt.Sprintf("/api/v1/%s/%s/gui/%s", guiKindPath(kind), record.ID, tool)
 
 		// The page load (the mount root) issues the anti-CSRF cookie; every other
 		// request under the mount must present it. The tool's own client cannot
@@ -545,15 +623,30 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 			return
 		}
 
-		spec.Prefix = mount
+		if spec.Name == "dbgate" {
+			port, ok := s.tools.Port(spec)
+			if !ok {
+				writeError(w, http.StatusConflict, "busy", fmt.Sprintf(
+					"all %d DbGate containers are in use — close one manager or wait for it to go idle (%d–%d)",
+					dbgatePortMax-dbgatePortMin+1, dbgatePortMin, dbgatePortMax))
+				return
+			}
+			spec.Port = port
+			// If the container is already up and scoped to this mount (for example,
+			// adopted by Reconcile after a daemon restart), record it as serving so the
+			// page opens immediately without showing the preparing screen.
+			if !alreadyServing && s.tools.Ready(r.Context(), spec) {
+				s.recordGuiServed(spec.Key(), record.ID)
+				alreadyServing = true
+			}
+		}
+
 		engine, engineFound := dbengine.Engine{}, false
 		// The work a *start* needs — detecting the engine and its real address, writing the
 		// tool's own config or env file, taking its loopback port — is done only when this
-		// manager may actually have to start: on the page load, or when the instance is not
-		// already serving this record. Doing it on every asset request is what made a page
-		// crawl while another manager was in use (an engine detection and a file write per
-		// asset, each of them seconds apart under load).
-		starting := guiMountRoot(r) || s.guiServedFor(spec.Key()) != record.ID
+		// manager may actually have to start. Doing it on every asset request is what made a
+		// page crawl while another manager was in use.
+		starting := !alreadyServing || (!spec.Container && guiMountRoot(r))
 		if starting {
 			// A manager is told exactly where to connect, and a record can predate the
 			// engine's current mode (a host install that is now a container publishes on
@@ -566,7 +659,7 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 						record.Host, record.Port = host, port
 					}
 				}
-				if engine.Running && !record.FileBased {
+				if engine.Running && !record.FileBased && record.Status != "ready" {
 					_ = s.ensureDatabaseProvisioned(r.Context(), record, password, engine)
 				}
 				if tool == "dbgate" {
@@ -584,24 +677,7 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 				}
 				spec.DocRoot = dir
 			}
-		}
-		if spec.Name == "dbgate" {
-			// One container per database, named after the record and listening on its own
-			// loopback port, so two databases — or two accounts — can have DbGate open at
-			// once. A single shared container would have to be restarted for the second
-			// one, which closes the page the first one already has open (DbGate's own
-			// "Database connection closed").
-			spec.ContainerName = dbgateContainerName(record.ID)
-			spec.PortMin, spec.PortMax = dbgatePortMin, dbgatePortMax
-			port, ok := s.tools.Port(spec)
-			if !ok {
-				writeError(w, http.StatusConflict, "busy", fmt.Sprintf(
-					"all %d DbGate containers are in use — close one manager or wait for it to go idle (%d–%d)",
-					dbgatePortMax-dbgatePortMin+1, dbgatePortMin, dbgatePortMax))
-				return
-			}
-			spec.Port = port
-			if starting {
+			if spec.Name == "dbgate" {
 				// The env file only matters to a container that is about to start; an asset
 				// request for one already running must not rewrite it.
 				plan, err := s.prepareDbGate(r.Context(), record, mount, engine)
@@ -616,9 +692,8 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 		}
 		// A container manager is started in the background. `docker run` plus a server boot can take
 		// tens of seconds, and making the browser wait for it left a blank tab the whole time — with
-		// nothing to reload into. The page below says it is preparing and reloads itself; the next
-		// load finds the manager up, or the reason it could not come up.
-		if spec.Container && guiMountRoot(r) && s.guiServedFor(spec.Key()) != record.ID {
+		// nothing to reload into. The page below says it is preparing and polls until the manager is up.
+		if spec.Container && guiMountRoot(r) && !alreadyServing {
 			s.startGuiToolAsync(spec, record, guiConnectionString(*record, password), engine, engineFound)
 			writeManagerStarting(w, tool, mount, s.guiStartNote(spec.Key()))
 			return
@@ -717,12 +792,7 @@ func (s *Server) ensureGuiTool(ctx context.Context, spec dbtools.Spec, record *s
 		if err := s.tools.Ensure(ctx, spec, dsn); err != nil {
 			return err
 		}
-		s.guiMu.Lock()
-		if s.guiServed == nil {
-			s.guiServed = map[string]string{}
-		}
-		s.guiServed[key] = record.ID
-		s.guiMu.Unlock()
+		s.recordGuiServed(key, record.ID)
 		return nil
 	}
 
@@ -762,6 +832,16 @@ func (s *Server) guiServedFor(key string) string {
 	s.guiMu.Lock()
 	defer s.guiMu.Unlock()
 	return s.guiServed[key]
+}
+
+// recordGuiServed remembers which record an instance is serving under the lock.
+func (s *Server) recordGuiServed(key, recordID string) {
+	s.guiMu.Lock()
+	defer s.guiMu.Unlock()
+	if s.guiServed == nil {
+		s.guiServed = map[string]string{}
+	}
+	s.guiServed[key] = recordID
 }
 
 // dropManagers stops the managers that could be holding a record's old credential and

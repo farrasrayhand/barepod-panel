@@ -1133,11 +1133,17 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
     }
 
     if (effectiveCreateCache) {
+      const siteSlug = (name || 'website').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || 'website';
+      const redisHost = `redis-${siteSlug}`;
+      const redisPort = activeCacheVersion?.port ?? 6379;
+      const redisUser = `${tenantUser}_${siteSlug.replace(/-/g, '_')}_cache`;
       lines.push('');
-      lines.push('# Cache — Redis');
+      lines.push('# Cache — Per-App Isolated Redis (loopback-only)');
       lines.push('CACHE_STORE=redis');
-      lines.push(`REDIS_HOST=127.0.0.1`);
-      lines.push(`REDIS_PORT=${activeCacheVersion?.port ?? 6379}`);
+      lines.push(`CACHE_URL="redis://${redisUser}:${cachePassword}@${redisHost}:${redisPort}/0"`);
+      lines.push(`REDIS_HOST=${redisHost}`);
+      lines.push(`REDIS_PORT=${redisPort}`);
+      lines.push(`REDIS_USERNAME=${redisUser}`);
       lines.push(`REDIS_PASSWORD=${cachePassword}`);
     }
 

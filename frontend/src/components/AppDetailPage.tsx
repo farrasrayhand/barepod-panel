@@ -1683,7 +1683,7 @@ DB_DATABASE=app_${app.name.replace(/[^a-zA-Z0-9]/g, '_')}
 DB_USERNAME=${app.tenantUser}
 DB_PASSWORD=••••••••••••••••
 
-REDIS_HOST=127.0.0.1
+REDIS_HOST=redis-${app.name.toLowerCase().replace(/[^a-z0-9-]+/g, '-')}
 REDIS_PORT=6379
 
 SESSION_DRIVER=redis

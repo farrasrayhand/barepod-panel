@@ -206,14 +206,14 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
       type: 'redis',
       version: 'Redis 7.2.4',
       port: 6379,
-      host: '127.0.0.1',
-      username: 'default (auth key)',
+      host: 'redis-session-cache',
+      username: 'session_cache_store',
       size: '18 MB (RAM)',
       charset: 'Key-Value (db 0)',
       status: 'active',
       connections: 45,
       maxConnections: 100,
-      isolationMode: 'shared_daemon',
+      isolationMode: 'dedicated_pod',
     },
     {
       id: 'db-5',
@@ -473,17 +473,17 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
     let uri = '';
     switch (db.type) {
       case 'postgres':
-        uri = `postgresql://${db.username}:••••••••@127.0.0.1:5432/${db.name}`;
+        uri = `postgresql://${db.username}:••••••••@${db.host || '127.0.0.1'}:${db.port || 5432}/${db.name}`;
         break;
       case 'mysql':
       case 'mariadb':
-        uri = `mysql://${db.username}:••••••••@127.0.0.1:3306/${db.name}`;
+        uri = `mysql://${db.username}:••••••••@${db.host || '127.0.0.1'}:${db.port || 3306}/${db.name}`;
         break;
       case 'mongodb':
-        uri = `mongodb://${db.username}:••••••••@127.0.0.1:27017/${db.name}?authSource=admin`;
+        uri = `mongodb://${db.username}:••••••••@${db.host || '127.0.0.1'}:${db.port || 27017}/${db.name}?authSource=admin`;
         break;
       case 'redis':
-        uri = `redis://:••••••••@127.0.0.1:6379/0`;
+        uri = `redis://${db.username && db.username !== 'default (auth key)' ? db.username : ''}:••••••••@${db.host || '127.0.0.1'}:${db.port || 6379}/0`;
         break;
       case 'sqlite':
         uri = db.path ? `sqlite://${db.path}` : `sqlite:///home/${db.tenantUser ?? 'user'}/web/${db.name}.sqlite`;
@@ -739,7 +739,9 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                           <span className="font-medium text-slate-700">{host}</span>
                           <span className="text-slate-400">:</span>
                           <span className="text-blue-600 font-bold">{port}</span>
-                          <span className="text-[9px] text-slate-400 ml-0.5 font-sans">(shared)</span>
+                          <span className="text-[9px] text-slate-400 ml-0.5 font-sans">
+                            {db.type === 'redis' || db.isolationMode === 'dedicated_pod' ? '(isolated)' : '(shared)'}
+                          </span>
                         </div>
                       )}
                     </div>

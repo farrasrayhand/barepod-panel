@@ -279,10 +279,14 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 		startErr, detail := err, strings.TrimSpace(out)
 		for attempt := 0; attempt < containerStartAttempts && startErr != nil; attempt++ {
 			_, _ = s.runner.Run(ctx, "", "docker", "rm", "-f", spec.ContainerName)
+			wait := containerRetryWait
+			if attempt == 0 {
+				wait = 150 * time.Millisecond
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(containerRetryWait):
+			case <-time.After(wait):
 			}
 			var retryOut string
 			retryOut, startErr = s.runner.Run(ctx, "", start[0], start[1:]...)
@@ -310,7 +314,7 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(300 * time.Millisecond):
+		case <-time.After(150 * time.Millisecond):
 		}
 	}
 	// The tool started and then died (a database that was never created, a server
@@ -322,6 +326,22 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 	return fmt.Errorf("%s did not answer within %s on 127.0.0.1:%d", spec.Name, startupWait, spec.Port)
 }
 
+// Ready reports whether a tool instance is already listening and scoped to this
+// spec's mount, sliding its idle window when it is.
+func (s *Supervisor) Ready(ctx context.Context, spec Spec) bool {
+	if spec.Port == 0 {
+		return false
+	}
+	if !s.running(ctx, spec) {
+		return false
+	}
+	if spec.Container && !s.containerMatches(ctx, spec) {
+		return false
+	}
+	s.Touch(spec.Key())
+	return true
+}
+
 // startupWait is how long a freshly started tool may take to answer.
 const startupWait = 35 * time.Second
 
@@ -330,8 +350,8 @@ const startupWait = 35 * time.Second
 // containerStartAttempts is how many times that replacement is attempted before the
 // refusal is reported.
 const (
-	containerRetryWait     = 1200 * time.Millisecond
-	containerStartAttempts = 4
+	containerRetryWait     = 600 * time.Millisecond
+	containerStartAttempts = 5
 )
 
 // logPathFor is where a tool's output is captured: one small file per tool, so a

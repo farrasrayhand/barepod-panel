@@ -44,6 +44,11 @@ func (s *Server) handleSetExposure(kind string) authedHandler {
 				"this database is a file, so it has no port to open or close")
 			return
 		}
+		if record.Kind == store.KindCache || record.Engine == "redis" {
+			writeError(w, http.StatusConflict, "not_applicable",
+				"a cache never leaves loopback, so it has no exposure switch to open or close")
+			return
+		}
 		var body struct {
 			Exposure string `json:"exposure"`
 		}
@@ -504,6 +509,14 @@ func (s *Server) engineLog(ctx context.Context, record *store.Database) ([]strin
 		}
 		return splitLines(out), path, "", nil
 	case "redis":
+		if instanceLog := s.redisInstanceLogPath(record); instanceLog != "" {
+			if _, err := os.Stat(instanceLog); err == nil {
+				out, err := s.host.Run(ctx, []string{"tail", "-n", fmt.Sprint(tail), instanceLog})
+				if err == nil {
+					return splitLines(out), instanceLog, "", nil
+				}
+			}
+		}
 		// Redis is not a container here: the installer puts the host's own redis-server on
 		// 127.0.0.1, whose log is a file. Assuming a container of the same name made the Logs
 		// tab answer "could not be read" for a database whose log was sitting right there, so

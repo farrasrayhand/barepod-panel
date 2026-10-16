@@ -57,6 +57,8 @@ type Resource struct {
 	// key the app uses — which is exactly what a re-provision did, and the app answered 500 with
 	// "NOPERM … to access a key".
 	KeyPattern string
+	// MaxMemoryMB is the per-instance Redis memory ceiling in megabytes when StepLimits runs.
+	MaxMemoryMB int
 }
 
 // PlanFor returns the commands for one step.
@@ -320,6 +322,14 @@ func redisPlan(step Step, resource Resource) (Plan, error) {
 			Commands: [][]string{cmd, save},
 			Note:     "The keys under " + prefix + "* are left in place: emptying a cache is not a decision the panel makes for you.",
 		}, nil
+	case StepLimits:
+		memMB := resource.MaxMemoryMB
+		if memMB <= 0 {
+			memMB = DefaultRedisMaxMemoryMB
+		}
+		setMem := append(append([]string{}, base...), "CONFIG", "SET", "maxmemory", fmt.Sprintf("%dmb", memMB))
+		setPolicy := append(append([]string{}, base...), "CONFIG", "SET", "maxmemory-policy", "allkeys-lru")
+		return Plan{Commands: [][]string{setMem, setPolicy}}, nil
 	}
 	return Plan{}, fmt.Errorf("dbengine: unknown step %q", step)
 }

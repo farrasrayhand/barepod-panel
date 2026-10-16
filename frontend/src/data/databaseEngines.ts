@@ -32,7 +32,7 @@ export const AVAILABLE_ENGINE_VERSIONS: Record<DatabaseEngine, EngineOption[]> =
     { version: 'MongoDB 6.0.14', port: 27018, label: 'MongoDB 6.0.14 (Port 27018)', statusText: 'Shared Daemon On-Demand' },
   ],
   redis: [
-    { version: 'Redis 7.2.4', port: 6379, label: 'Redis 7.2.4 ACL (Port 6379)', statusText: 'Shared Daemon Active' },
+    { version: 'Redis 7.2.4', port: 6379, label: 'Redis 7.2.4 Isolated (Port 6379)', statusText: 'Isolated Per-App Loopback' },
   ],
   sqlite: [
     { version: 'SQLite 3.46', port: 0, label: 'SQLite 3.46 (file-based, no daemon)', statusText: 'Embedded — no shared daemon' },

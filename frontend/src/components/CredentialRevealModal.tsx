@@ -223,10 +223,10 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
                 <div className="text-[10px] text-slate-400 font-semibold uppercase">Host / Port</div>
                 <div className="flex items-center justify-between mt-0.5">
                   <span className="font-mono text-slate-800 font-medium">
-                    127.0.0.1 : {database.type === 'postgres' ? '5432' : database.type === 'mongodb' ? '27017' : database.type === 'redis' ? '6379' : '3306'}
+                    {database.host || '127.0.0.1'} : {database.port || (database.type === 'postgres' ? 5432 : database.type === 'mongodb' ? 27017 : database.type === 'redis' ? 6379 : 3306)}
                   </span>
                   <button
-                    onClick={() => handleCopy('127.0.0.1', 'host')}
+                    onClick={() => handleCopy(database.host || '127.0.0.1', 'host')}
                     className="text-slate-400 hover:text-blue-600"
                   >
                     {copiedField === 'host' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
