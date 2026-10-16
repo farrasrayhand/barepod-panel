@@ -848,19 +848,23 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 	}
 
 	s.log("stdout", "provisioning "+engine+" cache for "+s.req.Slug+" ("+redisHost+":"+strconv.Itoa(redisPort)+")")
-	out, err := s.m.host.Run(ctx, argv)
-	s.logOutput(out)
-	if err != nil {
-		return fmt.Errorf("cache provisioning failed: %w", err)
-	}
-	if aclSave != nil {
-		if out, err := s.m.host.Run(ctx, aclSave); err != nil {
-			s.logOutput(out)
-			return fmt.Errorf("persisting the cache ACL failed: %w", err)
+	if engine == "redis" && s.m.host.Materialises() {
+		if err := s.provisionIsolatedRedisProcess(ctx, redisHost, redisPort, pass); err != nil {
+			return fmt.Errorf("cache provisioning failed: %w", err)
 		}
-	}
-	if engine == "redis" {
-		s.provisionIsolatedRedisProcess(ctx, redisHost, redisPort, pass)
+		s.log("stdout", "OK")
+	} else {
+		out, err := s.m.host.Run(ctx, argv)
+		s.logOutput(out)
+		if err != nil {
+			return fmt.Errorf("cache provisioning failed: %w", err)
+		}
+		if aclSave != nil {
+			if out, err := s.m.host.Run(ctx, aclSave); err != nil {
+				s.logOutput(out)
+				return fmt.Errorf("persisting the cache ACL failed: %w", err)
+			}
+		}
 	}
 	// The cache belongs in the ledger, not only in the app's .env: with a row the Caches screen
 	// lists it and DbGate can attach to it, exactly like a cache created from that screen. It is
@@ -885,13 +889,13 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 	return nil
 }
 
-func (s *state) provisionIsolatedRedisProcess(ctx context.Context, hostname string, port int, pass string) {
+func (s *state) provisionIsolatedRedisProcess(ctx context.Context, hostname string, port int, pass string) error {
 	if !s.m.host.Materialises() {
-		return
+		return nil
 	}
 	stateDir := "/var/lib/barepod/redis"
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		return
+		return err
 	}
 	rawHosts, _ := os.ReadFile("/etc/hosts")
 	bindIP, usedIPs := dbengine.LookupRedisHostIP(string(rawHosts), hostname, s.cacheUser)
@@ -902,6 +906,7 @@ func (s *state) provisionIsolatedRedisProcess(ctx context.Context, hostname stri
 	_, _ = s.m.host.Run(ctx, []string{"ip", "addr", "add", bindIP + "/8", "dev", "lo"})
 
 	confPath := filepath.Join(stateDir, s.cacheUser+".conf")
+	pidPath := filepath.Join(stateDir, s.cacheUser+".pid")
 	cfgContent := dbengine.RedisInstanceConfig(dbengine.RedisInstanceSpec{
 		Name:        s.cacheUser,
 		Hostname:    hostname,
@@ -912,9 +917,26 @@ func (s *state) provisionIsolatedRedisProcess(ctx context.Context, hostname stri
 		MaxMemoryMB: dbengine.DefaultRedisMaxMemoryMB,
 		StateDir:    stateDir,
 	})
-	if err := os.WriteFile(confPath, []byte(cfgContent), 0o600); err == nil {
-		_, _ = s.m.host.Run(ctx, []string{"redis-server", confPath})
+	if err := os.WriteFile(confPath, []byte(cfgContent), 0o600); err != nil {
+		return err
 	}
+	// If any existing redis-server is already bound to bindIP:port, verify whether it accepts
+	// this cache's credentials; if not, terminate it before starting the new config.
+	if out, err := s.m.host.Run(ctx, []string{"redis-cli", "-h", bindIP, "-p", strconv.Itoa(port), "--no-auth-warning", "--user", s.cacheUser, "-a", pass, "PING"}); err == nil && strings.Contains(strings.ToUpper(out), "PONG") {
+		return nil
+	}
+	if rawPid, err := os.ReadFile(pidPath); err == nil {
+		if pid := strings.TrimSpace(string(rawPid)); pid != "" {
+			_, _ = s.m.host.Run(ctx, []string{"kill", "-TERM", pid})
+		}
+	}
+	_, _ = s.m.host.Run(ctx, []string{"pkill", "-f", fmt.Sprintf("redis-server %s:%d", bindIP, port)})
+	time.Sleep(100 * time.Millisecond)
+
+	if out, err := s.m.host.Run(ctx, []string{"redis-server", confPath}); err != nil {
+		return fmt.Errorf("starting redis-server on %s:%d failed: %s", bindIP, port, strings.TrimSpace(out))
+	}
+	return nil
 }
 
 func (s *state) alignExistingWebsiteCache(ctx context.Context) {

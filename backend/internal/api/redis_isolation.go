@@ -143,7 +143,11 @@ func (s *Server) ensureRedisInstance(ctx context.Context, record *store.Database
 	_, _ = s.host.Run(ctx, []string{"ip", "addr", "add", bindIP + "/8", "dev", "lo"})
 
 	if redisAddrListening(bindIP, port) {
-		return s.reconfigureRunningRedisInstance(ctx, bindIP, port, record, password, suspended)
+		if err := s.reconfigureRunningRedisInstance(ctx, bindIP, port, record, password, suspended); err == nil {
+			return nil
+		}
+		// Another process or a stale credential holds bindIP:port; terminate it and start fresh.
+		s.killRedisByPidOrAddr(ctx, s.redisInstancePidPath(record), bindIP, port)
 	}
 	if out, err := s.host.Run(ctx, []string{"redis-server", confPath}); err != nil {
 		return fmt.Errorf("starting per-app redis-server (%s on %s:%d) failed: %s",
@@ -161,6 +165,11 @@ func (s *Server) reconfigureRunningRedisInstance(ctx context.Context, bindIP str
 	if password != "" {
 		base = append(base, "--no-auth-warning", "-a", password)
 	}
+	// Verify that we can actually authenticate as default/admin on this instance; if not,
+	// return an error so the caller restarts the instance from its updated config file.
+	if out, err := s.host.Run(ctx, append(append([]string{}, base...), "PING")); err != nil || !strings.Contains(strings.ToUpper(out), "PONG") {
+		return fmt.Errorf("redis instance on %s:%d did not accept credentials (%s)", bindIP, port, strings.TrimSpace(out))
+	}
 	stateWord := "on"
 	if suspended {
 		stateWord = "off"
@@ -176,6 +185,28 @@ func (s *Server) reconfigureRunningRedisInstance(ctx context.Context, bindIP str
 	return nil
 }
 
+func (s *Server) killRedisByPidOrAddr(ctx context.Context, pidPath, bindIP string, port int) {
+	if s.host == nil || !s.host.Materialises() {
+		return
+	}
+	if pidPath != "" {
+		if raw, err := os.ReadFile(pidPath); err == nil {
+			if pid := strings.TrimSpace(string(raw)); pid != "" {
+				_, _ = s.host.Run(ctx, []string{"kill", "-TERM", pid})
+			}
+		}
+	}
+	if bindIP != "" && bindIP != "127.0.0.1" && port > 0 {
+		_, _ = s.host.Run(ctx, []string{"pkill", "-f", fmt.Sprintf("redis-server %s:%d", bindIP, port)})
+	}
+	for i := 0; i < 10; i++ {
+		if !redisAddrListening(bindIP, port) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // stopRedisInstance terminates a per-app Redis instance and removes its config and
 // /etc/hosts entry on purge.
 func (s *Server) stopRedisInstance(ctx context.Context, record *store.Database) {
@@ -185,9 +216,13 @@ func (s *Server) stopRedisInstance(ctx context.Context, record *store.Database) 
 	closeRedisGatewayBridge(record.ID)
 	confPath := s.redisInstanceConfPath(record)
 	pidPath := s.redisInstancePidPath(record)
-	if s.host != nil && s.host.Materialises() && confPath != "" {
-		_, _ = s.host.Run(ctx, []string{"pkill", "-f", confPath})
+	rawHosts, _ := os.ReadFile(s.redisHostsPath())
+	bindIP, _ := dbengine.LookupRedisHostIP(string(rawHosts), record.Host, record.Name)
+	port := record.Port
+	if port <= 0 {
+		port = dbengine.DefaultRedisPort
 	}
+	s.killRedisByPidOrAddr(ctx, pidPath, bindIP, port)
 	if confPath != "" {
 		_ = os.Remove(confPath)
 	}

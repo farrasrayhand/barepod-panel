@@ -95,6 +95,22 @@ func TestUpsertAndRemoveRedisHostLine(t *testing.T) {
 	if strings.Contains(cleaned, "redis-shop") || !strings.Contains(cleaned, "localhost") {
 		t.Errorf("RemoveRedisHostLine left stale entry or removed localhost:\n%s", cleaned)
 	}
+
+	// Prefix-overlapping tags (e.g. admin_lara vs admin_laravel vs admin_laravel2) must never collide.
+	multi := UpsertRedisHostLine(base, "127.0.0.2", "redis-laravel", "admin_laravel")
+	multi = UpsertRedisHostLine(multi, "127.0.0.3", "redis-laravel2", "admin_laravel2")
+	foundLara, usedBefore := LookupRedisHostIP(multi, "redis-lara", "admin_lara")
+	if foundLara != "" {
+		t.Fatalf("expected empty IP for new prefix-overlapping tag admin_lara, got %q", foundLara)
+	}
+	nextIP := NextRedisLoopbackIP(usedBefore)
+	if nextIP != "127.0.0.4" {
+		t.Fatalf("expected 127.0.0.4 for admin_lara, got %q", nextIP)
+	}
+	multi = UpsertRedisHostLine(multi, nextIP, "redis-lara", "admin_lara")
+	if !strings.Contains(multi, "127.0.0.2\tredis-laravel") || !strings.Contains(multi, "127.0.0.3\tredis-laravel2") || !strings.Contains(multi, "127.0.0.4\tredis-lara") {
+		t.Fatalf("prefix-overlapping upsert clobbered existing entries:\n%s", multi)
+	}
 }
 
 func TestAlignRedisEnvFileRewritesCacheKeysInPlace(t *testing.T) {

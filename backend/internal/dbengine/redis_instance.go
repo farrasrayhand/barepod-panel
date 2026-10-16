@@ -271,8 +271,13 @@ func matchesRedisHostLine(line, hostname, tag string) bool {
 	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 		return false
 	}
-	if tag != "" && strings.Contains(trimmed, "# barepod-cache "+tag) {
-		return true
+	if tag != "" {
+		if idx := strings.Index(trimmed, "# barepod-cache "); idx >= 0 {
+			commentTag := strings.TrimSpace(trimmed[idx+len("# barepod-cache "):])
+			if fields := strings.Fields(commentTag); len(fields) > 0 && strings.EqualFold(fields[0], tag) {
+				return true
+			}
+		}
 	}
 	if hostname == "" {
 		return false
