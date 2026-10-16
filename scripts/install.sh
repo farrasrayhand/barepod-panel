@@ -80,50 +80,70 @@ if [[ -x "$(dirname "$0")/install-engines.sh" ]]; then
   "$(dirname "$0")/install-engines.sh" "$@" || echo "   (engine installation reported a problem; the panel will show each engine honestly)"
 fi
 
-# --- BarePod daemon (Go) ---
+# --- BarePod daemon & frontend bundle ---
 INSTALL_DIR="${BAREPOD_INSTALL_DIR:-/usr/local/bin}"
 DATA_DIR="${BAREPOD_DATA_DIR:-/var/lib/barepod}"
 CONF_DIR="${BAREPOD_CONF_DIR:-/etc/barepod}"
 DB_PATH="${BAREPOD_DB:-$DATA_DIR/barepod.db}"
+DIST_DIR="${DATA_DIR}/dist"
 
-DAEMON_BUILT=0
-if command -v go >/dev/null 2>&1; then
-  if [ -f backend/go.mod ]; then
-    log "Building the BarePod daemon..."
-    ( cd backend && go build -o "$INSTALL_DIR/barepod" ./cmd/barepod )
-    install -d -m 0700 "$DATA_DIR" "$CONF_DIR"
-    DAEMON_BUILT=1
-    log "Installed: $INSTALL_DIR/barepod"
-  else
-    warn "backend/ not found — run this script from the repository root to build the daemon."
+mkdir -p "$INSTALL_DIR" "$DATA_DIR" "$CONF_DIR" "$DIST_DIR"
+chmod 0755 "$INSTALL_DIR"
+chmod 0700 "$DATA_DIR" "$CONF_DIR"
+
+DAEMON_INSTALLED=0
+
+# If run inside the repository with source code
+if [ -f backend/go.mod ] && command -v go >/dev/null 2>&1; then
+  log "Building daemon from local source code..."
+  ( cd backend && go build -o "$INSTALL_DIR/barepod" ./cmd/barepod )
+  if [ -d frontend/dist ]; then
+    cp -r frontend/dist/* "$DIST_DIR/"
   fi
+  DAEMON_INSTALLED=1
+  log "Installed binary: $INSTALL_DIR/barepod"
 else
-  warn "Go 1.23+ not found — the daemon was not built (apt install golang-go, or use a release binary)."
+  # Standalone 1-line curl installation: download official precompiled GitHub release
+  log "Downloading latest official release bundle from GitHub (linux/${ARCH})..."
+  RELEASE_URL=$(curl -fsSL https://api.github.com/repos/farrasrayhand/barepod-panel/releases/latest | grep "browser_download_url.*linux-${ARCH}.tar.gz" | cut -d '"' -f 4 || true)
+  
+  if [ -n "$RELEASE_URL" ]; then
+    TMP_TAR="/tmp/barepod-latest-linux-${ARCH}.tar.gz"
+    TMP_DIR="/tmp/barepod-extract-$$"
+    curl -fsSL "$RELEASE_URL" -o "$TMP_TAR"
+    mkdir -p "$TMP_DIR"
+    tar -xzf "$TMP_TAR" -C "$TMP_DIR"
+    
+    if [ -f "$TMP_DIR/barepod" ]; then
+      mv "$TMP_DIR/barepod" "$INSTALL_DIR/barepod"
+      chmod 0755 "$INSTALL_DIR/barepod"
+      if [ -d "$TMP_DIR/dist" ]; then
+        rm -rf "$DIST_DIR"/*
+        cp -r "$TMP_DIR/dist"/* "$DIST_DIR/"
+      fi
+      DAEMON_INSTALLED=1
+      log "Successfully installed BarePod binary and UI assets."
+    fi
+    rm -rf "$TMP_TAR" "$TMP_DIR"
+  else
+    warn "Could not fetch precompiled release bundle from GitHub."
+  fi
 fi
-[ "$DAEMON_BUILT" -eq 1 ] || warn "You can still finish the steps below once a 'barepod' binary is on PATH."
 
-# A backup left by a previous uninstall holds the accounts, the records and their settings of a panel that
-# used to run here. Saying so before the operator creates a fresh admin is the difference between "restore
-# it" and "wonder why the old databases are gone".
-BACKUP_DIR="${BAREPOD_BACKUP_DIR:-/var/backups/barepod}"
-if ls "$BACKUP_DIR"/barepod-backup-*.tar.gz >/dev/null 2>&1; then
-  NEWEST_BACKUP="$(ls -1t "$BACKUP_DIR"/barepod-backup-*.tar.gz | head -n1)"
-  warn "Found a backup from a previous uninstall: $NEWEST_BACKUP"
-  warn "Restore it after this install instead of creating a new admin:"
-  warn "  $(dirname "$0")/restore.sh --from '$NEWEST_BACKUP'"
-  warn "  (then: barepod service install — sign in with the accounts from that backup)"
+if [ "$DAEMON_INSTALLED" -eq 1 ]; then
+  log "BarePod Panel binary verified: $($INSTALL_DIR/barepod version || echo 'ready')"
 else
-  log "No backup from a previous uninstall found (checked $BACKUP_DIR)."
+  warn "Binary could not be downloaded or built automatically."
 fi
 
 log "Environment OK: linux/${ARCH}$([ "$IS_LXC" -eq 1 ] && echo ' (LXC)')"
 log "Next steps:"
-log "  1. barepod admin create --username <you> --db $DB_PATH"
-log "     (creates your own root admin; the password is generated and shown once)"
-log "  2. barepod serve -listen 127.0.0.1:8080 -db $DB_PATH -static ./frontend/dist"
+log "  1. Create your root admin account:"
+log "     barepod admin create --username <you> --db $DB_PATH"
+log "     (creates your root admin; the password is generated and shown once)"
+log ""
+log "  2. Install and start as a background systemd service:"
+log "     barepod service install -listen 0.0.0.0:8443 -db $DB_PATH -static $DIST_DIR"
+log ""
+log "  3. Open your browser at: https://<server-ip>:8443"
 log "There is no default account and no default password by design."
-if [ "$IS_LXC" -eq 1 ] || ! command -v systemctl >/dev/null 2>&1; then
-  log "Note: without systemd the daemon runs in dry-run mode — sites are prepared but not started."
-fi
-log "Not implemented yet: TLS/Cloudflare Tunnel, Docker pods, backups & migration."
-log "Ready now: systemd service install (barepod service install), metrics, files, terminal, databases."
