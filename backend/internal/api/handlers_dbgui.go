@@ -732,6 +732,9 @@ func (s *Server) startGuiToolAsync(spec dbtools.Spec, record *store.Database, ds
 		return
 	}
 	s.guiStarting[key] = true
+	if s.guiStartReason != nil {
+		delete(s.guiStartReason, key)
+	}
 	s.guiMu.Unlock()
 
 	go func() {

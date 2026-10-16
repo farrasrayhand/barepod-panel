@@ -81,7 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
   const serviceItems: NavGroupItem[] = [
     { id: 'web', label: 'Websites', icon: Layers },
     { id: 'pods', label: 'Pods (Containers)', icon: Box },
-    ...(canDo('databases') ? [{ id: 'databases' as NavItem, label: 'Database', icon: Database }] : []),
+    ...(canDo('databases') ? [{ id: 'databases' as NavItem, label: 'Database / Cache', icon: Database }] : []),
   ];
 
   const infraItems: NavGroupItem[] = [

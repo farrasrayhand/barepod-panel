@@ -72,6 +72,8 @@ type Spec struct {
 	// and User is an optional --user (so the container writes as the tenant).
 	Volumes []string
 	User    string
+	// AddHosts are extra host-to-IP mappings (--add-host) passed to the container.
+	AddHosts []string
 	// Note explains what the tool is for, in the API's own words.
 	Note string
 }
@@ -254,76 +256,115 @@ func (s *Supervisor) Ensure(ctx context.Context, spec Spec, connectionURL string
 		}
 		_, _ = s.runner.Run(ctx, "", "docker", "rm", "-f", spec.ContainerName)
 	}
-	argv := StartArgv(spec, connectionURL)
-	if len(argv) == 0 {
-		return fmt.Errorf("no recipe for %q", spec.Name)
+	maxAttempts := 1
+	if spec.Container {
+		maxAttempts = 2 // Auto-reprovision once if the container fails to answer or dies on boot
 	}
-	// A container start returns on its own (`docker run -d`), so it is run directly:
-	// its failure (a taken port, a bad image) is then the reason the panel reports,
-	// instead of being hidden behind the background wrapper.
-	start := argv
-	if !spec.Container {
-		start = DetachedArgv(argv, s.logPathFor(spec))
-	}
-	if out, err := s.runner.Run(ctx, "", start[0], start[1:]...); err != nil {
-		if !spec.Container {
-			return fmt.Errorf("%s could not be started: %s", spec.Name, strings.TrimSpace(out))
-		}
-		// Docker refuses a container *instantly* while its name or its loopback port is
-		// still held by the one that was just removed — which is exactly the moment
-		// somebody opens a manager right after another one went away, and it surfaced as a
-		// 502 in 171 ms rather than as the startup wait it looked like. One retry reduced
-		// that (1 failure in 3 measured attempts) without removing it, so this clears the
-		// name and tries a few times: a refusal the operator sees is worse than a start
-		// that takes a second or two.
-		startErr, detail := err, strings.TrimSpace(out)
-		for attempt := 0; attempt < containerStartAttempts && startErr != nil; attempt++ {
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if attempt > 1 {
+			// Clean up previous failed container before reprovisioning
 			_, _ = s.runner.Run(ctx, "", "docker", "rm", "-f", spec.ContainerName)
-			wait := containerRetryWait
-			if attempt == 0 {
-				wait = 150 * time.Millisecond
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(300 * time.Millisecond):
+			}
+		}
+
+		argv := StartArgv(spec, connectionURL)
+		if len(argv) == 0 {
+			return fmt.Errorf("no recipe for %q", spec.Name)
+		}
+		// A container start returns on its own (`docker run -d`), so it is run directly:
+		// its failure (a taken port, a bad image) is then the reason the panel reports,
+		// instead of being hidden behind the background wrapper.
+		start := argv
+		if !spec.Container {
+			start = DetachedArgv(argv, s.logPathFor(spec))
+		}
+		if out, err := s.runner.Run(ctx, "", start[0], start[1:]...); err != nil {
+			if !spec.Container {
+				return fmt.Errorf("%s could not be started: %s", spec.Name, strings.TrimSpace(out))
+			}
+			// Docker refuses a container *instantly* while its name or its loopback port is
+			// still held by the one that was just removed — which is exactly the moment
+			// somebody opens a manager right after another one went away, and it surfaced as a
+			// 502 in 171 ms rather than as the startup wait it looked like. One retry reduced
+			// that (1 failure in 3 measured attempts) without removing it, so this clears the
+			// name and tries a few times: a refusal the operator sees is worse than a start
+			// that takes a second or two.
+			startErr, detail := err, strings.TrimSpace(out)
+			for retry := 0; retry < containerStartAttempts && startErr != nil; retry++ {
+				_, _ = s.runner.Run(ctx, "", "docker", "rm", "-f", spec.ContainerName)
+				wait := containerRetryWait
+				if retry == 0 {
+					wait = 150 * time.Millisecond
+				}
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(wait):
+				}
+				var retryOut string
+				retryOut, startErr = s.runner.Run(ctx, "", start[0], start[1:]...)
+				if startErr != nil {
+					detail = strings.TrimSpace(retryOut)
+				}
+			}
+			if startErr != nil {
+				lastErr = fmt.Errorf("%s could not be started: %s", spec.Name, detail)
+				continue
+			}
+		}
+
+		s.mu.Lock()
+		s.startedByTool[key] = true
+		s.lastAccess[key] = s.now()
+		s.active[key] = spec
+		s.mu.Unlock()
+
+		// A started process is not yet a usable page.
+		deadline := s.now().Add(startupWait)
+		answered := false
+		for s.now().Before(deadline) {
+			if s.running(ctx, spec) {
+				answered = true
+				break
 			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(wait):
-			}
-			var retryOut string
-			retryOut, startErr = s.runner.Run(ctx, "", start[0], start[1:]...)
-			if startErr != nil {
-				detail = strings.TrimSpace(retryOut)
+			case <-time.After(150 * time.Millisecond):
 			}
 		}
-		if startErr != nil {
-			return fmt.Errorf("%s could not be started: %s", spec.Name, detail)
-		}
-	}
-
-	s.mu.Lock()
-	s.startedByTool[key] = true
-	s.lastAccess[key] = s.now()
-	s.active[key] = spec
-	s.mu.Unlock()
-
-	// A started process is not yet a usable page.
-	deadline := s.now().Add(startupWait)
-	for s.now().Before(deadline) {
-		if s.running(ctx, spec) {
+		if answered {
 			return nil
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(150 * time.Millisecond):
+
+		// Tool did not answer within deadline. Clean up failed instance so it does not block future runs.
+		detail := ""
+		if spec.Container {
+			detail = s.containerLogTail(ctx, spec.ContainerName)
+			_, _ = s.runner.Run(ctx, "", "docker", "rm", "-f", spec.ContainerName)
+		} else {
+			detail = s.logTail(spec)
+		}
+
+		s.mu.Lock()
+		s.startedByTool[key] = false
+		delete(s.active, key)
+		s.mu.Unlock()
+
+		if detail != "" {
+			lastErr = fmt.Errorf("%s did not answer within %s on 127.0.0.1:%d: %s", spec.Name, startupWait, spec.Port, detail)
+		} else {
+			lastErr = fmt.Errorf("%s did not answer within %s on 127.0.0.1:%d", spec.Name, startupWait, spec.Port)
 		}
 	}
-	// The tool started and then died (a database that was never created, a server
-	// that is down): its own output is the reason, so it is reported rather than
-	// left as a bare timeout.
-	if detail := s.logTail(spec); detail != "" {
-		return fmt.Errorf("%s did not answer within %s on 127.0.0.1:%d: %s", spec.Name, startupWait, spec.Port, detail)
-	}
-	return fmt.Errorf("%s did not answer within %s on 127.0.0.1:%d", spec.Name, startupWait, spec.Port)
+
+	return lastErr
 }
 
 // Ready reports whether a tool instance is already listening and scoped to this
@@ -343,7 +384,7 @@ func (s *Supervisor) Ready(ctx context.Context, spec Spec) bool {
 }
 
 // startupWait is how long a freshly started tool may take to answer.
-const startupWait = 35 * time.Second
+const startupWait = 45 * time.Second
 
 // containerRetryWait is how long to let Docker release a name and a loopback port before
 // starting the replacement for a container that was just removed, and
@@ -373,6 +414,22 @@ func (s *Supervisor) logTail(spec Spec) string {
 		return ""
 	}
 	text := strings.TrimSpace(string(data))
+	const limit = 400
+	if len(text) > limit {
+		text = "…" + text[len(text)-limit:]
+	}
+	return text
+}
+
+// containerLogTail reads the last lines of a container's output directly from Docker.
+func (s *Supervisor) containerLogTail(ctx context.Context, name string) string {
+	probe, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := s.runner.Run(probe, "", "docker", "logs", "--tail", "25", name)
+	if err != nil {
+		return ""
+	}
+	text := strings.TrimSpace(out)
 	const limit = 400
 	if len(text) > limit {
 		text = "…" + text[len(text)-limit:]
@@ -652,6 +709,19 @@ func StartArgv(spec Spec, connectionURL string) []string {
 		argv := []string{"docker", "run", "-d", "--name", spec.ContainerName}
 		if spec.Port != 0 {
 			argv = append(argv, "-p", fmt.Sprintf("127.0.0.1:%d:3000", spec.Port))
+		}
+		// DbGate's entrypoint script runs `ping -q -c1 dockerhost`. When dockerhost is
+		// missing from /etc/hosts, Linux DNS resolution times out over 20 seconds, causing
+		// startup to take 22s+ instead of 2s. Mapping dockerhost to host-gateway skips this DNS wait.
+		hasDockerhost := false
+		for _, host := range spec.AddHosts {
+			if strings.HasPrefix(host, "dockerhost:") {
+				hasDockerhost = true
+			}
+			argv = append(argv, "--add-host", host)
+		}
+		if !hasDockerhost {
+			argv = append(argv, "--add-host", "dockerhost:host-gateway")
 		}
 		for _, volume := range spec.Volumes {
 			argv = append(argv, "-v", volume)

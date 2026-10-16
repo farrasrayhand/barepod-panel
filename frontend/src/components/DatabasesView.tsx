@@ -547,7 +547,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
           >
             <Plus className="w-4 h-4" />
-            <span>Create Database</span>
+            <span>Add Database / Cache</span>
           </button>
         </div>
       </div>
