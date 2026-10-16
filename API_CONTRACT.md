@@ -661,3 +661,88 @@ Client configuration:
 - Each user can create **their own** tokens with scopes ≤ their group permissions. Example: tenant `alex` issues a `websites:read` + `files:write` token for their CI pipeline.
 - Token/webhook quotas per group (e.g. Starter: 1 token, Agency: 10 tokens).
 - Actions triggered by agents are still bounded by the tenant's **cgroup/CPU/disk quotas**, exactly like manual actions.
+
+---
+
+## 8. In-Panel Self-Update & Over-The-Air (OTA) API
+
+All update endpoints require role `admin` and active elevated session (`elevation_required`).
+
+### 8.1 Check for Available Updates
+`GET /api/v1/system/updates/check`
+
+**Response (`200 OK`):**
+```json
+{
+  "currentVersion": "0.3.0",
+  "latestVersion": "0.3.1",
+  "hasUpdate": true,
+  "release": {
+    "version": "0.3.1",
+    "channel": "stable",
+    "publishedAt": "2026-10-18T04:00:00Z",
+    "releaseNotesUrl": "https://github.com/farrasrayhand/barepod-panel/releases/tag/v0.3.1",
+    "changelogMarkdown": "### Fixed\n- Resolved DbGate container cold-start DNS delay.\n- Enforced tenant SQLite database permissions.",
+    "assets": {
+      "linux-amd64": {
+        "url": "https://updates.barepod.com/v0.3.1/barepod-linux-amd64.tar.gz",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "sizeBytes": 28456120
+      },
+      "linux-arm64": {
+        "url": "https://updates.barepod.com/v0.3.1/barepod-linux-arm64.tar.gz",
+        "sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+        "sizeBytes": 27124980
+      }
+    }
+  }
+}
+```
+
+### 8.2 Trigger In-Panel Update
+`POST /api/v1/system/updates/apply`
+
+**Payload:**
+```json
+{
+  "targetVersion": "0.3.1",
+  "channel": "stable"
+}
+```
+
+**Response (`202 Accepted`):**
+```json
+{
+  "jobId": "upd_01JA482K9XF8QMN2PRST",
+  "status": "in_progress",
+  "streamUrl": "/api/v1/system/updates/stream?jobId=upd_01JA482K9XF8QMN2PRST"
+}
+```
+
+### 8.3 Live Update Stream (SSE)
+`GET /api/v1/system/updates/stream?jobId=...`
+
+Streams real-time execution steps:
+```
+event: step
+data: {"step": "downloading", "progressPercent": 45, "message": "Downloading release package..."}
+
+event: step
+data: {"step": "verifying", "progressPercent": 100, "message": "SHA256 checksum verified successfully."}
+
+event: step
+data: {"step": "smoke_test", "progressPercent": 100, "message": "Binary compatibility test passed (exit 0)."}
+
+event: step
+data: {"step": "snapshot_db", "progressPercent": 100, "message": "SQLite database backed up to pre-update-0.3.0.db."}
+
+event: step
+data: {"step": "atomic_swap", "progressPercent": 100, "message": "Daemon binary and SPA assets atomically swapped."}
+
+event: step
+data: {"step": "restarting", "progressPercent": 100, "message": "Invoking daemon restart via supervisor..."}
+
+event: done
+data: {"status": "success", "newVersion": "0.3.1", "reloadInSeconds": 3}
+```
+

@@ -372,6 +372,41 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - Webhook triggers asynchronous deploy pipeline: executes `git fetch` and `git checkout <branch>` as the tenant user (`Runner.RunAs`), executes post-deploy build hooks (e.g. `composer install`, `npm run build`), and reloads the service with *zero-downtime*.
   - Real-time build progress and stdout/stderr logs are streamed over SSE.
 
+### 3.12. In-Panel Self-Update & Over-The-Air (OTA) Engine
+
+- **Architectural Principle: Zero Tenant Website Downtime & Atomic Daemon Swap**:
+  - Tenant websites, web server vhosts (OpenLiteSpeed, Nginx, Caddy, Apache), PHP-FPM pools, Node.js/Python daemons, and database/cache engines run as **completely independent systemd services and tenant processes**.
+  - Updating the BarePod Panel daemon and its frontend assets restarts **only `barepod.service`** (the control plane). **Running tenant websites and database traffic experience ZERO downtime or disconnection.**
+- **Overcoming Linux `ETXTBSY` ("Text file busy") with Atomic Inode Replacement**:
+  - Linux forbids writing or truncating a running executable (`ETXTBSY`), but Linux *does* allow unlinking or replacing its directory entry via `rename` (`mv`).
+  - Update workflow strictly uses atomic replacement:
+    1. **Pre-flight & Discovery**: Panel queries update manifest (`GET /api/v1/system/updates/check` against GitHub Releases API or BarePod mirror `https://updates.barepod.com/manifest.json`). Returns latest release tag, release notes, commit hash, publication date, and SHA256 checksums for `linux-amd64` and `linux-arm64`.
+    2. **Isolated Staging Download**: Downloads release archive to `/var/lib/barepod/updates/barepod-v<target>.tar.gz` and verifies SHA256 checksum against signed manifest.
+    3. **Binary Smoke Test**: Binary is extracted to `/var/lib/barepod/updates/barepod.new` and pre-flight tested directly (`/var/lib/barepod/updates/barepod.new -version` and `barepod.new config test`). If the test returns a non-zero exit code, corrupted binary, or architecture mismatch, the update halts immediately with zero side-effects.
+    4. **Safety Backup**: Current active binary is preserved at `/usr/local/bin/barepod.bak` and active frontend assets at `/var/lib/barepod/dist.bak`. Panel SQLite database (`barepod.db`) with WAL files is snapshotted to `/var/lib/barepod/backups/pre-update-<oldver>.db`.
+    5. **Atomic Swap**:
+       - Executable: `mv -f /var/lib/barepod/updates/barepod.new /usr/local/bin/barepod` (unlinks running inode safely).
+       - Static SPA: Frontend bundle extracted to `/var/lib/barepod/dist.staging` and atomically swapped to `/var/lib/barepod/dist`.
+    6. **Detached Supervisor Restart**:
+       - Because the running daemon cannot wait for its own `systemctl restart barepod` without being terminated mid-flight, the update handler spawns a lightweight, detached helper command (`barepod-update-runner` or `systemd-run --unit=barepod-upgrade ...`).
+       - Helper triggers `systemctl restart barepod.service`.
+- **Automated SQLite Migration & Watchdog Rollback**:
+  - On startup, the new `barepod` daemon executes standard schema migrations (`internal/db/migrations`).
+  - **Health Check & Auto-Rollback Guard**:
+    - The helper monitors daemon status for 30 seconds (`systemctl is-active barepod` + `curl -fsS http://127.0.0.1:<port>/api/v1/health`).
+    - If the new daemon crashes, panics, fails migrations, or fails the health check, the helper executes an **automated instant rollback**:
+      - Restores `/usr/local/bin/barepod.bak` -> `/usr/local/bin/barepod`
+      - Restores `/var/lib/barepod/dist.bak` -> `/var/lib/barepod/dist`
+      - Restores pre-update SQLite database snapshot
+      - Restarts `systemctl restart barepod.service`
+      - Marks update state as `failed_rolled_back` with error logs in `/var/lib/barepod/updates/last_error.log`.
+- **Admin UI & Real-Time Live Stream**:
+  - Located in **Panel Settings (`/settings` -> Tab 'System & Updates')**.
+  - Displays: Current Version, Latest Available Version, Channel Selector (Stable / Beta), Changelog Viewer (Markdown rendered).
+  - Action Button: **"Check for Updates"** and **"Install Update Now"**.
+  - Installation opens a live console modal streaming the update progress steps over SSE (`GET /api/v1/system/updates/stream`): Download -> Checksum Verify -> Smoke Test -> DB Backup -> Atomic Swap -> Daemon Reload -> Post-flight Health Check.
+  - On completion, UI displays a 3-second countdown and smoothly reloads the browser tab.
+
 ## 4. Implementation Status & Development Roadmap
 
 > [!IMPORTANT]
@@ -407,6 +442,7 @@ The platform a host runs is one admin screen, because these are **host-level** f
 | **World Traffic Map & Streaming Telemetry** | ✅ Complete (vector map with equirectangular projection, pulsing pins, live SSE listener, light/dark console) | 🟡 Ingests Caddy/Nginx access logs, dynamic GeoIP (`ip-api.com`), host physical detection, private IP mapping, SSE stream handler mounted (`/api/v1/websites/:slug/telemetry/stream`). All unit tests pass; pending live verification on host 172.19.1.26 (offline/blackout). | **Implemented in Code (Pending Live Verification 🟡)** |
 | **Universal Multi-Tenant Git CI/CD** | ⏳ Deploy tab UI & wizard source selector | ⏳ Contract designed: ED25519 per-site deploy key generator (`0600`), AES-256-GCM user token vault, webhook push-to-deploy runner (`POST /api/v1/webhooks/deploy/:slug?token=...`) | **Scheduled (Contract Planned 📋)** |
 | **Per-App Access Control & Security** | ✅ Complete (503 maintenance mode, HTTP Basic Auth, IP allowlist/denylist, rate limiting, live preview) | ✅ `GET|PUT /websites/:slug/security`, `POST .../maintenance/toggle`, `POST .../basic-auth/toggle`. Generates dark-mode 503 HTML with pulse badge & countdown, `.htpasswd` with bcrypt, IP matchers, rate-limiting across all 4 web servers (Nginx, Caddy, Apache, OpenLiteSpeed) + atomic hot-reload. Verified live on host. | **Live (verified on LXC)** |
+| **In-Panel Self-Update (OTA Engine)** | ⏳ Design ready (§3.12: manifest checker, release notes modal, live SSE update console) | ⏳ Contract designed: atomic inode swap (`mv`), pre-flight SHA256 checksum & binary smoke test, automated SQLite snapshot & watchdog rollback | **Scheduled (Architecture Planned 📋)** |
 | **Panel Settings & PHP Defaults** | ✅ Complete (horizontal top tabs, w-full responsive layout, php blueprint editor & module inspector) | ✅ `GET|PUT /system/settings/php-defaults` (persisted in SQLite `panel_settings`, generates `/etc/php/<ver>/mods-available/99-barepod-tuning.ini`, runs `phpenmod -v <ver>` and enables blueprint extensions, reloads `php<ver>-fpm`), `GET|PATCH /system/settings`, `GET|POST /system/ports/*` | **Live** |
 | **Panel Own Domain (Cloudflare) & Host Binding** | ✅ Complete (Settings → General: “Use Cloudflare” toggle + zone picker from the admin's account) | ✅ `GET /panel/tunnel`, `POST /panel/tunnel/publish`, `POST /panel/tunnel/unpublish` (admin only), `panel_fqdn` + `panel_use_cloudflare` in `panel_settings`, host-binding middleware (`403 host_not_allowed` while Cloudflare is on; IP access always works), Cloudflare run/API tokens are never returned | **Live** |
 | **URL Routing & Deep-link** | ✅ Complete (`/apps/<slug>/<tab>`, `/settings/<tab>`, …) | ✅ SPA fallback in the daemon | **Live** |
@@ -457,9 +493,10 @@ The platform a host runs is one admin screen, because these are **host-level** f
 * **Phase 5: Database Engine & SSO Gateway (LIVE ✅)**:
   - ✅ Automated database user creation & schema grants in PostgreSQL, MySQL, MariaDB, Mongo, Redis.
   - ✅ Internal reverse proxy gateway for autologin to DbGate, pgweb, and phpMyAdmin under `/api/v1/databases/:id/gui/...`.
-* **Phase 6: Live Migration Daemon & Backups (SCHEDULED 📋)**:
+* **Phase 6: Live Migration Daemon, Backups & Self-Update Engine (SCHEDULED 📋)**:
   - Daemon-to-daemon encrypted stream transfer via rsync.
   - `.bpod` snapshot packager (tar.gz + metadata + sql dump).
+  - In-Panel Over-The-Air (OTA) self-updater with atomic binary swap (`ETXTBSY` avoidance), pre-flight checksum/smoke test, automated DB snapshot & watchdog auto-rollback.
   - 1-line installation script for Ubuntu/Debian VPS (`curl -fsSL https://get.barepod.com | bash`).
 
 ---
