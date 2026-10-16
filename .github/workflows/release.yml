@@ -1,0 +1,149 @@
+name: Release BarePod Panel
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.3.1)'
+        required: true
+        default: 'v0.3.1'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Version
+        id: vars
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building BarePod Panel release: $TAG (version: $VERSION)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Build Frontend (SPA)
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          cd ..
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: 'backend/go.sum'
+
+      - name: Build Linux amd64 Bundle
+        run: |
+          VERSION="${{ steps.vars.outputs.version }}"
+          TAG="${{ steps.vars.outputs.tag }}"
+          
+          mkdir -p build/amd64/barepod-dist
+          cd backend
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags="-s -w -X 'github.com/farrasrayhand/barepod-panel/backend/internal/api.Version=${VERSION}'" \
+            -o ../build/amd64/barepod-dist/barepod ./cmd/barepod
+          cd ..
+          
+          # Copy built frontend assets
+          cp -r frontend/dist build/amd64/barepod-dist/dist
+          
+          # Create compressed distribution tarball
+          cd build/amd64
+          tar -czf ../../barepod-${TAG}-linux-amd64.tar.gz -C barepod-dist .
+          cd ../..
+
+      - name: Build Linux arm64 Bundle
+        run: |
+          VERSION="${{ steps.vars.outputs.version }}"
+          TAG="${{ steps.vars.outputs.tag }}"
+          
+          mkdir -p build/arm64/barepod-dist
+          cd backend
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags="-s -w -X 'github.com/farrasrayhand/barepod-panel/backend/internal/api.Version=${VERSION}'" \
+            -o ../build/arm64/barepod-dist/barepod ./cmd/barepod
+          cd ..
+          
+          # Copy built frontend assets
+          cp -r frontend/dist build/arm64/barepod-dist/dist
+          
+          # Create compressed distribution tarball
+          cd build/arm64
+          tar -czf ../../barepod-${TAG}-linux-arm64.tar.gz -C barepod-dist .
+          cd ../..
+
+      - name: Generate Checksums & Manifest
+        run: |
+          TAG="${{ steps.vars.outputs.tag }}"
+          VERSION="${{ steps.vars.outputs.version }}"
+          
+          # Compute SHA-256 hashes
+          sha256sum barepod-${TAG}-linux-amd64.tar.gz > SHA256SUMS
+          sha256sum barepod-${TAG}-linux-arm64.tar.gz >> SHA256SUMS
+          
+          AMD64_HASH=$(awk '{print $1}' SHA256SUMS | head -n 1)
+          ARM64_HASH=$(awk '{print $1}' SHA256SUMS | tail -n 1)
+          AMD64_SIZE=$(stat -c%s barepod-${TAG}-linux-amd64.tar.gz)
+          ARM64_SIZE=$(stat -c%s barepod-${TAG}-linux-arm64.tar.gz)
+          
+          # Create manifest.json for In-Panel OTA auto-update consumption
+          cat <<EOF > manifest.json
+          {
+            "version": "${VERSION}",
+            "tag": "${TAG}",
+            "channel": "stable",
+            "published_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "assets": {
+              "linux-amd64": {
+                "filename": "barepod-${TAG}-linux-amd64.tar.gz",
+                "sha256": "${AMD64_HASH}",
+                "size_bytes": ${AMD64_SIZE}
+              },
+              "linux-arm64": {
+                "filename": "barepod-${TAG}-linux-arm64.tar.gz",
+                "sha256": "${ARM64_HASH}",
+                "size_bytes": ${ARM64_SIZE}
+              }
+            }
+          }
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: BarePod Panel ${{ steps.vars.outputs.tag }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          files: |
+            barepod-${{ steps.vars.outputs.tag }}-linux-amd64.tar.gz
+            barepod-${{ steps.vars.outputs.tag }}-linux-arm64.tar.gz
+            SHA256SUMS
+            manifest.json
