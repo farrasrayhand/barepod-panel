@@ -157,9 +157,16 @@ func TestRedisPlansUseACLUsersScopedToTheirPrefix(t *testing.T) {
 		t.Errorf("the user was given every key:\n%s", joined)
 	}
 	// The dangerous commands are denied, so one app cannot flush or rewrite the shared server...
-	for _, denied := range []string{"-flushall", "-config", "-acl", "-replicaof", "-migrate", "-keys"} {
+	for _, denied := range []string{"-flushall", "-config", "-acl", "-replicaof", "-migrate"} {
 		if !strings.Contains(joined, denied) {
 			t.Errorf("the ACL rule does not deny %q:\n%s", denied, joined)
+		}
+	}
+	// Commands libraries really call must stay allowed — a guard that breaks the app it protects is
+	// worse than none. Laravel's cache:clear with a prefix runs KEYS inside a Lua script.
+	for _, allowed := range []string{"-keys", "-info", "-cluster"} {
+		if strings.Contains(joined, allowed) {
+			t.Errorf("%q must stay allowed for applications:\n%s", allowed, joined)
 		}
 	}
 	// ...but FLUSHDB stays, because Laravel's `cache:clear` calls it.
@@ -191,6 +198,24 @@ func TestRedisPlansUseACLUsersScopedToTheirPrefix(t *testing.T) {
 	purge, _ := PlanFor(StepPurge, resource)
 	if !strings.Contains(strings.Join(purge.Commands[0], " "), "ACL DELUSER bptest_cache") {
 		t.Errorf("purge must remove the user: %v", purge.Commands[0])
+	}
+
+	// A cache the deploy wizard wired to a website is scoped to every key: the app prefixes its own
+	// (Laravel writes "laravel_database_…"), so the panel's "<user>:" pattern would refuse all of
+	// them — measured, and it cost an app a 500 page.
+	website, err := PlanFor(StepProvision, Resource{
+		Engine: "redis", Name: "admin_shop", User: "admin_shop", Secret: "s3cret",
+		AdminHost: "127.0.0.1", AdminPort: 6379, KeyPattern: "*",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined = strings.Join(website.Commands[0], " ")
+	if !strings.Contains(joined, "~*") {
+		t.Errorf("a website cache user was not scoped to every key:\n%s", joined)
+	}
+	if strings.Contains(joined, "~admin_shop:*") {
+		t.Errorf("the panel's own prefix would refuse the app's keys:\n%s", joined)
 	}
 	if purge.Note == "" {
 		t.Error("purge should say that the keys are left behind")

@@ -264,6 +264,13 @@ func (s *Server) resourceFor(record *store.Database, secret string) dbengine.Res
 		Secret: secret, Port: record.Port, MaxConn: record.MaxConns,
 	}
 	if record.Engine == "redis" {
+		// A cache the deploy wizard wired to a website keeps the deploy's rule: the app prefixes its
+		// own keys, so the panel's "<user>:" scope would refuse every one of them. Re-provisioning
+		// such a record with the prefix (what a provision does — it starts with `reset`) is what
+		// gave an app "NOPERM … to access a key" and a 500 page.
+		if record.WebsiteSlug != "" {
+			resource.KeyPattern = "*"
+		}
 		host, port, adminUser, adminSecret, err := dbengine.ParseRedisURL(s.cfg.RedisURL)
 		if err == nil {
 			resource.AdminHost, resource.AdminPort, resource.AdminUser, resource.AdminSecret = host, port, adminUser, adminSecret

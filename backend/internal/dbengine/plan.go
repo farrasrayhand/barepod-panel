@@ -51,6 +51,12 @@ type Resource struct {
 	AdminUser string
 	// Mode decides which of those two worlds the plan is written for.
 	Mode EngineMode
+	// KeyPattern overrides the default "<user>:*" a cache user is scoped to. A cache the deploy
+	// wizard wired to a website sets "*": the app prefixes its own keys (Laravel writes
+	// "laravel_database_…" and "laravel_cache_…"), so the panel's own prefix would refuse every
+	// key the app uses — which is exactly what a re-provision did, and the app answered 500 with
+	// "NOPERM … to access a key".
+	KeyPattern string
 }
 
 // PlanFor returns the commands for one step.
@@ -219,16 +225,19 @@ func mysqlPlan(step Step, resource Resource) (Plan, error) {
 // security. It is an explicit deny list rather than a category so an app keeps everything it really
 // uses — notably FLUSHDB, which Laravel's `cache:clear` calls.
 //
-// FLUSHDB is deliberately left allowed: it only clears one database index, and denying it would
-// break `php artisan cache:clear`. True isolation of it needs a per-app index, which is not done yet
-// (see MASTER_PLAN) — on the shared index a flush still clears everyone, so that remains the known
-// gap.
+// Only commands an application has no business calling are denied, and the list is deliberately
+// short. What is *not* on it matters as much: KEYS and INFO stay allowed because libraries do call
+// them — Laravel's `cache:clear` with a cache prefix runs KEYS inside a Lua script, and health checks
+// read INFO. A "safe" list that breaks the app it is protecting is worse than none.
+//
+// FLUSHDB is left allowed too: it only clears one database index and `php artisan cache:clear` calls
+// it. True isolation of it needs a per-app index, which is not done yet (see MASTER_PLAN) — on the
+// shared index a flush still clears everyone, so that remains the known gap.
 var RedisDenyDangerous = []string{
 	"-flushall", "-swapdb", "-restore", "-migrate",
 	"-shutdown", "-debug", "-monitor", "-config", "-acl", "-module",
 	"-save", "-bgsave", "-bgrewriteaof",
 	"-replicaof", "-slaveof", "-failover", "-sync", "-psync", "-replconf",
-	"-cluster", "-latency", "-slowlog", "-keys",
 }
 
 // RedisAppRules is the ACL rule set for an application's cache user: every command, scoped to
@@ -248,6 +257,12 @@ func redisPlan(step Step, resource Resource) (Plan, error) {
 	}
 	prefix := resource.User + ":"
 	user := resource.User
+	// What the user's keys are scoped to: its own prefix by default, or everything when the caller
+	// says the app owns the whole keyspace (a website cache).
+	pattern := prefix + "*"
+	if resource.KeyPattern != "" {
+		pattern = resource.KeyPattern
+	}
 
 	// The admin connection: -a carries the password, --no-auth-warning keeps its
 	// "using a password with -a" note out of the output we parse.
@@ -273,7 +288,7 @@ func redisPlan(step Step, resource Resource) (Plan, error) {
 		}
 		// "reset" makes the command idempotent, then the user gets exactly its own
 		// prefix and every command that cannot reach past it.
-		rules := append([]string{"reset", "on", ">" + resource.Secret}, RedisAppRules(prefix+"*")...)
+		rules := append([]string{"reset", "on", ">" + resource.Secret}, RedisAppRules(pattern)...)
 		return Plan{Commands: [][]string{
 			run(rules...),
 			save,
