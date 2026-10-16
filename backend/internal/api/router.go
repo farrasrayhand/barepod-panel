@@ -81,6 +81,11 @@ type Server struct {
 	// which database each running manager is scoped to.
 	guiMu     sync.Mutex
 	guiServed map[string]string
+	// guiStarting marks a manager whose `docker run` is in flight, so a page reloading while it
+	// boots does not start a second one; guiStartReason is the last reason a start gave, which the
+	// waiting page prints instead of a bare spinner.
+	guiStarting    map[string]bool
+	guiStartReason map[string]string
 	// engineMu guards engineCache, a short-lived memory of what a detection found:
 	// every request under a manager's mount asks which mode its engine is in, and a
 	// full detection (docker info plus a probe per engine) on each of them is what

@@ -29,7 +29,10 @@ import (
 // writeManagerStarting answers a page load with "still preparing" instead of an error:
 // the browser reloads itself until the manager answers, and the reason for the wait is
 // on the page. Only the page load gets this — an asset request must never receive HTML.
-func writeManagerStarting(w http.ResponseWriter, tool, mount string, cause error) {
+func writeManagerStarting(w http.ResponseWriter, tool, mount, reason string) {
+	if reason == "" {
+		reason = "the daemon is starting it now"
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Retry-After", "2")
@@ -104,7 +107,7 @@ a:hover{text-decoration:underline}
 })();
 </script>
 </body></html>
-`, html.EscapeString(tool), html.EscapeString(mount), html.EscapeString(cause.Error()))
+`, html.EscapeString(tool), html.EscapeString(mount), html.EscapeString(reason))
 }
 
 // refuseGui answers a manager refusal. A browser that asked for a page gets a page in the
@@ -611,13 +614,22 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 				spec.User = plan.user
 			}
 		}
+		// A container manager is started in the background. `docker run` plus a server boot can take
+		// tens of seconds, and making the browser wait for it left a blank tab the whole time — with
+		// nothing to reload into. The page below says it is preparing and reloads itself; the next
+		// load finds the manager up, or the reason it could not come up.
+		if spec.Container && guiMountRoot(r) && s.guiServedFor(spec.Key()) != record.ID {
+			s.startGuiToolAsync(spec, record, guiConnectionString(*record, password), engine, engineFound)
+			writeManagerStarting(w, tool, mount, s.guiStartNote(spec.Key()))
+			return
+		}
 		if err := s.ensureGuiTool(r.Context(), spec, record, guiConnectionString(*record, password), engine, engineFound); err != nil {
 			// Starting a manager is a `docker run` plus a server boot, and the first open is
 			// exactly when that is felt. For the page load, a screen that says so and
 			// reloads itself is the honest answer — the reload finds it ready — and the
 			// reason the start gave is printed on it rather than swallowed by a JSON error.
 			if guiMountRoot(r) {
-				writeManagerStarting(w, tool, mount, err)
+				writeManagerStarting(w, tool, mount, err.Error())
 				return
 			}
 			writeError(w, http.StatusBadGateway, "service_error", err.Error())
@@ -628,6 +640,52 @@ func (s *Server) handleDatabaseGuiProxy(kind string) authedHandler {
 		}
 		s.proxyGuiTool(w, r, spec, mount)
 	}
+}
+
+// startGuiToolAsync starts a manager in the background, one start per key at a time. The request that
+// triggered it is answered at once with the waiting page instead of blocking on `docker run` — which
+// is what left a blank tab for however long the container took to boot.
+func (s *Server) startGuiToolAsync(spec dbtools.Spec, record *store.Database, dsn string, engine dbengine.Engine, engineFound bool) {
+	key := spec.Key()
+	s.guiMu.Lock()
+	if s.guiStarting == nil {
+		s.guiStarting = map[string]bool{}
+	}
+	if s.guiStarting[key] {
+		// A reload while it boots must not start a second container.
+		s.guiMu.Unlock()
+		return
+	}
+	s.guiStarting[key] = true
+	s.guiMu.Unlock()
+
+	go func() {
+		// A context of its own: the request that triggered the start is answered immediately, so its
+		// context is long finished by the time the container comes up.
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		err := s.ensureGuiTool(ctx, spec, record, dsn, engine, engineFound)
+
+		s.guiMu.Lock()
+		defer s.guiMu.Unlock()
+		delete(s.guiStarting, key)
+		if err == nil {
+			delete(s.guiStartReason, key)
+			return
+		}
+		if s.guiStartReason == nil {
+			s.guiStartReason = map[string]string{}
+		}
+		s.guiStartReason[key] = err.Error()
+	}()
+}
+
+// guiStartNote is the last reason a background start gave for a manager, or "" while none is
+// pending — the sentence the waiting page prints.
+func (s *Server) guiStartNote(key string) string {
+	s.guiMu.Lock()
+	defer s.guiMu.Unlock()
+	return s.guiStartReason[key]
 }
 
 // ensureGuiTool makes sure the tool serves this database, restarting it when a
@@ -831,7 +889,7 @@ func (s *Server) proxyGuiTool(w http.ResponseWriter, r *http.Request, spec dbtoo
 			// gets the waiting screen, which reloads itself and finds it ready; an asset
 			// request still gets the honest error, because it must not receive HTML.
 			if guiMountRoot(r) {
-				writeManagerStarting(w, spec.Name, mount, err)
+				writeManagerStarting(w, spec.Name, mount, err.Error())
 				return
 			}
 			writeError(w, http.StatusBadGateway, "service_error",
