@@ -214,6 +214,21 @@ func (m *Manager) run(job *store.DeployJob, req Request, steps []step) {
 	s.log("status", "success")
 }
 
+// websiteHasCacheRecord reports whether this website already has a cache row in the ledger, so a
+// redeploy does not create a second row for the same cache.
+func (s *state) websiteHasCacheRecord() bool {
+	records, err := s.m.store.DatabasesForTenant(store.KindCache, s.req.Tenant, false)
+	if err != nil {
+		return false
+	}
+	for _, record := range records {
+		if record.WebsiteSlug == s.req.Slug {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *state) log(stream, line string) {
 	if _, err := s.m.store.AppendDeployLog(s.job.ID, stream, line); err != nil {
 		return
@@ -788,6 +803,7 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 
 	var argv []string
 	var aclSave []string
+	redisHost, redisPort := "127.0.0.1", 6379
 	switch engine {
 	case "redis":
 		adminURL := s.m.redisURL
@@ -806,6 +822,7 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 		if port == 0 {
 			port = 6379
 		}
+		redisHost, redisPort = host, port
 		base := []string{"redis-cli", "-h", host, "-p", strconv.Itoa(port)}
 		if adminUser != "" {
 			base = append(base, "--user", adminUser)
@@ -813,7 +830,10 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 		if adminSecret != "" {
 			base = append(base, "--no-auth-warning", "-a", adminSecret)
 		}
-		argv = append(append([]string{}, base...), "ACL", "SETUSER", s.cacheUser, "on", ">"+pass, "~*", "+@all")
+		// Every command, minus the ones that reach past this app's own keys (see dbengine
+		// for the list and why FLUSHDB is kept).
+		argv = append(append([]string{}, base...), "ACL", "SETUSER", s.cacheUser, "on", ">"+pass)
+		argv = append(argv, dbengine.RedisAppRules("*")...)
 		// ACL SETUSER only changes memory. Without ACL SAVE the user is gone the next
 		// time Redis starts — a plain host reboot did exactly that, and every app whose
 		// .env still named its cache user got WRONGPASS.
@@ -832,6 +852,22 @@ func stepProvisionCache(ctx context.Context, s *state) error {
 		if out, err := s.m.host.Run(ctx, aclSave); err != nil {
 			s.logOutput(out)
 			return fmt.Errorf("persisting the cache ACL failed: %w", err)
+		}
+	}
+	// The cache belongs in the ledger, not only in the app's .env: with a row the Caches screen
+	// lists it and DbGate can attach to it, exactly like a cache created from that screen. It is
+	// created once — after that it is the operator's to manage (rotate, reveal, bin).
+	if engine == "redis" && !s.websiteHasCacheRecord() {
+		cipher, err := secrets.Encrypt(s.m.key, pass)
+		if err == nil {
+			err = s.m.store.CreateDatabase(&store.Database{
+				Kind: store.KindCache, WebsiteSlug: s.req.Slug, TenantUser: s.req.Tenant,
+				Engine: "redis", Alias: s.cacheUser, Name: s.cacheUser, User: s.cacheUser,
+				PasswordCipher: cipher, Host: redisHost, Port: redisPort, Status: "ready",
+			})
+		}
+		if err != nil {
+			s.log("stderr", "cache provisioned, but could not be recorded for the Caches screen: "+err.Error())
 		}
 	}
 	if !s.m.host.Materialises() {

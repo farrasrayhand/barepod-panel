@@ -156,6 +156,17 @@ func TestRedisPlansUseACLUsersScopedToTheirPrefix(t *testing.T) {
 	if strings.Contains(joined, "~*") {
 		t.Errorf("the user was given every key:\n%s", joined)
 	}
+	// The dangerous commands are denied, so one app cannot flush or rewrite the shared server...
+	for _, denied := range []string{"-flushall", "-config", "-acl", "-replicaof", "-migrate", "-keys"} {
+		if !strings.Contains(joined, denied) {
+			t.Errorf("the ACL rule does not deny %q:\n%s", denied, joined)
+		}
+	}
+	// ...but FLUSHDB stays, because Laravel's `cache:clear` calls it.
+	if strings.Contains(joined, "-flushdb") {
+		t.Errorf("FLUSHDB must stay allowed (Laravel cache:clear):\n%s", joined)
+	}
+
 	// Persistence is the point of the trailing ACL SAVE: without it the user lives in
 	// memory only and is gone on the next Redis restart.
 	last := strings.Join(provision.Commands[len(provision.Commands)-1], " ")

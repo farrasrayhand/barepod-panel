@@ -214,6 +214,30 @@ func mysqlPlan(step Step, resource Resource) (Plan, error) {
 	return Plan{}, fmt.Errorf("dbengine: unknown step %q", step)
 }
 
+// RedisDenyDangerous lists the commands an application's cache user never legitimately needs: the
+// ones that reach past its own keys, take the server down, read other tenants' traffic, or rewrite
+// security. It is an explicit deny list rather than a category so an app keeps everything it really
+// uses — notably FLUSHDB, which Laravel's `cache:clear` calls.
+//
+// FLUSHDB is deliberately left allowed: it only clears one database index, and denying it would
+// break `php artisan cache:clear`. True isolation of it needs a per-app index, which is not done yet
+// (see MASTER_PLAN) — on the shared index a flush still clears everyone, so that remains the known
+// gap.
+var RedisDenyDangerous = []string{
+	"-flushall", "-swapdb", "-restore", "-migrate",
+	"-shutdown", "-debug", "-monitor", "-config", "-acl", "-module",
+	"-save", "-bgsave", "-bgrewriteaof",
+	"-replicaof", "-slaveof", "-failover", "-sync", "-psync", "-replconf",
+	"-cluster", "-latency", "-slowlog", "-keys",
+}
+
+// RedisAppRules is the ACL rule set for an application's cache user: every command, scoped to
+// keyPattern, minus RedisDenyDangerous.
+func RedisAppRules(keyPattern string) []string {
+	rules := []string{"~" + keyPattern, "+@all"}
+	return append(rules, RedisDenyDangerous...)
+}
+
 // redisPlan drives a shared Redis with ACL users: one user per cache, limited to
 // its own key prefix. Suspend turns the user off, restore turns it back on, and
 // only purge removes it. Every step is followed by ACL SAVE, so the user survives a
@@ -248,9 +272,10 @@ func redisPlan(step Step, resource Resource) (Plan, error) {
 			return Plan{}, errors.New("dbengine: a password is required")
 		}
 		// "reset" makes the command idempotent, then the user gets exactly its own
-		// prefix and full access to the commands inside it.
+		// prefix and every command that cannot reach past it.
+		rules := append([]string{"reset", "on", ">" + resource.Secret}, RedisAppRules(prefix+"*")...)
 		return Plan{Commands: [][]string{
-			run("reset", "on", ">"+resource.Secret, "~"+prefix+"*", "+@all"),
+			run(rules...),
 			save,
 		}}, nil
 	case StepRotate:

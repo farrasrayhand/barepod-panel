@@ -590,8 +590,12 @@ Locked decisions to be implemented in Phase 2/3:
    - **API/MCP tokens:** bearer tokens `bp_live_…` stored as `sha256` + prefix, scoped (intersection with group permissions), expirable, revocable, IP allowlist, rate-limited, audited.
    - **WebSocket:** short-lived one-time ticket from `POST /ws/ticket` (never a token in the URL, which would end up in logs).
    - Every sensitive action is audited; the UI keeps its 60-second secret reveal auto-lock.
+6. **Redis caches — one shared daemon, a user per app (LOCKED).**
+   - **ACL users are persisted.** Every ACL change (create, rotate, suspend, restore, delete) ends with `ACL SAVE`, so a cache user survives a Redis restart. Before this they lived in memory only: a plain host reboot silently removed them, and the app whose `.env` still named its user got `WRONGPASS` — measured on the test host, where one reboot took out every website cache user at once.
+   - **Dangerous commands are denied.** A cache user gets its keys plus every command *except* an explicit deny list (`flushall`, `swapdb`, `config`, `acl`, `shutdown`, `module`, `replicaof`/`migrate`, `keys`, …) — several of these reach past the user's own keys, so `~prefix:*` alone would not have stopped them. `FLUSHDB` is deliberately **kept** because Laravel's `php artisan cache:clear` calls it. Known gap: on one shared index a `FLUSHDB` still clears every app; isolating it needs a per-app index, which is not built yet.
+   - **A website's cache is a first-class record.** The deploy wizard writes a cache row (`databases`, `kind='cache'`) carrying the same credentials as the app's `.env`, so the cache appears on the Caches screen and DbGate can attach to it like any other. A rotate from the panel does not rewrite the app's `.env` (the same as a database): the app is re-synced by redeploying.
 
-All five kickoff decisions are **LOCKED** — Phase 2 can start.
+All kickoff decisions are **LOCKED** — Phase 2 can start.
 
 ---
 
