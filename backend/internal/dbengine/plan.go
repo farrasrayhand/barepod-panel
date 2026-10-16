@@ -216,7 +216,8 @@ func mysqlPlan(step Step, resource Resource) (Plan, error) {
 
 // redisPlan drives a shared Redis with ACL users: one user per cache, limited to
 // its own key prefix. Suspend turns the user off, restore turns it back on, and
-// only purge removes it.
+// only purge removes it. Every step is followed by ACL SAVE, so the user survives a
+// Redis restart instead of vanishing with the process.
 func redisPlan(step Step, resource Resource) (Plan, error) {
 	if resource.User == "" {
 		return Plan{}, errors.New("dbengine: a user is required")
@@ -236,6 +237,10 @@ func redisPlan(step Step, resource Resource) (Plan, error) {
 	run := func(rules ...string) []string {
 		return append(append([]string{}, base...), append([]string{"ACL", "SETUSER", user}, rules...)...)
 	}
+	// ACL changes live in memory until they are written to the aclfile. Without this
+	// the user is gone the next time Redis starts — which is how a reboot silently
+	// locked an app out of its own cache. Every ACL step ends with it.
+	save := append(append([]string{}, base...), "ACL", "SAVE")
 
 	switch step {
 	case StepProvision:
@@ -246,6 +251,7 @@ func redisPlan(step Step, resource Resource) (Plan, error) {
 		// prefix and full access to the commands inside it.
 		return Plan{Commands: [][]string{
 			run("reset", "on", ">"+resource.Secret, "~"+prefix+"*", "+@all"),
+			save,
 		}}, nil
 	case StepRotate:
 		if resource.Secret == "" {
@@ -253,11 +259,14 @@ func redisPlan(step Step, resource Resource) (Plan, error) {
 		}
 		// "resetpass" first: ACL SETUSER with a new password *adds* one, so without
 		// it the old secret would keep working (verified on the host).
-		return Plan{Commands: [][]string{run("resetpass", ">"+resource.Secret)}}, nil
+		return Plan{Commands: [][]string{
+			run("resetpass", ">"+resource.Secret),
+			save,
+		}}, nil
 	case StepSuspend:
-		return Plan{Commands: [][]string{run("off")}}, nil
+		return Plan{Commands: [][]string{run("off"), save}}, nil
 	case StepRestore:
-		return Plan{Commands: [][]string{run("on")}}, nil
+		return Plan{Commands: [][]string{run("on"), save}}, nil
 	case StepPurge:
 		cmd := []string{"redis-cli", "-h", adminHost(resource), "-p", fmt.Sprint(adminPort(resource))}
 		if resource.AdminUser != "" {
@@ -268,7 +277,7 @@ func redisPlan(step Step, resource Resource) (Plan, error) {
 		}
 		cmd = append(cmd, "ACL", "DELUSER", user)
 		return Plan{
-			Commands: [][]string{cmd},
+			Commands: [][]string{cmd, save},
 			Note:     "The keys under " + prefix + "* are left in place: emptying a cache is not a decision the panel makes for you.",
 		}, nil
 	}

@@ -156,6 +156,12 @@ func TestRedisPlansUseACLUsersScopedToTheirPrefix(t *testing.T) {
 	if strings.Contains(joined, "~*") {
 		t.Errorf("the user was given every key:\n%s", joined)
 	}
+	// Persistence is the point of the trailing ACL SAVE: without it the user lives in
+	// memory only and is gone on the next Redis restart.
+	last := strings.Join(provision.Commands[len(provision.Commands)-1], " ")
+	if !strings.Contains(last, "ACL SAVE") {
+		t.Errorf("provision must persist the ACL change to the aclfile: %v", provision.Commands)
+	}
 
 	rotate, _ := PlanFor(StepRotate, resource)
 	rotateLine := strings.Join(rotate.Commands[0], " ")
