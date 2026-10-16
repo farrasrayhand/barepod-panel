@@ -7,6 +7,7 @@ package deploy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -66,6 +67,7 @@ type Request struct {
 	FrameworkVersion string
 	WebServer        string
 	Port             int
+	UpstreamURL      string
 	SSL              bool
 	TunnelEnabled    bool
 	Source           SourceSpec
@@ -102,7 +104,7 @@ func (m *Manager) Mode() string { return m.host.Mode() }
 
 // Start records the job and runs the pipeline in the background.
 func (m *Manager) Start(req Request) (*store.DeployJob, error) {
-	steps := plan()
+	steps := plan(req)
 	job := &store.DeployJob{
 		ID:          id.New(),
 		Slug:        req.Slug,
@@ -143,7 +145,14 @@ type step struct {
 	fn   func(ctx context.Context, s *state) error
 }
 
-func plan() []step {
+func plan(req Request) []step {
+	if req.Runtime == "proxy" {
+		return []step{
+			{"Prepare site directory", stepPrepareDirs},
+			{"Write web-server vhost", stepWriteVhost},
+			{"Health check", stepHealthCheck},
+		}
+	}
 	return []step{
 		{"Prepare site directory", stepPrepareDirs},
 		{"Fetch source code", stepFetchSource},
@@ -296,6 +305,10 @@ func stepPrepareDirs(ctx context.Context, s *state) error {
 }
 
 func stepFetchSource(ctx context.Context, s *state) error {
+	if s.req.Runtime == "proxy" {
+		s.log("stdout", "skipped: reverse proxy site has no source code")
+		return nil
+	}
 	// "default" has no code to fetch: the panel writes one placeholder page, so a website
 	// can be created (and answer on its address) before its application exists.
 	if s.req.Source.Kind == "default" {
@@ -976,6 +989,10 @@ func (s *state) alignExistingWebsiteCache(ctx context.Context) {
 }
 
 func stepRunBuildScript(ctx context.Context, s *state) error {
+	if s.req.Runtime == "proxy" {
+		s.log("stdout", "skipped: reverse proxy site has no build automation")
+		return nil
+	}
 	script := strings.TrimSpace(s.req.BuildScript)
 	if script == "" {
 		if site, err := s.m.store.WebsiteBySlug(s.req.Slug); err == nil && strings.TrimSpace(site.DeployScript) != "" {
@@ -1132,6 +1149,18 @@ func stepWriteVhost(ctx context.Context, s *state) error {
 		s.log("stdout", "note: the catch-all vhost was not written: "+err.Error())
 	}
 	spec := webserver.SpecFor(s.req.Slug, s.req.Domain, s.req.Runtime, s.siteDir, s.req.Port)
+	upstream := s.req.UpstreamURL
+	if upstream == "" && s.m.store != nil {
+		if raw, err := s.m.store.PanelSetting("site_runtime_config:" + s.req.Slug); err == nil && raw != "" {
+			var cfg map[string]any
+			if err := json.Unmarshal([]byte(raw), &cfg); err == nil {
+				if u, ok := cfg["upstreamUrl"].(string); ok && strings.TrimSpace(u) != "" {
+					upstream = strings.TrimSpace(u)
+				}
+			}
+		}
+	}
+	spec = spec.WithUpstream(upstream)
 	if domains, err := s.m.store.ListDomainsForSite(s.req.Slug); err == nil && len(domains) > 0 {
 		var aliases []string
 		var certPath, keyPath string
@@ -1182,6 +1211,10 @@ func stepWriteVhost(ctx context.Context, s *state) error {
 }
 
 func stepRenderUnit(ctx context.Context, s *state) error {
+	if s.req.Runtime == "proxy" {
+		s.log("stdout", "skipped: reverse proxy site has no background daemon to supervise")
+		return nil
+	}
 	// cgroup v2 limits come from the tenant's package (group), never hardcoded.
 	limits := s.m.tenantLimits(s.req.Tenant)
 	spec := supervisor.Spec{
@@ -1221,6 +1254,10 @@ func stepRenderUnit(ctx context.Context, s *state) error {
 }
 
 func stepStartService(ctx context.Context, s *state) error {
+	if s.req.Runtime == "proxy" {
+		s.log("stdout", "skipped: reverse proxy site has no background daemon to start")
+		return nil
+	}
 	if !s.m.host.Materialises() {
 		s.log("stdout", "[dry-run] systemctl enable --now barepod-app@"+s.req.Slug+".service was NOT executed")
 		s.log("stdout", "[dry-run] the website stays stopped — run the daemon on Linux with systemd and BAREPOD_DRY_RUN=false for real provisioning")
@@ -1237,6 +1274,18 @@ func stepStartService(ctx context.Context, s *state) error {
 func stepHealthCheck(ctx context.Context, s *state) error {
 	if !s.m.host.Materialises() {
 		s.log("stdout", "[dry-run] health check skipped (no service was started)")
+		return nil
+	}
+	if s.req.Runtime == "proxy" {
+		if err := checkVhost(ctx, s); err != nil {
+			target := s.req.UpstreamURL
+			if target == "" {
+				target = fmt.Sprintf("http://127.0.0.1:%d", s.req.Port)
+			}
+			s.log("stdout", fmt.Sprintf("warning: upstream %s was not reachable during deploy (%s)", target, err.Error()))
+			s.log("stdout", "the vhost is active and proxying; verify that your upstream server/container is running and accepting traffic on "+target)
+			return nil
+		}
 		return nil
 	}
 	// A site with a vhost is asked for by name through the web server: that is the

@@ -352,3 +352,61 @@ func TestSecurityDirectivesNginxAndCaddy(t *testing.T) {
 		}
 	}
 }
+
+func TestReverseProxyHttpsUpstream(t *testing.T) {
+	spec := Spec{
+		Slug:        "proxmox",
+		Domain:      "proxmox.example.com",
+		Kind:        "proxy",
+		Port:        8006,
+		UpstreamURL: "https://192.168.1.100:8006",
+	}
+
+	// 1. Nginx
+	nginxCfg, err := Render(Nginx, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"proxy_pass https://192.168.1.100:8006;",
+		"proxy_ssl_verify off;",
+		"proxy_ssl_server_name on;",
+		"proxy_buffering off;",
+		"client_max_body_size 0;",
+		"proxy_set_header Upgrade $http_upgrade;",
+		"proxy_set_header Connection \"upgrade\";",
+	} {
+		if !strings.Contains(nginxCfg, want) {
+			t.Errorf("nginx proxy vhost missing %q:\n%s", want, nginxCfg)
+		}
+	}
+
+	// 2. Caddy
+	caddyCfg, err := Render(Caddy, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"reverse_proxy 192.168.1.100:8006 {",
+		"tls_insecure_skip_verify",
+	} {
+		if !strings.Contains(caddyCfg, want) {
+			t.Errorf("caddy proxy vhost missing %q:\n%s", want, caddyCfg)
+		}
+	}
+
+	// 3. Apache
+	apacheCfg, err := Render(Apache, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"SSLProxyEngine On",
+		"SSLProxyVerify none",
+		"ProxyPass / https://192.168.1.100:8006/",
+	} {
+		if !strings.Contains(apacheCfg, want) {
+			t.Errorf("apache proxy vhost missing %q:\n%s", want, apacheCfg)
+		}
+	}
+}

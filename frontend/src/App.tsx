@@ -466,19 +466,24 @@ export function App() {
           webServer: created.webServer,
           port: newApp.port,
           tunnelEnabled: created.tunnelEnabled,
+          upstreamUrl: newApp.upstreamUrl,
+          proxyWebsocket: newApp.proxyWebsocket,
+          proxyPreserveHost: newApp.proxyPreserveHost,
+          proxyRealIp: newApp.proxyRealIp,
+          proxyTimeoutSecs: newApp.proxyTimeoutSecs,
           source: {
-            kind: newApp.sourceKind ?? (newApp.gitRepo ? 'github' : 'existing'),
-            repo: newApp.gitRepo,
-            branch: newApp.gitBranch,
+            kind: created.runtime === 'proxy' ? 'default' : (newApp.sourceKind ?? (newApp.gitRepo ? 'github' : 'existing')),
+            repo: created.runtime === 'proxy' ? undefined : newApp.gitRepo,
+            branch: created.runtime === 'proxy' ? undefined : newApp.gitBranch,
           },
           database:
-            newApp.dbAutoProvision && newApp.dbEngine
+            created.runtime !== 'proxy' && newApp.dbAutoProvision && newApp.dbEngine
               ? { engine: newApp.dbEngine, name: newApp.dbName, user: newApp.dbUser }
               : undefined,
-          cache: newApp.cacheAutoProvision ? { engine: 'redis' } : undefined,
-          autoEnv: newApp.autoEnv,
-          env: newApp.env,
-          deployScript: newApp.buildScript,
+          cache: created.runtime !== 'proxy' && newApp.cacheAutoProvision ? { engine: 'redis' } : undefined,
+          autoEnv: created.runtime !== 'proxy' ? newApp.autoEnv : false,
+          env: created.runtime !== 'proxy' ? newApp.env : undefined,
+          deployScript: created.runtime === 'proxy' ? undefined : newApp.buildScript,
         });
         // An "Upload Archive" source has to actually arrive: the bytes go to the site,
         // then the pipeline runs again so it builds with the code present (the create

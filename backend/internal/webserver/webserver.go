@@ -107,6 +107,7 @@ type Spec struct {
 	DocRoot     string // the directory nginx serves (or hands to PHP)
 	Socket      string // php-fpm unix socket, when Kind is php
 	Port        int    // the site's own port, for everything but php and static
+	UpstreamURL string // when Kind is proxy (or custom upstream), full target like http://127.0.0.1:8006 or https://192.168.1.10:8006
 	SSLEnabled  bool
 	SSLCertPath string
 	SSLKeyPath  string
@@ -173,6 +174,24 @@ func (s Spec) WithSSL(aliases []string, certPath, keyPath string, sslEnabled, fo
 func (s Spec) WithSecurity(sec SecuritySpec) Spec {
 	s.Security = sec
 	return s
+}
+
+// WithUpstream sets the target upstream URL for reverse proxying.
+func (s Spec) WithUpstream(upstreamURL string) Spec {
+	s.UpstreamURL = strings.TrimSpace(upstreamURL)
+	return s
+}
+
+// ResolvedUpstream returns the effective upstream target for reverse proxying.
+func (s Spec) ResolvedUpstream() string {
+	if s.UpstreamURL != "" {
+		return s.UpstreamURL
+	}
+	port := s.Port
+	if port <= 0 {
+		port = 8080
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
 // FileName is the panel-owned vhost file for a site (prefixed so it cannot collide
@@ -410,11 +429,13 @@ func nginxLocations(b *strings.Builder, s Spec) {
 		b.WriteString("        try_files $uri $uri/ =404;\n")
 		b.WriteString("    }\n")
 	default:
+		target := s.ResolvedUpstream()
+		isHTTPS := strings.HasPrefix(strings.ToLower(target), "https://")
 		b.WriteString("    location / {\n")
 		if maintCheck != "" {
 			b.WriteString(maintCheck)
 		}
-		fmt.Fprintf(b, "        proxy_pass http://127.0.0.1:%d;\n", s.Port)
+		fmt.Fprintf(b, "        proxy_pass %s;\n", target)
 		b.WriteString("        proxy_http_version 1.1;\n")
 		b.WriteString("        proxy_set_header Host $host;\n")
 		b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
@@ -422,9 +443,15 @@ func nginxLocations(b *strings.Builder, s Spec) {
 		b.WriteString("        proxy_set_header X-Forwarded-Proto $scheme;\n")
 		b.WriteString("        proxy_set_header Upgrade $http_upgrade;\n")
 		b.WriteString("        proxy_set_header Connection \"upgrade\";\n")
+		if isHTTPS {
+			b.WriteString("        proxy_ssl_verify off;\n")
+			b.WriteString("        proxy_ssl_server_name on;\n")
+		}
 		b.WriteString("        proxy_buffer_size 128k;\n")
 		b.WriteString("        proxy_buffers 4 256k;\n")
 		b.WriteString("        proxy_busy_buffers_size 256k;\n")
+		b.WriteString("        proxy_buffering off;\n")
+		b.WriteString("        client_max_body_size 0;\n")
 		b.WriteString("        proxy_connect_timeout 60s;\n")
 		b.WriteString("        proxy_send_timeout 180s;\n")
 		b.WriteString("        proxy_read_timeout 180s;\n")
@@ -526,7 +553,19 @@ func caddyAppLocations(b *strings.Builder, s Spec, indent string) {
 		fmt.Fprintf(b, "%sroot * %s\n", indent, s.DocRoot)
 		fmt.Fprintf(b, "%sfile_server\n", indent)
 	default:
-		fmt.Fprintf(b, "%sreverse_proxy 127.0.0.1:%d\n", indent, s.Port)
+		target := s.ResolvedUpstream()
+		cleanTarget := strings.TrimPrefix(strings.TrimPrefix(target, "http://"), "https://")
+		isHTTPS := strings.HasPrefix(strings.ToLower(target), "https://")
+		if isHTTPS {
+			fmt.Fprintf(b, "%sreverse_proxy %s {\n", indent, cleanTarget)
+			fmt.Fprintf(b, "%s\ttransport http {\n", indent)
+			fmt.Fprintf(b, "%s\t\ttls\n", indent)
+			fmt.Fprintf(b, "%s\t\ttls_insecure_skip_verify\n", indent)
+			fmt.Fprintf(b, "%s\t}\n", indent)
+			fmt.Fprintf(b, "%s}\n", indent)
+		} else {
+			fmt.Fprintf(b, "%sreverse_proxy %s\n", indent, cleanTarget)
+		}
 	}
 }
 
@@ -751,10 +790,20 @@ func apacheVhost(s Spec) string {
 	case "static":
 		b.WriteString("    DirectoryIndex index.html index.htm\n")
 	default:
+		target := s.ResolvedUpstream()
+		target = strings.TrimRight(target, "/")
+		isHTTPS := strings.HasPrefix(strings.ToLower(target), "https://")
 		b.WriteString("    ProxyPreserveHost On\n")
 		b.WriteString("    ProxyRequests Off\n")
-		fmt.Fprintf(&b, "    ProxyPass / http://127.0.0.1:%d/\n", s.Port)
-		fmt.Fprintf(&b, "    ProxyPassReverse / http://127.0.0.1:%d/\n", s.Port)
+		if isHTTPS {
+			b.WriteString("    SSLProxyEngine On\n")
+			b.WriteString("    SSLProxyVerify none\n")
+			b.WriteString("    SSLProxyCheckPeerCN off\n")
+			b.WriteString("    SSLProxyCheckPeerName off\n")
+			b.WriteString("    SSLProxyCheckPeerExpire off\n")
+		}
+		fmt.Fprintf(&b, "    ProxyPass / %s/\n", target)
+		fmt.Fprintf(&b, "    ProxyPassReverse / %s/\n", target)
 	}
 
 	b.WriteString("</VirtualHost>\n")
@@ -803,9 +852,11 @@ func openlitespeedVhost(s Spec) string {
 	case "static":
 		b.WriteString("indexFiles                index.html, index.htm\n")
 	default:
+		target := s.ResolvedUpstream()
+		cleanTarget := strings.TrimPrefix(strings.TrimPrefix(target, "http://"), "https://")
 		fmt.Fprintf(&b, "extprocessor %s_proxy {\n", s.Slug)
 		b.WriteString("    type                    proxy\n")
-		fmt.Fprintf(&b, "    address                 127.0.0.1:%d\n", s.Port)
+		fmt.Fprintf(&b, "    address                 %s\n", cleanTarget)
 		b.WriteString("    maxConns                200\n")
 		b.WriteString("    initTimeout             60\n")
 		b.WriteString("    retryTimeout            0\n")

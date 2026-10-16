@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -413,6 +414,19 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 	case "static":
 		spa := boolVal(req.Config["spaFallback"], true)
 		req.Config["spaFallback"] = spa
+		_ = s.applyVhost(r, site)
+
+	case "proxy":
+		upUrl := stringVal(req.Config["upstreamUrl"], "")
+		if upUrl != "" {
+			req.Config["upstreamUrl"] = upUrl
+			if m := regexp.MustCompile(`:(\d+)`).FindStringSubmatch(upUrl); len(m) > 1 {
+				if newPort, err := strconv.Atoi(m[1]); err == nil && newPort > 0 && newPort != site.Port {
+					_ = s.store.UpdateWebsitePort(site.Slug, newPort)
+					site.Port = newPort
+				}
+			}
+		}
 		_ = s.applyVhost(r, site)
 
 	default:

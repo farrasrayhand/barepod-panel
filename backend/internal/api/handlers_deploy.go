@@ -49,6 +49,11 @@ type createWebsiteRequest struct {
 	FrameworkVersion string            `json:"frameworkVersion"`
 	WebServer        string            `json:"webServer"`
 	Port             int               `json:"port"`
+	UpstreamURL      string            `json:"upstreamUrl"`
+	ProxyWebsocket   bool              `json:"proxyWebsocket"`
+	ProxyPreserveHost bool             `json:"proxyPreserveHost"`
+	ProxyRealIP      bool              `json:"proxyRealIp"`
+	ProxyTimeoutSecs int               `json:"proxyTimeoutSecs"`
 	SSL              bool              `json:"ssl"`
 	TunnelEnabled    bool              `json:"tunnelEnabled"`
 	Source           sourcePayload     `json:"source"`
@@ -69,6 +74,26 @@ func (r *createWebsiteRequest) normalize() {
 	r.TenantUser = strings.ToLower(strings.TrimSpace(r.TenantUser))
 	r.Source.Kind = strings.ToLower(strings.TrimSpace(r.Source.Kind))
 	r.Source.Branch = strings.TrimSpace(r.Source.Branch)
+	r.UpstreamURL = strings.TrimSpace(r.UpstreamURL)
+
+	if r.Runtime == "proxy" {
+		r.Framework = "Reverse Proxy"
+		r.Source.Kind = "default"
+		r.Source.Repo = ""
+		r.Source.Branch = ""
+		r.AutomationSteps = nil
+		r.DeployScript = ""
+		r.Database = nil
+		r.Cache = nil
+		if r.Port == 0 && r.UpstreamURL != "" {
+			if m := regexp.MustCompile(`:(\d+)`).FindStringSubmatch(r.UpstreamURL); len(m) > 1 {
+				r.Port, _ = strconv.Atoi(m[1])
+			}
+		}
+		if r.Port == 0 {
+			r.Port = 8080
+		}
+	}
 
 	r.Slug = strings.ToLower(strings.TrimSpace(r.Slug))
 	if r.Slug == "" && r.Domain != "" {
@@ -236,6 +261,19 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 
+	if req.Runtime == "proxy" {
+		cfg := map[string]any{
+			"upstreamUrl":  req.UpstreamURL,
+			"websocket":    req.ProxyWebsocket,
+			"preserveHost": req.ProxyPreserveHost,
+			"realIp":       req.ProxyRealIP,
+			"timeout":      req.ProxyTimeoutSecs,
+		}
+		if data, err := json.Marshal(cfg); err == nil {
+			_ = s.store.SavePanelSetting("site_runtime_config:"+req.Slug, string(data))
+		}
+	}
+
 	if req.TunnelEnabled {
 		s.ensureWebsiteTunnelRoute(r.Context(), req.TenantUser, req.Domain, req.Slug)
 	}
@@ -250,6 +288,7 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		FrameworkVersion: req.FrameworkVersion,
 		WebServer:        req.WebServer,
 		Port:             req.Port,
+		UpstreamURL:      req.UpstreamURL,
 		SSL:              req.SSL,
 		TunnelEnabled:    req.TunnelEnabled,
 		Source:           deploy.SourceSpec{Kind: req.Source.Kind, Repo: req.Source.Repo, Branch: req.Source.Branch},

@@ -1071,9 +1071,12 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
     if (mode === 'proxy') {
       setRuntime('proxy');
       setVersion('v1.0');
+      setFramework('Reverse Proxy');
+      setSourceKind('default');
       setWebServer('nginx');
       setCreateDb(false);
       setCreateCache(false);
+      setAutoEnv(false);
     } else if (mode === 'static') {
       setRuntime('static');
       setVersion('HTML5');
@@ -1266,10 +1269,10 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
       await onAddApp({
         name,
         domain,
-        runtime,
-        version,
-        framework,
-        frameworkVersion: frameworkVersion || undefined,
+        runtime: appMode === 'proxy' ? 'proxy' : runtime,
+        version: appMode === 'proxy' ? 'v1.0' : version,
+        framework: appMode === 'proxy' ? 'Reverse Proxy' : framework,
+        frameworkVersion: appMode === 'proxy' ? undefined : (frameworkVersion || undefined),
         webServer,
         tenantUser,
         tunnelEnabled,
@@ -1283,22 +1286,22 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
         proxyPreserveHost,
         proxyRealIp,
         proxyTimeoutSecs,
-        dbAutoProvision: !isStaticSite && createDb,
-        dbEngine: (!isStaticSite && createDb) ? dbType : undefined,
-        dbName: (!isStaticSite && createDb) ? resolvedDbName : undefined,
-        dbUser: (!isStaticSite && createDb) ? resolvedDbUser : undefined,
-        cacheAutoProvision: !isStaticSite && effectiveCreateCache,
-        cacheEngine: (!isStaticSite && effectiveCreateCache) ? 'redis' : undefined,
-        autoEnv: isStaticSite ? false : autoEnv,
-        env: Object.keys(extraEnvMap).length > 0 ? extraEnvMap : undefined,
-        sourceKind: effectiveSource,
-        provisionMode: effectiveSource === 'scaffold' ? 'download' : 'generic',
-        automationSteps: plan.steps.length ? plan.steps : undefined,
-        gitRepo: effectiveSource === 'github' ? gitRepo : undefined,
-        gitBranch: effectiveSource === 'github' ? gitBranch : undefined,
-        autoDeploy: effectiveSource === 'github' ? autoDeploy : undefined,
-        buildScript: buildScript || undefined,
-      }, effectiveSource === 'upload' ? (uploadArchive ?? undefined) : undefined);
+        dbAutoProvision: appMode === 'proxy' || isStaticSite ? false : createDb,
+        dbEngine: (appMode !== 'proxy' && !isStaticSite && createDb) ? dbType : undefined,
+        dbName: (appMode !== 'proxy' && !isStaticSite && createDb) ? resolvedDbName : undefined,
+        dbUser: (appMode !== 'proxy' && !isStaticSite && createDb) ? resolvedDbUser : undefined,
+        cacheAutoProvision: appMode === 'proxy' || isStaticSite ? false : effectiveCreateCache,
+        cacheEngine: (appMode !== 'proxy' && !isStaticSite && effectiveCreateCache) ? 'redis' : undefined,
+        autoEnv: appMode === 'proxy' || isStaticSite ? false : autoEnv,
+        env: appMode === 'proxy' ? undefined : (Object.keys(extraEnvMap).length > 0 ? extraEnvMap : undefined),
+        sourceKind: appMode === 'proxy' ? 'default' : effectiveSource,
+        provisionMode: appMode === 'proxy' ? 'generic' : (effectiveSource === 'scaffold' ? 'download' : 'generic'),
+        automationSteps: appMode === 'proxy' ? undefined : (plan.steps.length ? plan.steps : undefined),
+        gitRepo: appMode === 'proxy' ? undefined : (effectiveSource === 'github' ? gitRepo : undefined),
+        gitBranch: appMode === 'proxy' ? undefined : (effectiveSource === 'github' ? gitBranch : undefined),
+        autoDeploy: appMode === 'proxy' ? undefined : (effectiveSource === 'github' ? autoDeploy : undefined),
+        buildScript: appMode === 'proxy' ? undefined : (buildScript || undefined),
+      }, appMode === 'proxy' ? undefined : (effectiveSource === 'upload' ? (uploadArchive ?? undefined) : undefined));
 
       onClose();
       resetForm();
@@ -2416,6 +2419,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                 <input type="text" value={upstreamUrl} onChange={(e) => setUpstreamUrl(e.target.value)} className={`${inputClass} font-mono`} />
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {[
+                    { label: '8006 (Proxmox VE)', val: 'https://127.0.0.1:8006' },
                     { label: '3000 (Node/Next)', val: 'http://127.0.0.1:3000' },
                     { label: '8080 (FastAPI/Go)', val: 'http://127.0.0.1:8080' },
                     { label: '5000 (Flask/Py)', val: 'http://127.0.0.1:5000' },
@@ -2432,6 +2436,9 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     </button>
                   ))}
                 </div>
+                <p className="text-[11px] text-slate-500 mt-1.5">
+                  Tip: For Proxmox VE or HTTPS services, prefix with <code>https://</code>. BarePod will auto-configure self-signed SSL bypass and noVNC WebSocket streaming.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

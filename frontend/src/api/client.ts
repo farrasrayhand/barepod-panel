@@ -448,6 +448,11 @@ export interface CreateWebsitePayload {
   frameworkVersion?: string;
   webServer: string;
   port?: number;
+  upstreamUrl?: string;
+  proxyWebsocket?: boolean;
+  proxyPreserveHost?: boolean;
+  proxyRealIp?: boolean;
+  proxyTimeoutSecs?: number;
   tunnelEnabled?: boolean;
   source: { kind: string; repo?: string; branch?: string };
   database?: { engine: string; version?: string; name?: string; user?: string };

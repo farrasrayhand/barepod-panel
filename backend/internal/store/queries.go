@@ -332,6 +332,12 @@ func (s *Store) UpdateWebsiteVersion(slug, version string) error {
 	return err
 }
 
+// UpdateWebsitePort updates the service/proxy port of a website.
+func (s *Store) UpdateWebsitePort(slug string, port int) error {
+	_, err := s.DB.Exec(`UPDATE websites SET port = ? WHERE slug = ?`, port, slug)
+	return err
+}
+
 // --- Website Scheduled Tasks (Cron Jobs) ---
 
 // ListWebsiteCronJobs returns all scheduled tasks configured for a website.

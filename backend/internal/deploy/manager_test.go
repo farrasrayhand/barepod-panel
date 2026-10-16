@@ -318,3 +318,29 @@ func TestPipelineFailsWhenExistingDirectoryIsMissing(t *testing.T) {
 		t.Errorf("deployStatus = %q, want failed", updated.DeployStatus)
 	}
 }
+
+func TestProxyDeployOnlyPlansThreeSteps(t *testing.T) {
+	m, st, _, _, _ := newTestManager(t)
+
+	job, err := m.Start(Request{
+		Slug:        "proxmox",
+		Tenant:      "admin",
+		Domain:      "proxmox.example.com",
+		Runtime:     "proxy",
+		Port:        8006,
+		UpstreamURL: "https://192.168.1.100:8006",
+		WebServer:   "nginx",
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	if job.TotalSteps != 3 {
+		t.Fatalf("job.TotalSteps = %d, want 3 steps for reverse proxy", job.TotalSteps)
+	}
+
+	finished := waitForJob(t, st, job.ID)
+	if finished.Status != "success" {
+		t.Fatalf("finished.Status = %q, want success (job err: %v)", finished.Status, finished.Error)
+	}
+}
