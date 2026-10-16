@@ -328,7 +328,11 @@ func Decide(settings Settings, perEngine map[string]Settings, failures []Failure
 	}
 	recent := map[string][]Failure{}
 	for _, failure := range failures {
-		if failure.IP == "" || isLoopback(failure.IP) || IsTrusted(failure.IP) {
+		// Only an address can be banned. A name is not one: MariaDB writes a local connection as
+		// 'user'@'localhost', and handing "localhost" to nft made the whole guard report
+		// "Not enforcing" instead of protecting anything (nft refuses a hostname that resolves to
+		// several addresses). Anything that is not a literal IP is dropped here.
+		if failure.IP == "" || net.ParseIP(failure.IP) == nil || isLoopback(failure.IP) || IsTrusted(failure.IP) {
 			continue
 		}
 		if now.Sub(failure.At) > settings.FindTime || failure.At.After(now) {
@@ -524,7 +528,9 @@ func IsTrusted(ip string) bool {
 }
 
 func isLoopback(ip string) bool {
-	return ip == "127.0.0.1" || ip == "::1" || strings.HasPrefix(ip, "127.")
+	// "localhost" is here as well as the addresses: an engine names a local connection that way,
+	// and loopback is never banned — it is how the panel itself reaches the database.
+	return ip == "localhost" || ip == "127.0.0.1" || ip == "::1" || strings.HasPrefix(ip, "127.")
 }
 
 // normaliseIP strips a zone or a surrounding bracket so the same address is always the same

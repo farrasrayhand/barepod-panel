@@ -268,3 +268,27 @@ func TestAnEngineCanHaveItsOwnNumbers(t *testing.T) {
 		t.Errorf("the default threshold banned somebody under it: %+v", ban)
 	}
 }
+
+// An engine names a local connection instead of addressing it: MariaDB writes 'user'@'localhost'.
+// Handing that name to nft failed the whole guard ("Hostname resolves to multiple addresses") and
+// nothing was enforced — while the address it should have banned went untouched.
+func TestANameIsNeverBanned(t *testing.T) {
+	now := time.Now()
+	failures := []Failure{}
+	for i := 0; i < 6; i++ {
+		failures = append(failures, Failure{Engine: "mariadb", IP: "localhost", User: "admin_x", At: now})
+	}
+	ban, drop := Decide(Defaults(), nil, failures, map[string]Ban{}, now)
+	if len(ban) != 0 || len(drop) != 0 {
+		t.Errorf("a hostname was turned into a ban: ban=%+v drop=%v", ban, drop)
+	}
+
+	// A real address in the same batch is still banned: dropping the name must not disable the guard.
+	for i := 0; i < 5; i++ {
+		failures = append(failures, Failure{Engine: "mariadb", IP: "203.0.113.7", User: "evil", At: now})
+	}
+	ban, _ = Decide(Defaults(), nil, failures, map[string]Ban{}, now)
+	if len(ban) != 1 || ban[0].IP != "203.0.113.7" {
+		t.Errorf("want the real address banned and nothing else, got %+v", ban)
+	}
+}
