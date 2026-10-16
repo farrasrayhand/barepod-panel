@@ -1413,6 +1413,36 @@ export const api = {
   /** WebSocket URL for a terminal; without a slug it is the host shell (admin only). */
   ptyUrl: (ticket: string, slug?: string) =>
     `${wsBase()}${slug ? `/websites/${slug}/pty` : '/system/pty'}?ticket=${encodeURIComponent(ticket)}`,
+
+  // --- in-panel self-update ------------------------------------------------
+  checkUpdates: () =>
+    request<{
+      currentVersion: string;
+      rawVersion: string;
+      latestVersion: string;
+      hasUpdate: boolean;
+      release?: {
+        tag: string;
+        version: string;
+        publishedAt: string;
+        releaseNotesUrl: string;
+        changelogMarkdown: string;
+        asset?: {
+          arch: string;
+          sha256: string;
+          sizeBytes: number;
+          filename: string;
+        };
+      };
+    }>('/system/updates/check'),
+
+  applyUpdate: (targetVersion: string, channel = 'stable') =>
+    request<{ jobId: string; status: string; streamUrl: string }>('/system/updates/apply', {
+      method: 'POST',
+      body: JSON.stringify({ targetVersion, channel }),
+    }),
+
+  updatesStreamUrl: (jobId: string) => `${API_BASE}/system/updates/stream?jobId=${encodeURIComponent(jobId)}`,
 };
 
 /**

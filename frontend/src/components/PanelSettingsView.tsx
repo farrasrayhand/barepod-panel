@@ -30,7 +30,11 @@ import {
   Cpu,
   Clock,
   Trash2,
-  Loader2
+  Loader2,
+  Sparkles,
+  ArrowUpCircle,
+  ExternalLink,
+  Download
 } from 'lucide-react';
 import type { WebServerType } from '../types';
 import { useSubRoute } from '../hooks/useSubRoute';
@@ -53,7 +57,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   onShowToast,
   onOpenTerminal,
 }) => {
-  const [activeTab, setActiveTab] = useSubRoute<'general' | 'cron' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults' | 'maintenance'>('general');
+  const [activeTab, setActiveTab] = useSubRoute<'general' | 'updates' | 'cron' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults' | 'maintenance'>('general');
   const [isSaving, setIsSaving] = useState(false);
   // The address an external client should use. Unlike most of this screen it is real: the daemon
   // stores it and every connection snippet prefers it. It cannot be detected — behind NAT there is
@@ -83,6 +87,101 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [panelPortDraft, setPanelPortDraft] = useState('');
   const [sshPortDraft, setSshPortDraft] = useState('');
   const [portBusy, setPortBusy] = useState(false);
+
+  // In-Panel Self-Update (OTA)
+  const [updateInfo, setUpdateInfo] = useState<{
+    currentVersion: string;
+    latestVersion: string;
+    hasUpdate: boolean;
+    release?: {
+      tag: string;
+      version: string;
+      publishedAt: string;
+      releaseNotesUrl: string;
+      changelogMarkdown: string;
+      asset?: {
+        arch: string;
+        sha256: string;
+        sizeBytes: number;
+        filename: string;
+      };
+    };
+  } | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateLogs, setUpdateLogs] = useState<Array<{ step: string; message: string; pct: number }>>([]);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updateSuccess, setUpdateSuccess] = useState(false);
+
+  const checkUpdates = async () => {
+    setCheckingUpdate(true);
+    try {
+      const res = await api.checkUpdates();
+      setUpdateInfo(res);
+      if (res.hasUpdate) {
+        onShowToast?.('Update available', `BarePod Panel ${res.release?.tag || res.latestVersion} is ready to install.`, 'info');
+      } else {
+        onShowToast?.('Up to date', `BarePod Panel is on the latest version (${res.currentVersion}).`, 'success');
+      }
+    } catch (err) {
+      onShowToast?.('Check failed', err instanceof Error ? err.message : 'unknown error', 'error');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  const startPanelUpdate = async () => {
+    if (!updateInfo?.latestVersion || isUpdating) return;
+    setIsUpdating(true);
+    setUpdateModalOpen(true);
+    setUpdateError(null);
+    setUpdateSuccess(false);
+    setUpdateLogs([{ step: 'init', message: 'Initiating in-panel update pipeline...', pct: 5 }]);
+
+    try {
+      const { jobId, streamUrl } = await api.applyUpdate(updateInfo.latestVersion);
+      const evSource = new EventSource(streamUrl || api.updatesStreamUrl(jobId), { withCredentials: true });
+
+      evSource.addEventListener('step', (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          setUpdateLogs((prev) => [...prev, { step: payload.step, message: payload.message, pct: payload.progressPercent || 50 }]);
+        } catch {}
+      });
+
+      evSource.addEventListener('done', (e) => {
+        evSource.close();
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload.status === 'failed') {
+            setUpdateError(payload.error || payload.message || 'Update failed');
+            setIsUpdating(false);
+          } else {
+            setUpdateSuccess(true);
+            setUpdateLogs((prev) => [...prev, { step: 'complete', message: 'Update completed! Reloading dashboard in 3 seconds...', pct: 100 }]);
+            setTimeout(() => {
+              window.location.reload();
+            }, 3000);
+          }
+        } catch {
+          setIsUpdating(false);
+        }
+      });
+
+      evSource.onerror = () => {
+        evSource.close();
+        // Server restart will drop the SSE stream — this usually means success and restarting!
+        setUpdateLogs((prev) => [...prev, { step: 'restart', message: 'Daemon restarted. Waiting for panel to answer...', pct: 95 }]);
+        setTimeout(() => {
+          window.location.reload();
+        }, 4000);
+      };
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : 'Failed to trigger update');
+      setIsUpdating(false);
+    }
+  };
 
   const changePanelPort = async () => {
     const port = Number(panelPortDraft);
@@ -531,6 +630,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
         <div className="border-b border-slate-200 bg-slate-50/70 px-4 pt-2 flex items-center gap-1.5 overflow-x-auto">
           {[
             { id: 'general', label: 'General & Defaults', icon: Settings },
+            { id: 'updates', label: 'System & Updates', icon: ArrowUpCircle },
             { id: 'cron', label: 'Cron & Scheduled Tasks', icon: Clock },
             { id: 'monitoring', label: 'Monitoring Policy', icon: Activity },
             { id: 'security', label: 'Security & Auth', icon: ShieldCheck },
@@ -811,6 +911,197 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   </p>
                 </div>
               </div>
+
+            </div>
+          )}
+
+          {/* SYSTEM & IN-PANEL UPDATES */}
+          {activeTab === 'updates' && (
+            <div className="space-y-6 w-full">
+              <div className="flex items-start justify-between flex-wrap gap-4">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-blue-600" />
+                    System & In-Panel Updates (OTA)
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Upgrade BarePod Panel daemon and frontend assets directly from official releases with zero tenant website downtime.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void checkUpdates()}
+                  disabled={checkingUpdate || isUpdating}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${checkingUpdate ? 'animate-spin' : ''}`} />
+                  {checkingUpdate ? 'Checking for updates…' : 'Check for Updates'}
+                </button>
+              </div>
+
+              {/* Version & Status Card */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl border border-slate-200 bg-white">
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1">Installed Version</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-mono font-bold text-slate-800">
+                      {updateInfo?.currentVersion ? `v${updateInfo.currentVersion}` : 'Checking…'}
+                    </span>
+                    <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                      Active
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl border border-slate-200 bg-white">
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1">Latest Release</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-mono font-bold text-slate-800">
+                      {updateInfo?.latestVersion ? `v${updateInfo.latestVersion}` : 'Checking…'}
+                    </span>
+                    {updateInfo?.hasUpdate ? (
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-blue-100 text-blue-700 border border-blue-200 animate-pulse">
+                        Update Available
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+                        Up to date
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl border border-slate-200 bg-white">
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1">Release Channel</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-slate-700">Official GitHub Releases</span>
+                    <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                      Stable
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Update Banner & Action */}
+              {updateInfo?.hasUpdate && updateInfo.release && (
+                <div className="p-5 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50/70 to-indigo-50/60 shadow-2xs space-y-4">
+                  <div className="flex items-start justify-between flex-wrap gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping" />
+                        <h3 className="text-sm font-bold text-blue-950">
+                          BarePod Panel {updateInfo.release.tag} is Ready to Install
+                        </h3>
+                      </div>
+                      <p className="text-xs text-blue-700 mt-1">
+                        Zero tenant website downtime guarantee. The daemon swaps binaries atomically and restarts in ~2s.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => void startPanelUpdate()}
+                      disabled={isUpdating || !isAdmin}
+                      className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer shadow-md shadow-blue-500/20"
+                    >
+                      <ArrowUpCircle className="w-4 h-4" />
+                      {isUpdating ? 'Updating Panel…' : 'Install Update Now'}
+                    </button>
+                  </div>
+
+                  {/* Release Notes Preview */}
+                  {updateInfo.release.changelogMarkdown && (
+                    <div className="p-4 rounded-xl bg-white/90 border border-blue-100 space-y-2">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 border-b border-slate-100 pb-2">
+                        <span>Release Notes ({updateInfo.release.tag})</span>
+                        {updateInfo.release.releaseNotesUrl && (
+                          <a
+                            href={updateInfo.release.releaseNotesUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline flex items-center gap-1"
+                          >
+                            View on GitHub <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-700 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
+                        {updateInfo.release.changelogMarkdown}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Safety & Architecture Notice */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  Atomic Swap & Watchdog Auto-Rollback Guard
+                </span>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  BarePod uses atomic directory replacement to avoid Linux <code>ETXTBSY</code> errors. Your panel database is snapshotted before binary extraction. If the updated daemon fails to pass health checks or schema migrations upon restart, the supervisor rolls back to <code>barepod.bak</code> automatically.
+                </p>
+              </div>
+
+              {/* Live Update Progress Console Modal */}
+              {updateModalOpen && (
+                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+                  <div className="bg-white w-full max-w-lg rounded-2xl border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                    <div className="px-5 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {isUpdating && <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />}
+                        {updateSuccess && <Check className="w-4 h-4 text-emerald-600" />}
+                        {updateError && <AlertTriangle className="w-4 h-4 text-rose-600" />}
+                        <h3 className="text-xs font-bold text-slate-900">
+                          {isUpdating ? 'Applying Panel Update…' : updateSuccess ? 'Update Complete!' : 'Update Interrupted'}
+                        </h3>
+                      </div>
+                      {!isUpdating && (
+                        <button
+                          type="button"
+                          onClick={() => setUpdateModalOpen(false)}
+                          className="text-slate-400 hover:text-slate-600 text-xs font-bold px-2 py-1 rounded"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="p-5 space-y-4">
+                      {/* Log Stream Terminal */}
+                      <div className="p-3.5 bg-slate-950 rounded-xl font-mono text-[11px] text-slate-300 space-y-1.5 max-h-56 overflow-y-auto">
+                        {updateLogs.map((log, idx) => (
+                          <div key={idx} className="flex items-start gap-2">
+                            <span className="text-slate-500 select-none">›</span>
+                            <span className={log.step === 'complete' ? 'text-emerald-400 font-bold' : log.step === 'failed' ? 'text-rose-400 font-bold' : 'text-slate-200'}>
+                              {log.message}
+                            </span>
+                          </div>
+                        ))}
+                        {isUpdating && (
+                          <div className="flex items-center gap-2 text-blue-400 animate-pulse">
+                            <span className="select-none">›</span>
+                            <span>Working on pipeline...</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {updateError && (
+                        <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+                          <b>Error:</b> {updateError}
+                        </div>
+                      )}
+
+                      {updateSuccess && (
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800">
+                          Panel updated successfully! Refreshing dashboard automatically...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
             </div>
           )}
