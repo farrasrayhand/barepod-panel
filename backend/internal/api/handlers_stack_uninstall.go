@@ -157,6 +157,15 @@ func (s *Server) handleStackPlan(w http.ResponseWriter, r *http.Request, _ *stor
 	}
 
 	_ = s.store.Audit("", "stack.plan", component+" "+version, clientIP(r), "")
+	if inUse == nil {
+		inUse = []string{}
+	}
+	if steps == nil {
+		steps = []string{}
+	}
+	if warnings == nil {
+		warnings = []string{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"component": component,
 		"version":   version,

@@ -1395,31 +1395,31 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                     </span>
                   </div>
 
-                  {planModal.plan.warnings.length > 0 && (
+                  {(planModal.plan.warnings ?? []).length > 0 && (
                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">
                       <div className="flex items-center gap-1.5 font-semibold text-amber-900">
                         <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
                         <span>Warnings</span>
                       </div>
                       <ul className="list-disc list-inside text-amber-800 text-[11px] space-y-0.5">
-                        {planModal.plan.warnings.map((w, idx) => (
+                        {(planModal.plan.warnings ?? []).map((w, idx) => (
                           <li key={idx}>{w}</li>
                         ))}
                       </ul>
                     </div>
                   )}
 
-                  {planModal.plan.uses.length > 0 && (
+                  {(planModal.plan.uses ?? []).length > 0 && (
                     <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 space-y-1">
                       <div className="flex items-center gap-1.5 font-semibold text-rose-900">
                         <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
-                        <span>Databases On This Engine ({planModal.plan.uses.length})</span>
+                        <span>Databases On This Engine ({(planModal.plan.uses ?? []).length})</span>
                       </div>
                       <p className="text-[11px] text-rose-800">
                         Existing databases that will be preserved and migrated:
                       </p>
                       <ul className="list-disc list-inside text-rose-900 text-[11px] font-mono">
-                        {planModal.plan.uses.map((u, idx) => (
+                        {(planModal.plan.uses ?? []).map((u, idx) => (
                           <li key={idx}>{u}</li>
                         ))}
                       </ul>
@@ -1429,7 +1429,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   <div>
                     <span className="font-semibold text-slate-700 block mb-1.5">Migration Steps:</span>
                     <ol className="list-decimal list-inside space-y-1 text-slate-600 font-mono text-[11px] bg-slate-50 p-3 rounded-xl border border-slate-200">
-                      {planModal.plan.steps.map((step, idx) => (
+                      {(planModal.plan.steps ?? []).map((step, idx) => (
                         <li key={idx}>{step}</li>
                       ))}
                     </ol>

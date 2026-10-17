@@ -264,12 +264,14 @@ func (s *Server) runUpdatePipeline(jobID, targetVersion, operator string) {
 	arch := runtime.GOARCH
 	expectedTarball := fmt.Sprintf("barepod-%s-linux-%s.tar.gz", tag, arch)
 
-	var downloadURL, manifestURL string
+	var downloadURL, manifestURL, shaSumsURL string
 	for _, a := range ghRelease.Assets {
 		if a.Name == expectedTarball {
 			downloadURL = a.BrowserDownloadURL
 		} else if a.Name == "manifest.json" {
 			manifestURL = a.BrowserDownloadURL
+		} else if a.Name == "SHA256SUMS" {
+			shaSumsURL = a.BrowserDownloadURL
 		}
 	}
 
@@ -278,9 +280,22 @@ func (s *Server) runUpdatePipeline(jobID, targetVersion, operator string) {
 		return
 	}
 
-	var expectedSHA string
+	var expectedSHA, sumsContent string
+	if shaSumsURL != "" {
+		sReq, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, shaSumsURL, nil)
+		sReq.Header.Set("Cache-Control", "no-cache")
+		sReq.Header.Set("Pragma", "no-cache")
+		if sResp, err := client.Do(sReq); err == nil && sResp.StatusCode == http.StatusOK {
+			data, _ := io.ReadAll(sResp.Body)
+			sumsContent = string(data)
+			sResp.Body.Close()
+		}
+	}
 	if manifestURL != "" {
-		if mResp, err := client.Get(manifestURL); err == nil && mResp.StatusCode == http.StatusOK {
+		mReq, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, manifestURL, nil)
+		mReq.Header.Set("Cache-Control", "no-cache")
+		mReq.Header.Set("Pragma", "no-cache")
+		if mResp, err := client.Do(mReq); err == nil && mResp.StatusCode == http.StatusOK {
 			var manifest UpdateManifest
 			if err := json.NewDecoder(mResp.Body).Decode(&manifest); err == nil {
 				expectedSHA = manifest.Assets["linux-"+arch].SHA256
@@ -315,14 +330,22 @@ func (s *Server) runUpdatePipeline(jobID, targetVersion, operator string) {
 	}
 	outTar.Close()
 
-	if expectedSHA != "" {
+	if expectedSHA != "" || sumsContent != "" {
 		sendProgress("verify", 50, "Verifying SHA-256 checksum against manifest...")
 		hasher := sha256.New()
 		f, _ := os.Open(destTarball)
 		_, _ = io.Copy(hasher, f)
 		f.Close()
 		computed := hex.EncodeToString(hasher.Sum(nil))
-		if !strings.EqualFold(computed, expectedSHA) {
+
+		matched := false
+		if expectedSHA != "" && strings.EqualFold(computed, expectedSHA) {
+			matched = true
+		} else if sumsContent != "" && strings.Contains(strings.ToLower(sumsContent), strings.ToLower(computed)) {
+			matched = true
+		}
+
+		if !matched {
 			sendError("verify", fmt.Sprintf("Checksum mismatch! computed=%s, expected=%s", computed, expectedSHA))
 			return
 		}
