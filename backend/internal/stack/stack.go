@@ -167,55 +167,59 @@ func Commands(component, version string) ([][]string, error) {
 		script := `set -e
 VERSIONS="` + targetVer + `"
 if [ -z "$VERSIONS" ] || [ "$VERSIONS" = "all" ]; then
-  VERSIONS=$(ls -d /etc/php/* 2>/dev/null | xargs -n1 basename 2>/dev/null | grep -E '^[0-9]+\.[0-9]+$' | sort -V)
+  DETECTED=""
+  for d in /etc/php/*; do
+    [ -d "$d" ] || continue
+    v=$(basename "$d")
+    # Only synchronize PHP versions that actually have php-fpm or CLI installed on this host
+    if dpkg -s "php${v}-fpm" >/dev/null 2>&1 || which "php${v}" >/dev/null 2>&1; then
+      DETECTED="$DETECTED $v"
+    fi
+  done
+  VERSIONS=$(echo "$DETECTED" | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+$' | sort -V)
 fi
 if [ -z "$VERSIONS" ]; then
-  echo "No installed PHP versions found under /etc/php"
+  echo "No active PHP versions found on this host."
   exit 0
 fi
 
 echo "=========================================================="
 echo "BarePod PHP Extensions Synchronizer & Installer"
-echo "Target PHP version(s): $VERSIONS"
+echo "Target PHP version(s):"
+echo "$VERSIONS"
 echo "=========================================================="
 
-CORE_EXTS="curl mbstring xml zip gd intl bcmath mysql pgsql sqlite3 opcache soap sodium exif bz2 gmp imagick redis mongodb ldap imap swoole pcntl"
+CORE_EXTS="curl mbstring xml zip gd intl bcmath mysql pgsql sqlite3 opcache soap imagick redis mongodb memcached bz2 gmp apcu yaml uuid msgpack igbinary"
 
 for v in $VERSIONS; do
-  if [ ! -d "/etc/php/$v" ]; then
-    echo "Skipping PHP $v: directory /etc/php/$v not found"
-    continue
-  fi
   echo ""
-  echo ">>> [PHP $v] Scanning Sury repository for installable extensions..."
-  
-  AVAIL=$(apt-cache search --names-only "^php${v}-[a-z0-9]+$" 2>/dev/null | awk '{print $1}')
+  echo ">>> [PHP $v] Checking missing standard extensions..."
   
   INSTALL_PKGS=""
-  for pkg in $AVAIL; do
-    case "$pkg" in
-      *-fpm|*-cli|*-common|*-dev|*-dbg|*-phpdbg|*-cgi|*-apache2|*-pear|lib*) continue ;;
-      *-gmagick|*-yac|*-openswoole|*-phalcon5) continue ;;
-    esac
-    if ! dpkg -s "$pkg" 2>/dev/null | grep -q "Status: install ok installed"; then
-      INSTALL_PKGS="$INSTALL_PKGS $pkg"
-    fi
-  done
-
   for e in $CORE_EXTS; do
     pkg="php${v}-${e}"
     if apt-cache show "$pkg" >/dev/null 2>&1; then
       if ! dpkg -s "$pkg" 2>/dev/null | grep -q "Status: install ok installed"; then
-        case " $INSTALL_PKGS " in
-          *" $pkg "*) ;;
-          *) INSTALL_PKGS="$INSTALL_PKGS $pkg" ;;
-        esac
+        INSTALL_PKGS="$INSTALL_PKGS $pkg"
       fi
     fi
   done
 
+  # Include swoole for modern PHP (>= 7.2) if available
+  IS_MODERN=$(awk "BEGIN {print ($v >= 7.2) ? 1 : 0}" 2>/dev/null || echo "1")
+  if [ "$IS_MODERN" = "1" ]; then
+    for e in swoole; do
+      pkg="php${v}-${e}"
+      if apt-cache show "$pkg" >/dev/null 2>&1; then
+        if ! dpkg -s "$pkg" 2>/dev/null | grep -q "Status: install ok installed"; then
+          INSTALL_PKGS="$INSTALL_PKGS $pkg"
+        fi
+      fi
+    done
+  fi
+
   if [ -z "$INSTALL_PKGS" ]; then
-    echo ">>> [PHP $v] All available extensions are already installed."
+    echo ">>> [PHP $v] All standard extensions are already installed."
   else
     echo ">>> [PHP $v] Installing missing extensions:"
     echo "    $INSTALL_PKGS"
@@ -228,10 +232,10 @@ for v in $VERSIONS; do
     }
   fi
 
-  echo ">>> [PHP $v] Enabling extensions via phpenmod..."
-  phpenmod -v "$v" ALL || true
-  echo ">>> [PHP $v] Reloading php$v-fpm service..."
-  systemctl reload php${v}-fpm || true
+  if systemctl is-active --quiet "php${v}-fpm"; then
+    echo ">>> [PHP $v] Reloading php${v}-fpm service..."
+    systemctl reload "php${v}-fpm" || true
+  fi
   echo ">>> [PHP $v] Extension synchronization complete."
 done
 
@@ -242,43 +246,40 @@ echo "=========================================================="
 `
 		return [][]string{{"bash", "-c", suryRepoScript}, {"bash", "-c", script}}, nil
 	case "php":
-		// A PHP install is a full one: all available extensions offered by the repository
-		// for this PHP version are dynamically discovered and installed.
-		// Conflicting packages (e.g. gmagick vs imagick, yac vs apcu, openswoole vs swoole, phalcon5 vs phalcon)
-		// and non-extension binaries (fpm, cli, dev, dbg, pear, cgi) are safely excluded.
-		//
-		// This dynamically works for ANY PHP version (8.4, 8.3, 8.2, 8.1, 8.0, 7.4, etc.).
-		extensions := []string{
+		// A PHP install installs the core packages (fpm, cli) and the standard
+		// non-conflicting suite of web extensions.
+		coreExts := []string{
 			"curl", "mbstring", "xml", "zip", "gd", "intl", "bcmath", "mysql", "pgsql",
-			"sqlite3", "opcache", "soap", "sodium", "exif", "bz2", "gmp",
-			"imagick", "redis", "mongodb", "ldap", "imap", "swoole", "pcntl",
+			"sqlite3", "opcache", "soap", "bz2", "gmp", "imagick", "redis", "mongodb",
+			"memcached", "apcu", "yaml", "uuid", "msgpack", "igbinary",
 		}
 		script := "set -e\n" +
 			"echo \"Installing PHP " + version + " core packages (php" + version + "-fpm, php" + version + "-cli)...\"\n" +
-			"apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y php" + version + "-fpm php" + version + "-cli\n" +
-			"echo \"Discovering installable extensions for PHP " + version + "...\"\n" +
+			"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y php" + version + "-fpm php" + version + "-cli\n" +
+			"echo \"Checking standard web extensions for PHP " + version + "...\"\n" +
 			"pkgs=\"\"\n" +
-			"for pkg in $(apt-cache search --names-only \"^php" + version + "-[a-z0-9]+$\" | awk '{print $1}'); do\n" +
-			"  case \"$pkg\" in\n" +
-			"    *-fpm|*-cli|*-common|*-dev|*-dbg|*-phpdbg|*-cgi|*-apache2|*-pear|lib*) continue ;;\n" +
-			"    *-gmagick|*-yac|*-openswoole|*-phalcon5) continue ;;\n" +
-			"  esac\n" +
-			"  pkgs=\"$pkgs $pkg\"\n" +
+			"for e in " + strings.Join(coreExts, " ") + "; do\n" +
+			"  pkg=\"php" + version + "-$e\"\n" +
+			"  if apt-cache show \"$pkg\" >/dev/null 2>&1; then\n" +
+			"    if ! dpkg -s \"$pkg\" 2>/dev/null | grep -q \"Status: install ok installed\"; then\n" +
+			"      pkgs=\"$pkgs $pkg\"\n" +
+			"    fi\n" +
+			"  fi\n" +
 			"done\n" +
-			"echo \"Installing discovered extensions for PHP " + version + "...\"\n" +
-			"apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y $pkgs || {\n" +
-			"  echo \"Notice: batch install encountered an issue, falling back to core extensions...\"\n" +
-			"  for e in " + strings.Join(extensions, " ") + "; do\n" +
-			"    apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y php" + version + "-$e || echo \"Notice: skipped php" + version + "-$e\"\n" +
-			"  done\n" +
-			"}\n" +
-			"echo \"Enabling all extensions via phpenmod...\"\n" +
-			"phpenmod -v " + version + " ALL || true\n" +
-			"echo \"Reloading php" + version + "-fpm service...\"\n" +
-			"systemctl reload php" + version + "-fpm || true\n" +
+			"if [ -n \"$pkgs\" ]; then\n" +
+			"  echo \"Installing extensions:$pkgs\"\n" +
+			"  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y $pkgs || {\n" +
+			"    echo \"Notice: batch install encountered an issue, falling back to per-package install...\"\n" +
+			"    for p in $pkgs; do\n" +
+			"      DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y \"$p\" || echo \"Notice: skipped $p\"\n" +
+			"    done\n" +
+			"  }\n" +
+			"fi\n" +
+			"if systemctl is-active --quiet php" + version + "-fpm; then\n" +
+			"  echo \"Reloading php" + version + "-fpm service...\"\n" +
+			"  systemctl reload php" + version + "-fpm || true\n" +
+			"fi\n" +
 			"echo \"PHP " + version + " installation completed successfully!\""
-		// Ubuntu ships a single PHP, so the versions the panel offers come from the Sury
-		// repository; it is added first and the available versions are read back from apt.
 		return [][]string{{"bash", "-c", suryRepoScript}, {"bash", "-c", script}}, nil
 	case "node":
 		// NodeSource replaces the system node, so it cannot hold two majors at once; the
