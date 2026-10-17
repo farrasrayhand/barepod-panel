@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -84,6 +86,9 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "postgresql")
 			_, _ = runner.Run(ctx, "", "systemctl", "restart", "postgresql")
 			actions = append(actions, "postgresql: restarted service")
+		}
+		if healed, _ := EnsurePostgresHba(ctx, runner); healed {
+			actions = append(actions, "postgresql: healed pg_hba.conf socket rules for password authentication")
 		}
 	}
 
@@ -246,3 +251,58 @@ func isServiceInstalled(ctx context.Context, runner host.Runner, unit string) bo
 	}
 	return !strings.Contains(out, "could not be found") && !strings.Contains(out, "not found")
 }
+
+// EnsurePostgresHba inspects PostgreSQL pg_hba.conf files and repairs the default "peer" auth
+// rule for local unix sockets, which breaks container managers like DbGate and password logins.
+// It changes the general rule to "scram-sha-256" while preserving "peer" for postgres and root.
+func EnsurePostgresHba(ctx context.Context, runner host.Runner) (bool, error) {
+	matches, err := filepath.Glob("/etc/postgresql/*/main/pg_hba.conf")
+	if err != nil || len(matches) == 0 {
+		return false, nil
+	}
+
+	healedAny := false
+	rePeer := regexp.MustCompile(`(?m)^local\s+all\s+all\s+peer`)
+	rePg := regexp.MustCompile(`(?m)^(local\s+all\s+postgres\s+peer)`)
+
+	for _, hba := range matches {
+		data, err := os.ReadFile(hba)
+		if err != nil {
+			continue
+		}
+		content := string(data)
+		if !rePeer.MatchString(content) {
+			continue
+		}
+
+		bak := hba + ".barepod.bak"
+		if _, err := os.Stat(bak); os.IsNotExist(err) {
+			_ = os.WriteFile(bak, data, 0640)
+		}
+
+		newContent := rePeer.ReplaceAllString(content, "local   all             all                                     scram-sha-256")
+		if !strings.Contains(newContent, "root") && rePg.MatchString(newContent) {
+			newContent = rePg.ReplaceAllString(newContent, "$1\nlocal   all             root                                    peer")
+		}
+
+		info, err := os.Stat(hba)
+		mode := os.FileMode(0640)
+		if err == nil {
+			mode = info.Mode()
+		}
+		if err := os.WriteFile(hba, []byte(newContent), mode); err == nil {
+			healedAny = true
+		}
+	}
+
+	if healedAny {
+		if runner != nil {
+			_, _ = runner.Run(ctx, "", "systemctl", "reload", "postgresql")
+		} else {
+			_ = exec.Command("systemctl", "reload", "postgresql").Run()
+		}
+		return true, nil
+	}
+	return false, nil
+}
+

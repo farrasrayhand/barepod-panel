@@ -131,6 +131,17 @@ elif command -v apt-get >/dev/null 2>&1; then
       [ ! -f "$conf_dir/20-mbstring.ini" ] && [ ! -L "$conf_dir/20-mbstring.ini" ] && echo "extension=mbstring" > "$conf_dir/20-mbstring.ini" 2>/dev/null || true
     fi
   done
+  for hba in /etc/postgresql/*/main/pg_hba.conf; do
+    if [ -f "$hba" ]; then
+      cp -n "$hba" "$hba.barepod.bak" 2>/dev/null || true
+      if grep -qE '^local[[:space:]]+all[[:space:]]+all[[:space:]]+peer' "$hba"; then
+        sed -i -E 's#^(local[[:space:]]+all[[:space:]]+all[[:space:]]+)peer#\1scram-sha-256#' "$hba"
+        grep -qE '^local[[:space:]]+all[[:space:]]+root[[:space:]]+peer' "$hba" || \
+          sed -i -E '0,/^(local[[:space:]]+all[[:space:]]+postgres[[:space:]]+peer)/s//&\nlocal   all             root                                    peer/' "$hba"
+        systemctl reload postgresql >/dev/null 2>&1 || true
+      fi
+    fi
+  done
   systemctl enable --now mariadb redis-server nginx docker >/dev/null 2>&1 || true
 fi
 

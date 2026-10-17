@@ -15,6 +15,7 @@ import (
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/stack"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
 
@@ -251,6 +252,9 @@ func (s *Server) prepareDbGate(ctx context.Context, record *store.Database, moun
 			}
 			lines = append(lines, "SERVER_bpod="+host, "PORT_bpod="+strconv.Itoa(record.Port))
 		case dbgateSocketDir(engine.Name) != "":
+			if engine.Name == "postgresql" {
+				_, _ = stack.EnsurePostgresHba(ctx, s.host.Runner)
+			}
 			// An engine installed on the host listens on the host's loopback, which a
 			// container cannot reach. Its unix socket is mounted in instead — the same
 			// door the panel's own plans use — and DbGate is told to connect over it.
