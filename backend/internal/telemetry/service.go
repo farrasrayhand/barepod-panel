@@ -75,6 +75,32 @@ func readTailLines(filePath string, maxLines int) ([]string, error) {
 	return lines, scanner.Err()
 }
 
+// countFileLines counts total lines in a file quickly using chunked byte scanning.
+func countFileLines(filePath string) int {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+
+	buf := make([]byte, 64*1024)
+	count := 0
+	for {
+		n, err := f.Read(buf)
+		if n > 0 {
+			for i := 0; i < n; i++ {
+				if buf[i] == '\n' {
+					count++
+				}
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	return count
+}
+
 // GetWebsiteTelemetry aggregates access logs and GeoIP nodes for a website.
 func (s *Service) GetWebsiteTelemetry(ctx context.Context, slug string, maxLines int) (*WebsiteTelemetry, error) {
 	if maxLines <= 0 || maxLines > 2000 {
@@ -92,13 +118,17 @@ func (s *Service) GetWebsiteTelemetry(ctx context.Context, slug string, maxLines
 
 	logPath := s.FindLogPath(slug)
 	lines, err := readTailLines(logPath, maxLines)
+	totalReqs := countFileLines(logPath)
+	if totalReqs < len(lines) {
+		totalReqs = len(lines)
+	}
 
 	telemetry := &WebsiteTelemetry{
 		Slug:          slug,
 		Domain:        domain,
 		WebServer:     webServer,
 		LogPath:       logPath,
-		TotalRequests: 0,
+		TotalRequests: totalReqs,
 		UniqueIPs:     0,
 		ThreatCount:   0,
 		Nodes:         make([]Node, 0),
@@ -139,7 +169,6 @@ func (s *Service) GetWebsiteTelemetry(ctx context.Context, slug string, maxLines
 			continue
 		}
 
-		telemetry.TotalRequests++
 		if item.IP != "" {
 			uniqueIPs[item.IP] = struct{}{}
 		}
@@ -298,8 +327,11 @@ func (s *Service) StreamWebsiteTelemetry(ctx context.Context, slug string, w htt
 			file.Close()
 
 			if newLines > 0 {
-				// Re-emit updated nodes snapshot
+				// Re-emit updated nodes & summary snapshot with true total requests
 				updated, _ := s.GetWebsiteTelemetry(ctx, slug, 200)
+				if snapData, err := json.Marshal(updated); err == nil {
+					fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", snapData)
+				}
 				if nodesData, err := json.Marshal(updated.Nodes); err == nil {
 					fmt.Fprintf(w, "event: nodes\ndata: %s\n\n", nodesData)
 				}

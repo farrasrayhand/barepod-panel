@@ -186,9 +186,9 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
     fetchTelemetry();
   }, [fetchTelemetry]);
 
-  // Connect live SSE stream when tab is 'map' or 'logs'
+  // Connect live SSE stream when tab is 'monitoring', 'map', or 'logs'
   useEffect(() => {
-    if (activeTab !== 'map' && activeTab !== 'logs') return;
+    if (activeTab !== 'monitoring' && activeTab !== 'map' && activeTab !== 'logs') return;
     let es: EventSource | null = null;
     try {
       const streamUrl = api.websiteTelemetryStreamUrl(app.name);
@@ -206,6 +206,7 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
         try {
           const item = JSON.parse(e.data) as LogItem;
           setRealLogs(prev => [item, ...(prev || []).slice(0, 499)]);
+          setTelemetry(prev => prev ? { ...prev, totalRequests: (prev.totalRequests || 0) + 1 } : null);
         } catch { /* ignore */ }
       });
       es.addEventListener('nodes', (e: MessageEvent) => {
@@ -227,6 +228,15 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
       }
     };
   }, [app.name, activeTab]);
+
+  // Periodic background telemetry poll when activeTab is 'monitoring'
+  useEffect(() => {
+    if (activeTab !== 'monitoring') return;
+    const interval = setInterval(() => {
+      fetchTelemetry();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [activeTab, fetchTelemetry]);
 
   const handleExportAppBackup = () => {
     setIsExportingBackup(true);
@@ -1654,6 +1664,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   const visitorCountryNodes = realNodes && realNodes.length > 0 ? realNodes : (telemetry?.nodes ?? []);
 
   // Compute live traffic metrics from real logs / telemetry
+  const isReverseProxy = !!app.upstreamUrl || (app.runtime as string) === 'reverse_proxy' || (app.runtime as string) === 'proxy';
   const totalRequests = telemetry?.totalRequests ?? logs.filter(l => l.type === 'access').length;
   const count2xx = logs.filter(l => l.type === 'access' && l.status && l.status >= 200 && l.status < 300).length;
   const count4xx = logs.filter(l => l.type === 'access' && l.status && l.status >= 400 && l.status < 500).length;
@@ -1662,7 +1673,12 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   const pct2xx = logs.length > 0 ? Math.round((count2xx / accessTotal) * 100) : (isRunning ? 100 : 0);
   const pct4xx = logs.length > 0 ? Math.round((count4xx / accessTotal) * 100) : 0;
   const pct5xx = logs.length > 0 ? Math.round((count5xx / accessTotal) * 100) : 0;
-  const responseLatency = isRunning ? '< 1' : '—';
+  const latestLatency = useMemo(() => {
+    const logWithLat = logs.find(l => l.type === 'access' && l.latency && l.latency !== '—');
+    if (logWithLat?.latency) return logWithLat.latency;
+    return isRunning ? '< 1 ms' : '—';
+  }, [logs, isRunning]);
+  const responseLatency = latestLatency;
 
   const filteredLogs = logs.filter(log => {
     const matchesType = logType === 'all' || log.type === logType;
@@ -2341,42 +2357,75 @@ QUEUE_CONNECTION=redis`;
 
             {/* Live Metrics Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
-                <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">CPU USAGE</span>
-                <div className="flex items-baseline justify-between">
-                  <span className="text-2xl font-extrabold text-slate-900">{currentCpu}%</span>
-                  <span className="text-[10px] text-emerald-600 font-bold">Quota: 1 vCPU</span>
+              {isReverseProxy ? (
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">INGRESS PROXY ENGINE</span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xl font-extrabold text-blue-700 uppercase tracking-tight">{app.webServer || 'Nginx'}</span>
+                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">Zero-Overhead</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 block mt-2 font-mono truncate">
+                    Direct socket passthrough
+                  </div>
                 </div>
-                <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden mt-2">
-                  <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${Math.min(100, currentCpu * 20)}%` }} />
+              ) : (
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">CPU USAGE</span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-2xl font-extrabold text-slate-900">{currentCpu}%</span>
+                    <span className="text-[10px] text-emerald-600 font-bold">Quota: 1 vCPU</span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden mt-2">
+                    <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${Math.min(100, currentCpu * 20)}%` }} />
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
-                <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">MEMORY (RAM)</span>
-                <div className="flex items-baseline justify-between">
-                  <span className="text-2xl font-extrabold text-slate-900">{currentMem} MB</span>
-                  <span className="text-[10px] text-slate-400">Limit: 512 MB</span>
+              {isReverseProxy ? (
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">TARGET UPSTREAM</span>
+                  <div className="flex items-baseline justify-between min-w-0">
+                    <span className="text-base font-extrabold text-slate-900 font-mono truncate" title={app.upstreamUrl}>
+                      {app.upstreamUrl?.replace(/^https?:\/\//, '') || 'Upstream Socket'}
+                    </span>
+                    <span className="text-[10px] text-emerald-600 font-bold shrink-0 ml-1">Connected</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 block mt-2 font-mono truncate">
+                    {app.upstreamUrl?.startsWith('https') ? 'HTTPS (TLS Passthrough)' : 'HTTP (Plain Socket)'}
+                  </div>
                 </div>
-                <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden mt-2">
-                  <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (currentMem / 512) * 100)}%` }} />
+              ) : (
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
+                  <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">MEMORY (RAM)</span>
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-2xl font-extrabold text-slate-900">{currentMem} MB</span>
+                    <span className="text-[10px] text-slate-400">Limit: 512 MB</span>
+                  </div>
+                  <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden mt-2">
+                    <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, (currentMem / 512) * 100)}%` }} />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
                 <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">RESPONSE LATENCY</span>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-2xl font-extrabold text-slate-900">{responseLatency} ms</span>
+                  <span className="text-2xl font-extrabold text-slate-900 font-mono">{responseLatency}</span>
                   <span className="text-[10px] text-emerald-600 font-bold">P99 Edge</span>
                 </div>
-                <span className="text-[10px] text-slate-400 block mt-2 font-mono">Ingress reverse proxy socket</span>
+                <span className="text-[10px] text-slate-400 block mt-2 font-mono">
+                  {isReverseProxy ? 'Upstream socket roundtrip' : 'Application socket'}
+                </span>
               </div>
 
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
                 <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">TOTAL REQUESTS</span>
                 <div className="flex items-baseline justify-between">
-                  <span className="text-2xl font-extrabold text-slate-900">{totalRequests.toLocaleString()}</span>
-                  <span className="text-[10px] text-emerald-600 font-bold">Server Logs</span>
+                  <span className="text-2xl font-extrabold text-slate-900 font-mono">{totalRequests.toLocaleString()}</span>
+                  <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Stream
+                  </span>
                 </div>
                 <span className="text-[10px] text-slate-400 block mt-2 font-mono">{isRunning ? 'Active Ingress' : 'Service Idle'}</span>
               </div>
