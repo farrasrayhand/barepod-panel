@@ -1,6 +1,7 @@
 package host
 
 import (
+	"bufio"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -8,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -572,11 +574,31 @@ func (h *Host) Run(ctx context.Context, argv []string) (string, error) {
 // to a temporary file first so that systemd-run does not mangle or evaluate shell variables
 // ($v, ${foo}, etc.) as empty systemd environment variables.
 func (h *Host) RunDetached(ctx context.Context, unit string, argv []string) (string, error) {
+	var sb strings.Builder
+	err := h.RunDetachedStream(ctx, unit, argv, func(line string) {
+		if sb.Len() > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(line)
+	})
+	return sb.String(), err
+}
+
+// RunDetachedStream runs a command as a transient systemd unit and streams each line to onLine in real-time.
+func (h *Host) RunDetachedStream(ctx context.Context, unit string, argv []string, onLine func(line string)) error {
 	if len(argv) == 0 {
-		return "", nil
+		return nil
 	}
 	if h.Runner == nil || h.Runner.Mode() != "real" {
-		return h.Run(ctx, argv)
+		out, err := h.Run(ctx, argv)
+		if onLine != nil {
+			for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+				if strings.TrimSpace(line) != "" {
+					onLine(line)
+				}
+			}
+		}
+		return err
 	}
 
 	cmdArgs := argv
@@ -598,12 +620,32 @@ func (h *Host) RunDetached(ctx context.Context, unit string, argv []string) (str
 		"--wait",
 		"--pipe",
 		"--property=Type=oneshot",
-		// Nothing here has a terminal: a package that asks a question would otherwise read
-		// EOF and abort the install half-way.
 		"--setenv=DEBIAN_FRONTEND=noninteractive",
 		"--",
 	}, cmdArgs...)
-	return h.Run(ctx, args)
+
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	cmd.Stderr = cmd.Stdout // combine stderr into stdout pipe
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(stdout)
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if onLine != nil && strings.TrimSpace(line) != "" {
+			onLine(line)
+		}
+	}
+
+	return cmd.Wait()
 }
 
 // RunAs executes a command as another user from the daemon's working directory.

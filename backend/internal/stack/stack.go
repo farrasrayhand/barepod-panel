@@ -187,7 +187,7 @@ for v in $VERSIONS; do
     continue
   fi
   echo ""
-  echo ">>> [PHP $v] Scanning repository for installable extensions..."
+  echo ">>> [PHP $v] Scanning Sury repository for installable extensions..."
   
   AVAIL=$(apt-cache search --names-only "^php${v}-[a-z0-9]+$" 2>/dev/null | awk '{print $1}')
   
@@ -217,21 +217,21 @@ for v in $VERSIONS; do
   if [ -z "$INSTALL_PKGS" ]; then
     echo ">>> [PHP $v] All available extensions are already installed."
   else
-    echo ">>> [PHP $v] Installing missing extensions in fast batch mode..."
+    echo ">>> [PHP $v] Installing missing extensions:"
     echo "    $INSTALL_PKGS"
-    DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::="--force-confold" install -y $INSTALL_PKGS 2>&1 || {
+    DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::="--force-confold" install -y $INSTALL_PKGS || {
       echo "Notice: batch install encountered an issue, falling back to per-package install..."
       for p in $INSTALL_PKGS; do
         echo "--> Installing $p..."
-        DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::="--force-confold" install -y "$p" 2>&1 || echo "Notice: skipped $p"
+        DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::="--force-confold" install -y "$p" || echo "Notice: skipped $p"
       done
     }
   fi
 
-  echo ">>> [PHP $v] Enabling all extensions via phpenmod..."
-  phpenmod -v "$v" ALL 2>/dev/null || true
+  echo ">>> [PHP $v] Enabling extensions via phpenmod..."
+  phpenmod -v "$v" ALL || true
   echo ">>> [PHP $v] Reloading php$v-fpm service..."
-  systemctl reload php${v}-fpm 2>/dev/null || true
+  systemctl reload php${v}-fpm || true
   echo ">>> [PHP $v] Extension synchronization complete."
 done
 
@@ -254,7 +254,9 @@ echo "=========================================================="
 			"imagick", "redis", "mongodb", "ldap", "imap", "swoole", "pcntl",
 		}
 		script := "set -e\n" +
+			"echo \"Installing PHP " + version + " core packages (php" + version + "-fpm, php" + version + "-cli)...\"\n" +
 			"apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y php" + version + "-fpm php" + version + "-cli\n" +
+			"echo \"Discovering installable extensions for PHP " + version + "...\"\n" +
 			"pkgs=\"\"\n" +
 			"for pkg in $(apt-cache search --names-only \"^php" + version + "-[a-z0-9]+$\" | awk '{print $1}'); do\n" +
 			"  case \"$pkg\" in\n" +
@@ -263,10 +265,18 @@ echo "=========================================================="
 			"  esac\n" +
 			"  pkgs=\"$pkgs $pkg\"\n" +
 			"done\n" +
-			"apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y $pkgs 2>/dev/null || " +
-			"for e in " + strings.Join(extensions, " ") + "; do apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y php" + version + "-$e 2>/dev/null || echo \"skipped php" + version + "-$e\"; done\n" +
-			"phpenmod -v " + version + " ALL 2>/dev/null || true\n" +
-			"systemctl reload php" + version + "-fpm 2>/dev/null || true"
+			"echo \"Installing discovered extensions for PHP " + version + "...\"\n" +
+			"apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y $pkgs || {\n" +
+			"  echo \"Notice: batch install encountered an issue, falling back to core extensions...\"\n" +
+			"  for e in " + strings.Join(extensions, " ") + "; do\n" +
+			"    apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y php" + version + "-$e || echo \"Notice: skipped php" + version + "-$e\"\n" +
+			"  done\n" +
+			"}\n" +
+			"echo \"Enabling all extensions via phpenmod...\"\n" +
+			"phpenmod -v " + version + " ALL || true\n" +
+			"echo \"Reloading php" + version + "-fpm service...\"\n" +
+			"systemctl reload php" + version + "-fpm || true\n" +
+			"echo \"PHP " + version + " installation completed successfully!\""
 		// Ubuntu ships a single PHP, so the versions the panel offers come from the Sury
 		// repository; it is added first and the available versions are read back from apt.
 		return [][]string{{"bash", "-c", suryRepoScript}, {"bash", "-c", script}}, nil
@@ -492,30 +502,37 @@ fi`
 // does not ship come from. The key is installed with a signed-by entry so apt does
 // not accept anything else from that host.
 const suryRepoScript = `set -e
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq lsb-release ca-certificates curl gnupg >/dev/null
+echo "Configuring packages.sury.org/php repository..."
+apt-get -o DPkg::Lock::Timeout=600 install -y lsb-release ca-certificates curl gnupg
 curl -fsSL https://packages.sury.org/php/apt.gpg -o /usr/share/keyrings/sury-php.gpg
 echo "deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/sury-php.list
+echo "Updating apt package index..."
 apt-get -o DPkg::Lock::Timeout=600 update`
 
 // deadsnakesRepoScript adds the deadsnakes PPA, where the Python versions Ubuntu does
 // not ship come from.
 const deadsnakesRepoScript = `set -e
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq software-properties-common >/dev/null
+echo "Configuring deadsnakes PPA repository..."
+apt-get -o DPkg::Lock::Timeout=600 install -y software-properties-common
 add-apt-repository -y ppa:deadsnakes/ppa
+echo "Updating apt package index..."
 apt-get -o DPkg::Lock::Timeout=600 update`
 
 // The database engines' own repositories. Ubuntu carries one version of each, which is why
 // a version list from the distribution alone is a single entry: PGDG carries one package
 // per major, and the others carry the release lines they support.
 const pgdgRepoScript = `set -e
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+echo "Configuring PostgreSQL PGDG repository..."
+apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release
 install -d /usr/share/postgresql-common/pgdg
 curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
 echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
-apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+echo "Updating apt package index..."
+apt-get -o DPkg::Lock::Timeout=600 update`
 
 const mariadbRepoScript = `set -e
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+echo "Configuring MariaDB repository..."
+apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release
 curl -fsSL https://mariadb.org/mariadb_release_signing_key.pgp -o /usr/share/keyrings/mariadb-keyring.pgp
 CODENAME=$(lsb_release -cs)
 cat << 'EOF' > /etc/apt/sources.list.d/mariadb.list
@@ -526,61 +543,71 @@ deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.o
 deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.org/repo/13.0/ubuntu CODENAME main
 EOF
 sed -i "s/CODENAME/$CODENAME/g" /etc/apt/sources.list.d/mariadb.list
-apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+echo "Updating apt package index..."
+apt-get -o DPkg::Lock::Timeout=600 update`
 
 const mongodbRepoScript = `set -e
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+echo "Configuring MongoDB repository..."
+apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release
 curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor --yes -o /usr/share/keyrings/mongodb-server-8.0.gpg
 echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/8.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-8.0.list
-apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+echo "Updating apt package index..."
+apt-get -o DPkg::Lock::Timeout=600 update`
 
 const redisRepoScript = `set -e
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+echo "Configuring Redis repository..."
+apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release
 curl -fsSL https://packages.redis.io/gpg | gpg --dearmor --yes -o /usr/share/keyrings/redis-archive-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" > /etc/apt/sources.list.d/redis.list
-apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+echo "Updating apt package index..."
+apt-get -o DPkg::Lock::Timeout=600 update`
 
 // The web servers' own repositories: Ubuntu pins one nginx and one caddy, and both
 // projects publish releases faster than the distribution.
 const nginxRepoScript = `set -e
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+echo "Configuring Nginx repository..."
+apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release
 curl -fsSL https://nginx.org/keys/nginx_signing.key -o /usr/share/keyrings/nginx-archive-keyring.asc
 echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.asc] https://nginx.org/packages/mainline/ubuntu $(lsb_release -cs) nginx" > /etc/apt/sources.list.d/nginx.list
-apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+echo "Updating apt package index..."
+apt-get -o DPkg::Lock::Timeout=600 update`
 
 const caddyRepoScript = `set -e
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
+echo "Configuring Caddy repository..."
+apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release
 curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt > /etc/apt/sources.list.d/caddy-stable.list
-apt-get -o DPkg::Lock::Timeout=600 update >/dev/null`
+echo "Updating apt package index..."
+apt-get -o DPkg::Lock::Timeout=600 update`
 
 // Apache and OpenLiteSpeed carry more versions than Ubuntu's single package: the ondrej
 // PPA for Apache, and LiteSpeed's own repository for OpenLiteSpeed. Each one undoes itself
 // if apt cannot use it, because a source that fails leaves the whole system unable to
 // install anything — which is worse than a version list with one entry.
 const apacheRepoScript = `set -e
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq software-properties-common >/dev/null
+echo "Configuring Apache ondrej PPA repository..."
+apt-get -o DPkg::Lock::Timeout=600 install -y software-properties-common
 # --no-update, because add-apt-repository runs its own apt-get update, and letting that
 # failure look like "the PPA is unavailable" removed a PPA that is perfectly available.
-if add-apt-repository -y --no-update ppa:ondrej/apache2 >/dev/null 2>&1; then
-  if ! apt-get -o DPkg::Lock::Timeout=600 update >/dev/null 2>&1; then
-    add-apt-repository -y --remove ppa:ondrej/apache2 >/dev/null 2>&1 || true
-    echo "the Apache PPA could not be updated — removed it again rather than leaving apt broken"
+if add-apt-repository -y --no-update ppa:ondrej/apache2; then
+  echo "Updating apt package index for Apache PPA..."
+  if ! apt-get -o DPkg::Lock::Timeout=600 update; then
+    add-apt-repository -y --remove ppa:ondrej/apache2 || true
+    echo "Notice: the Apache PPA could not be updated — removed it again rather than leaving apt broken"
   fi
 else
-  echo "the Apache PPA is not available for this release — keeping the distribution's Apache"
+  echo "Notice: the Apache PPA is not available for this release — keeping the distribution's Apache"
 fi`
 
 const openlitespeedRepoScript = `set -e
-apt-get -o DPkg::Lock::Timeout=600 install -y -qq curl ca-certificates gnupg lsb-release >/dev/null
-# The key is fetched ASCII-armoured by the project's own instructions and must be
-# dearmoured: saving it as it arrives leaves "signed-by" pointing at something apt cannot
-# read, so every apt-get update fails and the source looks unavailable.
+echo "Configuring OpenLiteSpeed repository..."
+apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release
 curl -fsSL https://rpms.litespeedtech.com/debian/lst_repo.gpg | gpg --dearmor --yes -o /usr/share/keyrings/lst_repo.gpg
 echo "deb [signed-by=/usr/share/keyrings/lst_repo.gpg] http://rpms.litespeedtech.com/debian/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/openlitespeed.list
-if ! apt-get -o DPkg::Lock::Timeout=600 update >/dev/null 2>&1; then
+echo "Updating apt package index for OpenLiteSpeed..."
+if ! apt-get -o DPkg::Lock::Timeout=600 update; then
   rm -f /etc/apt/sources.list.d/openlitespeed.list
-  echo "OpenLiteSpeed's repository could not be updated — removed it again rather than leaving apt broken"
+  echo "Notice: OpenLiteSpeed's repository could not be updated — removed it again rather than leaving apt broken"
 fi`
 
 // rustupRepoScript installs rustup, which is itself the multi-toolchain manager. It uses
@@ -932,12 +959,9 @@ func (i *Installer) run(job *store.DeployJob, action, done, component, version s
 		log("step", fmt.Sprintf("-> [%d/%d] %s", n+1, len(commands), job.CurrentStep))
 		// Each step is its own transient unit: a deploy that restarts the daemon no longer
 		// kills the apt or rustup running under it.
-		out, err := i.host.RunDetached(ctx, fmt.Sprintf("barepod-stack-%s-%d", job.ID, n+1), argv)
-		for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-			if strings.TrimSpace(line) != "" {
-				log("stdout", line)
-			}
-		}
+		err := i.host.RunDetachedStream(ctx, fmt.Sprintf("barepod-stack-%s-%d", job.ID, n+1), argv, func(line string) {
+			log("stdout", line)
+		})
 		if err != nil {
 			job.Status = "failed"
 			job.Error = fmt.Sprintf("%s failed: %v", argv[0], err)

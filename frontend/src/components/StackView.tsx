@@ -88,6 +88,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
 
   // Which runtimes have their long version list open.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [selectedPhpExtVersion, setSelectedPhpExtVersion] = useState<string>('all');
   const [repairing, setRepairing] = useState(false);
   const [repairNotice, setRepairNotice] = useState<string | null>(null);
   const sourceRef = useRef<EventSource | null>(null);
@@ -815,7 +816,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                     {installed.map((version) => (
                       <span
                         key={version}
-                        className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200"
+                        className="inline-flex items-center gap-1.5 pl-2 pr-1.5 py-0.5 rounded-lg text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200"
                       >
                         <span className="font-mono">{version}</span>
                         {component.name === 'php' && (
@@ -823,17 +824,18 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                             type="button"
                             onClick={() => void install('php-extensions', version)}
                             disabled={busy || live !== true}
-                            title={`Install all missing repository extensions for PHP ${version}`}
-                            className="p-0.5 rounded text-purple-600 hover:text-purple-800 hover:bg-purple-100 disabled:opacity-40 cursor-pointer"
+                            title={`Sync all missing extensions for PHP ${version}`}
+                            className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] text-purple-700 bg-purple-100 hover:bg-purple-200 disabled:opacity-40 cursor-pointer font-medium"
                           >
-                            <Sparkles className="w-3 h-3" />
+                            <Sparkles className="w-2.5 h-2.5" />
+                            <span>Exts</span>
                           </button>
                         )}
                         <button
                           onClick={() => void promptUninstall(component.name, version, component.label)}
                           disabled={busy || live !== true}
                           title={`Uninstall ${component.label} ${version} — refused while a site or database uses it`}
-                          className="p-0.5 rounded hover:bg-emerald-100 disabled:opacity-40"
+                          className="p-0.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-40 cursor-pointer"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -842,32 +844,47 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   </div>
                 )}
                 {component.name === 'php' && installed.length > 0 && (
-                  <div className="mt-3 p-3 bg-purple-50/70 border border-purple-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="mt-3 p-3.5 bg-purple-50/70 border border-purple-200/80 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
                         <Sparkles className="w-4 h-4 text-purple-600" />
                       </div>
                       <div>
                         <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
-                          <span>Complete Missing PHP Extensions</span>
+                          <span>Sync Missing PHP Extensions</span>
                           <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 font-mono text-[10px] font-semibold">
-                            {installed.length} version{installed.length > 1 ? 's' : ''} on host
+                            {installed.length} version{installed.length > 1 ? 's' : ''} detected
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 mt-0.5">
-                          Scan Sury apt repositories and install all missing extensions (curl, gd, imagick, redis, swoole, etc.) for all installed PHP versions.
+                          Scans Sury repository and completes missing extensions (curl, gd, imagick, redis, swoole, etc.) for existing installed PHP without installing new PHP runtimes.
                         </p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void install('php-extensions', 'all')}
-                      disabled={busy || live !== true}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition-colors shadow-2xs cursor-pointer disabled:opacity-50 shrink-0"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Install All Missing Extensions</span>
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <select
+                        value={selectedPhpExtVersion}
+                        onChange={(e) => setSelectedPhpExtVersion(e.target.value)}
+                        disabled={busy || live !== true}
+                        className="bg-white border border-purple-200 text-slate-800 text-xs font-semibold rounded-lg px-2.5 py-1.5 shadow-2xs focus:ring-2 focus:ring-purple-400 focus:outline-none"
+                      >
+                        <option value="all">All Installed ({installed.length} versions)</option>
+                        {installed.map((v) => (
+                          <option key={v} value={v}>
+                            Only PHP {v}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void install('php-extensions', selectedPhpExtVersion)}
+                        disabled={busy || live !== true}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 transition-colors shadow-2xs cursor-pointer disabled:opacity-50 shrink-0"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Install Extensions</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
