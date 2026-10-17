@@ -188,38 +188,27 @@ echo "BarePod PHP Extensions Synchronizer & Installer"
 echo "Target PHP version(s):"
 echo "$VERSIONS"
 echo "=========================================================="
-
-CORE_EXTS="curl mbstring xml zip gd intl bcmath mysql pgsql sqlite3 opcache soap imagick redis mongodb memcached bz2 gmp apcu yaml uuid msgpack igbinary"
-
 for v in $VERSIONS; do
   echo ""
-  echo ">>> [PHP $v] Checking missing standard extensions..."
+  echo ">>> [PHP $v] Scanning Sury repository for all available extensions..."
   
+  AVAIL=$(apt-cache search --names-only "^php${v}-[a-z0-9]+$" 2>/dev/null | awk '{print $1}')
   INSTALL_PKGS=""
-  for e in $CORE_EXTS; do
-    pkg="php${v}-${e}"
-    if apt-cache show "$pkg" >/dev/null 2>&1; then
-      if ! dpkg -s "$pkg" 2>/dev/null | grep -q "Status: install ok installed"; then
-        INSTALL_PKGS="$INSTALL_PKGS $pkg"
-      fi
+  for pkg in $AVAIL; do
+    case "$pkg" in
+      *-fpm|*-cli|*-common|*-dev|*-dbg|*-phpdbg|*-cgi|*-apache2|*-pear|lib*|*-litespeed) continue ;;
+      *-gmagick|*-yac|*-openswoole|*-phalcon*|*-xcache) continue ;;
+    esac
+    if [ "$pkg" = "php7.2-sodium" ]; then
+      continue
+    fi
+    if ! dpkg -s "$pkg" 2>/dev/null | grep -q "Status: install ok installed"; then
+      INSTALL_PKGS="$INSTALL_PKGS $pkg"
     fi
   done
 
-  # Include swoole for modern PHP (>= 7.2) if available
-  IS_MODERN=$(awk "BEGIN {print ($v >= 7.2) ? 1 : 0}" 2>/dev/null || echo "1")
-  if [ "$IS_MODERN" = "1" ]; then
-    for e in swoole; do
-      pkg="php${v}-${e}"
-      if apt-cache show "$pkg" >/dev/null 2>&1; then
-        if ! dpkg -s "$pkg" 2>/dev/null | grep -q "Status: install ok installed"; then
-          INSTALL_PKGS="$INSTALL_PKGS $pkg"
-        fi
-      fi
-    done
-  fi
-
   if [ -z "$INSTALL_PKGS" ]; then
-    echo ">>> [PHP $v] All standard extensions are already installed."
+    echo ">>> [PHP $v] All repository extensions are already installed."
   else
     echo ">>> [PHP $v] Installing missing extensions:"
     echo "    $INSTALL_PKGS"
@@ -246,24 +235,21 @@ echo "=========================================================="
 `
 		return [][]string{{"bash", "-c", suryRepoScript}, {"bash", "-c", script}}, nil
 	case "php":
-		// A PHP install installs the core packages (fpm, cli) and the standard
-		// non-conflicting suite of web extensions.
-		coreExts := []string{
-			"curl", "mbstring", "xml", "zip", "gd", "intl", "bcmath", "mysql", "pgsql",
-			"sqlite3", "opcache", "soap", "bz2", "gmp", "imagick", "redis", "mongodb",
-			"memcached", "apcu", "yaml", "uuid", "msgpack", "igbinary",
-		}
+		// A PHP install installs the core packages (fpm, cli) and all available
+		// repository extensions (excluding mutually conflicting packages).
 		script := "set -e\n" +
 			"echo \"Installing PHP " + version + " core packages (php" + version + "-fpm, php" + version + "-cli)...\"\n" +
 			"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::=--force-confold install -y php" + version + "-fpm php" + version + "-cli\n" +
-			"echo \"Checking standard web extensions for PHP " + version + "...\"\n" +
+			"echo \"Scanning repository for extensions for PHP " + version + "...\"\n" +
 			"pkgs=\"\"\n" +
-			"for e in " + strings.Join(coreExts, " ") + "; do\n" +
-			"  pkg=\"php" + version + "-$e\"\n" +
-			"  if apt-cache show \"$pkg\" >/dev/null 2>&1; then\n" +
-			"    if ! dpkg -s \"$pkg\" 2>/dev/null | grep -q \"Status: install ok installed\"; then\n" +
-			"      pkgs=\"$pkgs $pkg\"\n" +
-			"    fi\n" +
+			"for pkg in $(apt-cache search --names-only \"^php" + version + "-[a-z0-9]+$\" 2>/dev/null | awk '{print $1}'); do\n" +
+			"  case \"$pkg\" in\n" +
+			"    *-fpm|*-cli|*-common|*-dev|*-dbg|*-phpdbg|*-cgi|*-apache2|*-pear|lib*|*-litespeed) continue ;;\n" +
+			"    *-gmagick|*-yac|*-openswoole|*-phalcon*|*-xcache) continue ;;\n" +
+			"  esac\n" +
+			"  if [ \"$pkg\" = \"php7.2-sodium\" ]; then continue; fi\n" +
+			"  if ! dpkg -s \"$pkg\" 2>/dev/null | grep -q \"Status: install ok installed\"; then\n" +
+			"    pkgs=\"$pkgs $pkg\"\n" +
 			"  fi\n" +
 			"done\n" +
 			"if [ -n \"$pkgs\" ]; then\n" +
