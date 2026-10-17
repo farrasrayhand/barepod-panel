@@ -155,13 +155,14 @@ func plan(req Request) []step {
 	}
 	return []step{
 		{"Prepare site directory", stepPrepareDirs},
+		{"Prepare domain ingress", stepWriteVhost},
 		{"Fetch source code", stepFetchSource},
 		{"Write environment file", stepWriteEnv},
 		{"Provision database", stepProvisionDatabase},
 		{"Provision cache", stepProvisionCache},
 		{"Build automation", stepRunBuildScript},
 		{"Write PHP-FPM pool", stepWritePhpPool},
-		{"Write web-server vhost", stepWriteVhost},
+		{"Update web-server vhost", stepWriteVhost},
 		{"Render service unit", stepRenderUnit},
 		{"Start service", stepStartService},
 		{"Health check", stepHealthCheck},
@@ -300,6 +301,12 @@ func stepPrepareDirs(ctx context.Context, s *state) error {
 	s.log("stdout", "site directory: "+dir)
 	if !s.m.host.Materialises() {
 		s.log("stdout", "[dry-run] ownership for tenant "+s.req.Tenant+" was not applied")
+	}
+
+	// Prepare initial placeholder page so the domain immediately answers with HTTP 200
+	// while longer tasks (git clone, composer/npm install, database provisioning) run in background.
+	if s.req.Domain != "" {
+		_ = s.writeDefaultPage(ctx)
 	}
 	return nil
 }
