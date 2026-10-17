@@ -62,6 +62,7 @@ func (s *Server) siteRuntime(site *store.Website) map[string]any {
 		"engineInstalled":   webserver.Available(engine, s.lookPath),
 		"docRoot":           spec.DocRoot,
 		"port":              site.Port,
+		"upstreamUrl":       site.UpstreamURL,
 		"vhostPath":         webserver.Path(engine, s.host.VhostsFor(engine), site.Slug),
 		"mode":              s.host.Mode(),
 	}
@@ -176,6 +177,9 @@ func (s *Server) applyVhost(r *http.Request, site *store.Website) error {
 		return err
 	}
 	spec := webserver.SpecFor(site.Slug, site.Domain, site.Runtime, siteDir, site.Port)
+	if site.UpstreamURL != "" {
+		spec = spec.WithUpstream(site.UpstreamURL)
+	}
 	if raw, err := s.store.PanelSetting("site_runtime_config:" + site.Slug); err == nil && raw != "" {
 		var cfg map[string]any
 		if err := json.Unmarshal([]byte(raw), &cfg); err == nil {
@@ -256,6 +260,17 @@ func (s *Server) handleVhostPreview(w http.ResponseWriter, r *http.Request, user
 	}
 	siteDir := s.host.SitePath(site.TenantUser, site.Slug)
 	spec := webserver.SpecFor(site.Slug, site.Domain, site.Runtime, siteDir, site.Port)
+	if site.UpstreamURL != "" {
+		spec = spec.WithUpstream(site.UpstreamURL)
+	}
+	if raw, err := s.store.PanelSetting("site_runtime_config:" + site.Slug); err == nil && raw != "" {
+		var cfg map[string]any
+		if err := json.Unmarshal([]byte(raw), &cfg); err == nil {
+			if u, ok := cfg["upstreamUrl"].(string); ok && strings.TrimSpace(u) != "" {
+				spec = spec.WithUpstream(strings.TrimSpace(u))
+			}
+		}
+	}
 	if domains, err := s.store.ListDomainsForSite(site.Slug); err == nil && len(domains) > 0 {
 		var aliases []string
 		var certPath, keyPath string

@@ -362,7 +362,7 @@ func TestReverseProxyHttpsUpstream(t *testing.T) {
 		UpstreamURL: "https://192.168.1.100:8006",
 	}
 
-	// 1. Nginx
+	// 1. Nginx with IP upstream (RFC 6066: must NOT set proxy_ssl_server_name on for IP addresses)
 	nginxCfg, err := Render(Nginx, spec)
 	if err != nil {
 		t.Fatal(err)
@@ -370,7 +370,6 @@ func TestReverseProxyHttpsUpstream(t *testing.T) {
 	for _, want := range []string{
 		"proxy_pass https://192.168.1.100:8006;",
 		"proxy_ssl_verify off;",
-		"proxy_ssl_server_name on;",
 		"proxy_buffering off;",
 		"client_max_body_size 0;",
 		"proxy_set_header Upgrade $http_upgrade;",
@@ -379,6 +378,20 @@ func TestReverseProxyHttpsUpstream(t *testing.T) {
 		if !strings.Contains(nginxCfg, want) {
 			t.Errorf("nginx proxy vhost missing %q:\n%s", want, nginxCfg)
 		}
+	}
+	if strings.Contains(nginxCfg, "proxy_ssl_server_name on;") {
+		t.Errorf("nginx proxy vhost should not contain proxy_ssl_server_name on for IP upstream:\n%s", nginxCfg)
+	}
+
+	// Domain upstream: should include proxy_ssl_server_name on and proxy_ssl_name
+	domainSpec := spec
+	domainSpec.UpstreamURL = "https://proxmox.internal.lan:8006"
+	domainNginxCfg, err := Render(Nginx, domainSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(domainNginxCfg, "proxy_ssl_server_name on;") || !strings.Contains(domainNginxCfg, "proxy_ssl_name proxmox.internal.lan;") {
+		t.Errorf("nginx proxy vhost missing domain SNI headers:\n%s", domainNginxCfg)
 	}
 
 	// 2. Caddy

@@ -1151,6 +1151,11 @@ func stepWriteVhost(ctx context.Context, s *state) error {
 	spec := webserver.SpecFor(s.req.Slug, s.req.Domain, s.req.Runtime, s.siteDir, s.req.Port)
 	upstream := s.req.UpstreamURL
 	if upstream == "" && s.m.store != nil {
+		if site, err := s.m.store.WebsiteBySlug(s.req.Slug); err == nil && site.UpstreamURL != "" {
+			upstream = site.UpstreamURL
+		}
+	}
+	if upstream == "" && s.m.store != nil {
 		if raw, err := s.m.store.PanelSetting("site_runtime_config:" + s.req.Slug); err == nil && raw != "" {
 			var cfg map[string]any
 			if err := json.Unmarshal([]byte(raw), &cfg); err == nil {

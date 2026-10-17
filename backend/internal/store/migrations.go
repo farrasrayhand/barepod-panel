@@ -30,7 +30,13 @@ var migrations = []migration{
 	{version: 20, statements: schemaV20},
 	{version: 21, statements: schemaV21},
 	{version: 22, statements: schemaV22},
+	{version: 23, statements: schemaV23},
 }
+
+// schemaV23 adds upstream_url to websites table so reverse proxy upstreams are permanently stored.
+const schemaV23 = `
+ALTER TABLE websites ADD COLUMN upstream_url TEXT NOT NULL DEFAULT '';
+`
 
 // schemaV22 cleans up orphaned records left by deleted websites.
 const schemaV22 = `

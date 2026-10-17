@@ -178,7 +178,7 @@ func (s *Store) SetElevated(sessionID string, until time.Time) error {
 func (s *Store) ListWebsites() ([]Website, error) {
 	rows, err := s.DB.Query(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
-		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
+		        status, deploy_status, ssl, tunnel_enabled, port, upstream_url, created_at,
 		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
 		 FROM websites ORDER BY created_at DESC, slug ASC`)
 	if err != nil {
@@ -191,7 +191,7 @@ func (s *Store) ListWebsites() ([]Website, error) {
 		var w Website
 		if err := rows.Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version,
 			&w.Framework, &w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable,
-			&w.Port, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch,
+			&w.Port, &w.UpstreamURL, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch,
 			&w.DeployHookToken, &w.AutoDeploy, &w.DeployScript); err != nil {
 			return nil, err
 		}
@@ -204,7 +204,7 @@ func (s *Store) ListWebsites() ([]Website, error) {
 func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
 	rows, err := s.DB.Query(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
-		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
+		        status, deploy_status, ssl, tunnel_enabled, port, upstream_url, created_at,
 		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
 		 FROM websites WHERE tenant_user = ? ORDER BY created_at DESC, slug ASC`, tenant)
 	if err != nil {
@@ -217,7 +217,7 @@ func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
 		var w Website
 		if err := rows.Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version,
 			&w.Framework, &w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable,
-			&w.Port, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch,
+			&w.Port, &w.UpstreamURL, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch,
 			&w.DeployHookToken, &w.AutoDeploy, &w.DeployScript); err != nil {
 			return nil, err
 		}
@@ -238,11 +238,11 @@ func (s *Store) WebsiteBySlug(slug string) (*Website, error) {
 	var w Website
 	err := s.DB.QueryRow(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
-		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
+		        status, deploy_status, ssl, tunnel_enabled, port, upstream_url, created_at,
 		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
 		 FROM websites WHERE slug = ?`, slug,
 	).Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version, &w.Framework,
-		&w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable, &w.Port, &w.CreatedAt,
+		&w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable, &w.Port, &w.UpstreamURL, &w.CreatedAt,
 		&w.SourceKind, &w.SourceRepo, &w.SourceBranch, &w.DeployHookToken, &w.AutoDeploy, &w.DeployScript)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -258,11 +258,11 @@ func (s *Store) WebsiteByDomain(domain string) (*Website, error) {
 	var w Website
 	err := s.DB.QueryRow(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
-		        status, deploy_status, ssl, tunnel_enabled, port, created_at,
+		        status, deploy_status, ssl, tunnel_enabled, port, upstream_url, created_at,
 		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
 		 FROM websites WHERE lower(domain) = ?`, strings.ToLower(strings.TrimSpace(domain)),
 	).Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version, &w.Framework,
-		&w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable, &w.Port, &w.CreatedAt,
+		&w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable, &w.Port, &w.UpstreamURL, &w.CreatedAt,
 		&w.SourceKind, &w.SourceRepo, &w.SourceBranch, &w.DeployHookToken, &w.AutoDeploy, &w.DeployScript)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -286,11 +286,11 @@ func (s *Store) CreateWebsite(w *Website) error {
 	}
 	_, err := s.DB.Exec(
 		`INSERT INTO websites (id, slug, domain, tenant_user, runtime, version, framework,
-		                       web_server, status, deploy_status, ssl, tunnel_enabled, port, created_at,
+		                       web_server, status, deploy_status, ssl, tunnel_enabled, port, upstream_url, created_at,
 		                       source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		w.ID, w.Slug, w.Domain, w.TenantUser, w.Runtime, w.Version, w.Framework,
-		w.WebServer, w.Status, w.DeployStatus, w.SSL, w.TunnelEnable, w.Port, w.CreatedAt,
+		w.WebServer, w.Status, w.DeployStatus, w.SSL, w.TunnelEnable, w.Port, strings.TrimSpace(w.UpstreamURL), w.CreatedAt,
 		w.SourceKind, w.SourceRepo, w.SourceBranch, w.DeployHookToken, w.AutoDeploy, w.DeployScript,
 	)
 	if err != nil {
@@ -335,6 +335,12 @@ func (s *Store) UpdateWebsiteVersion(slug, version string) error {
 // UpdateWebsitePort updates the service/proxy port of a website.
 func (s *Store) UpdateWebsitePort(slug string, port int) error {
 	_, err := s.DB.Exec(`UPDATE websites SET port = ? WHERE slug = ?`, port, slug)
+	return err
+}
+
+// UpdateWebsiteUpstream updates the reverse proxy upstream URL.
+func (s *Store) UpdateWebsiteUpstream(slug, upstreamURL string) error {
+	_, err := s.DB.Exec(`UPDATE websites SET upstream_url = ? WHERE slug = ?`, strings.TrimSpace(upstreamURL), slug)
 	return err
 }
 

@@ -32,6 +32,7 @@ type Website struct {
 	SSL             bool   `json:"ssl"`
 	TunnelEnable    bool   `json:"tunnelEnabled"`
 	Port            int    `json:"port"`
+	UpstreamURL     string `json:"upstreamUrl,omitempty"`
 	CreatedAt       string `json:"createdAt"`
 }
 

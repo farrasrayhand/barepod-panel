@@ -140,7 +140,11 @@ func (s *Server) handleGetRuntimeConfig(w http.ResponseWriter, r *http.Request, 
 		resConfig["docRoot"] = stringVal(savedConfig["docRoot"], "public")
 
 	case "proxy":
-		resConfig["upstreamUrl"] = stringVal(savedConfig["upstreamUrl"], fmt.Sprintf("http://127.0.0.1:%d", site.Port))
+		defaultUpstream := site.UpstreamURL
+		if defaultUpstream == "" {
+			defaultUpstream = fmt.Sprintf("http://127.0.0.1:%d", site.Port)
+		}
+		resConfig["upstreamUrl"] = stringVal(savedConfig["upstreamUrl"], defaultUpstream)
 		resConfig["websocket"] = boolVal(savedConfig["websocket"], true)
 	}
 
@@ -420,6 +424,8 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 		upUrl := stringVal(req.Config["upstreamUrl"], "")
 		if upUrl != "" {
 			req.Config["upstreamUrl"] = upUrl
+			_ = s.store.UpdateWebsiteUpstream(site.Slug, upUrl)
+			site.UpstreamURL = upUrl
 			if m := regexp.MustCompile(`:(\d+)`).FindStringSubmatch(upUrl); len(m) > 1 {
 				if newPort, err := strconv.Atoi(m[1]); err == nil && newPort > 0 && newPort != site.Port {
 					_ = s.store.UpdateWebsitePort(site.Slug, newPort)

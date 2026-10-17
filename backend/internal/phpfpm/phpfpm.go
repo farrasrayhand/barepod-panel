@@ -94,7 +94,7 @@ func Config(s Spec) string {
 	fmt.Fprintf(&b, "user = %s\n", s.Tenant)
 	fmt.Fprintf(&b, "group = %s\n", s.Tenant)
 	fmt.Fprintf(&b, "listen = %s\n", s.Socket)
-	b.WriteString("listen.mode = 0660\n")
+	b.WriteString("listen.mode = 0666\n")
 	b.WriteString("pm = ondemand\n")
 	fmt.Fprintf(&b, "pm.max_children = %d\n", children)
 	fmt.Fprintf(&b, "pm.process_idle_timeout = %s\n", idleTimeout)

@@ -15,7 +15,7 @@ func TestConfigConfinesThePoolToItsSite(t *testing.T) {
 	cfg := Config(Spec{Tenant: "alex", SiteDir: siteDir, Socket: SocketIn(siteDir), MemoryMB: 512})
 	for _, want := range []string{
 		"listen = " + siteDir + "/fpm.sock",
-		"listen.mode = 0660",
+		"listen.mode = 0666",
 		"user = alex",
 		"group = alex",
 		"open_basedir] = " + siteDir + ":/tmp",

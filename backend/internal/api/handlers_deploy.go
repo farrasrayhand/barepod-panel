@@ -251,6 +251,7 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		SSL:          req.SSL,
 		TunnelEnable: req.TunnelEnabled,
 		Port:         req.Port,
+		UpstreamURL:  req.UpstreamURL,
 		SourceKind:   req.Source.Kind,
 		SourceRepo:   req.Source.Repo,
 		SourceBranch: req.Source.Branch,

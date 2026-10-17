@@ -87,6 +87,7 @@ export interface ApiWebsite {
   ssl: boolean;
   tunnelEnabled: boolean;
   port: number;
+  upstreamUrl?: string;
   createdAt: string;
   sourceKind?: string;
   sourceRepo?: string;

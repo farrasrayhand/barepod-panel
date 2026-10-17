@@ -100,7 +100,7 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   activeTab: activeTabProp,
   onTabChange,
 }) => {
-  const [internalTab, setInternalTab] = useState<AppDetailTab>('monitoring');
+  const [internalTab, setInternalTab] = useState<AppDetailTab>(app.runtime === 'proxy' ? 'routing' : 'monitoring');
   const activeTab: AppDetailTab = activeTabProp ?? internalTab;
   const setActiveTab = (tab: AppDetailTab) => {
     setInternalTab(tab);
@@ -132,17 +132,18 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const tabSupport = siteTabSupport(app);
 
   // Tabs that do not exist for this site type are hidden, so a deep link to one
-  // (or a stale tab) falls back to monitoring instead of rendering an empty pane.
+  // (or a stale tab) falls back to the primary tab instead of rendering an empty pane.
   React.useEffect(() => {
     const unavailable =
-      ((activeTab === 'php' || activeTab === 'runtime') && app.runtime === 'proxy') ||
+      (app.runtime === 'proxy' && (activeTab === 'php' || activeTab === 'runtime' || activeTab === 'files' || activeTab === 'env' || activeTab === 'deploy')) ||
       (activeTab === 'files' && !tabSupport.files) ||
       (activeTab === 'env' && !tabSupport.env) ||
       (activeTab === 'deploy' && !tabSupport.deploy);
 
     if (unavailable) {
-      setInternalTab('monitoring');
-      onTabChange?.('monitoring');
+      const fallbackTab: AppDetailTab = app.runtime === 'proxy' ? 'routing' : 'monitoring';
+      setInternalTab(fallbackTab);
+      onTabChange?.(fallbackTab);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, app.runtime, app.id]);
@@ -1247,7 +1248,6 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   };
 
   const loadRuntimeConfig = useCallback(async () => {
-    if (app.runtime === 'proxy') return;
     setIsLoadingRuntimeConfig(true);
     try {
       if (await apiReachable()) {
@@ -1286,6 +1286,9 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
         } else if (app.runtime === 'static') {
           if (c.spaFallback !== undefined) setSpaFallback(c.spaFallback);
           if (c.docRoot) setDocRoot(c.docRoot);
+        } else if (app.runtime === 'proxy') {
+          if (c.upstreamUrl) setCurrentUpstream(c.upstreamUrl);
+          if (c.websocket !== undefined) setWsEnabled(c.websocket);
         }
       }
     } catch (err) {
@@ -1816,7 +1819,7 @@ QUEUE_CONNECTION=redis`;
                 }`}>
                   {app.runtime === 'proxy' ? 'Reverse Proxy' : `${app.runtime} ${app.version}`}
                 </span>
-                {(effectiveFrameworkLabel || app.framework) && (
+                {app.runtime !== 'proxy' && (effectiveFrameworkLabel || app.framework) && (
                   <span className="text-xs px-2.5 py-0.5 rounded-md font-bold bg-purple-50 text-purple-700 border border-purple-200 font-mono">
                     {effectiveFrameworkLabel || app.framework}
                   </span>
@@ -1935,53 +1938,68 @@ QUEUE_CONNECTION=redis`;
               <span>{isExportingBackup ? 'Packaging...' : 'Backup (.bpod)'}</span>
             </button>
 
-            {/* View Build Logs Button */}
-            <button
-              type="button"
-              onClick={() => {
-                onWatchDeploy?.(app.name);
-                setActiveTab('deploy');
-                setTimeout(() => {
-                  document.getElementById('deploy-log-terminal')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 100);
-              }}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
-              title="View live build logs and deployment output"
-            >
-              <Terminal className="w-3.5 h-3.5 text-slate-600" />
-              <span>Build Logs</span>
-            </button>
+            {app.runtime !== 'proxy' ? (
+              <>
+                {/* View Build Logs Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onWatchDeploy?.(app.name);
+                    setActiveTab('deploy');
+                    setTimeout(() => {
+                      document.getElementById('deploy-log-terminal')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 100);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
+                  title="View live build logs and deployment output"
+                >
+                  <Terminal className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Build Logs</span>
+                </button>
 
-            {/* Direct Redeploy / Retry Button in Header Quick Actions */}
-            <button
-              onClick={handleTriggerDirectDeploy}
-              disabled={isDeployingNow}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer ${
-                isDeployFailed
-                  ? 'bg-rose-600 text-white hover:bg-rose-700 shadow-rose-500/25 ring-2 ring-rose-400/50'
-                  : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
-              }`}
-              title={isDeployFailed ? 'Retry failed deployment pipeline' : 'Trigger website build and redeploy'}
-            >
-              <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : isDeployFailed ? 'text-white' : 'text-blue-600'}`} />
-              <span>{isDeployingNow ? 'Deploying...' : isDeployFailed ? 'Retry Deploy' : 'Redeploy'}</span>
-            </button>
+                {/* Direct Redeploy / Retry Button in Header Quick Actions */}
+                <button
+                  onClick={handleTriggerDirectDeploy}
+                  disabled={isDeployingNow}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer ${
+                    isDeployFailed
+                      ? 'bg-rose-600 text-white hover:bg-rose-700 shadow-rose-500/25 ring-2 ring-rose-400/50'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                  }`}
+                  title={isDeployFailed ? 'Retry failed deployment pipeline' : 'Trigger website build and redeploy'}
+                >
+                  <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : isDeployFailed ? 'text-white' : 'text-blue-600'}`} />
+                  <span>{isDeployingNow ? 'Deploying...' : isDeployFailed ? 'Retry Deploy' : 'Redeploy'}</span>
+                </button>
 
-            <button
-              onClick={() => onToggleStatus(app.id)}
-              disabled={isSuspended}
-              title={isSuspended ? 'Owner suspended — activate the account first' : undefined}
-              className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-sm ${
-                isSuspended
-                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                  : isRunning
-                    ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
-                    : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-500/25'
-              }`}
-            >
-              {isRunning ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-              <span>{isRunning ? 'Stop App' : 'Start App'}</span>
-            </button>
+                <button
+                  onClick={() => onToggleStatus(app.id)}
+                  disabled={isSuspended}
+                  title={isSuspended ? 'Owner suspended — activate the account first' : undefined}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-sm ${
+                    isSuspended
+                      ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                      : isRunning
+                        ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
+                        : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-500/25'
+                  }`}
+                >
+                  {isRunning ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  <span>{isRunning ? 'Stop App' : 'Start App'}</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={handlePingUpstream}
+                disabled={isPingingUpstream}
+                title="Test connection to upstream host"
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-2xs bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 cursor-pointer"
+              >
+                <RotateCw className={`w-3.5 h-3.5 text-purple-600 ${isPingingUpstream ? 'animate-spin' : ''}`} />
+                <span>{isPingingUpstream ? 'Testing...' : 'Test Upstream'}</span>
+              </button>
+            )}
 
             {/* Delete App Button in Header */}
             <button
@@ -2002,166 +2020,265 @@ QUEUE_CONNECTION=redis`;
 
       {/* Navigation Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-200 bg-white px-4 rounded-t-2xl overflow-x-auto text-xs font-semibold">
-        <button
-          onClick={() => setActiveTab('monitoring')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'monitoring'
-              ? 'border-blue-600 text-blue-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Activity className="w-4 h-4" />
-          <span>Live Telemetry & Metrics</span>
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" />
-        </button>
+        {app.runtime === 'proxy' ? (
+          <>
+            <button
+              onClick={() => setActiveTab('routing')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'routing'
+                  ? 'border-purple-600 text-purple-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Zap className="w-4 h-4 text-purple-600" />
+              <span>Gateway & Upstream</span>
+            </button>
 
-        {app.runtime !== 'proxy' && (
-          <button
-            onClick={() => setActiveTab('runtime')}
-            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-              activeTab === 'php' || activeTab === 'runtime' || activeTab === 'overview'
-                ? 'border-purple-600 text-purple-700 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Layers className="w-4 h-4 text-purple-600" />
-            <span>{getRuntimeTabTitle()}</span>
-            <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
-              v{app.version || (app.runtime === 'php' ? '8.4' : '1.0')}
-            </span>
-          </button>
-        )}
+            <button
+              onClick={() => setActiveTab('monitoring')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'monitoring'
+                  ? 'border-blue-600 text-blue-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+              <span>Live Telemetry & Metrics</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" />
+            </button>
 
-        <button
-          onClick={() => setActiveTab('logs')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'logs'
-              ? 'border-blue-600 text-blue-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          <span>Streaming Logs</span>
-          <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
-            {filteredLogs.length}
-          </span>
-        </button>
+            <button
+              onClick={() => setActiveTab('logs')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'logs'
+                  ? 'border-blue-600 text-blue-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Proxy Logs</span>
+              <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
+                {filteredLogs.length}
+              </span>
+            </button>
 
-        <button
-          onClick={() => setActiveTab('map')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'map'
-              ? 'border-blue-600 text-blue-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Globe className="w-4 h-4" />
-          <span>Traffic Map</span>
-        </button>
+            <button
+              onClick={() => setActiveTab('map')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'map'
+                  ? 'border-blue-600 text-blue-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Globe className="w-4 h-4" />
+              <span>Traffic Map</span>
+            </button>
 
-        <button
-          onClick={() => setActiveTab('domains')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'domains'
-              ? 'border-emerald-600 text-emerald-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Globe className="w-4 h-4 text-emerald-600" />
-          <span>Domains & SSL</span>
-          {siteDomains.length > 1 && (
-            <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-mono text-[10px] font-bold">
-              {siteDomains.length}
-            </span>
-          )}
-        </button>
-
-        {tabSupport.deploy && (
-          <button
-            onClick={() => setActiveTab('deploy')}
-            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-              activeTab === 'deploy'
-                ? 'border-blue-600 text-blue-700 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <FolderGit2 className="w-4 h-4 text-blue-600" />
-            <span>{siteHasGit(app) || gitStatus?.detected ? 'Git CI/CD & Deploy' : 'Deploy & Script'}</span>
-            <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-              siteHasGit(app) || gitStatus?.detected
-                ? 'bg-purple-100 text-purple-800'
-                : 'bg-slate-100 text-slate-600'
-            }`}>
-              {siteHasGit(app) || gitStatus?.detected ? (gitBranch || 'Git') : 'Local'}
-            </span>
-          </button>
-        )}
-
-        <button
-          onClick={() => setActiveTab('routing')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'routing'
-              ? 'border-blue-600 text-blue-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Zap className="w-4 h-4" />
-          <span>Reverse Proxy & Multi-Engine Routing</span>
-        </button>
-
-        {tabSupport.env && (
-          <button
-            onClick={() => setActiveTab('env')}
-            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-              activeTab === 'env'
-                ? 'border-blue-600 text-blue-700 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Lock className="w-4 h-4" />
-            <span>Environment (.env)</span>
-          </button>
-        )}
-
-        {tabSupport.files && (
-          <button
-            onClick={() => setActiveTab('files')}
-            className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-              activeTab === 'files'
-                ? 'border-amber-600 text-amber-700 font-bold'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Folder className="w-4 h-4" />
-            <span>File Manager</span>
-          </button>
-        )}
-
-        <button
-          onClick={() => setActiveTab('security')}
-          className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-            activeTab === 'security'
-              ? 'border-purple-600 text-purple-700 font-bold'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Shield className="w-4 h-4 text-purple-600" />
-          <span>Access & Security</span>
-          {(maintenanceMode || basicAuthEnabled) && (
-            <span className="flex items-center gap-1">
-              {maintenanceMode && (
-                <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold">
-                  503
+            <button
+              onClick={() => setActiveTab('domains')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'domains'
+                  ? 'border-emerald-600 text-emerald-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Globe className="w-4 h-4 text-emerald-600" />
+              <span>Domains & SSL</span>
+              {siteDomains.length > 1 && (
+                <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-mono text-[10px] font-bold">
+                  {siteDomains.length}
                 </span>
               )}
-              {basicAuthEnabled && (
-                <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 text-[9px] font-bold">
-                  Auth
+            </button>
+
+            <button
+              onClick={() => setActiveTab('security')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'security'
+                  ? 'border-purple-600 text-purple-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Shield className="w-4 h-4 text-purple-600" />
+              <span>Access & Security</span>
+              {(maintenanceMode || basicAuthEnabled) && (
+                <span className="flex items-center gap-1">
+                  {maintenanceMode && (
+                    <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold">
+                      503
+                    </span>
+                  )}
+                  {basicAuthEnabled && (
+                    <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 text-[9px] font-bold">
+                      Auth
+                    </span>
+                  )}
                 </span>
               )}
-            </span>
-          )}
-        </button>
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => setActiveTab('monitoring')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'monitoring'
+                  ? 'border-blue-600 text-blue-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+              <span>Live Telemetry & Metrics</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" />
+            </button>
+
+            <button
+              onClick={() => setActiveTab('runtime')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'php' || activeTab === 'runtime' || activeTab === 'overview'
+                  ? 'border-purple-600 text-purple-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Layers className="w-4 h-4 text-purple-600" />
+              <span>{getRuntimeTabTitle()}</span>
+              <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
+                v{app.version || (app.runtime === 'php' ? '8.4' : '1.0')}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('logs')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'logs'
+                  ? 'border-blue-600 text-blue-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Streaming Logs</span>
+              <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
+                {filteredLogs.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('map')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'map'
+                  ? 'border-blue-600 text-blue-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Globe className="w-4 h-4" />
+              <span>Traffic Map</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('domains')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'domains'
+                  ? 'border-emerald-600 text-emerald-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Globe className="w-4 h-4 text-emerald-600" />
+              <span>Domains & SSL</span>
+              {siteDomains.length > 1 && (
+                <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-mono text-[10px] font-bold">
+                  {siteDomains.length}
+                </span>
+              )}
+            </button>
+
+            {tabSupport.deploy && (
+              <button
+                onClick={() => setActiveTab('deploy')}
+                className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                  activeTab === 'deploy'
+                    ? 'border-blue-600 text-blue-700 font-bold'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <FolderGit2 className="w-4 h-4 text-blue-600" />
+                <span>{siteHasGit(app) || gitStatus?.detected ? 'Git CI/CD & Deploy' : 'Deploy & Script'}</span>
+                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                  siteHasGit(app) || gitStatus?.detected
+                    ? 'bg-purple-100 text-purple-800'
+                    : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {siteHasGit(app) || gitStatus?.detected ? (gitBranch || 'Git') : 'Local'}
+                </span>
+              </button>
+            )}
+
+            <button
+              onClick={() => setActiveTab('routing')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'routing'
+                  ? 'border-blue-600 text-blue-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Zap className="w-4 h-4" />
+              <span>Reverse Proxy & Multi-Engine Routing</span>
+            </button>
+
+            {tabSupport.env && (
+              <button
+                onClick={() => setActiveTab('env')}
+                className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                  activeTab === 'env'
+                    ? 'border-blue-600 text-blue-700 font-bold'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Lock className="w-4 h-4" />
+                <span>Environment (.env)</span>
+              </button>
+            )}
+
+            {tabSupport.files && (
+              <button
+                onClick={() => setActiveTab('files')}
+                className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                  activeTab === 'files'
+                    ? 'border-amber-600 text-amber-700 font-bold'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Folder className="w-4 h-4" />
+                <span>File Manager</span>
+              </button>
+            )}
+
+            <button
+              onClick={() => setActiveTab('security')}
+              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
+                activeTab === 'security'
+                  ? 'border-purple-600 text-purple-700 font-bold'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Shield className="w-4 h-4 text-purple-600" />
+              <span>Access & Security</span>
+              {(maintenanceMode || basicAuthEnabled) && (
+                <span className="flex items-center gap-1">
+                  {maintenanceMode && (
+                    <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold">
+                      503
+                    </span>
+                  )}
+                  {basicAuthEnabled && (
+                    <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 text-[9px] font-bold">
+                      Auth
+                    </span>
+                  )}
+                </span>
+              )}
+            </button>
+          </>
+        )}
       </div>
 
       {/* Main Tab Content View */}

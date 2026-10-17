@@ -191,6 +191,9 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 	for _, site := range sites {
 		siteDir := s.host.SitePath(site.TenantUser, site.Slug)
 		spec := webserver.SpecFor(site.Slug, site.Domain, site.Runtime, siteDir, site.Port)
+		if site.UpstreamURL != "" {
+			spec = spec.WithUpstream(site.UpstreamURL)
+		}
 		if domains, err := s.store.ListDomainsForSite(site.Slug); err == nil && len(domains) > 0 {
 			var aliases []string
 			var certPath, keyPath string

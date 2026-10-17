@@ -86,6 +86,7 @@ export function toWebApp(site: ApiWebsite, metrics?: SiteMetrics): WebApp {
     tunnelEnabled: site.tunnelEnabled,
     tunnelRoute: site.tunnelEnabled ? `${site.domain} -> 127.0.0.1:${site.port}` : undefined,
     port: site.port,
+    upstreamUrl: site.upstreamUrl || undefined,
     memoryUsage: metrics?.available ? formatBytes(metrics.memoryBytes) : '—',
     cpuUsage: metrics?.available ? `${metrics.cpuPercent.toFixed(1)}%` : '—',
     createdAt: formatDate(site.createdAt),

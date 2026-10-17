@@ -9,6 +9,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -445,7 +447,15 @@ func nginxLocations(b *strings.Builder, s Spec) {
 		b.WriteString("        proxy_set_header Connection \"upgrade\";\n")
 		if isHTTPS {
 			b.WriteString("        proxy_ssl_verify off;\n")
-			b.WriteString("        proxy_ssl_server_name on;\n")
+			// RFC 6066: SNI host must NOT be an IP literal.
+			// Proxmox / OpenSSL will abort SSL handshake if an IP address is sent in SNI.
+			if u, err := url.Parse(target); err == nil {
+				hostOnly := u.Hostname()
+				if net.ParseIP(hostOnly) == nil && hostOnly != "" {
+					b.WriteString("        proxy_ssl_server_name on;\n")
+					fmt.Fprintf(b, "        proxy_ssl_name %s;\n", hostOnly)
+				}
+			}
 		}
 		b.WriteString("        proxy_buffer_size 128k;\n")
 		b.WriteString("        proxy_buffers 4 256k;\n")
@@ -453,8 +463,8 @@ func nginxLocations(b *strings.Builder, s Spec) {
 		b.WriteString("        proxy_buffering off;\n")
 		b.WriteString("        client_max_body_size 0;\n")
 		b.WriteString("        proxy_connect_timeout 60s;\n")
-		b.WriteString("        proxy_send_timeout 180s;\n")
-		b.WriteString("        proxy_read_timeout 180s;\n")
+		b.WriteString("        proxy_send_timeout 3600s;\n")
+		b.WriteString("        proxy_read_timeout 3600s;\n")
 		b.WriteString("    }\n")
 	}
 
