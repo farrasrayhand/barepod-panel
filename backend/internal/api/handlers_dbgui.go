@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -305,7 +304,13 @@ func (s *Server) guiToolAvailability(kind string, record *store.Database, tool g
 	}
 	if sub := guiToolInstallDir(tool.name); sub != "" {
 		if _, err := os.Stat(filepath.Join(s.cfg.DbtoolsDir, sub, "index.php")); err != nil {
-			return "", false, fmt.Sprintf("%s is not installed on this host yet (run scripts/install-engines.sh)", tool.name)
+			if tool.name == "phpmyadmin" {
+				if err := dbtools.EnsurePhpMyAdmin(s.cfg.DbtoolsDir); err != nil {
+					return "", false, fmt.Sprintf("auto-installing %s failed: %v", tool.name, err)
+				}
+			} else {
+				return "", false, fmt.Sprintf("%s is not installed on this host", tool.name)
+			}
 		}
 	}
 	return mount + "/", true, ""
@@ -330,10 +335,16 @@ func (s *Server) guiToolRunnable(spec dbtools.Spec) (string, bool) {
 		}
 		return "", true
 	}
-	// The missing binary is the more useful reason, so it is checked before the
-	// daemon's mode.
+	// If binary is missing, attempt on-demand installation
 	if _, ok := dbtools.Available(spec, s.lookPath); !ok {
-		return fmt.Sprintf("%s is not installed on this host", spec.Binary), false
+		if spec.Name == "pgweb" {
+			_ = dbtools.EnsurePgweb()
+		} else if spec.Name == "phpmyadmin" {
+			_ = dbtools.EnsurePhpMyAdmin(s.cfg.DbtoolsDir)
+		}
+		if _, ok := dbtools.Available(spec, s.lookPath); !ok {
+			return fmt.Sprintf("%s is not installed on this host", spec.Binary), false
+		}
 	}
 	if !s.host.Materialises() {
 		return "the daemon is in dry-run mode, so no manager can be started", false
@@ -905,7 +916,9 @@ func guiConnectionString(record store.Database, password string) string {
 func (s *Server) preparePhpMyAdmin(record *store.Database, password, mount string, r *http.Request) (string, error) {
 	dir := filepath.Join(s.cfg.DbtoolsDir, "phpmyadmin")
 	if _, err := os.Stat(filepath.Join(dir, "index.php")); err != nil {
-		return "", errors.New("phpMyAdmin is not installed on this host")
+		if err := dbtools.EnsurePhpMyAdmin(s.cfg.DbtoolsDir); err != nil {
+			return "", fmt.Errorf("phpMyAdmin auto-installation failed: %w", err)
+		}
 	}
 	scheme := requestScheme(r)
 	host := record.Host

@@ -461,8 +461,12 @@ func runServe(args []string) error {
 	tenants := tenant.New(runner, cfg.SitesRoot, caps)
 
 	// Self-healing watchdog: auto-enables and auto-recovers database engines (MariaDB, Redis, Postgres)
-	// after host reboots, power cuts, or crash events.
+	// and web servers right after boot, updates, or crash events.
 	if !dryRun {
+		healActions := stack.AutoHeal(context.Background(), runner)
+		for _, act := range healActions {
+			log.Printf("[auto-repair] %s", act)
+		}
 		stack.StartAutoHealWatchdog(context.Background(), runner, 60*time.Second)
 		if _, err := os.Stat("/var/spool/postfix/maildrop"); err == nil {
 			_ = os.Chmod("/var/spool/postfix/maildrop", 0o1777)

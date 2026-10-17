@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/dbtools"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
 )
@@ -87,28 +88,48 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 	}
 
 	// 4. Web Servers (Nginx, Caddy, Apache2, OpenLiteSpeed)
-	if isBinaryInstalled("caddy") || isServiceInstalled(ctx, runner, "caddy") {
+	nginxInstalled := isBinaryInstalled("nginx") || isServiceInstalled(ctx, runner, "nginx")
+	caddyInstalled := isBinaryInstalled("caddy") || isServiceInstalled(ctx, runner, "caddy")
+
+	// Detect configured ingress. In BarePod, Nginx is default.
+	// If Nginx sites use 8082, Caddy is the intended edge ingress.
+	nginxIsBackend := false
+	if nginxInstalled {
+		grep8082, _ := runner.Run(ctx, "", "grep", "-rn", "8082", "/etc/nginx/sites-enabled/")
+		if strings.TrimSpace(grep8082) != "" {
+			nginxIsBackend = true
+		}
+	}
+	caddyIsBackend := !nginxIsBackend && nginxInstalled
+
+	if caddyInstalled {
 		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy 2>/dev/null && chmod 755 /var/log/caddy && chmod 664 /var/log/caddy/*.log 2>/dev/null || true")
 		_ = os.MkdirAll("/etc/caddy/sites", 0755)
-
-		isNginxActive := false
-		if ngActive, _ := runner.Run(ctx, "", "systemctl", "is-active", "nginx"); strings.TrimSpace(ngActive) == "active" {
-			isNginxActive = true
-		}
 
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "caddy")
 		testOut, testErr := runner.Run(ctx, "", "caddy", "validate", "--config", "/etc/caddy/Caddyfile")
 		caddyRunning := strings.TrimSpace(activeOut) == "active"
 
 		if testErr != nil || strings.Contains(testOut, "error") || !caddyRunning {
-			_ = webserver.WriteCaddyConfig("/etc/caddy/Caddyfile", "/etc/caddy/sites", isNginxActive)
+			_ = webserver.WriteCaddyConfig("/etc/caddy/Caddyfile", "/etc/caddy/sites", caddyIsBackend)
 			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "caddy")
 			_, _ = runner.Run(ctx, "", "systemctl", "restart", "caddy")
 			actions = append(actions, "caddy: regenerated clean Caddyfile & restarted service")
 		}
 	}
-	if isBinaryInstalled("nginx") || isServiceInstalled(ctx, runner, "nginx") {
+	if nginxInstalled {
 		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/nginx && chown -R www-data:adm /var/log/nginx 2>/dev/null && chmod 755 /var/log/nginx && chmod 664 /var/log/nginx/*.log 2>/dev/null || true")
+
+		// If Nginx is Edge Ingress, ensure all sites listen on 80/443 (not leftover 8082)
+		if !nginxIsBackend {
+			grepLeftover, _ := runner.Run(ctx, "", "grep", "-rn", "8082", "/etc/nginx/sites-enabled/")
+			if strings.TrimSpace(grepLeftover) != "" {
+				_, _ = runner.Run(ctx, "", "bash", "-c", "sed -i 's/8082/80/g' /etc/nginx/sites-enabled/* /etc/nginx/conf.d/* 2>/dev/null || true")
+				_, _ = runner.Run(ctx, "", "systemctl", "reload", "nginx")
+				actions = append(actions, "nginx: restored public ingress port 80/443")
+			}
+		}
+
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "nginx")
 		if strings.TrimSpace(activeOut) != "active" {
 			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "nginx")
@@ -151,6 +172,23 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 	// 6. Maintenance & Stopped Pages Auto-Refresh
 	if n := webserver.SyncAllMaintenancePages(); n > 0 {
 		actions = append(actions, fmt.Sprintf("maintenance: refreshed %d site pages to unified card theme", n))
+	}
+
+	// 7. DB Tools (phpMyAdmin, pgweb) Auto-Heal
+	dbtoolsDir := "/var/lib/barepod/dbtools"
+	if isBinaryInstalled("mariadb") || isBinaryInstalled("mysqld") || isBinaryInstalled("mysql") || isDir("/etc/mysql") {
+		if _, err := os.Stat(filepath.Join(dbtoolsDir, "phpmyadmin", "index.php")); err != nil {
+			if err := dbtools.EnsurePhpMyAdmin(dbtoolsDir); err == nil {
+				actions = append(actions, "dbtools: auto-installed phpMyAdmin")
+			}
+		}
+	}
+	if isBinaryInstalled("psql") || isDir("/etc/postgresql") {
+		if _, err := os.Stat("/usr/local/bin/pgweb"); err != nil {
+			if err := dbtools.EnsurePgweb(); err == nil {
+				actions = append(actions, "dbtools: auto-installed pgweb")
+			}
+		}
 	}
 
 	return actions

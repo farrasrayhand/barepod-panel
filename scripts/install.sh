@@ -115,6 +115,7 @@ elif command -v apt-get >/dev/null 2>&1; then
   apt-get update -qq || true
   apt-get install -y -qq curl wget tar git unzip ca-certificates gnupg \
     python3 python3-venv python3-pip python3-dev composer certbot \
+    php-cli php-mysql php-mbstring php-zip php-gd php-curl php-xml \
     nginx mariadb-server redis-server docker.io >/dev/null 2>&1 || true
   systemctl enable --now mariadb redis-server nginx docker >/dev/null 2>&1 || true
 fi
@@ -272,6 +273,8 @@ if [ "$IS_UPDATE" -eq 1 ]; then
   log "Restarting BarePod daemon via systemd..."
   systemctl daemon-reload 2>/dev/null || true
   systemctl restart barepod 2>/dev/null || systemctl start barepod 2>/dev/null || true
+  log "Running post-update automatic stack repair (auto-heal)..."
+  "$INSTALL_DIR/barepod" stack autoheal 2>/dev/null || true
 else
   # Check if admin already exists
   ALREADY_INITIALIZED=0
