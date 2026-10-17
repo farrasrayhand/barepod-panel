@@ -579,18 +579,18 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
         let tunnelReady = false;
         if (statusResult.status === 'fulfilled') {
           const s = statusResult.value;
-          tunnelReady = Boolean(s && (s.hasToken || s.status === 'connected'));
+          tunnelReady = Boolean(s && s.hasToken && s.status === 'connected');
         }
         setHasTunnelConfigured(tunnelReady);
 
         if (zonesResult.status === 'fulfilled') {
           const res = zonesResult.value;
-          if (res.zones && Array.isArray(res.zones) && res.zones.length > 0) {
+          if (tunnelReady && res.zones && Array.isArray(res.zones) && res.zones.length > 0) {
             setCfZones(res.zones);
             setSelectedCfZone(res.zones[0].name);
-            setTunnelEnabled(tunnelReady);
+            setTunnelEnabled(true);
           } else {
-            setCfZones([]);
+            setCfZones(res.zones && Array.isArray(res.zones) ? res.zones : []);
             setSelectedCfZone('custom');
             setTunnelEnabled(false);
           }

@@ -157,6 +157,27 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
     e.preventDefault();
     setIsTokenSaving(true);
     const cleanedToken = cleanTunnelToken(inputToken);
+
+    // Client-side format validation
+    if (cleanedToken && !cleanedToken.startsWith('eyJh')) {
+      onShowToast?.(
+        'Invalid Token Format',
+        'Cloudflare Tunnel Token must be a valid base64 token from Cloudflare Zero Trust (starts with eyJh...).',
+        'error'
+      );
+      setIsTokenSaving(false);
+      return;
+    }
+    if (inputApiToken.trim() && inputApiToken.trim().length < 20) {
+      onShowToast?.(
+        'Invalid API Token Format',
+        'Cloudflare API Token must be at least 20 characters long.',
+        'error'
+      );
+      setIsTokenSaving(false);
+      return;
+    }
+
     try {
       const updated = await api.saveTunnelToken(
         cleanedToken, 
@@ -167,6 +188,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
       setInputToken('');
       setInputApiToken('');
       setIsTokenSaved(true);
+      fetchZones(activeUser);
       setTimeout(() => setIsTokenSaved(false), 2500);
       onShowToast?.(
         'Cloudflare Configuration Saved',

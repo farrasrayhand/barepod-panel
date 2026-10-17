@@ -120,6 +120,16 @@ func DefaultKeyPath() string {
 	return env("BAREPOD_KEY", "/etc/barepod/secret.key")
 }
 
+func defaultStaticDir() string {
+	if v := os.Getenv("BAREPOD_STATIC"); v != "" {
+		return v
+	}
+	if fi, err := os.Stat("/var/lib/barepod/dist"); err == nil && fi.IsDir() {
+		return "/var/lib/barepod/dist"
+	}
+	return "./dist"
+}
+
 // Load parses the flags of the `serve` subcommand (args excludes the program
 // name and the subcommand itself).
 func Load(args []string) (Config, error) {
@@ -132,7 +142,7 @@ func Load(args []string) (Config, error) {
 	httpsListen := fs.String("https-listen", env("BAREPOD_HTTPS_LISTEN", ""), "HTTPS address that serves the same default page over TLS (empty disables it); edge web server owns port 443")
 	dbPath := fs.String("db", DefaultDBPath(), "path to the panel SQLite database")
 	keyPath := fs.String("key", DefaultKeyPath(), "path to the secrets encryption key")
-	staticDir := fs.String("static", env("BAREPOD_STATIC", "./dist"), "path to the built frontend (SPA)")
+	staticDir := fs.String("static", env("BAREPOD_STATIC", defaultStaticDir()), "path to the built frontend (SPA)")
 	sitesRoot := fs.String("sites-root", env("BAREPOD_SITES_ROOT", DefaultSitesRoot()), "directory that holds tenant home directories")
 	redisURL := fs.String("redis-url", env("BAREPOD_REDIS_URL", "redis://127.0.0.1:6379"), "admin connection used to create per-cache Redis users")
 	unitsDir := fs.String("units-dir", env("BAREPOD_UNITS_DIR", defaultUnitsDir()), "directory for systemd unit files")

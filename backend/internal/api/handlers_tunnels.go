@@ -296,6 +296,8 @@ func (s *Server) handleSetTunnelToken(w http.ResponseWriter, r *http.Request, us
 		TunnelName string `json:"tunnelName"`
 		Token      string `json:"token"`
 		ApiToken   string `json:"apiToken"`
+		ClearToken bool   `json:"clearToken"`
+		ClearApi   bool   `json:"clearApi"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "Invalid request body")
@@ -307,19 +309,73 @@ func (s *Server) handleSetTunnelToken(w http.ResponseWriter, r *http.Request, us
 		targetUser = req.User
 	}
 
+	existing, _ := s.store.GetCloudflareTunnel(targetUser)
+
 	token := cloudflare.CleanTunnelToken(req.Token)
 	apiToken := strings.TrimSpace(req.ApiToken)
 	tunnelName := strings.TrimSpace(req.TunnelName)
 	if tunnelName == "" {
-		tunnelName = targetUser + "-tunnel"
+		if existing != nil && existing.TunnelName != "" {
+			tunnelName = existing.TunnelName
+		} else {
+			tunnelName = targetUser + "-tunnel"
+		}
 	}
 
 	accountID := ""
 	tunnelID := ""
-	if token != "" {
-		if parsed, err := cloudflare.ParseTunnelToken(token); err == nil {
-			accountID = parsed.AccountID
-			tunnelID = parsed.TunnelID
+
+	// Process Tunnel Run Token (Connector)
+	if req.ClearToken {
+		token = ""
+		accountID = ""
+		tunnelID = ""
+	} else if token != "" {
+		// Strict validation of the connector token format
+		parsed, err := cloudflare.ParseTunnelToken(token)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_tunnel_token", "Invalid Cloudflare Tunnel token format. Must be a valid token from Cloudflare Zero Trust (starts with eyJh...). Error: "+err.Error())
+			return
+		}
+		accountID = parsed.AccountID
+		tunnelID = parsed.TunnelID
+	} else if existing != nil && existing.Token != "" {
+		// Keep existing connector token when user is only editing API token or tunnel name!
+		token = existing.Token
+		accountID = existing.AccountID
+		tunnelID = existing.TunnelID
+	}
+
+	// Process Management API Token
+	if req.ClearApi {
+		apiToken = ""
+	} else if apiToken != "" {
+		// Strict validation of API Token against Cloudflare's /user/tokens/verify
+		if len(apiToken) < 20 {
+			writeError(w, http.StatusBadRequest, "invalid_api_token", "Invalid Cloudflare API token format: token is too short (expected at least 20 characters).")
+			return
+		}
+		cf := cloudflare.NewClient(apiToken, accountID, tunnelID)
+		valid, err := cf.VerifyToken(r.Context())
+		if !valid || err != nil {
+			errStr := "Cloudflare API token verification failed"
+			if err != nil {
+				errStr += ": " + err.Error()
+			}
+			writeError(w, http.StatusBadRequest, "invalid_api_token", errStr)
+			return
+		}
+	} else if existing != nil && existing.ApiToken != "" {
+		// Keep existing API token
+		apiToken = existing.ApiToken
+	}
+
+	// If both API Token and Tunnel are configured, verify that this API Token can access this Tunnel
+	if apiToken != "" && accountID != "" && tunnelID != "" {
+		cf := cloudflare.NewClient(apiToken, accountID, tunnelID)
+		if _, err := cf.GetTunnelConfig(r.Context()); err != nil {
+			writeError(w, http.StatusBadRequest, "tunnel_access_error", "Connected to Cloudflare API, but cannot access this Tunnel. Please ensure the API Token has Account.Cloudflare Tunnel (Read/Write) permissions for this account. Details: "+err.Error())
+			return
 		}
 	}
 

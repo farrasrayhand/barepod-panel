@@ -65,6 +65,9 @@ func (s *Store) UpsertCloudflareTunnel(tenantUser, tunnelName, token, apiToken, 
 	if tunnelName == "" {
 		tunnelName = tenantUser + "-tunnel"
 	}
+	if token == "" && t.Token != "" {
+		token = t.Token
+	}
 	if apiToken == "" && t.ApiToken != "" {
 		apiToken = t.ApiToken
 	}

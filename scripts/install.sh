@@ -73,11 +73,25 @@ else
   warn "Docker not found — required for container pods at runtime (Phase 3)."
 fi
 
-# --- Database engines ---
-# Without this step every engine says "not installed": the panel can only offer
-# what the host has. Skip it with --no-engines.
+# --- Database engines & Build Dependencies ---
+# If running standalone via curl, automatically install essential packages on Ubuntu/Debian
 if [[ -x "$(dirname "$0")/install-engines.sh" ]]; then
   "$(dirname "$0")/install-engines.sh" "$@" || echo "   (engine installation reported a problem; the panel will show each engine honestly)"
+elif command -v apt-get >/dev/null 2>&1; then
+  log "Installing runtime & build dependencies (apt)..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq || true
+  apt-get install -y -qq curl wget tar git unzip ca-certificates gnupg \
+    python3 python3-venv python3-pip python3-dev composer certbot \
+    nginx mariadb-server redis-server >/dev/null 2>&1 || true
+  systemctl enable --now mariadb redis-server nginx >/dev/null 2>&1 || true
+fi
+
+# Ensure cloudflared is installed for Cloudflare Tunnel support
+if ! command -v cloudflared >/dev/null 2>&1; then
+  log "Installing cloudflared for Cloudflare Tunnel support..."
+  curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}" -o /usr/local/bin/cloudflared 2>/dev/null || true
+  chmod 0755 /usr/local/bin/cloudflared || true
 fi
 
 # --- BarePod daemon & frontend bundle ---
@@ -104,13 +118,31 @@ if [ -f backend/go.mod ] && command -v go >/dev/null 2>&1; then
   log "Installed binary: $INSTALL_DIR/barepod"
 else
   # Standalone 1-line curl installation: download official precompiled GitHub release
-  log "Downloading latest official release bundle from GitHub (linux/${ARCH})..."
-  RELEASE_URL=$(curl -fsSL https://api.github.com/repos/farrasrayhand/barepod-panel/releases/latest | grep "browser_download_url.*linux-${ARCH}.tar.gz" | cut -d '"' -f 4 || true)
-  
-  if [ -n "$RELEASE_URL" ]; then
-    TMP_TAR="/tmp/barepod-latest-linux-${ARCH}.tar.gz"
-    TMP_DIR="/tmp/barepod-extract-$$"
-    curl -fsSL "$RELEASE_URL" -o "$TMP_TAR"
+  log "Resolving latest official release bundle from GitHub (linux/${ARCH})..."
+
+  LATEST_TAG=""
+  # Method 1: HTTP header redirect inspection (does not touch api.github.com, zero rate-limiting!)
+  EFFECTIVE_URL=$(curl -fsSLI -o /dev/null -w "%{url_effective}" https://github.com/farrasrayhand/barepod-panel/releases/latest 2>/dev/null || true)
+  if [[ "$EFFECTIVE_URL" =~ tag/([^/]+) ]]; then
+    LATEST_TAG="${BASH_REMATCH[1]}"
+  fi
+
+  # Method 2: GitHub API fallback
+  if [ -z "$LATEST_TAG" ]; then
+    LATEST_TAG=$(curl -fsSL https://api.github.com/repos/farrasrayhand/barepod-panel/releases/latest 2>/dev/null | grep '"tag_name":' | head -n 1 | cut -d '"' -f 4 || true)
+  fi
+
+  # Method 3: Hardcoded latest fallback
+  if [ -z "$LATEST_TAG" ]; then
+    LATEST_TAG="v3.0.1"
+  fi
+
+  RELEASE_URL="https://github.com/farrasrayhand/barepod-panel/releases/download/${LATEST_TAG}/barepod-${LATEST_TAG}-linux-${ARCH}.tar.gz"
+  log "Downloading: $RELEASE_URL"
+
+  TMP_TAR="/tmp/barepod-latest-linux-${ARCH}.tar.gz"
+  TMP_DIR="/tmp/barepod-extract-$$"
+  if curl -fsSL "$RELEASE_URL" -o "$TMP_TAR"; then
     mkdir -p "$TMP_DIR"
     tar -xzf "$TMP_TAR" -C "$TMP_DIR"
     
@@ -126,14 +158,14 @@ else
     fi
     rm -rf "$TMP_TAR" "$TMP_DIR"
   else
-    warn "Could not fetch precompiled release bundle from GitHub."
+    die "Failed to download BarePod release bundle from: $RELEASE_URL"
   fi
 fi
 
 if [ "$DAEMON_INSTALLED" -eq 1 ]; then
   log "BarePod Panel binary verified: $($INSTALL_DIR/barepod version || echo 'ready')"
 else
-  warn "Binary could not be downloaded or built automatically."
+  die "BarePod binary could not be installed."
 fi
 
 log "Environment OK: linux/${ARCH}$([ "$IS_LXC" -eq 1 ] && echo ' (LXC)')"
