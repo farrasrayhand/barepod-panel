@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { FolderTree } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { NavItem } from '../types';
+import type { NavItem, UpdateInfo } from '../types';
 
 interface SidebarProps {
   currentTab: NavItem;
@@ -31,6 +31,7 @@ interface SidebarProps {
   /** The host file browser and settings are administrator tools. */
   isAdmin?: boolean;
   can?: (capability: string) => boolean;
+  updateInfo?: UpdateInfo | null;
 }
 
 interface NavGroupItem {
@@ -39,7 +40,7 @@ interface NavGroupItem {
   icon: LucideIcon;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed, isAdmin = false, can }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed, isAdmin = false, can, updateInfo }) => {
   const [copiedIp, setCopiedIp] = useState(false);
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusResponse | null>(null);
 
@@ -113,21 +114,32 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
         {items.map((item) => {
           const Icon = item.icon;
           const isActive = currentTab === item.id;
+          const hasItemUpdate = item.id === 'settings' && updateInfo?.hasUpdate;
           return (
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              title={collapsed ? item.label : undefined}
+              title={collapsed ? (hasItemUpdate ? `${item.label} (Update available)` : item.label) : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150 ${
                 isActive
                   ? 'bg-blue-50 text-blue-600 font-semibold shadow-xs'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 font-normal'
               }`}
             >
-              <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
+              <div className="relative shrink-0 flex items-center justify-center">
+                <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
+                {collapsed && hasItemUpdate && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-blue-600 ring-2 ring-white animate-pulse" />
+                )}
+              </div>
               {!collapsed && (
                 <div className="flex items-center justify-between flex-1 truncate">
                   <span className="truncate">{item.label}</span>
+                  {hasItemUpdate && (
+                    <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-xs animate-pulse shrink-0">
+                      Update
+                    </span>
+                  )}
                 </div>
               )}
             </button>

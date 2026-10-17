@@ -231,3 +231,12 @@ export interface CloudflareTunnelConfig {
   routesCount: number;
   uptime: string;
 }
+
+export interface UpdateInfo {
+  hasUpdate: boolean;
+  latestVersion: string;
+  currentVersion: string;
+  releaseTag?: string;
+  changelogMarkdown?: string;
+  publishedAt?: string;
+}

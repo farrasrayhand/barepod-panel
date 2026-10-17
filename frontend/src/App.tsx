@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Server } from 'lucide-react';
-import type { NavItem, WebApp } from './types';
+import { Server, Sparkles, X } from 'lucide-react';
+import type { NavItem, WebApp, UpdateInfo } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { AppsView } from './components/AppsView';
@@ -349,6 +349,73 @@ export function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  // Periodic background check for panel updates (Admin only)
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    if (!isAdmin || session.mode !== 'live') return;
+    let mounted = true;
+
+    const check = async () => {
+      try {
+        const res = await api.checkUpdates();
+        if (!mounted || !res) return;
+        if (res.hasUpdate && res.latestVersion) {
+          const info: UpdateInfo = {
+            hasUpdate: true,
+            latestVersion: res.latestVersion,
+            currentVersion: res.currentVersion,
+            releaseTag: res.release?.tag,
+            changelogMarkdown: res.release?.changelogMarkdown,
+            publishedAt: res.release?.publishedAt,
+          };
+          setUpdateInfo(info);
+
+          // If this version hasn't been toasted this session, show a friendly toast
+          const toastKey = `notified_update_${res.latestVersion}`;
+          if (!sessionStorage.getItem(toastKey)) {
+            sessionStorage.setItem(toastKey, '1');
+            showToast(
+              'Update Available',
+              `BarePod Panel v${res.latestVersion} is ready to install. Click Settings > Updates to view details.`,
+              'info'
+            );
+          }
+        } else {
+          setUpdateInfo(null);
+        }
+      } catch {
+        // Silently ignore background update check errors
+      }
+    };
+
+    // Initial check after 2 seconds to not block primary dashboard data
+    const initTimer = setTimeout(check, 2000);
+    // Periodically check every 30 minutes
+    const interval = setInterval(check, 30 * 60 * 1000);
+
+    return () => {
+      mounted = false;
+      clearTimeout(initTimer);
+      clearInterval(interval);
+    };
+  }, [isAdmin, session.mode, showToast]);
+
+  const isBannerVisible = Boolean(
+    isAdmin &&
+    updateInfo?.hasUpdate &&
+    !bannerDismissed &&
+    !sessionStorage.getItem(`dismissed_banner_${updateInfo?.latestVersion}`)
+  );
+
+  const dismissBanner = () => {
+    setBannerDismissed(true);
+    if (updateInfo?.latestVersion) {
+      sessionStorage.setItem(`dismissed_banner_${updateInfo.latestVersion}`, '1');
+    }
+  };
+
   // Protect admin-only routes from regular users navigating directly via URL
   useEffect(() => {
     if (session.mode !== 'live' || !session.user) return;
@@ -620,6 +687,7 @@ export function App() {
         collapsed={sidebarCollapsed}
         isAdmin={isAdmin}
         can={session.can}
+        updateInfo={updateInfo}
       />
 
       {/* Main Content Area */}
@@ -632,6 +700,7 @@ export function App() {
           onNavigatePath={navigatePath}
           currentUser={session.user}
           isAdmin={isAdmin}
+          updateInfo={updateInfo}
           onLogout={() => {
             if (session.mode === 'live') {
               void session.signOut();
@@ -640,6 +709,35 @@ export function App() {
             }
           }}
         />
+
+        {/* Update Notification Banner */}
+        {isBannerVisible && (
+          <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white px-4 py-2 text-xs flex items-center justify-between shadow-xs border-b border-blue-500/30 shrink-0 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="p-1 rounded-md bg-white/10 shrink-0 flex items-center justify-center">
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              </span>
+              <span className="truncate">
+                <strong>Update Available:</strong> BarePod Panel <strong>v{updateInfo!.latestVersion}</strong> is ready to install (current: v{updateInfo!.currentVersion}).
+              </span>
+            </div>
+            <div className="flex items-center gap-3 shrink-0 ml-4">
+              <button
+                onClick={() => navigatePath('/settings/updates')}
+                className="px-3 py-1 bg-white text-blue-700 font-bold rounded-md hover:bg-blue-50 transition-colors shadow-2xs cursor-pointer"
+              >
+                Update Now
+              </button>
+              <button
+                onClick={dismissBanner}
+                className="p-1 hover:bg-white/20 rounded transition-colors text-white/80 hover:text-white cursor-pointer"
+                title="Dismiss notice"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Dynamic Views */}
         <main ref={mainRef} data-scroll-root className="flex-1 overflow-y-auto">
