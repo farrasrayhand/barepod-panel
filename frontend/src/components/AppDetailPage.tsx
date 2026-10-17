@@ -59,6 +59,7 @@ import {
   ChevronDown,
   ChevronRight,
   Archive,
+  HelpCircle,
   X
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
@@ -69,7 +70,7 @@ import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
 import { DangerConfirmModal } from './DangerConfirmModal';
-import { api, apiReachable, subscribeDeploy, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey, type DeployJob, type DetectedFramework } from '../api/client';
+import { api, apiReachable, subscribeDeploy, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey, type DeployJob, type DetectedFramework, type CloudflareZone, type TunnelStatusResponse } from '../api/client';
 import { describeError } from '../utils/format';
 
 export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'domains' | 'routing' | 'files' | 'env' | 'php' | 'runtime' | 'security' | 'deploy';
@@ -1567,6 +1568,70 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   const [addingAlias, setAddingAlias] = useState(false);
   const [issuingSslId, setIssuingSslId] = useState<string | null>(null);
 
+  // Cloudflare Tunnel & Zones state for Domains tab
+  const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusResponse | null>(null);
+  const [cfZones, setCfZones] = useState<CloudflareZone[]>([]);
+  const [loadingCf, setLoadingCf] = useState(false);
+  const [copiedServerIp, setCopiedServerIp] = useState(false);
+
+  // Add Alias state
+  const [aliasDnsMode, setAliasDnsMode] = useState<'cloudflare' | 'direct'>('direct');
+  const [aliasCfZone, setAliasCfZone] = useState('');
+  const [aliasSubdomain, setAliasSubdomain] = useState('');
+
+  // Edit Domain modal state
+  const [editingDomain, setEditingDomain] = useState<ApiDomain | null>(null);
+  const [editDnsMode, setEditDnsMode] = useState<'cloudflare' | 'direct'>('direct');
+  const [editCfZone, setEditCfZone] = useState('');
+  const [editSubdomain, setEditSubdomain] = useState('');
+  const [newDomainInput, setNewDomainInput] = useState('');
+  const [isUpdatingDomain, setIsUpdatingDomain] = useState(false);
+
+  // DNS Setup Instructions Modal state
+  const [dnsModalDomain, setDnsModalDomain] = useState<ApiDomain | null>(null);
+
+  const serverIp = typeof window !== 'undefined' ? window.location.hostname : '';
+  const isTunnelConfigured = Boolean(tunnelStatus?.hasToken && tunnelStatus?.status === 'connected');
+
+  const fetchCloudflareData = useCallback(async () => {
+    if (!app?.tenantUser) return;
+    try {
+      setLoadingCf(true);
+      const [statusRes, zonesRes] = await Promise.allSettled([
+        api.tunnelStatus(app.tenantUser),
+        api.tunnelZones(app.tenantUser),
+      ]);
+      if (statusRes.status === 'fulfilled') {
+        setTunnelStatus(statusRes.value);
+      }
+      if (zonesRes.status === 'fulfilled' && zonesRes.value.zones && Array.isArray(zonesRes.value.zones)) {
+        setCfZones(zonesRes.value.zones);
+        if (zonesRes.value.zones.length > 0) {
+          setAliasCfZone(zonesRes.value.zones[0].name);
+          setEditCfZone(zonesRes.value.zones[0].name);
+          setAliasDnsMode('cloudflare');
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load Cloudflare status for domains:', err);
+    } finally {
+      setLoadingCf(false);
+    }
+  }, [app?.tenantUser]);
+
+  useEffect(() => {
+    fetchCloudflareData();
+  }, [fetchCloudflareData]);
+
+  const isDomainCloudflare = (domName: string) => {
+    if (!isTunnelConfigured) return false;
+    const lower = (domName || '').toLowerCase();
+    if (tunnelStatus?.routes?.some((r) => r.hostname?.toLowerCase() === lower)) {
+      return true;
+    }
+    return cfZones.some((z) => lower === z.name.toLowerCase() || lower.endsWith('.' + z.name.toLowerCase()));
+  };
+
   const fetchSiteDomains = async () => {
     try {
       setLoadingDomains(true);
@@ -1586,14 +1651,26 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 
   const handleAddAlias = async (e: React.FormEvent) => {
     e.preventDefault();
-    const domain = newAliasDomain.trim();
-    if (!domain) return;
+    const effectiveAliasDomain = (isTunnelConfigured && cfZones.length > 0 && aliasDnsMode === 'cloudflare' && aliasCfZone && aliasCfZone !== 'custom')
+      ? (aliasSubdomain.trim() ? `${aliasSubdomain.trim()}.${aliasCfZone}`.toLowerCase() : aliasCfZone.toLowerCase())
+      : newAliasDomain.trim().toLowerCase();
+
+    if (!effectiveAliasDomain) return;
     try {
       setAddingAlias(true);
-      await api.addDomain({ websiteSlug: app.name, domain });
-      onShowToast?.('Alias Domain Added', `Successfully added ${domain} to ${app.name}`, 'success');
+      await api.addDomain({ websiteSlug: app.name, domain: effectiveAliasDomain });
+      if (isTunnelConfigured && aliasDnsMode === 'cloudflare') {
+        try {
+          await api.addTunnelRoute(effectiveAliasDomain, "http://127.0.0.1:80", app.name, false, app.tenantUser);
+        } catch (routeErr) {
+          console.warn('Auto route add error:', routeErr);
+        }
+      }
+      onShowToast?.('Alias Domain Added', `Successfully added ${effectiveAliasDomain} to ${app.name}`, 'success');
       setNewAliasDomain('');
-      fetchSiteDomains();
+      setAliasSubdomain('');
+      await fetchSiteDomains();
+      await fetchCloudflareData();
     } catch (err: any) {
       onShowToast?.('Error Adding Domain', err?.message || 'Failed to add alias domain', 'error');
     } finally {
@@ -1607,25 +1684,55 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
       await api.deleteDomain(dom.id);
       onShowToast?.('Domain Removed', `Removed ${dom.domain} from website`, 'success');
       fetchSiteDomains();
+      fetchCloudflareData();
     } catch (err: any) {
       onShowToast?.('Error Removing Domain', err?.message || 'Failed to remove alias', 'error');
     }
   };
 
-  // Edit Domain State & Handlers
-  const [editingDomain, setEditingDomain] = useState<ApiDomain | null>(null);
-  const [newDomainInput, setNewDomainInput] = useState('');
-  const [isUpdatingDomain, setIsUpdatingDomain] = useState(false);
-
   const handleOpenEditDomain = (dom: ApiDomain) => {
     setEditingDomain(dom);
     setNewDomainInput(dom.domain);
+
+    let matchedZone = '';
+    let sub = '';
+    if (isTunnelConfigured && cfZones.length > 0) {
+      const lower = dom.domain.toLowerCase();
+      for (const z of cfZones) {
+        const zLower = z.name.toLowerCase();
+        if (lower === zLower) {
+          matchedZone = z.name;
+          sub = '';
+          break;
+        } else if (lower.endsWith('.' + zLower)) {
+          matchedZone = z.name;
+          sub = dom.domain.slice(0, -(z.name.length + 1));
+          break;
+        }
+      }
+    }
+
+    if (matchedZone) {
+      setEditDnsMode('cloudflare');
+      setEditCfZone(matchedZone);
+      setEditSubdomain(sub);
+    } else {
+      setEditDnsMode('direct');
+      if (cfZones.length > 0) {
+        setEditCfZone(cfZones[0].name);
+      }
+      setEditSubdomain('');
+    }
   };
 
   const handleSaveDomainEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingDomain || !newDomainInput.trim()) return;
-    const cleaned = newDomainInput.trim().toLowerCase();
+    if (!editingDomain) return;
+    const cleaned = (isTunnelConfigured && cfZones.length > 0 && editDnsMode === 'cloudflare' && editCfZone && editCfZone !== 'custom')
+      ? (editSubdomain.trim() ? `${editSubdomain.trim()}.${editCfZone}`.toLowerCase() : editCfZone.toLowerCase())
+      : newDomainInput.trim().toLowerCase();
+
+    if (!cleaned) return;
     if (cleaned === editingDomain.domain.toLowerCase()) {
       setEditingDomain(null);
       return;
@@ -1633,9 +1740,17 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     setIsUpdatingDomain(true);
     try {
       await api.updateDomain(editingDomain.id, cleaned);
+      if (isTunnelConfigured && editDnsMode === 'cloudflare') {
+        try {
+          await api.addTunnelRoute(cleaned, "http://127.0.0.1:80", app.name, false, app.tenantUser);
+        } catch (routeErr) {
+          console.warn('Auto route add on edit error:', routeErr);
+        }
+      }
       onShowToast?.('Domain Updated', `Domain successfully changed from ${editingDomain.domain} to ${cleaned}`, 'success');
       setEditingDomain(null);
       await fetchSiteDomains();
+      await fetchCloudflareData();
       if (editingDomain.isPrimary && app) {
         onUpdateApp?.({ ...app, domain: cleaned });
       }
@@ -3295,18 +3410,99 @@ QUEUE_CONNECTION=redis`;
               </div>
               <button
                 type="button"
-                onClick={fetchSiteDomains}
-                disabled={loadingDomains}
+                onClick={() => { fetchSiteDomains(); fetchCloudflareData(); }}
+                disabled={loadingDomains || loadingCf}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg transition-colors cursor-pointer"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingDomains ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingDomains || loadingCf ? 'animate-spin' : ''}`} />
                 <span>Refresh</span>
               </button>
             </div>
 
+            {/* DNS Routing & Ingress Status Banner */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Card 1: Direct Server Public IP */}
+              <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Server className="w-4 h-4 text-blue-600" />
+                    <span>Direct Server Public IP (A Record)</span>
+                  </span>
+                  <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-md">
+                    Direct DNS
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  For domains routed directly to this host without Cloudflare Tunnel, create an <strong>A Record</strong> pointing to:
+                </p>
+                <div className="flex items-center gap-2 pt-0.5">
+                  <code className="px-2.5 py-1 text-xs font-mono font-bold bg-slate-50 text-slate-900 border border-slate-200 rounded-lg flex-1">
+                    {serverIp || 'Host Public IP'}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (serverIp) {
+                        void navigator.clipboard.writeText(serverIp);
+                        setCopiedServerIp(true);
+                        setTimeout(() => setCopiedServerIp(false), 2000);
+                      }
+                    }}
+                    className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                    title="Copy server IP"
+                  >
+                    {copiedServerIp ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedServerIp ? 'Copied' : 'Copy IP'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 2: Cloudflare Zero-NAT Tunnel */}
+              <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <CloudRain className="w-4 h-4 text-amber-500" />
+                    <span>Cloudflare Zero-NAT Tunnel</span>
+                  </span>
+                  {isTunnelConfigured ? (
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span>Connected</span>
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 rounded-md">
+                      Not Configured
+                    </span>
+                  )}
+                </div>
+                {isTunnelConfigured ? (
+                  <>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Zero-NAT edge tunnel active for <strong>@{app.tenantUser}</strong>. {cfZones.length} Cloudflare zone(s) available for automatic routing.
+                    </p>
+                    <div className="text-[11px] text-slate-600 flex items-center gap-2 pt-0.5">
+                      <span className="font-semibold text-slate-700">Available Zones:</span>
+                      <span className="font-mono text-emerald-700 font-bold">
+                        {cfZones.map(z => z.name).join(', ') || 'No zones loaded'}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Want Zero-NAT hosting without exposing VPS ports? Connect your Cloudflare Tunnel under <strong>Cloudflare Tunnels</strong> to auto-manage edge DNS.
+                    </p>
+                    <div className="text-[11px] text-slate-400">
+                      Tunnel routes will become selectable once configured.
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
             {/* Add Domain Alias Card */}
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
                 <div>
                   <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                     <Plus className="w-4 h-4 text-emerald-600" />
@@ -3316,25 +3512,113 @@ QUEUE_CONNECTION=redis`;
                     Add <code>www.{app.domain}</code>, a subdomain, or an additional custom domain name.
                   </p>
                 </div>
+
+                {/* Routing Mode Switcher (only shown when Cloudflare Tunnel is configured) */}
+                {isTunnelConfigured && cfZones.length > 0 && (
+                  <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-xl border border-slate-200/80">
+                    <button
+                      type="button"
+                      onClick={() => setAliasDnsMode('cloudflare')}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                        aliasDnsMode === 'cloudflare'
+                          ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <CloudRain className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Cloudflare Zone</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAliasDnsMode('direct')}
+                      className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                        aliasDnsMode === 'direct'
+                          ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <Server className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Direct Public IP</span>
+                    </button>
+                  </div>
+                )}
               </div>
-              <form onSubmit={handleAddAlias} className="flex flex-col sm:flex-row items-center gap-3">
-                <div className="relative flex-1 w-full">
-                  <input
-                    type="text"
-                    value={newAliasDomain}
-                    onChange={(e) => setNewAliasDomain(e.target.value)}
-                    placeholder="e.g. www.example.com or store.mybrand.id"
-                    className="w-full px-3.5 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={addingAlias || !newAliasDomain.trim()}
-                  className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>{addingAlias ? 'Attaching...' : 'Add Domain Alias'}</span>
-                </button>
+
+              <form onSubmit={handleAddAlias} className="space-y-3">
+                {isTunnelConfigured && cfZones.length > 0 && aliasDnsMode === 'cloudflare' ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                          Select Cloudflare Zone
+                        </label>
+                        <select
+                          value={aliasCfZone}
+                          onChange={(e) => setAliasCfZone(e.target.value)}
+                          className="w-full px-3 py-2 text-xs bg-slate-50 text-slate-800 rounded-xl border border-slate-200 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-mono cursor-pointer"
+                        >
+                          {cfZones.map((z) => (
+                            <option key={z.id} value={z.name}>
+                              🌐 {z.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                          Subdomain Prefix (Optional)
+                        </label>
+                        <div className="flex items-center rounded-xl border border-slate-200 bg-slate-50 overflow-hidden focus-within:bg-white focus-within:ring-2 focus-within:ring-amber-500/20 focus-within:border-amber-500">
+                          <input
+                            type="text"
+                            value={aliasSubdomain}
+                            onChange={(e) => setAliasSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                            placeholder="e.g. www, api, or store"
+                            className="w-full px-3 py-2 text-xs text-slate-800 bg-transparent focus:outline-hidden font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span className="text-xs text-amber-900">
+                          Resulting Domain: <strong className="font-mono text-amber-950 font-bold">{aliasSubdomain.trim() ? `${aliasSubdomain.trim()}.${aliasCfZone}` : aliasCfZone}</strong>
+                        </span>
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={addingAlias || !aliasCfZone}
+                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>{addingAlias ? 'Attaching...' : 'Add Cloudflare Alias'}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row items-center gap-3">
+                    <div className="relative flex-1 w-full">
+                      <input
+                        type="text"
+                        value={newAliasDomain}
+                        onChange={(e) => setNewAliasDomain(e.target.value)}
+                        placeholder="e.g. www.example.com or store.mybrand.id"
+                        className="w-full px-3.5 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={addingAlias || !newAliasDomain.trim()}
+                      className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>{addingAlias ? 'Attaching...' : 'Add Domain Alias'}</span>
+                    </button>
+                  </div>
+                )}
               </form>
             </div>
 
@@ -3345,7 +3629,7 @@ QUEUE_CONNECTION=redis`;
                   Active Domains ({siteDomains.length})
                 </span>
                 <span className="text-[11px] text-slate-400">
-                  Auto-synced with active web server vhost
+                  Auto-synced with active web server vhost & ingress
                 </span>
               </div>
               <div className="divide-y divide-slate-100">
@@ -3354,124 +3638,151 @@ QUEUE_CONNECTION=redis`;
                     {loadingDomains ? 'Loading domain configurations...' : `Primary domain: ${app.domain}`}
                   </div>
                 ) : (
-                  siteDomains.map((dom) => (
-                    <div key={dom.id} className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
-                      <div className="flex items-start sm:items-center gap-3 min-w-0">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold shrink-0 ${
-                          dom.isPrimary ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          <Globe className="w-4 h-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-bold text-slate-900 font-mono tracking-tight">
-                              {dom.domain}
-                            </span>
-                            {dom.isPrimary ? (
-                              <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 rounded-md">
-                                Primary
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-700 rounded-md">
-                                Alias
-                              </span>
-                            )}
-                            {dom.sslEnabled ? (
-                              <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded-md flex items-center gap-1">
-                                <Lock className="w-3 h-3" />
-                                <span>TLS 1.3 ({dom.sslProvider})</span>
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 rounded-md">
-                                No SSL (HTTP Only)
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-3 flex-wrap">
-                            {dom.sslIssuer && <span>Issuer: {dom.sslIssuer}</span>}
-                            {dom.sslExpiresAt && (
-                              <span className="text-slate-500">
-                                Expires: {new Date(dom.sslExpiresAt).toLocaleDateString()}
-                              </span>
-                            )}
-                            <a
-                              href={`${dom.sslEnabled && dom.forceHttps ? 'https' : 'http'}://${dom.domain}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-700 flex items-center gap-1 font-medium"
-                            >
-                              <span>Open in Browser</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 shrink-0 self-end md:self-center">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={Boolean(dom.sslEnabled && dom.forceHttps)}
-                          disabled={!dom.sslEnabled || togglingForceHttpsId === dom.id}
-                          onClick={() => handleToggleForceHttps(dom)}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                            !dom.sslEnabled
-                              ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed opacity-75'
-                              : togglingForceHttpsId === dom.id
-                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait opacity-80'
-                              : dom.forceHttps
-                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100 cursor-pointer'
-                              : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
-                          }`}
-                          title={!dom.sslEnabled ? 'Requires SSL Certificate' : 'Toggle 301 redirection from HTTP to HTTPS'}
-                        >
-                          <span>HTTPS Redirect:</span>
-                          <div className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors duration-200 ease-in-out ${
-                            dom.sslEnabled && dom.forceHttps ? 'bg-emerald-600' : 'bg-slate-300'
+                  siteDomains.map((dom) => {
+                    const isCf = isDomainCloudflare(dom.domain);
+                    return (
+                      <div key={dom.id} className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/50 transition-colors">
+                        <div className="flex items-start sm:items-center gap-3 min-w-0">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+                            dom.isPrimary ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-600'
                           }`}>
-                            <span
-                              className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out translate-y-0.5 ${
-                                dom.sslEnabled && dom.forceHttps ? 'translate-x-3.5' : 'translate-x-0.5'
-                              }`}
-                            />
+                            <Globe className="w-4 h-4" />
                           </div>
-                          <span className="font-bold text-[11px]">
-                            {!dom.sslEnabled ? 'Requires SSL' : togglingForceHttpsId === dom.id ? 'Saving...' : dom.forceHttps ? 'ON' : 'OFF'}
-                          </span>
-                        </button>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-bold text-slate-900 font-mono tracking-tight">
+                                {dom.domain}
+                              </span>
+                              {dom.isPrimary ? (
+                                <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-100 text-blue-800 rounded-md">
+                                  Primary
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-700 rounded-md">
+                                  Alias
+                                </span>
+                              )}
 
-                        <button
-                          type="button"
-                          disabled={issuingSslId === dom.id}
-                          onClick={() => handleOpenSslModal(dom)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                        >
-                          <Lock className="w-3.5 h-3.5" />
-                          <span>{issuingSslId === dom.id ? 'Issuing...' : 'Issue / Renew SSL'}</span>
-                        </button>
+                              {/* DNS Routing Type Badge */}
+                              {isCf ? (
+                                <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 rounded-md flex items-center gap-1">
+                                  <CloudRain className="w-3 h-3 text-amber-600" />
+                                  <span>Cloudflare Tunnel</span>
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200 rounded-md flex items-center gap-1">
+                                  <Server className="w-3 h-3 text-blue-600" />
+                                  <span>Direct Public IP</span>
+                                </span>
+                              )}
 
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditDomain(dom)}
-                          className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                          title="Edit domain name"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
+                              {dom.sslEnabled ? (
+                                <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded-md flex items-center gap-1">
+                                  <Lock className="w-3 h-3" />
+                                  <span>TLS 1.3 ({dom.sslProvider})</span>
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 rounded-md">
+                                  No SSL (HTTP Only)
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-3 flex-wrap">
+                              {dom.sslIssuer && <span>Issuer: {dom.sslIssuer}</span>}
+                              {dom.sslExpiresAt && (
+                                <span className="text-slate-500">
+                                  Expires: {new Date(dom.sslExpiresAt).toLocaleDateString()}
+                                </span>
+                              )}
+                              <a
+                                href={`${dom.sslEnabled && dom.forceHttps ? 'https' : 'http'}://${dom.domain}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-700 flex items-center gap-1 font-medium"
+                              >
+                                <span>Open in Browser</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          </div>
+                        </div>
 
-                        {!dom.isPrimary && (
+                        <div className="flex items-center gap-2.5 shrink-0 self-end md:self-center">
                           <button
                             type="button"
-                            onClick={() => handleDeleteAlias(dom)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            title="Remove alias domain"
+                            role="switch"
+                            aria-checked={Boolean(dom.sslEnabled && dom.forceHttps)}
+                            disabled={!dom.sslEnabled || togglingForceHttpsId === dom.id}
+                            onClick={() => handleToggleForceHttps(dom)}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                              !dom.sslEnabled
+                                ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-not-allowed opacity-75'
+                                : togglingForceHttpsId === dom.id
+                                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait opacity-80'
+                                : dom.forceHttps
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100 cursor-pointer'
+                                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
+                            }`}
+                            title={!dom.sslEnabled ? 'Requires SSL Certificate' : 'Toggle 301 redirection from HTTP to HTTPS'}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <span>HTTPS Redirect:</span>
+                            <div className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors duration-200 ease-in-out ${
+                              dom.sslEnabled && dom.forceHttps ? 'bg-emerald-600' : 'bg-slate-300'
+                            }`}>
+                              <span
+                                className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out translate-y-0.5 ${
+                                  dom.sslEnabled && dom.forceHttps ? 'translate-x-3.5' : 'translate-x-0.5'
+                                }`}
+                              />
+                            </div>
+                            <span className="font-bold text-[11px]">
+                              {!dom.sslEnabled ? 'Requires SSL' : togglingForceHttpsId === dom.id ? 'Saving...' : dom.forceHttps ? 'ON' : 'OFF'}
+                            </span>
                           </button>
-                        )}
+
+                          <button
+                            type="button"
+                            disabled={issuingSslId === dom.id}
+                            onClick={() => handleOpenSslModal(dom)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                            <span>{issuingSslId === dom.id ? 'Issuing...' : 'Issue / Renew SSL'}</span>
+                          </button>
+
+                          {/* DNS Instructions button */}
+                          <button
+                            type="button"
+                            onClick={() => setDnsModalDomain(dom)}
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                            title="View DNS Setup Instructions"
+                          >
+                            <HelpCircle className="w-4 h-4" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditDomain(dom)}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                            title="Edit domain and DNS routing"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+
+                          {!dom.isPrimary && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteAlias(dom)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                              title="Remove alias domain"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -6061,7 +6372,7 @@ QUEUE_CONNECTION=redis`}
       {/* Edit Domain Modal */}
       {editingDomain && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
@@ -6069,10 +6380,10 @@ QUEUE_CONNECTION=redis`}
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    Edit Domain Name
+                    Edit Domain & DNS Routing
                   </h3>
                   <p className="text-xs text-slate-500 font-mono">
-                    {editingDomain.isPrimary ? 'Primary Domain' : 'Alias Domain'}
+                    {editingDomain.isPrimary ? 'Primary Domain' : 'Alias Domain'} · Current: <strong>{editingDomain.domain}</strong>
                   </p>
                 </div>
               </div>
@@ -6087,22 +6398,132 @@ QUEUE_CONNECTION=redis`}
 
             <form onSubmit={handleSaveDomainEdit}>
               <div className="p-5 space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Domain / Hostname
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newDomainInput}
-                    onChange={(e) => setNewDomainInput(e.target.value)}
-                    placeholder="example.com or sub.example.com"
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500 font-mono"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Web server virtual host and any connected Cloudflare routes will be updated automatically without website downtime.
-                  </p>
-                </div>
+                {/* DNS Routing Type (Cloudflare vs Direct Public IP) */}
+                {isTunnelConfigured && cfZones.length > 0 ? (
+                  <div className="space-y-3">
+                    <label className="block text-xs font-bold text-slate-700">
+                      DNS Routing Method
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditDnsMode('cloudflare')}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
+                          editDnsMode === 'cloudflare'
+                            ? 'bg-amber-50/70 border-amber-300 ring-2 ring-amber-500/20'
+                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                          <CloudRain className="w-4 h-4 text-amber-500" />
+                          <span>Cloudflare Zone</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500">
+                          Select from connected Cloudflare zones
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setEditDnsMode('direct')}
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
+                          editDnsMode === 'direct'
+                            ? 'bg-blue-50/70 border-blue-300 ring-2 ring-blue-500/20'
+                            : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                          <Server className="w-4 h-4 text-blue-500" />
+                          <span>Direct Public IP</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500">
+                          Custom domain via direct DNS A Record
+                        </span>
+                      </button>
+                    </div>
+
+                    {editDnsMode === 'cloudflare' ? (
+                      <div className="space-y-3 p-3.5 bg-slate-50/80 rounded-xl border border-slate-200">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                              Cloudflare Zone
+                            </label>
+                            <select
+                              value={editCfZone}
+                              onChange={(e) => setEditCfZone(e.target.value)}
+                              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-slate-900 focus:outline-hidden focus:border-amber-500 font-mono cursor-pointer"
+                            >
+                              {cfZones.map((z) => (
+                                <option key={z.id} value={z.name}>
+                                  🌐 {z.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                              Subdomain Prefix (Optional)
+                            </label>
+                            <input
+                              type="text"
+                              value={editSubdomain}
+                              onChange={(e) => setEditSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                              placeholder="e.g. api (empty for apex)"
+                              className="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-slate-900 focus:outline-hidden focus:border-amber-500 font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200 flex items-center justify-between text-xs">
+                          <span className="text-slate-600 font-medium">New Domain:</span>
+                          <span className="font-mono font-bold text-amber-900">
+                            {editSubdomain.trim() ? `${editSubdomain.trim()}.${editCfZone}` : editCfZone}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          Traffic will automatically route through your Cloudflare Tunnel without opening public server ports.
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Custom Domain / Hostname
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={newDomainInput}
+                          onChange={(e) => setNewDomainInput(e.target.value)}
+                          placeholder="example.com or sub.example.com"
+                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500 font-mono"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          Point your domain's DNS <strong>A Record</strong> to server IP: <code className="font-mono font-bold text-slate-700">{serverIp}</code>.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Domain / Hostname
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newDomainInput}
+                      onChange={(e) => setNewDomainInput(e.target.value)}
+                      placeholder="example.com or sub.example.com"
+                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500 font-mono"
+                    />
+                    <div className="mt-2 p-2.5 bg-blue-50/60 rounded-xl border border-blue-100 flex items-center justify-between text-xs text-blue-900">
+                      <span>Server Public IP: <strong className="font-mono">{serverIp}</strong></span>
+                      <span className="text-[11px] text-blue-700">Set DNS A Record to this IP</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
@@ -6115,7 +6536,7 @@ QUEUE_CONNECTION=redis`}
                 </button>
                 <button
                   type="submit"
-                  disabled={isUpdatingDomain || !newDomainInput.trim()}
+                  disabled={isUpdatingDomain}
                   className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
                   {isUpdatingDomain ? (
@@ -6129,6 +6550,118 @@ QUEUE_CONNECTION=redis`}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* DNS Setup Instructions Modal */}
+      {dnsModalDomain && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                  <HelpCircle className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    DNS Setup Instructions
+                  </h3>
+                  <p className="text-xs text-slate-500 font-mono">
+                    {dnsModalDomain.domain}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDnsModalDomain(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              {isDomainCloudflare(dnsModalDomain.domain) ? (
+                <div className="space-y-3">
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <CloudRain className="w-4 h-4 text-amber-600" />
+                      <span>Routed via Cloudflare Zero-NAT Tunnel</span>
+                    </div>
+                    <p className="text-[11px] text-amber-800 leading-relaxed">
+                      This domain traffic is routed through your active Cloudflare Tunnel. DNS records in Cloudflare are managed automatically by BarePod.
+                    </p>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 font-mono text-[11px]">
+                    <div className="flex justify-between py-1 border-b border-slate-200/60">
+                      <span className="text-slate-500">Routing Type:</span>
+                      <span className="font-bold text-slate-800">Tunnel Ingress</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200/60">
+                      <span className="text-slate-500">Public Hostname:</span>
+                      <span className="font-bold text-slate-800">{dnsModalDomain.domain}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200/60">
+                      <span className="text-slate-500">Origin Service:</span>
+                      <span className="font-bold text-slate-800">http://127.0.0.1:80</span>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-slate-500">No TLS Verify:</span>
+                      <span className="font-bold text-emerald-600">Enabled</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-slate-600 leading-relaxed">
+                    Log in to your domain registrar or DNS management provider (e.g. Cloudflare, Namecheap, GoDaddy) and add or update the following DNS record:
+                  </p>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2 font-mono text-[11px]">
+                    <div className="flex justify-between py-1 border-b border-slate-200/60">
+                      <span className="text-slate-500">Record Type:</span>
+                      <span className="font-bold text-slate-800">A</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200/60">
+                      <span className="text-slate-500">Name / Host:</span>
+                      <span className="font-bold text-slate-800">@ (or subdomain)</span>
+                    </div>
+                    <div className="flex items-center justify-between py-1 border-b border-slate-200/60">
+                      <span className="text-slate-500">Points to (Target):</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-blue-600">{serverIp}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (serverIp) void navigator.clipboard.writeText(serverIp);
+                          }}
+                          className="p-1 hover:bg-slate-200 rounded"
+                          title="Copy IP"
+                        >
+                          <Copy className="w-3 h-3 text-slate-500" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-slate-500">TTL:</span>
+                      <span className="font-bold text-slate-800">Auto / 300</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setDnsModalDomain(null)}
+                className="px-4 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
