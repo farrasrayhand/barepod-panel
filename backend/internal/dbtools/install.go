@@ -21,9 +21,57 @@ var installMu sync.Mutex
 const pmaVersion = "5.2.1"
 const pgwebVersion = "0.16.2"
 
+// EnsurePhpExtensions verifies that php-cli and necessary extensions (mysqli, mbstring, etc.)
+// are installed and enabled in PHP CLI. If mysqli or mbstring is missing, it installs them
+// and ensures they are enabled.
+func EnsurePhpExtensions() {
+	needsInstall := false
+	if _, err := exec.LookPath("php"); err != nil {
+		needsInstall = true
+	} else {
+		out, err := exec.Command("php", "-m").CombinedOutput()
+		if err != nil || !strings.Contains(string(out), "mysqli") || !strings.Contains(string(out), "mbstring") {
+			needsInstall = true
+		}
+	}
+
+	if !needsInstall {
+		return
+	}
+
+	script := `
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq || true
+apt-get install -y -qq php-cli php-mysql php-mbstring php-zip php-gd php-curl php-xml || true
+if command -v php >/dev/null 2>&1; then
+    PHP_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || true)
+    if [ -n "$PHP_VER" ]; then
+        apt-get install -y -qq "php${PHP_VER}-mysql" "php${PHP_VER}-mbstring" "php${PHP_VER}-zip" "php${PHP_VER}-gd" "php${PHP_VER}-curl" "php${PHP_VER}-xml" || true
+        phpenmod -v "${PHP_VER}" mysqli mbstring zip gd curl xml 2>/dev/null || true
+    fi
+fi
+phpenmod -v ALL mysqli mbstring zip gd curl xml 2>/dev/null || true
+
+for conf_dir in /etc/php/*/cli/conf.d; do
+    if [ -d "$conf_dir" ]; then
+        if [ ! -f "$conf_dir/20-mysqli.ini" ] && [ ! -L "$conf_dir/20-mysqli.ini" ]; then
+            echo "extension=mysqli" > "$conf_dir/20-mysqli.ini" 2>/dev/null || true
+        fi
+        if [ ! -f "$conf_dir/20-mbstring.ini" ] && [ ! -L "$conf_dir/20-mbstring.ini" ]; then
+            echo "extension=mbstring" > "$conf_dir/20-mbstring.ini" 2>/dev/null || true
+        fi
+    fi
+done
+
+pkill -f "php -S 127.0.0.1:8791" || true
+`
+	cmd := exec.Command("sh", "-c", script)
+	_ = cmd.Run()
+}
+
 // EnsurePhpMyAdmin checks if phpMyAdmin is installed in dbtoolsDir/phpmyadmin/index.php.
 // If not installed, it downloads and extracts the official phpMyAdmin archive automatically,
-// and ensures php-cli and required extensions are installed.
+// and ensures php-cli and required extensions (mysqli, mbstring, etc.) are installed and active.
 func EnsurePhpMyAdmin(dbtoolsDir string) error {
 	installMu.Lock()
 	defer installMu.Unlock()
@@ -31,11 +79,7 @@ func EnsurePhpMyAdmin(dbtoolsDir string) error {
 	pmaDir := filepath.Join(dbtoolsDir, "phpmyadmin")
 	indexPath := filepath.Join(pmaDir, "index.php")
 
-	// Ensure php-cli and required extensions are present
-	if _, err := exec.LookPath("php"); err != nil {
-		cmd := exec.Command("sh", "-c", "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq php-cli php-mysql php-mbstring php-zip php-gd php-curl php-xml")
-		_ = cmd.Run()
-	}
+	EnsurePhpExtensions()
 
 	if _, err := os.Stat(indexPath); err == nil {
 		return nil

@@ -117,6 +117,20 @@ elif command -v apt-get >/dev/null 2>&1; then
     python3 python3-venv python3-pip python3-dev composer certbot \
     php-cli php-mysql php-mbstring php-zip php-gd php-curl php-xml \
     nginx mariadb-server redis-server docker.io >/dev/null 2>&1 || true
+  if command -v php >/dev/null 2>&1; then
+    PHP_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || true)
+    if [ -n "$PHP_VER" ]; then
+      apt-get install -y -qq "php${PHP_VER}-mysql" "php${PHP_VER}-mbstring" "php${PHP_VER}-zip" "php${PHP_VER}-gd" "php${PHP_VER}-curl" "php${PHP_VER}-xml" >/dev/null 2>&1 || true
+      phpenmod -v "${PHP_VER}" mysqli mbstring zip gd curl xml 2>/dev/null || true
+    fi
+  fi
+  phpenmod -v ALL mysqli mbstring zip gd curl xml 2>/dev/null || true
+  for conf_dir in /etc/php/*/cli/conf.d; do
+    if [ -d "$conf_dir" ]; then
+      [ ! -f "$conf_dir/20-mysqli.ini" ] && [ ! -L "$conf_dir/20-mysqli.ini" ] && echo "extension=mysqli" > "$conf_dir/20-mysqli.ini" 2>/dev/null || true
+      [ ! -f "$conf_dir/20-mbstring.ini" ] && [ ! -L "$conf_dir/20-mbstring.ini" ] && echo "extension=mbstring" > "$conf_dir/20-mbstring.ini" 2>/dev/null || true
+    fi
+  done
   systemctl enable --now mariadb redis-server nginx docker >/dev/null 2>&1 || true
 fi
 

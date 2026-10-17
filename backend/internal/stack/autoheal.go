@@ -177,10 +177,8 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 	// 7. DB Tools (phpMyAdmin, pgweb) Auto-Heal
 	dbtoolsDir := "/var/lib/barepod/dbtools"
 	if isBinaryInstalled("mariadb") || isBinaryInstalled("mysqld") || isBinaryInstalled("mysql") || isDir("/etc/mysql") {
-		if _, err := os.Stat(filepath.Join(dbtoolsDir, "phpmyadmin", "index.php")); err != nil {
-			if err := dbtools.EnsurePhpMyAdmin(dbtoolsDir); err == nil {
-				actions = append(actions, "dbtools: auto-installed phpMyAdmin")
-			}
+		if err := dbtools.EnsurePhpMyAdmin(dbtoolsDir); err == nil {
+			actions = append(actions, "dbtools: verified phpMyAdmin & php extensions")
 		}
 	}
 	if isBinaryInstalled("psql") || isDir("/etc/postgresql") {

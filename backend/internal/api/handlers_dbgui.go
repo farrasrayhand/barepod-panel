@@ -915,10 +915,8 @@ func guiConnectionString(record store.Database, password string) string {
 // phpMyAdmin sees its own root but must still generate the panel's URLs.
 func (s *Server) preparePhpMyAdmin(record *store.Database, password, mount string, r *http.Request) (string, error) {
 	dir := filepath.Join(s.cfg.DbtoolsDir, "phpmyadmin")
-	if _, err := os.Stat(filepath.Join(dir, "index.php")); err != nil {
-		if err := dbtools.EnsurePhpMyAdmin(s.cfg.DbtoolsDir); err != nil {
-			return "", fmt.Errorf("phpMyAdmin auto-installation failed: %w", err)
-		}
+	if err := dbtools.EnsurePhpMyAdmin(s.cfg.DbtoolsDir); err != nil {
+		return "", fmt.Errorf("phpMyAdmin auto-installation failed: %w", err)
 	}
 	scheme := requestScheme(r)
 	host := record.Host
