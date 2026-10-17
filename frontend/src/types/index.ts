@@ -158,6 +158,7 @@ export interface PodVolumeMount {
 export interface PodItem {
   id: string;
   name: string;
+  tenantUser?: string;
   sourceType?: PodSourceType;
   image: string;
   dockerfileContent?: string;

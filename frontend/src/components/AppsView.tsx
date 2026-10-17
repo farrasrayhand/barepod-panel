@@ -22,7 +22,11 @@ import {
   AlertTriangle,
   Lock,
   Trash2,
-  Database
+  Database,
+  User,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { siteSupportsFiles, siteSupportsCI, siteSupportsShell, siteHasGit } from '../utils/siteRuntime';
 import type { WebApp, WebServerType } from '../types';
@@ -37,6 +41,7 @@ interface AppsViewProps {
   /** False while the website list is still being fetched. */
   appsLoaded?: boolean;
   appSubTab?: string;
+  isAdmin?: boolean;
   onSelectApp?: (slug: string) => void;
   onSubTabChange?: (tab: AppDetailTab) => void;
   onOpenAppFiles?: (app: WebApp) => void;
@@ -56,6 +61,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
   selectedAppSlug,
   appsLoaded = true,
   appSubTab,
+  isAdmin = false,
   onSelectApp,
   onSubTabChange,
   onOpenAppFiles,
@@ -70,6 +76,9 @@ export const AppsView: React.FC<AppsViewProps> = ({
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [ownerFilter, setOwnerFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'name' | 'domain' | 'owner' | 'status'>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Delete Website Modal State
@@ -114,14 +123,48 @@ export const AppsView: React.FC<AppsViewProps> = ({
     setTimeout(() => setIsRefreshing(false), 600);
   };
 
+  const availableOwners = React.useMemo(() => {
+    const set = new Set<string>();
+    apps.forEach((a) => {
+      if (a.tenantUser) set.add(a.tenantUser);
+    });
+    return Array.from(set).sort();
+  }, [apps]);
+
   const filteredApps = apps.filter((app) => {
     const matchesFilter = filterType === 'all' || app.runtime === filterType || app.webServer === filterType;
+    const matchesOwner = ownerFilter === 'all' || app.tenantUser === ownerFilter;
     const matchesSearch = app.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           app.domain.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           app.tenantUser.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           (app.framework && app.framework.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesFilter && matchesSearch;
+    return matchesFilter && matchesOwner && matchesSearch;
   });
+
+  const sortedApps = React.useMemo(() => {
+    return [...filteredApps].sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === 'owner') {
+        cmp = (a.tenantUser || '').localeCompare(b.tenantUser || '');
+      } else if (sortBy === 'domain') {
+        cmp = (a.domain || '').localeCompare(b.domain || '');
+      } else if (sortBy === 'status') {
+        cmp = (a.status || '').localeCompare(b.status || '');
+      } else {
+        cmp = (a.name || '').localeCompare(b.name || '');
+      }
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
+  }, [filteredApps, sortBy, sortDirection]);
+
+  const handleToggleSort = (col: 'name' | 'domain' | 'owner' | 'status') => {
+    if (sortBy === col) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(col);
+      setSortDirection('asc');
+    }
+  };
 
   const getWebServerBadge = (ws: WebServerType) => {
     switch (ws) {
@@ -203,9 +246,9 @@ export const AppsView: React.FC<AppsViewProps> = ({
       </div>
 
       {/* Filter & Search Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+      <div className="flex flex-col gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
         {/* Runtime Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
           {[
             { id: 'all', label: 'All Websites' },
             { id: 'proxy', label: 'Reverse Proxy' },
@@ -231,16 +274,65 @@ export const AppsView: React.FC<AppsViewProps> = ({
           ))}
         </div>
 
-        {/* Search Input */}
-        <div className="relative min-w-[240px]">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search website, framework, domain..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-          />
+        {/* Filter Controls Row: Search + Owner Filter + Sort By */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Owner Filter Dropdown */}
+            {(isAdmin || availableOwners.length > 1) && (
+              <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200 shrink-0">
+                <User className="w-3.5 h-3.5 text-slate-500" />
+                <span className="text-[11px] text-slate-500 font-medium">Owner:</span>
+                <select
+                  value={ownerFilter}
+                  onChange={(e) => setOwnerFilter(e.target.value)}
+                  className="text-xs bg-transparent border-0 text-slate-800 font-semibold focus:outline-hidden cursor-pointer"
+                >
+                  <option value="all">All Owners ({apps.length})</option>
+                  {availableOwners.map((u) => (
+                    <option key={u} value={u}>
+                      @{u} ({apps.filter((a) => a.tenantUser === u).length})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Sort Dropdown */}
+            <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200 shrink-0">
+              <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[11px] text-slate-500 font-medium">Sort:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="text-xs bg-transparent border-0 text-slate-800 font-semibold focus:outline-hidden cursor-pointer"
+              >
+                <option value="name">Website Name</option>
+                <option value="owner">Owner (Tenant)</option>
+                <option value="domain">Domain</option>
+                <option value="status">Status</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                title={sortDirection === 'asc' ? 'Ascending (A-Z)' : 'Descending (Z-A)'}
+                className="p-1 hover:bg-slate-200/60 rounded text-slate-600 hover:text-blue-600 transition-colors cursor-pointer"
+              >
+                {sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Search Input */}
+          <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search website, domain, owner..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            />
+          </div>
         </div>
       </div>
 
@@ -250,17 +342,41 @@ export const AppsView: React.FC<AppsViewProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
               <tr>
-                <th className="py-3.5 px-4">Name / Domain</th>
+                <th
+                  onClick={() => handleToggleSort('name')}
+                  className="py-3.5 px-4 cursor-pointer hover:text-slate-900 select-none transition-colors"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Name / Domain</span>
+                    {sortBy === 'name' && (sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />)}
+                  </div>
+                </th>
                 <th className="py-3.5 px-4">Framework & Runtime</th>
                 <th className="py-3.5 px-4">Web Server</th>
-                <th className="py-3.5 px-4">Tenant User</th>
-                <th className="py-3.5 px-4">Status</th>
+                <th
+                  onClick={() => handleToggleSort('owner')}
+                  className="py-3.5 px-4 cursor-pointer hover:text-slate-900 select-none transition-colors"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Tenant User</span>
+                    {sortBy === 'owner' && (sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />)}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleToggleSort('status')}
+                  className="py-3.5 px-4 cursor-pointer hover:text-slate-900 select-none transition-colors"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Status</span>
+                    {sortBy === 'status' && (sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />)}
+                  </div>
+                </th>
                 <th className="py-3.5 px-4 whitespace-nowrap">Route & SSL</th>
                 <th className="py-3.5 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredApps.length === 0 ? (
+              {sortedApps.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-16 text-center text-slate-400">
                     <Layers className="w-10 h-10 mx-auto mb-2 text-slate-300" />
@@ -269,7 +385,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredApps.map((app) => {
+                sortedApps.map((app) => {
                   const isSuspended = app.status === 'suspended';
                   const isFailed = app.status === 'error' || app.deployStatus === 'failed';
                   const isBuilding = app.status === 'building' || app.deployStatus === 'building' || app.deployStatus === 'pending';

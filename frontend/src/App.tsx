@@ -673,6 +673,7 @@ export function App() {
             <AppsView
               apps={apps}
               appsLoaded={appsLoaded}
+              isAdmin={isAdmin}
               onWatchDeploy={(slug, deployId) => setDeployWatch({ slug, deployId })}
               selectedAppSlug={route.appSlug ?? null}
               appSubTab={route.appSubTab}
@@ -693,6 +694,7 @@ export function App() {
 
           {currentTab === 'pods' && (
             <PodsView
+              isAdmin={isAdmin}
               onShowToast={showToast}
               onOpenTerminal={(podId) => {
                 // A pod's shell must land on that container, not on a website.
@@ -702,7 +704,7 @@ export function App() {
           )}
 
           {currentTab === 'databases' && (
-            <DatabasesView onShowToast={showToast} />
+            <DatabasesView isAdmin={isAdmin} onShowToast={showToast} />
           )}
 
           {currentTab === 'tunnels' && (

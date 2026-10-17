@@ -15,7 +15,12 @@ import {
   HardDrive,
   Cloud,
   AlertTriangle,
-  Lock
+  Lock,
+  Search,
+  User,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import type { PodItem } from '../types';
 import { DeployPodModal } from './DeployPodModal';
@@ -23,6 +28,7 @@ import { PodConfigModal } from './PodConfigModal';
 import { DangerConfirmModal } from './DangerConfirmModal';
 
 interface PodsViewProps {
+  isAdmin?: boolean;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   onOpenTerminal?: (podId: string) => void;
 }
@@ -31,6 +37,7 @@ export const BAREPOD_DEMO_PODS: PodItem[] = [
   {
     id: 'pod-1',
     name: 'redis-cache-cluster',
+    tenantUser: 'admin',
     sourceType: 'image',
     image: 'redis:7.2-alpine',
     status: 'running',
@@ -51,6 +58,7 @@ export const BAREPOD_DEMO_PODS: PodItem[] = [
   {
     id: 'pod-2',
     name: 'typesense-search',
+    tenantUser: 'suprion7',
     sourceType: 'image',
     image: 'typesense/typesense:26.0',
     status: 'running',
@@ -75,6 +83,7 @@ export const BAREPOD_DEMO_PODS: PodItem[] = [
   {
     id: 'pod-3',
     name: 'n8n-workflow-automation',
+    tenantUser: 'admin',
     sourceType: 'compose',
     image: 'n8nio/n8n:latest',
     status: 'running',
@@ -106,12 +115,48 @@ export const BAREPOD_DEMO_PODS: PodItem[] = [
   },
 ];
 
-export const PodsView: React.FC<PodsViewProps> = ({ onShowToast, onOpenTerminal }) => {
+export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast, onOpenTerminal }) => {
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [selectedPodForConfig, setSelectedPodForConfig] = useState<PodItem | null>(null);
   const [podToDelete, setPodToDelete] = useState<PodItem | null>(null);
 
   const [pods, setPods] = useState<PodItem[]>(BAREPOD_DEMO_PODS);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [ownerFilter, setOwnerFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'name' | 'owner' | 'status'>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const availableOwners = React.useMemo(() => {
+    const set = new Set<string>();
+    pods.forEach((p) => {
+      set.add(p.tenantUser || 'admin');
+    });
+    return Array.from(set).sort();
+  }, [pods]);
+
+  const filteredAndSortedPods = React.useMemo(() => {
+    const filtered = pods.filter((p) => {
+      const pOwner = p.tenantUser || 'admin';
+      const matchesOwner = ownerFilter === 'all' || pOwner === ownerFilter;
+      const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            p.image.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            pOwner.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            (p.webDomain && p.webDomain.toLowerCase().includes(searchQuery.toLowerCase()));
+      return matchesOwner && matchesSearch;
+    });
+
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === 'owner') {
+        cmp = (a.tenantUser || 'admin').localeCompare(b.tenantUser || 'admin');
+      } else if (sortBy === 'status') {
+        cmp = a.status.localeCompare(b.status);
+      } else {
+        cmp = a.name.localeCompare(b.name);
+      }
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
+  }, [pods, ownerFilter, searchQuery, sortBy, sortDirection]);
 
   const handleDeployPod = (newPod: PodItem) => {
     setPods([newPod, ...pods]);
@@ -181,40 +226,113 @@ export const PodsView: React.FC<PodsViewProps> = ({ onShowToast, onOpenTerminal 
         </div>
       </div>
 
+      {/* Filter & Search Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Owner Filter Dropdown */}
+          {(isAdmin || availableOwners.length > 1) && (
+            <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200 shrink-0">
+              <User className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[11px] text-slate-500 font-medium">Owner:</span>
+              <select
+                value={ownerFilter}
+                onChange={(e) => setOwnerFilter(e.target.value)}
+                className="text-xs bg-transparent border-0 text-slate-800 font-semibold focus:outline-hidden cursor-pointer"
+              >
+                <option value="all">All Owners ({pods.length})</option>
+                {availableOwners.map((u) => (
+                  <option key={u} value={u}>
+                    @{u} ({pods.filter((p) => (p.tenantUser || 'admin') === u).length})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Sort Dropdown */}
+          <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1.5 rounded-lg border border-slate-200 shrink-0">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
+            <span className="text-[11px] text-slate-500 font-medium">Sort:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="text-xs bg-transparent border-0 text-slate-800 font-semibold focus:outline-hidden cursor-pointer"
+            >
+              <option value="name">Container Name</option>
+              <option value="owner">Owner (Tenant)</option>
+              <option value="status">Status</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'))}
+              title={sortDirection === 'asc' ? 'Ascending (A-Z)' : 'Descending (Z-A)'}
+              className="p-1 hover:bg-slate-200/60 rounded text-slate-600 hover:text-purple-600 transition-colors cursor-pointer"
+            >
+              {sortDirection === 'asc' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Search Input */}
+        <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search container, image, owner..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+          />
+        </div>
+      </div>
+
       {/* Pods Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {pods.map((pod) => {
-          const isRunning = pod.status === 'running';
-          const isWeb = pod.isWebApp && pod.webDomain;
+        {filteredAndSortedPods.length === 0 ? (
+          <div className="col-span-full py-16 text-center text-slate-400 bg-white rounded-xl border border-slate-200 p-8">
+            <Box className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+            <p className="text-sm font-medium text-slate-600">No containers found</p>
+            <p className="text-xs text-slate-400 mt-1">Try resetting your filters or deploy a new pod container.</p>
+          </div>
+        ) : (
+          filteredAndSortedPods.map((pod) => {
+            const isRunning = pod.status === 'running';
+            const isWeb = pod.isWebApp && pod.webDomain;
 
-          return (
-            <div 
-              key={pod.id} 
-              className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between hover:shadow-md hover:border-slate-300 transition-all group"
-            >
-              <div>
-                {/* Top Row: Icon, Status, Source Badge */}
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center group-hover:bg-purple-100 transition-colors">
-                      <Box className="w-5 h-5" />
+            return (
+              <div 
+                key={pod.id} 
+                className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between hover:shadow-md hover:border-slate-300 transition-all group"
+              >
+                <div>
+                  {/* Top Row: Icon, Status, Source Badge & Owner */}
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center group-hover:bg-purple-100 transition-colors">
+                        <Box className="w-5 h-5" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5">
+                          {pod.sourceType === 'compose' ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                              <Layers className="w-2.5 h-2.5" /> Compose
+                            </span>
+                          ) : pod.sourceType === 'dockerfile' ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                              <FileCode className="w-2.5 h-2.5" /> Dockerfile
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                              Image
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                            <User className="w-2.5 h-2.5 text-slate-400" />
+                            @{pod.tenantUser || 'admin'}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      {pod.sourceType === 'compose' ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
-                          <Layers className="w-2.5 h-2.5" /> Compose
-                        </span>
-                      ) : pod.sourceType === 'dockerfile' ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
-                          <FileCode className="w-2.5 h-2.5" /> Dockerfile
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
-                          Image
-                        </span>
-                      )}
-                    </div>
-                  </div>
 
                   <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                     isRunning 
@@ -364,7 +482,7 @@ export const PodsView: React.FC<PodsViewProps> = ({ onShowToast, onOpenTerminal 
               </div>
             </div>
           );
-        })}
+        }))}
       </div>
 
       {/* Deploy Pod Modal */}

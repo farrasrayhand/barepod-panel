@@ -15,7 +15,12 @@ import {
   Zap,
   Globe,
   Folder,
-  Download
+  Download,
+  Search,
+  User,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import type { DatabaseItem, DatabaseEngine } from '../types';
 import { useSubRoute } from '../hooks/useSubRoute';
@@ -33,6 +38,7 @@ import { describeError } from '../utils/format';
 import { formatBytes } from '../api/adapters';
 
 interface DatabasesViewProps {
+  isAdmin?: boolean;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -124,9 +130,13 @@ const TOOL_TO_API: Record<string, string> = {
   dbgate: 'dbgate',
 };
 
-export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => {
+export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, onShowToast }) => {
   const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine | 'caches' | 'trash'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [ownerFilter, setOwnerFilter] = useState('all');
+  const [sortBy, setSortBy] = useState<'name' | 'owner' | 'engine' | 'size'>('name');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -442,16 +452,68 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
   const binnedDatabases = databases.filter(isInBin);
   const activeDatabases = databases.filter((db) => !isInBin(db));
 
-  const filtered = databases.filter((db) => {
-    if (activeTab === 'trash') return isInBin(db);
-    if (isInBin(db)) return false;
-    if (activeTab === 'all') return db.type !== 'redis';
-    if (activeTab === 'caches') return db.type === 'redis';
-    if (activeTab === 'mysql' || activeTab === 'mariadb') {
-      return db.type === 'mysql' || db.type === 'mariadb';
+  const availableOwners = React.useMemo(() => {
+    const set = new Set<string>();
+    databases.forEach((d) => {
+      if (d.tenantUser) set.add(d.tenantUser);
+    });
+    return Array.from(set).sort();
+  }, [databases]);
+
+  const filtered = React.useMemo(() => {
+    return databases.filter((db) => {
+      if (activeTab === 'trash') {
+        if (!isInBin(db)) return false;
+      } else {
+        if (isInBin(db)) return false;
+        if (activeTab === 'all' && db.type === 'redis') return false;
+        if (activeTab === 'caches' && db.type !== 'redis') return false;
+        if ((activeTab === 'mysql' || activeTab === 'mariadb') && db.type !== 'mysql' && db.type !== 'mariadb') return false;
+        if (activeTab !== 'all' && activeTab !== 'caches' && activeTab !== 'mysql' && activeTab !== 'mariadb' && db.type !== activeTab) return false;
+      }
+
+      if (ownerFilter !== 'all' && db.tenantUser !== ownerFilter) {
+        return false;
+      }
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matches = db.name.toLowerCase().includes(q) ||
+                        (db.username && db.username.toLowerCase().includes(q)) ||
+                        (db.tenantUser && db.tenantUser.toLowerCase().includes(q)) ||
+                        (db.host && db.host.toLowerCase().includes(q)) ||
+                        (db.version && db.version.toLowerCase().includes(q));
+        if (!matches) return false;
+      }
+
+      return true;
+    });
+  }, [databases, activeTab, ownerFilter, searchQuery]);
+
+  const sortedDatabases = React.useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === 'owner') {
+        cmp = (a.tenantUser || '').localeCompare(b.tenantUser || '');
+      } else if (sortBy === 'engine') {
+        cmp = a.type.localeCompare(b.type);
+      } else if (sortBy === 'size') {
+        cmp = (a.size || '').localeCompare(b.size || '');
+      } else {
+        cmp = a.name.localeCompare(b.name);
+      }
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
+  }, [filtered, sortBy, sortDirection]);
+
+  const handleToggleSort = (col: 'name' | 'owner' | 'engine' | 'size') => {
+    if (sortBy === col) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(col);
+      setSortDirection('asc');
     }
-    return db.type === activeTab;
-  });
+  };
 
   const getDbBadge = (type: DatabaseEngine) => {
     switch (type) {
@@ -659,6 +721,80 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
         </div>
       )}
 
+      {/* Search, Filter & Sort Bar */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+        {/* Search Input */}
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Search databases by name, owner, host, engine..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 placeholder-slate-400 transition-all"
+          />
+        </div>
+
+        {/* Filters and Sorters */}
+        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+          {/* Owner Filter (Visible to Admin or when multiple owners present) */}
+          {(isAdmin || availableOwners.length > 1) && (
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs">
+              <User className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <label htmlFor="db-owner-filter" className="text-slate-500 text-[11px] font-medium hidden md:inline">
+                Owner:
+              </label>
+              <select
+                id="db-owner-filter"
+                value={ownerFilter}
+                onChange={(e) => setOwnerFilter(e.target.value)}
+                className="bg-transparent text-slate-800 text-xs font-medium focus:outline-hidden cursor-pointer"
+              >
+                <option value="all">All Owners ({availableOwners.length})</option>
+                {availableOwners.map((owner) => (
+                  <option key={owner} value={owner}>
+                    @{owner}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Sort By Dropdown */}
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <label htmlFor="db-sort-by" className="text-slate-500 text-[11px] font-medium hidden md:inline">
+              Sort:
+            </label>
+            <select
+              id="db-sort-by"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'name' | 'owner' | 'engine' | 'size')}
+              className="bg-transparent text-slate-800 text-xs font-medium focus:outline-hidden cursor-pointer"
+            >
+              <option value="name">Database Name</option>
+              <option value="owner">Owner / Tenant</option>
+              <option value="engine">Engine</option>
+              <option value="size">Size</option>
+            </select>
+          </div>
+
+          {/* Sort Direction Toggle */}
+          <button
+            onClick={() => setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
+            className="p-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+            title={sortDirection === 'asc' ? 'Ascending (A-Z)' : 'Descending (Z-A)'}
+            aria-label="Toggle sort direction"
+          >
+            {sortDirection === 'asc' ? (
+              <ArrowUp className="w-3.5 h-3.5" />
+            ) : (
+              <ArrowDown className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
+      </div>
+
       {/* Database Cards Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <table className="w-full text-left text-xs table-fixed">
@@ -671,15 +807,76 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
           </colgroup>
           <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
             <tr>
-              <th className="py-3.5 px-4">Database Name</th>
-              <th className="py-3.5 px-4">Engine & Endpoint</th>
-              <th className="py-3.5 px-4">Tenant & Access</th>
-              <th className="py-3.5 px-4">Size & Pool</th>
+              <th
+                onClick={() => handleToggleSort('name')}
+                className="py-3.5 px-4 cursor-pointer hover:text-slate-800 transition-colors select-none"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Database Name</span>
+                  {sortBy === 'name' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-60" />
+                  )}
+                </div>
+              </th>
+              <th
+                onClick={() => handleToggleSort('engine')}
+                className="py-3.5 px-4 cursor-pointer hover:text-slate-800 transition-colors select-none"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Engine & Endpoint</span>
+                  {sortBy === 'engine' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-60" />
+                  )}
+                </div>
+              </th>
+              <th
+                onClick={() => handleToggleSort('owner')}
+                className="py-3.5 px-4 cursor-pointer hover:text-slate-800 transition-colors select-none"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Tenant & Access</span>
+                  {sortBy === 'owner' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-60" />
+                  )}
+                </div>
+              </th>
+              <th
+                onClick={() => handleToggleSort('size')}
+                className="py-3.5 px-4 cursor-pointer hover:text-slate-800 transition-colors select-none"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Size & Pool</span>
+                  {sortBy === 'size' ? (
+                    sortDirection === 'asc' ? <ArrowUp className="w-3 h-3 text-blue-600" /> : <ArrowDown className="w-3 h-3 text-blue-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-slate-300 opacity-60" />
+                  )}
+                </div>
+              </th>
               <th className="py-3.5 px-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filtered.map((db) => {
+            {sortedDatabases.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="py-12 text-center text-slate-400">
+                  <Database className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="font-medium text-slate-600">No databases found</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {searchQuery || ownerFilter !== 'all'
+                      ? 'Try clearing the search query or owner filter.'
+                      : 'No databases have been created yet.'}
+                  </p>
+                </td>
+              </tr>
+            ) : (
+              sortedDatabases.map((db) => {
               const badge = getDbBadge(db.type);
               const isSqliteDb = db.type === 'sqlite';
               const isBinned = isInBin(db);
@@ -750,6 +947,14 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                   {/* Tenant Isolation & Access */}
                   <td className="py-3.5 px-4">
                     <div className="space-y-1">
+                      {db.tenantUser && (
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-50 text-violet-700 border border-violet-200/80 shrink-0">
+                            <User className="w-2.5 h-2.5" />
+                            @{db.tenantUser}
+                          </span>
+                        </div>
+                      )}
                       {isSqliteDb ? (
                         <div className="inline-flex items-center gap-1.5 font-mono text-slate-700 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md text-[10px]">
                           <Folder className="w-3 h-3 text-slate-400 shrink-0" />
@@ -885,7 +1090,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ onShowToast }) => 
                   </td>
                 </tr>
               );
-            })}
+            }))}
           </tbody>
         </table>
       </div>
