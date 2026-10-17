@@ -114,7 +114,7 @@ func WriteMaintenancePage(slug, title, message string) (string, error) {
 	return dest, nil
 }
 
-// RenderMaintenanceHTML creates a responsive, clean, dark-mode 503 status page
+// RenderMaintenanceHTML creates a responsive, clean, modern light-theme 503 status page
 // that is 100% consistent with BarePod's default landing page design system.
 func RenderMaintenanceHTML(title, message string) string {
 	t := strings.TrimSpace(title)
@@ -134,7 +134,10 @@ func RenderMaintenanceHTML(title, message string) string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>503 Service Unavailable — %s</title>
+  <title>503 Service Unavailable — %%s</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -142,34 +145,46 @@ func RenderMaintenanceHTML(title, message string) string {
       display: flex;
       align-items: center;
       justify-content: center;
-      background-color: #080c14;
-      background-image:
-        radial-gradient(at 0%% 0%%, rgba(30, 58, 138, 0.25) 0px, transparent 50%%),
-        radial-gradient(at 100%% 100%%, rgba(15, 23, 42, 0.4) 0px, transparent 50%%);
-      color: #f1f5f9;
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      padding: 24px;
+      background-color: #f8fafc;
+      background-image: 
+        radial-gradient(at 10%% 10%%, rgba(255, 237, 213, 0.6) 0px, transparent 50%%),
+        radial-gradient(at 90%% 90%%, rgba(224, 231, 255, 0.5) 0px, transparent 50%%),
+        radial-gradient(at 50%% 50%%, rgba(241, 245, 249, 0.4) 0px, transparent 50%%);
+      color: #1e293b;
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      padding: 32px 20px;
       line-height: 1.6;
     }
     .container {
       width: 100%%;
       max-width: 680px;
-      background: #0f172a;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 20px;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-      padding: 40px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 24px;
+      box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.08), 0 0 1px rgba(0,0,0,0.05);
+      padding: 44px 40px;
+      position: relative;
+      overflow: hidden;
+    }
+    .container::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, #f97316, #fb923c, #3b82f6);
     }
     .badge {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      background: rgba(249, 115, 22, 0.12);
-      border: 1px solid rgba(249, 115, 22, 0.3);
-      color: #fb923c;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      color: #c2410c;
       font-size: 11px;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
       padding: 6px 14px;
       border-radius: 9999px;
@@ -180,24 +195,25 @@ func RenderMaintenanceHTML(title, message string) string {
       height: 8px;
       border-radius: 9999px;
       background: #f97316;
-      box-shadow: 0 0 10px #f97316;
-      animation: pulse 1.8s infinite;
+      box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.7);
+      animation: pulse-orange 2s infinite;
     }
-    @keyframes pulse {
-      0%%, 100%% { opacity: 1; transform: scale(1); }
-      50%% { opacity: 0.4; transform: scale(0.85); }
+    @keyframes pulse-orange {
+      0%% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.7); }
+      70%% { transform: scale(1); box-shadow: 0 0 0 8px rgba(249, 115, 22, 0); }
+      100%% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
     }
     h1 {
       font-size: 26px;
       font-weight: 800;
-      color: #ffffff;
-      letter-spacing: -0.02em;
-      margin-bottom: 6px;
+      color: #0f172a;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
     }
     .subtitle {
       font-size: 14px;
-      color: #94a3b8;
-      margin-bottom: 24px;
+      color: #64748b;
+      margin-bottom: 28px;
     }
     .pipeline {
       display: grid;
@@ -206,10 +222,15 @@ func RenderMaintenanceHTML(title, message string) string {
       margin-bottom: 28px;
     }
     .pipe-step {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
       padding: 14px 16px;
+      transition: all 0.2s ease;
+    }
+    .pipe-step:hover {
+      border-color: #cbd5e1;
+      background: #f1f5f9;
     }
     .pipe-label {
       font-size: 11px;
@@ -220,33 +241,36 @@ func RenderMaintenanceHTML(title, message string) string {
       display: flex;
       align-items: center;
       gap: 6px;
+      font-weight: 600;
     }
     .pipe-val {
       font-size: 13px;
       font-weight: 700;
     }
-    .status-ok { color: #34d399; }
-    .status-warn { color: #fbbf24; }
-    .status-orange { color: #fb923c; }
+    .status-ok { color: #059669; }
+    .status-warn { color: #d97706; }
+    .status-orange { color: #ea580c; }
     .guidance-card {
-      background: rgba(30, 41, 59, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 14px;
-      padding: 18px 20px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 20px;
       margin-bottom: 28px;
     }
     .guidance-card h2 {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
-      color: #e2e8f0;
+      color: #1e293b;
       margin-bottom: 8px;
       display: flex;
       align-items: center;
       gap: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
     .guidance-card p {
       font-size: 13px;
-      color: #94a3b8;
+      color: #64748b;
       line-height: 1.6;
     }
     .action-row {
@@ -256,7 +280,7 @@ func RenderMaintenanceHTML(title, message string) string {
       gap: 12px;
       margin-top: 16px;
       padding-top: 14px;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      border-top: 1px solid #e2e8f0;
       flex-wrap: wrap;
     }
     .btn {
@@ -264,9 +288,9 @@ func RenderMaintenanceHTML(title, message string) string {
       align-items: center;
       justify-content: center;
       gap: 6px;
-      background: #1e293b;
+      background: #0f172a;
       color: #ffffff;
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      border: 1px solid #0f172a;
       padding: 8px 16px;
       border-radius: 10px;
       font-size: 12px;
@@ -274,21 +298,26 @@ func RenderMaintenanceHTML(title, message string) string {
       cursor: pointer;
       text-decoration: none;
       transition: all 0.15s ease;
+      font-family: inherit;
     }
     .btn:hover {
-      background: #334155;
-      border-color: rgba(255, 255, 255, 0.25);
+      background: #1e293b;
+      border-color: #1e293b;
     }
     .footer {
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      border-top: 1px solid #f1f5f9;
       padding-top: 18px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       font-size: 12px;
-      color: #64748b;
+      color: #94a3b8;
       flex-wrap: wrap;
       gap: 8px;
+    }
+    .footer-brand {
+      font-weight: 600;
+      color: #64748b;
     }
   </style>
 </head>
@@ -298,8 +327,8 @@ func RenderMaintenanceHTML(title, message string) string {
       <span class="pulse-dot"></span>
       HTTP 503 • SCHEDULED MAINTENANCE
     </div>
-    <h1>%s</h1>
-    <p class="subtitle">%s</p>
+    <h1>%%s</h1>
+    <p class="subtitle">%%s</p>
 
     <div class="pipeline">
       <div class="pipe-step">
@@ -321,8 +350,8 @@ func RenderMaintenanceHTML(title, message string) string {
       <p>Access is temporarily restricted to ensure data consistency and integrity during scheduled updates. As soon as maintenance is complete, this site will resume normal operation.</p>
       
       <div class="action-row">
-        <span style="font-size: 12px; color: #94a3b8;">
-          Automatic check in <strong id="timer" style="color: #60a5fa; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px;">30</strong> seconds…
+        <span style="font-size: 12px; color: #64748b;">
+          Automatic check in <strong id="timer" style="color: #2563eb; font-family: 'JetBrains Mono', monospace; font-size: 14px;">30</strong> seconds…
         </span>
         <button class="btn" onclick="window.location.reload()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
@@ -332,7 +361,7 @@ func RenderMaintenanceHTML(title, message string) string {
     </div>
 
     <div class="footer">
-      <span>BarePod Web Engine</span>
+      <span class="footer-brand">BarePod Web Engine</span>
       <span>Status: 503 Service Unavailable</span>
     </div>
   </div>

@@ -1471,14 +1471,14 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                             </span>
                             {isHttpsTarget && (
                               <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                Otomatis Aktif (HTTPS)
+                                Auto-Enabled (HTTPS)
                               </span>
                             )}
                           </div>
                           <span className={`text-[10px] block mt-0.5 ${isChecked ? 'text-amber-800' : 'text-slate-500'}`}>
                             {isHttpsTarget 
-                              ? 'Otomatis diaktifkan karena target service menggunakan HTTPS agar tidak terjadi Error 502 Bad Gateway.' 
-                              : 'Aktifkan jika forwarding ke HTTPS origin internal/self-signed untuk mencegah SSL handshake error.'}
+                              ? 'Automatically enabled because the target service uses HTTPS to prevent 502 Bad Gateway errors.' 
+                              : 'Enable when forwarding to internal or self-signed HTTPS origins to bypass SSL verification.'}
                           </span>
                         </div>
                       </label>
@@ -1526,7 +1526,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">Unlink Cloudflare Tunnel</h3>
-                  <p className="text-xs text-slate-500">Putuskan koneksi tunnel untuk user @{activeUser}</p>
+                  <p className="text-xs text-slate-500">Disconnect tunnel daemon for user @{activeUser}</p>
                 </div>
               </div>
               <button
@@ -1542,15 +1542,18 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
               <div className="p-3.5 bg-rose-50/70 border border-rose-200 rounded-xl space-y-2">
                 <div className="flex items-center gap-2 font-bold text-rose-800 text-xs">
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                  <span>Perhatian: Aksi ini akan menghentikan tunnel</span>
+                  <span>Warning: This will stop the tunnel daemon</span>
                 </div>
                 <p className="text-[11px] text-rose-700 leading-relaxed">
-                  Layanan <code>cloudflared@{activeUser}</code> di server akan dihentikan dan dinonaktifkan. Kredensial tunnel token di panel akan dihapus. Domain yang bergantung pada tunnel ini tidak akan dapat diakses dari internet publik sampai Anda menghubungkannya kembali.
+                  The <code>cloudflared@{activeUser}</code> systemd service will be stopped and disabled. Tunnel token credentials in the panel will be permanently deleted. Any public domain pointing to this tunnel will become unreachable until reconnected.
+                </p>
+                <p className="text-[10px] text-rose-600 italic">
+                  Note: If you are currently accessing this panel through this exact tunnel, your browser session will disconnect.
                 </p>
               </div>
 
               <p className="text-slate-500 text-[11px]">
-                Apakah Anda yakin ingin memutuskan koneksi tunnel ini sekarang?
+                Are you sure you want to disconnect and unlink this tunnel now?
               </p>
             </div>
 
@@ -1561,7 +1564,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                 onClick={() => setShowUnlinkConfirm(false)}
                 className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-lg cursor-pointer transition-colors"
               >
-                Batal
+                Cancel
               </button>
               <button
                 type="button"
@@ -1572,12 +1575,12 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                 {isUnlinking ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Memutuskan Koneksi...</span>
+                    <span>Disconnecting...</span>
                   </>
                 ) : (
                   <>
                     <Unlink className="w-3.5 h-3.5" />
-                    <span>Ya, Putuskan Tunnel</span>
+                    <span>Yes, Unlink Tunnel</span>
                   </>
                 )}
               </button>

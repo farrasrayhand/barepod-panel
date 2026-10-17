@@ -244,7 +244,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: filtered.length ? filtered : allowed,
           recommended: (allAvailableVersions.includes('8.4') ? '8.4' : filtered[0]) || '8.4',
-          note: 'Laravel 13 membutuhkan PHP ≥ 8.3 (Direkomendasikan: PHP 8.4)',
+          note: 'Laravel 13 requires PHP ≥ 8.3 (Recommended: PHP 8.4)',
         };
       }
       if (fv.startsWith('12') || fw.includes('12')) {
@@ -253,7 +253,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: filtered.length ? filtered : allowed,
           recommended: (allAvailableVersions.includes('8.4') ? '8.4' : filtered[0]) || '8.4',
-          note: 'Laravel 12 membutuhkan PHP ≥ 8.2 (Direkomendasikan: PHP 8.4)',
+          note: 'Laravel 12 requires PHP ≥ 8.2 (Recommended: PHP 8.4)',
         };
       }
       if (fv.startsWith('11') || fw.includes('11')) {
@@ -262,7 +262,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: filtered.length ? filtered : allowed,
           recommended: (allAvailableVersions.includes('8.3') ? '8.3' : filtered[0]) || '8.3',
-          note: 'Laravel 11 membutuhkan PHP ≥ 8.2 (Direkomendasikan: PHP 8.3)',
+          note: 'Laravel 11 requires PHP ≥ 8.2 (Recommended: PHP 8.3)',
         };
       }
       if (fv.startsWith('10') || fw.includes('10')) {
@@ -271,7 +271,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: filtered.length ? filtered : allowed,
           recommended: (allAvailableVersions.includes('8.2') ? '8.2' : filtered[0]) || '8.2',
-          note: 'Laravel 10 membutuhkan PHP 8.1 - 8.3 (Direkomendasikan: PHP 8.2)',
+          note: 'Laravel 10 requires PHP 8.1 - 8.3 (Recommended: PHP 8.2)',
         };
       }
     }
@@ -283,7 +283,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: filtered.length ? filtered : allowed,
           recommended: (allAvailableVersions.includes('8.4') ? '8.4' : filtered[0]) || '8.4',
-          note: 'Symfony 8 membutuhkan PHP ≥ 8.3 (Direkomendasikan: PHP 8.4)',
+          note: 'Symfony 8 requires PHP ≥ 8.3 (Recommended: PHP 8.4)',
         };
       }
       if (fv.startsWith('7') || fw.includes('7')) {
@@ -292,7 +292,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: filtered.length ? filtered : allowed,
           recommended: (allAvailableVersions.includes('8.3') ? '8.3' : filtered[0]) || '8.3',
-          note: 'Symfony 7 membutuhkan PHP ≥ 8.2 (Direkomendasikan: PHP 8.3)',
+          note: 'Symfony 7 requires PHP ≥ 8.2 (Recommended: PHP 8.3)',
         };
       }
       if (fv.startsWith('6') || fw.includes('6')) {
@@ -301,7 +301,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: filtered.length ? filtered : allowed,
           recommended: (allAvailableVersions.includes('8.2') ? '8.2' : filtered[0]) || '8.2',
-          note: 'Symfony 6.4 membutuhkan PHP ≥ 8.1 (Direkomendasikan: PHP 8.2)',
+          note: 'Symfony 6.4 requires PHP ≥ 8.1 (Recommended: PHP 8.2)',
         };
       }
     }
@@ -313,7 +313,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: filtered.length ? filtered : allowed,
           recommended: '8.3',
-          note: 'Drupal 11 membutuhkan PHP ≥ 8.3',
+          note: 'Drupal 11 requires PHP ≥ 8.3',
         };
       }
     }
@@ -324,7 +324,7 @@ export const getCompatibleRuntimeVersions = (
       return {
         versions: filtered.length ? filtered : allowed,
         recommended: '8.3',
-        note: 'WooCommerce direkomendasikan dengan PHP 8.1 - 8.3',
+        note: 'WooCommerce is recommended with PHP 8.1 - 8.3',
       };
     }
   }
@@ -337,7 +337,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: filtered.length ? filtered : allowed,
           recommended: (allAvailableVersions.includes('22') ? '22' : filtered[0]) || '22',
-          note: 'Next.js 15 membutuhkan Node.js ≥ 18.18 (Direkomendasikan: Node 20 atau 22)',
+          note: 'Next.js 15 requires Node.js ≥ 18.18 (Recommended: Node 20 or 22)',
         };
       }
       if (fv.startsWith('14') || fw.includes('14')) {
@@ -346,7 +346,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: filtered.length ? filtered : allowed,
           recommended: '20',
-          note: 'Next.js 14 mendukung Node.js 18 & 20',
+          note: 'Next.js 14 supports Node.js 18 & 20',
         };
       }
     }
@@ -360,7 +360,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: filtered.length ? filtered : allowed,
           recommended: (allAvailableVersions.includes('3.12') ? '3.12' : filtered[0]) || '3.12',
-          note: 'Django 5.1 membutuhkan Python ≥ 3.10 (Direkomendasikan: Python 3.12)',
+          note: 'Django 5.1 requires Python ≥ 3.10 (Recommended: Python 3.12)',
         };
       }
     }
@@ -376,7 +376,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: finalVersions,
           recommended: rec,
-          note: 'Rails 8.0 membutuhkan Ruby ≥ 3.2',
+          note: 'Rails 8.0 requires Ruby ≥ 3.2',
         };
       }
       if (fv.startsWith('7') || fw.includes('7')) {
@@ -387,7 +387,7 @@ export const getCompatibleRuntimeVersions = (
         return {
           versions: finalVersions,
           recommended: rec,
-          note: 'Rails 7.2 membutuhkan Ruby ≥ 3.1',
+          note: 'Rails 7.2 requires Ruby ≥ 3.1',
         };
       }
     }
@@ -1314,7 +1314,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
       onClose();
       resetForm();
     } catch (err: any) {
-      setSubmitError(err instanceof Error ? err.message : 'Penerapan website ditolak oleh server.');
+      setSubmitError(err instanceof Error ? err.message : 'Website deployment was rejected by the server.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1470,7 +1470,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   {duplicateNameSite ? (
                     <p className="text-[11px] font-medium text-rose-600 mt-1 flex items-center gap-1">
                       <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                      Nama / slug "{normalizedSlug}" sudah digunakan oleh website "{duplicateNameSite.name}".
+                      Name / slug "{normalizedSlug}" is already used by website "{duplicateNameSite.name}".
                     </p>
                   ) : name.trim() !== '' ? (
                     <p className="text-[11px] text-slate-400 mt-1">
@@ -1564,15 +1564,15 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   {duplicateDomainSite ? (
                     <p className="text-[11px] font-medium text-rose-600 mt-1 flex items-center gap-1">
                       <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                      Domain "{domain.trim()}" sudah digunakan oleh website "{duplicateDomainSite.name}".
+                      Domain "{domain.trim()}" is already assigned to website "{duplicateDomainSite.name}".
                     </p>
                   ) : domain.trim() !== '' && !domainValid ? (
                     <p className="text-[11px] text-rose-600 mt-1">
-                      Masukkan domain FQDN yang valid tanpa skema, contoh: <code className="font-mono">app.example.com</code>
+                      Please enter a valid FQDN domain without scheme, e.g.: <code className="font-mono">app.example.com</code>
                     </p>
                   ) : name.trim() !== '' && domain.trim() !== '' && name.trim().toLowerCase() === domain.trim().toLowerCase() ? (
                     <p className="text-[10px] text-slate-400 mt-1">
-                      Info: Nama website akan menggunakan slug <code className="font-mono">{normalizedSlug}</code>.
+                      Info: Website will use slug <code className="font-mono">{normalizedSlug}</code>.
                     </p>
                   ) : null}
                 </div>
@@ -1731,7 +1731,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   {activeScaffold?.frameworkVersions && activeScaffold.frameworkVersions.length > 1 && (
                     <div className="p-3 rounded-xl border border-blue-200 bg-white space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-800">Pilih Versi {framework}:</span>
+                        <span className="text-xs font-bold text-slate-800">Select {framework} Version:</span>
                         {compatibleRuntimes.note && (
                           <span className="text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded font-medium flex items-center gap-1">
                             <ShieldCheck className="w-3 h-3 text-blue-600" />
@@ -1896,11 +1896,11 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
                   <div className="flex-1 text-xs">
                     <span className="font-bold text-amber-900 flex items-center gap-1.5">
-                      Peringatan: Runtime Mismatch Terdeteksi
+                      Warning: Runtime Mismatch Detected
                     </span>
                     <p className="text-amber-800 mt-1 leading-relaxed">
-                      Sumber kode Anda terdeteksi sebagai <strong>{detectedFw.title} ({expectedRuntime?.toUpperCase()})</strong>, namun Anda memilih runtime <strong>{runtime.toUpperCase()}</strong>.
-                      Aplikasi kemungkinan besar tidak akan dapat dijalankan atau gagal build karena runtime tidak cocok dengan kode sumber.
+                      Your source code is detected as <strong>{detectedFw.title} ({expectedRuntime?.toUpperCase()})</strong>, but you selected runtime <strong>{runtime.toUpperCase()}</strong>.
+                      The application will likely fail to build or run because the runtime does not match the source code.
                     </p>
                     <button
                       type="button"
@@ -1913,7 +1913,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors shadow-xs"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
-                      Kembalikan ke {expectedRuntime?.toUpperCase()} ({detectedFw.title})
+                      Switch back to {expectedRuntime?.toUpperCase()} ({detectedFw.title})
                     </button>
                   </div>
                 </div>
@@ -1979,7 +1979,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       {effectiveSource === 'scaffold' && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md">
                           <Lock className="w-2.5 h-2.5 text-slate-400" />
-                          Preset untuk {framework}
+                          Preset for {framework}
                         </span>
                       )}
                     </div>
@@ -2002,7 +2002,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                             type="button"
                             disabled={isLockedByScaffold}
                             onClick={() => handleRuntimeChange(item.id)}
-                            title={isLockedByScaffold ? `Terkunci ke runtime ${framework}. Ubah starter di langkah Source jika ingin runtime lain.` : undefined}
+                            title={isLockedByScaffold ? `Locked to ${framework} runtime. Change the starter in the Source step to select a different runtime.` : undefined}
                             className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border relative transition-all ${
                               isLockedByScaffold
                                 ? 'opacity-35 cursor-not-allowed border-slate-200 bg-slate-50/50 text-slate-400'
@@ -2049,16 +2049,16 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                               </div>
                               <div className="min-w-0">
                                 <span className="text-xs font-bold text-slate-900 block truncate">{framework}</span>
-                                <span className="text-[10px] text-slate-400 block truncate">Scaffold starter otomatis</span>
+                                <span className="text-[10px] text-slate-400 block truncate">Automatic starter scaffold</span>
                               </div>
                             </div>
                             <button
                               type="button"
                               onClick={() => setStepIndex(1)}
                               className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline px-2 py-1 shrink-0 flex items-center gap-0.5"
-                              title="Ubah starter template di langkah Source"
+                              title="Change starter template in the Source step"
                             >
-                              <span>Ganti</span>
+                              <span>Change</span>
                               <ChevronRight className="w-3 h-3" />
                             </button>
                           </div>
@@ -2080,12 +2080,12 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                         <label className="block text-xs font-semibold text-slate-700">
                           Runtime Version <span className="text-slate-400 font-normal">({runtime.toUpperCase()})</span>
                         </label>
-                        <span className="text-[10px] text-slate-400">Pilih versi runtime</span>
+                        <span className="text-[10px] text-slate-400">Select version</span>
                       </div>
                       <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass}>
                         {compatibleRuntimes.versions.map((ver) => (
                           <option key={ver} value={ver}>
-                            {ver} {ver === compatibleRuntimes.recommended ? '(Direkomendasikan)' : ''}
+                            {ver} {ver === compatibleRuntimes.recommended ? '(Recommended)' : ''}
                           </option>
                         ))}
                       </select>
@@ -2106,7 +2106,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       <div className="space-y-0.5">
                         <div className="font-semibold text-slate-800">Bring Your Own Code</div>
                         <p className="text-[11px] text-slate-500 leading-relaxed">
-                          Kode aplikasi menggunakan sumber yang telah ditentukan di langkah Source ({effectiveSource.toUpperCase()}). Tidak ada template starter otomatis yang diunduh.
+                          Application code uses the source specified in the Source step ({effectiveSource.toUpperCase()}). No automatic starter template will be downloaded.
                         </p>
                       </div>
                     </div>
@@ -2146,7 +2146,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                           >
                             {copiedConfig ? (
                               <span className="text-[10px] text-emerald-400 font-sans flex items-center gap-0.5">
-                                <Check className="w-3 h-3" /> Tersalin
+                                <Check className="w-3 h-3" /> Copied
                               </span>
                             ) : (
                               <Copy className="w-3.5 h-3.5" />
@@ -2158,7 +2158,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       <div className="flex items-start gap-2 text-[11px] text-slate-400">
                         <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
                         <p className="leading-relaxed">
-                          {plan.note || 'BarePod akan mengeksekusi scaffold otomatis saat website di-deploy dan menyambungkan konfigurasi environment ke database.'}
+                          {plan.note || 'BarePod will execute automatic scaffolding during website deployment and bind environment variables to the database.'}
                         </p>
                       </div>
                     </div>
@@ -2232,7 +2232,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   </div>
 
                   <p className="text-[11px] text-slate-400">
-                    Hanya database SQL relasional &amp; embedded untuk website. Untuk MongoDB atau klaster database khusus, tambahkan terpisah melalui menu <strong>Databases</strong>.
+                    Only relational &amp; embedded SQL databases for websites. For MongoDB or dedicated database clusters, add them separately via the <strong>Databases</strong> menu.
                   </p>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2273,7 +2273,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                           <div className="flex items-center justify-between gap-2 flex-wrap">
                             <div className="flex items-center gap-2">
                               <span className="font-semibold text-amber-950 text-xs">
-                                Database &ldquo;{dbCollision.name}&rdquo; Sudah Ada
+                                Database &ldquo;{dbCollision.name}&rdquo; Already Exists
                               </span>
                               <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-200/80 font-mono font-medium text-amber-900 uppercase">
                                 {dbCollision.engine}
@@ -2283,13 +2283,13 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                           <p className="text-amber-800 text-[11px] leading-relaxed">
                             {dbCollision.websiteSlug ? (
                               <>
-                                Database ini saat ini ditautkan ke website{' '}
+                                This database is currently linked to website{' '}
                                 <strong className="font-semibold text-amber-950">@{dbCollision.websiteSlug}</strong>.
                               </>
                             ) : (
-                              'Database dengan nama ini sudah terdaftar di sistem panel.'
+                              'A database with this name is already registered in the panel.'
                             )}
-                            {' '}BarePod akan menghubungkan ke database yang sudah ada tanpa menimpa data, atau gunakan nama baru jika Anda ingin database terisolasi untuk website ini.
+                            {' '}BarePod will connect to the existing database without overwriting data, or choose a new name for an isolated database.
                           </p>
                           <div className="pt-1 flex items-center gap-2 flex-wrap">
                             <button
@@ -2298,10 +2298,10 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-medium text-[11px] shadow-sm transition-all"
                             >
                               <Sparkles className="w-3.5 h-3.5" />
-                              Gunakan Nama Baru (Saran Otomatis)
+                              Use New Name (Auto Suggestion)
                             </button>
                             <span className="text-[10.5px] text-amber-700/80 italic">
-                              atau tetap gunakan untuk berbagi database dengan website yang ada.
+                              or continue to share the database with the existing website.
                             </span>
                           </div>
                         </div>
@@ -2482,7 +2482,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                 <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center gap-2.5 text-xs text-amber-900 animate-in fade-in">
                   <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                   <span>
-                    Perhatian: Anda mendeploy dengan runtime <strong>{runtime.toUpperCase()}</strong> padahal sumber kode terdeteksi sebagai <strong>{detectedFw.title} ({expectedRuntime?.toUpperCase()})</strong>.
+                    Warning: You are deploying with runtime <strong>{runtime.toUpperCase()}</strong>, but source code was detected as <strong>{detectedFw.title} ({expectedRuntime?.toUpperCase()})</strong>.
                   </span>
                 </div>
               )}

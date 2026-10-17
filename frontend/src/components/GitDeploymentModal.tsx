@@ -529,16 +529,16 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
             </div>
 
             <div className="p-2.5 bg-blue-50/70 border border-blue-200 rounded-lg text-[11px] text-slate-700 space-y-1">
-              <span className="font-bold text-blue-900 block">Cara Pasang di Provider Git:</span>
+              <span className="font-bold text-blue-900 block">Setup Instructions for Git Providers:</span>
               <ul className="list-disc list-inside space-y-0.5 text-slate-600 text-[10.5px]">
-                <li><strong>GitHub:</strong> Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Masukkan Payload URL, pilih <code>application/json</code>, pilih <em>Just the push event</em>.</li>
-                <li><strong>GitLab:</strong> Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Masukkan URL, centang <em>Push events</em>.</li>
-                <li><strong>Gitea:</strong> Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Masukkan Target URL.</li>
+                <li><strong>GitHub:</strong> Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Paste Payload URL, Content-Type: <code>application/json</code>, Event: <em>Just the push event</em>.</li>
+                <li><strong>GitLab:</strong> Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Paste URL, Trigger: <em>Push events</em>.</li>
+                <li><strong>Gitea:</strong> Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Paste Target URL.</li>
               </ul>
               <p className="text-[10px] text-blue-900 font-semibold pt-0.5">
                 {autoDeploy
-                  ? '✓ Auto-deploy AKTIF: Setiap commit baru di-push ke branch ' + branch + ' akan otomatis men-trigger build & deploy.'
-                  : '⚠️ Auto-deploy NONAKTIF: Centang "Auto Redeploy on Push" di atas agar commit baru otomatis di-deploy.'}
+                  ? '✓ Auto-deploy ACTIVE: Pushing commits to branch ' + branch + ' automatically triggers build & deployment.'
+                  : '⚠️ Auto-deploy DISABLED: Check "Auto Redeploy on Push" above to enable automated deployments.'}
               </p>
             </div>
           </div>

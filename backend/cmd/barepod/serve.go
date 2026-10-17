@@ -67,6 +67,9 @@ const statusPageTemplate = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{code}} · BarePod Panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -74,34 +77,46 @@ const statusPageTemplate = `<!doctype html>
       display: flex;
       align-items: center;
       justify-content: center;
-      background-color: #080c14;
-      background-image:
-        radial-gradient(at 0% 0%, rgba(30, 58, 138, 0.25) 0px, transparent 50%),
-        radial-gradient(at 100% 100%, rgba(15, 23, 42, 0.4) 0px, transparent 50%);
-      color: #f1f5f9;
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      padding: 24px;
+      background-color: #f8fafc;
+      background-image: 
+        radial-gradient(at 10% 10%, rgba(254, 243, 199, 0.5) 0px, transparent 50%),
+        radial-gradient(at 90% 90%, rgba(224, 231, 255, 0.5) 0px, transparent 50%),
+        radial-gradient(at 50% 50%, rgba(241, 245, 249, 0.4) 0px, transparent 50%);
+      color: #1e293b;
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      padding: 32px 20px;
       line-height: 1.6;
     }
     .container {
       width: 100%;
       max-width: 680px;
-      background: #0f172a;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 20px;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-      padding: 40px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 24px;
+      box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.08), 0 0 1px rgba(0,0,0,0.05);
+      padding: 44px 40px;
+      position: relative;
+      overflow: hidden;
+    }
+    .container::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, #f59e0b, #fbbf24, #3b82f6);
     }
     .badge {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      background: rgba(245, 158, 11, 0.12);
-      border: 1px solid rgba(245, 158, 11, 0.3);
-      color: #fbbf24;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #b45309;
       font-size: 11px;
       font-weight: 700;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
       padding: 6px 14px;
       border-radius: 9999px;
@@ -112,33 +127,34 @@ const statusPageTemplate = `<!doctype html>
       height: 8px;
       border-radius: 9999px;
       background: #f59e0b;
-      box-shadow: 0 0 10px #f59e0b;
-      animation: pulse 1.8s infinite;
+      box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+      animation: pulse-amber 2s infinite;
     }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.85); }
+    @keyframes pulse-amber {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
     }
     h1 {
       font-size: 26px;
       font-weight: 800;
-      color: #ffffff;
-      letter-spacing: -0.02em;
-      margin-bottom: 6px;
+      color: #0f172a;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
     }
     .subtitle {
       font-size: 14px;
-      color: #94a3b8;
-      margin-bottom: 24px;
+      color: #64748b;
+      margin-bottom: 28px;
     }
     .host-highlight {
       display: inline-block;
-      background: rgba(59, 130, 246, 0.15);
-      border: 1px solid rgba(59, 130, 246, 0.3);
-      color: #60a5fa;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1d4ed8;
       padding: 2px 8px;
       border-radius: 6px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-family: 'JetBrains Mono', monospace;
       font-weight: 600;
       word-break: break-all;
     }
@@ -149,10 +165,15 @@ const statusPageTemplate = `<!doctype html>
       margin-bottom: 28px;
     }
     .pipe-step {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
       padding: 14px 16px;
+      transition: all 0.2s ease;
+    }
+    .pipe-step:hover {
+      border-color: #cbd5e1;
+      background: #f1f5f9;
     }
     .pipe-label {
       font-size: 11px;
@@ -163,41 +184,49 @@ const statusPageTemplate = `<!doctype html>
       display: flex;
       align-items: center;
       gap: 6px;
+      font-weight: 600;
     }
     .pipe-val {
       font-size: 13px;
       font-weight: 700;
     }
-    .status-ok { color: #34d399; }
-    .status-warn { color: #fbbf24; }
+    .status-ok { color: #059669; }
+    .status-warn { color: #d97706; }
     .guidance-card {
-      background: rgba(30, 41, 59, 0.5);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 14px;
-      padding: 18px 20px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 20px;
       margin-bottom: 28px;
       font-size: 13px;
-      color: #94a3b8;
+      color: #64748b;
+      line-height: 1.6;
     }
     .guidance-card h2 {
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 700;
-      color: #e2e8f0;
+      color: #1e293b;
       margin-bottom: 8px;
       display: flex;
       align-items: center;
       gap: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
     .footer {
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      border-top: 1px solid #f1f5f9;
       padding-top: 18px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       font-size: 12px;
-      color: #64748b;
+      color: #94a3b8;
       flex-wrap: wrap;
       gap: 8px;
+    }
+    .footer-brand {
+      font-weight: 600;
+      color: #64748b;
     }
   </style>
 </head>
@@ -231,7 +260,7 @@ const statusPageTemplate = `<!doctype html>
     </div>
 
     <div class="footer">
-      <span>BarePod Web Engine</span>
+      <span class="footer-brand">BarePod Web Engine</span>
       <span>HTTP {{code}}</span>
     </div>
   </div>

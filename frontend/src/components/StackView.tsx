@@ -99,16 +99,16 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     try {
       const res = await api.stackRepair();
       const msg = res.actions?.length
-        ? `Auto-repair berhasil: ${res.actions.join(', ')}`
-        : 'Auto-repair selesai: Semua service database dan web engine dalam kondisi normal & aktif.';
+        ? `Auto-repair succeeded: ${res.actions.join(', ')}`
+        : 'Auto-repair complete: All database services and web engines are running normally & active.';
       setRepairNotice(msg);
-      if (onShowToast) onShowToast('Auto-Repair Selesai', msg, 'success');
+      if (onShowToast) onShowToast('Auto-Repair Complete', msg, 'success');
       await load(true);
       setTimeout(() => setRepairNotice(null), 8000);
     } catch (err: any) {
-      const errMsg = err.message || 'Auto-repair gagal dijalankan.';
+      const errMsg = err.message || 'Failed to execute auto-repair.';
       setRepairNotice(errMsg);
-      if (onShowToast) onShowToast('Auto-Repair Gagal', errMsg, 'error');
+      if (onShowToast) onShowToast('Auto-Repair Failed', errMsg, 'error');
       setTimeout(() => setRepairNotice(null), 8000);
     } finally {
       setRepairing(false);
@@ -387,7 +387,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
             onClick={() => void runAutoRepair()}
             disabled={live !== true || refreshing || repairing}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 disabled:opacity-40 transition-colors shadow-2xs"
-            title="Diagnosa & perbaiki otomatis database dan service stack yang mati"
+            title="Diagnose & automatically repair failed database and stack services"
           >
             <Zap className={`w-3.5 h-3.5 text-amber-600 ${repairing ? 'animate-bounce' : ''}`} />
             <span>{repairing ? 'Auto-Repairing…' : '⚡ Auto-Repair Stack'}</span>
@@ -988,7 +988,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                                 onClick={() => void runAutoRepair()}
                                 disabled={repairing}
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition-colors shadow-2xs cursor-pointer"
-                                title="Jalankan perbaikan otomatis dan hidupkan kembali service ini"
+                                title="Run automatic repair and restart this service"
                               >
                                 <Zap className="w-2.5 h-2.5 text-amber-600" />
                                 <span>Auto-Repair</span>

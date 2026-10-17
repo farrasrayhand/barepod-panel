@@ -823,7 +823,7 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
       });
       onShowToast?.(
         'Realm Rotated & Saved',
-        `Realm title diperbarui ke "${newRealm}". Cache memori browser di-reset — dialog login akan muncul kembali!`,
+        `Realm title updated to "${newRealm}". Browser cache invalidated — login dialog will reappear!`,
         'success'
       );
       loadVhostPreview();
@@ -4797,11 +4797,11 @@ QUEUE_CONNECTION=redis`}
                         type="text"
                         value={maintenanceBypassIps}
                         onChange={(e) => setMaintenanceBypassIps(e.target.value)}
-                        placeholder="Kosongkan agar SEMUA pengunjung menerima 503 (e.g. 180.252.10.5)"
+                        placeholder="Leave blank to serve 503 to ALL visitors (e.g. 180.252.10.5)"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono focus:bg-white focus:border-amber-500 focus:outline-hidden"
                       />
                       <p className="text-[10px] text-slate-500 mt-1 leading-normal">
-                        Pisahkan dengan koma. <em>Penting: Jangan isi <code>127.0.0.1</code> jika menggunakan Cloudflare Tunnel, karena koneksi tunnel berasal dari localhost sehingga akan mem-bypass semua pengunjung.</em>
+                        Comma-separated IP list. <em>Important: Do not enter <code>127.0.0.1</code> when using Cloudflare Tunnel, as tunnel traffic originates from localhost and would bypass maintenance for all visitors.</em>
                       </p>
                     </div>
 
@@ -5062,7 +5062,7 @@ QUEUE_CONNECTION=redis`}
                     <div className="p-3 bg-purple-50/70 border border-purple-200/80 rounded-xl text-[11px] text-purple-950 space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="font-bold flex items-center gap-1">
-                          💡 Kenapa browser tidak meminta login lagi setelah login sekali?
+                          💡 Why doesn't the browser prompt for credentials again after logging in?
                         </span>
                         {basicAuthEnabled && (
                           <button
@@ -5070,7 +5070,7 @@ QUEUE_CONNECTION=redis`}
                             onClick={handleRotateRealm}
                             disabled={isSavingBasicAuth}
                             className="px-2.5 py-1 text-[10px] font-bold bg-white text-purple-700 hover:bg-purple-100 border border-purple-300 rounded-lg flex items-center gap-1 shadow-2xs transition-colors cursor-pointer shrink-0"
-                            title="Mengubah Realm ID agar browser dipaksa menampilkan prompt dialog login kembali"
+                            title="Rotate Realm ID to force browser to re-prompt for authentication"
                           >
                             <RefreshCw className={`w-3 h-3 ${isSavingBasicAuth ? 'animate-spin' : ''}`} />
                             <span>Force Re-Login (Rotate Realm)</span>
@@ -5078,7 +5078,7 @@ QUEUE_CONNECTION=redis`}
                         )}
                       </div>
                       <p className="text-slate-600 leading-relaxed text-[10px]">
-                        Standar HTTP Basic Auth: Browser (Chrome/Firefox/Edge) mengingat username &amp; password Anda di memori tab sampai browser ditutup. Untuk memunculkan dialog login kembali saat pengujian, klik tombol <strong>Force Re-Login</strong> di atas atau buka website di <strong>Incognito / Private Window</strong>.
+                        HTTP Basic Auth standard: Browsers (Chrome/Firefox/Edge) cache your credentials in memory until the browser is closed. To prompt the login dialog again during testing, click <strong>Force Re-Login</strong> above or open the site in an <strong>Incognito / Private Window</strong>.
                       </p>
                     </div>
 
@@ -5548,16 +5548,16 @@ QUEUE_CONNECTION=redis`}
 
                   {/* Webhook Quick Guide */}
                   <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg text-xs text-slate-700 space-y-1.5">
-                    <span className="font-bold text-blue-950 block">Cara Setting di Provider Git:</span>
+                    <span className="font-bold text-blue-950 block">Setup Instructions for Git Providers:</span>
                     <ul className="list-disc list-inside space-y-0.5 text-[11px] text-slate-600">
-                      <li><strong>GitHub:</strong> Repo Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Paste Payload URL, Content-Type: <code>application/json</code>, Event: <em>Just the push event</em>.</li>
+                      <li><strong>GitHub:</strong> Repository Settings &rarr; Webhooks &rarr; Add Webhook &rarr; Paste Payload URL, Content-Type: <code>application/json</code>, Event: <em>Just the push event</em>.</li>
                       <li><strong>GitLab:</strong> Settings &rarr; Webhooks &rarr; Add new webhook &rarr; Paste URL, Trigger: <em>Push events</em>.</li>
                       <li><strong>Gitea:</strong> Settings &rarr; Webhooks &rarr; Add Gitea webhook &rarr; Paste Target URL.</li>
                     </ul>
                     <p className="text-[11px] text-blue-900 font-semibold pt-0.5">
                       {autoDeploy
-                        ? '✓ Auto-deploy aktif: Setiap push ke branch ' + gitBranch + ' akan otomatis men-trigger redeploy.'
-                        : '⚠️ Auto-deploy nonaktif: Webhook tidak akan melakukan deploy sampai opsi "Enable Auto Redeploy" dicentang.'}
+                        ? '✓ Auto-deploy active: Pushing commits to branch ' + gitBranch + ' will automatically trigger redeployment.'
+                        : '⚠️ Auto-deploy disabled: Webhook will not deploy until "Enable Auto Redeploy" is checked.'}
                     </p>
                   </div>
                 </div>
