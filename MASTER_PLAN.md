@@ -1,5 +1,5 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Document Version:** 0.4 (Prototype) — domains, automated ACME SSL/TLS, web shell defense, real-time stack streaming, and Cloudflare Zero Trust ingress live end-to-end
+> **Document Version:** 0.3.4 (Prototype) — domains, automated ACME SSL/TLS, web shell defense, real-time stack streaming, and Cloudflare Zero Trust ingress live end-to-end
 > **Last Updated:** October 18, 2026  
 > **Status:** Active & Maintained
 
@@ -8,7 +8,7 @@
 The number describes **completed milestones, not effort** — and nothing may
 invent its own version.
 
-- **0.x = prototype line.** The line is at **0.4** (domains, automated SSL, security hardening, and real-time stack streaming) and stays
+- **0.x = prototype line.** The line is at **0.3** (patch `v0.3.4`: domains, automated SSL, security hardening, and real-time stack streaming) and stays
   in 0.x while the panel is a prototype (some views still mock, dry-run provisioning,
   no release artefact).
 - **0.1 → 0.2 (reached):** the milestone was *"a website really runs end-to-end on
@@ -26,9 +26,9 @@ invent its own version.
   Redis ACL user per cache with key prefix and password rotation via resetpass, Recycle Bin
   with suspend & restore, AES-256-GCM password vault with elevated session, and UI Reveal /
   Rotate click-through.
-- **0.3 → 0.4 (reached):** the milestone was *"Domains, Automated ACME SSL/TLS, Cloudflare Zero Trust Ingress, Framework Compatibility Guardrails, PHP Web Shell Defense, and Real-Time Stack Streaming"*. Verified end-to-end on a Linux host (LXC, Ubuntu 24.04): ACME Let's Encrypt automated issuance with preflight DNS check and ECDSA P-256 self-signed fallback, Cloudflare Tunnel vs Direct IP ingress routing distinction, multi-webserver vhost hot-reload, PHP-FPM web shell defense with safe `disable_functions` + upload `.php` execution block, real-time SSE installation streaming via `host.RunDetachedStream`, simplified Rustup channels (`stable`, `beta`, `nightly`), and targeted PHP extension synchronization.
+- **0.3.3 → 0.3.4 (reached):** the milestone was *"Domains, Automated ACME SSL/TLS, Cloudflare Zero Trust Ingress, Framework Compatibility Guardrails, PHP Web Shell Defense, and Real-Time Stack Streaming"*. Verified end-to-end on a Linux host (LXC, Ubuntu 24.04): ACME Let's Encrypt automated issuance with preflight DNS check and ECDSA P-256 self-signed fallback, Cloudflare Tunnel vs Direct IP ingress routing distinction, multi-webserver vhost hot-reload, PHP-FPM web shell defense with safe `disable_functions` + upload `.php` execution block, real-time SSE installation streaming via `host.RunDetachedStream`, simplified Rustup channels (`stable`, `beta`, `nightly`), and targeted PHP extension synchronization.
 - **It only moves when a milestone is finished**, e.g. `0.2` = a website really
-  runs end-to-end on a Linux host; `0.3` = databases module; `0.4` = domains, SSL, and security hardening; `1.0` = first
+  runs end-to-end on a Linux host; `0.3` = databases module; `0.3.4` = domains, SSL, and security hardening; `1.0` = first
   release with the installer and a supported upgrade path. Commits, features in
   progress, and "looks almost done" never bump it.
 - **One source of truth:** the daemon carries the version (`api.Version`,
@@ -103,7 +103,7 @@ The detailed build log of every fix — with its measurements — is in this fil
   - *No-TLS-Verify Auto-Handling*: Removed manual checkboxes and disclaimers from the ingress modal; the daemon automatically sets `noTLSVerify = isHttpsTarget`.
   - *Domain Pre-Flight Validation Locking*: Modal buttons ("Add Domain", "Continue") dynamically lock and display spinning validation status while asynchronous DNS/routing preflight checks are active, eliminating race conditions.
 
-> **Versioning note:** the panel is still a prototype, so the document stays in the 0.x line (**0.4** — domains, automated SSL, security hardening, and real-time stack streaming; see the policy at the top).
+> **Versioning note:** the panel is still a prototype, so the document stays in the 0.x line (**0.3.4**; see the policy at the top).
 
 > **Note for the Go backend:** since URLs are path-based, the server MUST implement SPA fallback (unknown paths serve `index.html`) while `/api/*` answers JSON `404`. The contract is in §4 and `API_CONTRACT.md`.
 
@@ -498,7 +498,7 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - ✅ **Metrics** (`internal/metrics`): a background sampler (default 15s, ring buffer in memory) serves `GET /system/metrics?range=1h` and `GET /websites/:slug/metrics`. Host figures come from `/proc` (stat deltas, meminfo, diskstats, net/dev) with real deltas — the first sample reports rates as 0 instead of averaging over uptime — and per-website figures from cgroup v2 (`memory.current`, `memory.max`, `pids.current`, `cpu.stat`). Raw numbers + RFC3339 only; a metric the host cannot provide is **unavailable with a reason**, never a fake zero. The host **core count has one source** — `resources.DetectCPUCores` (cgroup `cpu.max` → `cpu/online` → `NumCPU`), shared with the capacity guard — instead of counting `/proc/stat` `cpuN` lines, whose set differs inside a container (a cpuset like `cpu4,cpu12,cpu13,cpu21` made `max+1` report 22 for a 4-core box, and drifting as the host moved the container between cores).
   - ✅ **Frontend wired to the API**: `src/api/client.ts` (session, websites, deploy SSE, files, terminal ticket, metrics, capacity), `useSession` (daemon reachable → real login; otherwise the prototype stays in simulation mode with its mock data), a real **sign-in screen** (with the `barepod admin create` hint), the website list loaded from the daemon with per-site metrics, a **live terminal pane** (`@xterm/xterm`) over the ticketed WebSocket — tenant shell per website, host shell switch for admins — and the **File Manager tab on real files** (list/save/create/rename/copy/move/delete/upload/zip/preview with a Live badge, mock tree only when no daemon answers).
   - ✅ **Website lifecycle**: `DELETE /websites/:slug` tears a site down for real (stop + disable the unit, remove the drop-in and reload systemd, delete the app directory **inside the sites root only**, forget the secrets and the row) and `POST /websites/:slug/redeploy` re-runs the pipeline from the source recorded at create time, keeping the existing database and cache. No more cleaning up by hand after a failed deploy.
-  - ✅ **Version has one source**: `api.Version` (0.4.0-prototype) is what `/health` reports, what the CLI prints and what the footer shows.
+  - ✅ **Version has one source**: `api.Version` (0.3.4-prototype) is what `/health` reports, what the CLI prints and what the footer shows.
   - ✅ **Self-install as a systemd service**: `barepod service install` writes the daemon unit from the same flags as `serve`, enables + starts it, and `service status|uninstall` manage it. Verified on the LXC: active + enabled, and killing the process by force brings it straight back (`Restart=always`).
   - ✅ **Deploys own their files as the tenant** (fixed): `Runner.RunAs` runs a command with the tenant's UID/GID and HOME, `RunInSite` and the GitHub clone go through it, and the source step ends with a `chown -R <tenant>` on the site directory — so a scaffolded `.venv` or a cloned repo belongs to the tenant instead of root, and sites deployed before the fix are repaired by their next deploy. Verified on the LXC: the old `root:root` `.venv` came back as `bptest:bptest` after a redeploy, and a fresh Flask scaffold had zero root-owned files. Install scripts no longer run as root either (a supply-chain win, not just tidiness).
   - ✅ **Databases & Caches module (0.3 reached)**: SQLite file engine with live `os.Stat` size reporting & `.trash` Recycle Bin, Redis multi-tenant ACL users with key prefix restrictions and password rotation, AES-256-GCM vault with elevated sessions, and live UI Reveal/Rotate click-through.
