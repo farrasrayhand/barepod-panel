@@ -2655,49 +2655,49 @@ QUEUE_CONNECTION=redis`;
             </div>
 
             {/* Terminal Window (Styled in Clean Light Mode by Default or Dark Mode) */}
-            <div className={`font-mono text-xs rounded-xl p-4 min-h-[380px] max-h-[580px] overflow-y-auto overflow-x-auto border transition-colors shadow-2xs ${
+            <div className={`font-mono text-xs rounded-xl p-3 sm:p-4 min-h-[380px] max-h-[580px] overflow-y-auto overflow-x-hidden border transition-colors shadow-2xs ${
               logTheme === 'light'
                 ? 'bg-white text-slate-800 border-slate-200'
                 : 'bg-slate-950 text-slate-100 border-slate-800 shadow-inner'
             }`}>
-              <div className="min-w-[1240px] px-1">
+              <div className="w-full">
                 {/* Terminal Table Header for Structured View */}
                 {logFormat === 'structured' && (
-                  <div className={`flex items-center gap-3 pb-2.5 mb-2.5 border-b text-[10px] font-bold uppercase tracking-wider select-none px-3 py-2 rounded-lg ${
+                  <div className={`flex items-center gap-2 pb-2 mb-2 border-b text-[10px] font-bold uppercase tracking-wider select-none px-2.5 py-1.5 rounded-lg w-full ${
                     logTheme === 'light' ? 'border-slate-200 text-slate-500 bg-slate-50' : 'border-slate-800 text-slate-400 bg-slate-900/60'
                   }`}>
-                    <div className="w-[85px] shrink-0">TIME</div>
-                    <div className="w-[280px] shrink-0">VISITOR IP & ISP</div>
-                    <div className="w-[125px] shrink-0">METHOD & STATUS</div>
-                    <div className="w-[300px] shrink-0">REQUEST PATH</div>
-                    <div className="flex-1 min-w-[320px]">LATENCY & CLIENT INFO (USER-AGENT)</div>
-                    <div className="w-[75px] shrink-0 text-center">DETAILS</div>
+                    <div className="w-[65px] shrink-0">TIME</div>
+                    <div className="w-[185px] shrink-0">VISITOR IP & ISP</div>
+                    <div className="w-[80px] shrink-0">STATUS</div>
+                    <div className="flex-1 min-w-0">REQUEST PATH</div>
+                    <div className="w-[110px] shrink-0 text-right">METRICS</div>
+                    <div className="w-[60px] shrink-0 text-right">ACTION</div>
                   </div>
                 )}
 
                 {filteredLogs.map((log, idx) => (
                   logFormat === 'structured' ? (
-                    <div key={idx} className="flex flex-col mb-1.5">
+                    <div key={idx} className="flex flex-col mb-1.5 w-full">
                       <div 
                         onClick={() => setExpandedLogIdx(expandedLogIdx === idx ? null : idx)}
-                        className={`flex items-center gap-3 py-2 px-3 rounded-lg border transition-all cursor-pointer ${
+                        className={`flex items-center gap-2 py-1.5 px-2.5 rounded-lg border transition-all cursor-pointer w-full ${
                           expandedLogIdx === idx
-                            ? (logTheme === 'light' ? 'bg-blue-50/90 border-blue-200' : 'bg-slate-900 border-slate-700')
+                            ? (logTheme === 'light' ? 'bg-blue-50/90 border-blue-200 shadow-2xs' : 'bg-slate-900 border-slate-700 shadow-2xs')
                             : (logTheme === 'light' ? 'hover:bg-slate-50 border-transparent hover:border-slate-200' : 'hover:bg-slate-900/80 border-transparent hover:border-slate-800')
                         }`}
                       >
                         {/* Time */}
-                        <div className={`w-[85px] shrink-0 text-[11px] font-mono ${
+                        <div className={`w-[65px] shrink-0 text-[11px] font-mono ${
                           logTheme === 'light' ? 'text-slate-400 font-semibold' : 'text-slate-500'
                         }`}>
-                          [{log.time}]
+                          {log.time}
                         </div>
 
                         {/* Visitor Client IP Badge */}
-                        <div className="w-[280px] shrink-0 flex items-center gap-1.5 overflow-hidden">
+                        <div className="w-[185px] shrink-0 flex items-center gap-1 overflow-hidden min-w-0">
                           {log.ip ? (
                             <span 
-                              className={`inline-flex items-center gap-1.5 font-mono font-bold text-[10.5px] px-2 py-0.5 rounded shadow-2xs whitespace-nowrap border ${
+                              className={`inline-flex items-center gap-1 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded shadow-2xs max-w-full overflow-hidden border ${
                                 logTheme === 'light'
                                   ? 'bg-amber-50 text-amber-900 border-amber-300'
                                   : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
@@ -2705,7 +2705,9 @@ QUEUE_CONNECTION=redis`;
                               title={`Visitor IP: ${log.ip} | ISP: ${log.isp || 'Unknown'} | Country: ${log.country || 'Global'}`}
                             >
                               <Globe className={`w-3 h-3 shrink-0 ${logTheme === 'light' ? 'text-amber-600' : 'text-amber-400'}`} />
-                              <span className="tracking-tight">{log.ip}</span>
+                              <span className="truncate tracking-tight font-mono text-[10px]">
+                                {log.ip.length > 20 ? `${log.ip.slice(0, 9)}…${log.ip.slice(-5)}` : log.ip}
+                              </span>
                               <span className={`text-[9px] px-1 rounded uppercase font-semibold border shrink-0 ${
                                 logTheme === 'light'
                                   ? 'bg-amber-200/80 text-amber-900 border-amber-300'
@@ -2718,33 +2720,25 @@ QUEUE_CONNECTION=redis`;
                             <span className={`font-mono text-[10px] px-1 ${
                               logTheme === 'light' ? 'text-slate-400' : 'text-slate-600'
                             }`}>
-                              [system daemon]
+                              [daemon]
                             </span>
                           )}
                         </div>
 
                         {/* Method & Status */}
-                        <div className="w-[125px] shrink-0 flex items-center gap-1.5">
+                        <div className="w-[80px] shrink-0 flex items-center gap-1">
                           {log.method ? (
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase border ${
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase border ${
                               log.method === 'GET'
                                 ? (logTheme === 'light' ? 'bg-cyan-50 text-cyan-800 border-cyan-300' : 'bg-cyan-950 text-cyan-300 border-cyan-800/50')
                                 : (logTheme === 'light' ? 'bg-indigo-50 text-indigo-800 border-indigo-300' : 'bg-indigo-950 text-indigo-300 border-indigo-800/50')
                             }`}>
                               {log.method}
                             </span>
-                          ) : (
-                            <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
-                              log.type === 'error' ? 'bg-rose-100 text-rose-800' :
-                              log.type === 'deploy' ? 'bg-purple-100 text-purple-800' :
-                              'bg-slate-100 text-slate-600'
-                            }`}>
-                              {log.type}
-                            </span>
-                          )}
+                          ) : null}
 
-                          {log.status && (
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded font-mono border ${
+                          {log.status ? (
+                            <span className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded font-mono border ${
                               log.status < 300 
                                 ? (logTheme === 'light' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-emerald-950 text-emerald-300 border-emerald-800/50')
                                 : log.status < 400 
@@ -2755,47 +2749,44 @@ QUEUE_CONNECTION=redis`;
                             }`}>
                               {log.status}
                             </span>
-                          )}
+                          ) : null}
                         </div>
 
-                        {/* Path Request (No Clipping when wrapLogText is active) */}
-                        <div className={`w-[300px] shrink-0 ${wrapLogText ? 'break-all' : 'truncate'}`}>
-                          <span className={`text-[11px] font-mono font-bold ${
-                            logTheme === 'light' ? 'text-slate-900' : 'text-slate-100'
-                          }`}>
+                        {/* Path Request (Takes all remaining width) */}
+                        <div className="flex-1 min-w-0 overflow-hidden">
+                          <span 
+                            className={`text-[11px] font-mono font-bold truncate block ${
+                              logTheme === 'light' ? 'text-slate-900' : 'text-slate-100'
+                            }`}
+                            title={log.path || log.msg}
+                          >
                             {log.path || log.msg}
                           </span>
                         </div>
 
-                        {/* Latency & Client Info (User-Agent) */}
-                        <div className={`flex-1 min-w-[320px] flex items-center gap-2 text-[11px] ${wrapLogText ? 'flex-wrap' : 'overflow-hidden'}`}>
-                          {log.latency && (
-                            <span className={`font-mono font-semibold shrink-0 px-1.5 py-0.5 rounded text-[10px] border ${
+                        {/* Latency & Payload Metrics */}
+                        <div className="w-[110px] shrink-0 text-right">
+                          {log.latency ? (
+                            <span className={`font-mono font-semibold px-1.5 py-0.5 rounded text-[10px] border inline-block ${
                               logTheme === 'light'
                                 ? 'bg-slate-100 text-slate-700 border-slate-200'
                                 : 'bg-cyan-950/70 text-cyan-300 border-cyan-800/50'
                             }`}>
                               {log.latency} • {log.size}
                             </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">—</span>
                           )}
-                          <span 
-                            className={`flex-1 text-[11px] font-sans ${wrapLogText ? 'break-all leading-relaxed' : 'truncate'} ${
-                              logTheme === 'light' ? 'text-slate-600' : 'text-slate-300'
-                            }`}
-                            title={log.userAgent || log.msg}
-                          >
-                            {log.userAgent || log.msg}
-                          </span>
                         </div>
 
                         {/* Detail Inspector Toggle */}
-                        <div className="w-[75px] shrink-0 text-center">
+                        <div className="w-[60px] shrink-0 text-right">
                           <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] rounded font-semibold transition-colors ${
                             expandedLogIdx === idx
                               ? 'bg-blue-600 text-white'
                               : (logTheme === 'light' ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-slate-800 text-slate-300 hover:bg-slate-700')
                           }`}>
-                            <span>Details</span>
+                            <span>{expandedLogIdx === idx ? 'Close' : 'Details'}</span>
                             {expandedLogIdx === idx ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                           </span>
                         </div>
@@ -2803,8 +2794,8 @@ QUEUE_CONNECTION=redis`;
 
                       {/* Expanded Request Inspector Drawer */}
                       {expandedLogIdx === idx && (
-                        <div className={`p-4 my-2 rounded-xl border space-y-2.5 text-xs animate-in fade-in duration-150 ${
-                          logTheme === 'light' ? 'bg-slate-50 border-blue-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-200'
+                        <div className={`p-3.5 my-1.5 rounded-xl border space-y-3 text-xs animate-in fade-in duration-150 w-full box-border max-w-full ${
+                          logTheme === 'light' ? 'bg-slate-50/90 border-blue-200 text-slate-800 shadow-2xs' : 'bg-slate-900/90 border-slate-700 text-slate-200 shadow-2xs'
                         }`}>
                           <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
                             <span className="font-bold flex items-center gap-1.5 text-blue-600 text-xs">
@@ -2825,16 +2816,16 @@ QUEUE_CONNECTION=redis`;
                             </button>
                           </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-                            <div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 min-w-0 w-full">
+                            <div className="min-w-0">
                               <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
                                 Full Request Path / Target:
                               </span>
-                              <div className="p-2.5 bg-white rounded-lg border border-slate-200 text-slate-900 font-mono font-bold select-all break-all shadow-2xs">
+                              <div className="p-2.5 bg-white rounded-lg border border-slate-200 text-slate-900 font-mono font-bold select-all break-all shadow-2xs text-[11px]">
                                 {log.path || log.msg}
                               </div>
                             </div>
-                            <div>
+                            <div className="min-w-0">
                               <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
                                 Full Client Info (User-Agent):
                               </span>
@@ -2844,16 +2835,50 @@ QUEUE_CONNECTION=redis`;
                             </div>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-4 pt-1.5 text-[11px] border-t border-slate-200/40">
+                          <div className="flex flex-wrap items-center gap-2.5 pt-2 text-[11px] border-t border-slate-200/50 min-w-0 w-full">
                             {log.ip && (
-                              <span>
-                                <strong>Real IP:</strong> <code className="text-amber-700 font-bold px-1 bg-amber-50 rounded border border-amber-200">{log.ip}</code> ({log.country} • {log.isp})
-                              </span>
+                              <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs min-w-0">
+                                <span className="text-slate-500 font-medium shrink-0">Real Visitor IP:</span>
+                                <code className="text-amber-800 font-bold font-mono select-all truncate">{log.ip}</code>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigator.clipboard.writeText(log.ip || '');
+                                    onShowToast?.('IP Copied', `Copied ${log.ip} to clipboard`, 'success');
+                                  }}
+                                  className="text-slate-400 hover:text-slate-700 shrink-0 cursor-pointer ml-0.5"
+                                  title="Copy IP"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                                <span className="text-slate-400 text-[10px] shrink-0">({log.country || 'Global'} • {log.isp || 'ISP'})</span>
+                              </div>
                             )}
-                            {log.latency && <span><strong>Latency:</strong> <code className="text-emerald-700 font-bold">{log.latency}</code></span>}
-                            {log.size && <span><strong>Payload:</strong> <code>{log.size}</code></span>}
-                            {log.status && <span><strong>HTTP Status:</strong> <code className="text-blue-700 font-bold">{log.status}</code></span>}
-                            {log.method && <span><strong>Method:</strong> <code className="text-purple-700 font-bold">{log.method}</code></span>}
+                            {log.latency && (
+                              <div className="bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                                <span className="text-slate-500 font-medium">Latency: </span>
+                                <code className="text-emerald-700 font-bold">{log.latency}</code>
+                              </div>
+                            )}
+                            {log.size && (
+                              <div className="bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                                <span className="text-slate-500 font-medium">Payload: </span>
+                                <code className="text-slate-800 font-semibold">{log.size}</code>
+                              </div>
+                            )}
+                            {log.status && (
+                              <div className="bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                                <span className="text-slate-500 font-medium">HTTP Status: </span>
+                                <code className="text-blue-700 font-bold">{log.status}</code>
+                              </div>
+                            )}
+                            {log.method && (
+                              <div className="bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                                <span className="text-slate-500 font-medium">Method: </span>
+                                <code className="text-purple-700 font-bold">{log.method}</code>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
