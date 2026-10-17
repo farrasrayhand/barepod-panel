@@ -39,6 +39,7 @@ Commands:
   group list            show packages with their permissions and resource limits
   tenant provision      create/repair the Linux account for a panel user
   service install       install the daemon as a systemd service (serve flags apply)
+  stack repos           add the package repositories (PHP, Python, databases, web servers)
   service status        show whether barepod.service is installed/active/enabled
   uninstall             take the panel off this host (guided; backs up first, asks before deleting)
   service uninstall     stop, disable and remove the daemon's unit
@@ -71,6 +72,8 @@ func main() {
 		err = runTenant(os.Args[2:])
 	case "service":
 		err = runService(os.Args[2:])
+	case "stack":
+		err = runStack(os.Args[2:])
 	case "uninstall":
 		// Guided by default: it reads what is really here, prints it, and asks before anything that
 		// cannot be undone. See scripts/uninstall.sh for the path to take when the binary is gone.

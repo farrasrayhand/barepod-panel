@@ -724,10 +724,10 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
 
   const duplicateDomainSite = domainCollision;
 
-  // Live Cloudflare & DNS validation
+  // Live Cloudflare & DNS validation (only when Cloudflare Tunnel is active and ready)
   useEffect(() => {
     const clean = domain.trim().toLowerCase();
-    if (!clean || clean.indexOf('.') === -1 || domainCollision) {
+    if (!tunnelEnabled || !isAutoSyncReady || !clean || clean.indexOf('.') === -1 || domainCollision) {
       setDomainValidation(null);
       setIsValidatingDomain(false);
       return;
@@ -744,7 +744,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [domain, domainCollision, tenantUser]);
+  }, [domain, domainCollision, tenantUser, tunnelEnabled, isAutoSyncReady]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -987,6 +987,23 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
       proxy: { versions: ['v1.0'], frameworks: ['Reverse Proxy Forwarder'] },
     };
   }, [stackStatus]);
+
+  const isEngineInstalled = (id: string) => {
+    const st = stackStatus?.webServer?.managedInstalled?.find((s) => s.engine === id) ||
+               stackStatus?.webServer?.installed?.find((s) => s.engine === id);
+    return Boolean(st?.installed);
+  };
+
+  useEffect(() => {
+    if (!stackStatus?.webServer) return;
+    if (isEngineInstalled(webServer)) return;
+    const order = ['nginx', 'openlitespeed', 'caddy', 'apache'];
+    const active = (stackStatus.webServer as { active?: string }).active;
+    const fallback = (active && isEngineInstalled(active) ? active : order.find((e) => isEngineInstalled(e)));
+    if (fallback) setWebServer(fallback as WebServerType);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stackStatus, webServer]);
+
 
 
   const isStaticSite = appMode === 'static' || runtime === 'static' || /static|html|vite\s*dist|astro\s*static/i.test(framework);
@@ -1311,7 +1328,8 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
   const canContinue =
     (currentStepId !== 'basics' ||
       (name.trim() !== '' && domainValid && !duplicateNameSite && !duplicateDomainSite && !isValidatingDomain)) &&
-    (currentStepId !== 'source' || sourceValidForMode);
+    (currentStepId !== 'source' || sourceValidForMode) &&
+    (currentStepId !== 'engine' || !stackStatus?.webServer || isEngineInstalled(webServer));
 
   const next = () => setStepIndex((i) => Math.min(i + 1, steps.length - 1));
   const back = () => setStepIndex((i) => Math.max(i - 1, 0));
@@ -1661,20 +1679,21 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
                       Cloudflare DNS: Existing record ({domainValidation.cloudflareStatus.dnsRecords[0].type}) found in zone. Will be managed by tunnel.
                     </p>
-                  ) : domainValidation?.available ? (
-                    <p className="text-[11px] text-emerald-600 font-medium mt-1 flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      Domain is available
-                    </p>
                   ) : domain.trim() !== '' && !domainValid ? (
                     <p className="text-[11px] text-rose-600 mt-1">
                       Please enter a valid FQDN domain without scheme, e.g.: <code className="font-mono">app.example.com</code>
                     </p>
-                  ) : name.trim() !== '' && domain.trim() !== '' && name.trim().toLowerCase() === domain.trim().toLowerCase() ? (
+                  ) : (domainValidation?.available || (domain.trim() !== '' && domainValid && !duplicateDomainSite)) ? (
+                    <p className="text-[11px] text-emerald-600 font-medium mt-1 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      Domain is available
+                    </p>
+                  ) : null}
+                  {name.trim() !== '' && domain.trim() !== '' && name.trim().toLowerCase() === domain.trim().toLowerCase() && (
                     <p className="text-[10px] text-slate-400 mt-1">
                       Info: Website will use slug <code className="font-mono">{normalizedSlug}</code>.
                     </p>
-                  ) : null}
+                  )}
                 </div>
               </div>
 
@@ -2029,16 +2048,17 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     { id: 'caddy' as WebServerType, label: 'Caddy', desc: 'Auto-HTTPS & HTTP/3', badge: 'Auto SSL' },
                     { id: 'apache' as WebServerType, label: 'Apache 2.4', desc: '.htaccess & MPM', badge: runtime === 'php' ? '.htaccess' : undefined },
                   ].map((ws) => {
-                    const isInstalled = stackStatus?.webServer?.installed?.some((s) => s.engine === ws.id) ||
-                                        stackStatus?.webServer?.managedInstalled?.some((s) => s.engine === ws.id) ||
-                                        ws.id === 'nginx';
+                    const engineState = stackStatus?.webServer?.managedInstalled?.find((s) => s.engine === ws.id) ||
+                                        stackStatus?.webServer?.installed?.find((s) => s.engine === ws.id);
+                    const isInstalled = Boolean(engineState?.installed);
                     const isSelected = webServer === ws.id;
                     return (
                       <button
                         key={ws.id}
                         type="button"
-                        onClick={() => setWebServer(ws.id)}
-                        className={`p-2.5 rounded-xl border text-left transition-all ${cardChoice(isSelected)}`}
+                        disabled={!isInstalled}
+                        onClick={() => isInstalled && setWebServer(ws.id)}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${isInstalled ? cardChoice(isSelected) : 'opacity-55 cursor-not-allowed bg-slate-50 border-slate-200'}`}
                       >
                         <div className="flex items-center justify-between gap-1">
                           <span className="text-xs font-bold block truncate">{ws.label}</span>

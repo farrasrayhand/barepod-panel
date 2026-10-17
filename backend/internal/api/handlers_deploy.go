@@ -483,6 +483,14 @@ func (s *Server) handleWebsiteAction(w http.ResponseWriter, r *http.Request, use
 		status = site.Status
 	}
 	_ = s.store.SetWebsiteRuntimeState(slug, status, site.DeployStatus)
+	if s.host.Materialises() && (action == "start" || action == "stop") {
+		site.Status = status
+		if err := s.applyVhost(r, site); err != nil {
+			writeError(w, http.StatusBadGateway, "vhost_error",
+				fmt.Sprintf("could not %s the website at the web server: %v", action, err))
+			return
+		}
+	}
 	_ = s.store.Audit(user.ID, "website."+action, slug, clientIP(r), s.host.Mode())
 
 	writeJSON(w, http.StatusOK, map[string]any{

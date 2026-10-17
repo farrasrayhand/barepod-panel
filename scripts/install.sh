@@ -186,6 +186,15 @@ fi
 
 log "Environment OK: linux/${ARCH}$([ "$IS_LXC" -eq 1 ] && echo ' (LXC)')"
 
+# --- Package repositories (fresh installs only) ---
+# Added now so the panel's first screen can already list every PHP, Python, database and
+# web server version, and the post-install "set up your stack" modal has something to offer.
+if [ "$IS_UPDATE" -eq 0 ] && command -v apt-get >/dev/null 2>&1; then
+  log "Adding package repositories (PHP, Python, databases, web servers)..."
+  export DEBIAN_FRONTEND=noninteractive
+  "$INSTALL_DIR/barepod" stack repos || warn "Some repositories could not be added — you can retry from the panel's Stack page."
+fi
+
 # --- Interactive Setup & Automated Service Configuration ---
 HAS_TTY=0
 if [ -c /dev/tty ]; then

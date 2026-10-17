@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert, Globe, Zap, Sparkles } from 'lucide-react';
+import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert, Globe, Zap, Sparkles, Package } from 'lucide-react';
 import { api, apiReachable, type StackStatus, type StackComponent, type StackJobLogLine, type StackPlanResult, type ApiWebsite } from '../api/client';
 import { describeError } from '../utils/format';
 import { useSubRoute } from '../hooks/useSubRoute';
@@ -44,7 +44,19 @@ const InstallButton: React.FC<{
 let cachedStackStatus: StackStatus | null = null;
 let cachedWebsites: ApiWebsite[] = [];
 
+interface BundleItem {
+  key: string;
+  component: string;
+  label: string;
+  kind: 'repo' | 'web' | 'runtime' | 'database';
+  version?: string;
+  note?: string;
+}
+
 export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
+  const [bundleOpen, setBundleOpen] = useState(false);
+  const [bundleSel, setBundleSel] = useState<Record<string, boolean>>({});
+  const [bundleRun, setBundleRun] = useState<{ total: number; index: number; current: string } | null>(null);
   const [activeTab, setActiveTab] = useSubRoute<'web' | 'runtime' | 'database'>('web');
   const [status, setStatus] = useState<StackStatus | null>(() => {
     if (cachedStackStatus) return cachedStackStatus;
@@ -178,7 +190,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [jobLines]);
 
-  const watchJob = (id: string) => {
+  const watchJob = (id: string, quiet = false): Promise<string> => new Promise((resolve) => {
     sourceRef.current?.close();
     setJobId(id);
     setJobLines([]);
@@ -193,26 +205,32 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       }
     });
     source.addEventListener('done', (event) => {
+      let result = 'done';
       try {
         const job = JSON.parse((event as MessageEvent).data) as { status: string };
+        result = job.status;
         setJobStatus(job.status);
-        onShowToast?.(
-          job.status === 'success' ? 'Install finished' : 'Install failed',
-          job.status === 'success' ? 'The component is installed.' : 'See the log for the reason.',
-          job.status === 'success' ? 'success' : 'error',
-        );
+        if (!quiet) {
+          onShowToast?.(
+            job.status === 'success' ? 'Install finished' : 'Install failed',
+            job.status === 'success' ? 'The component is installed.' : 'See the log for the reason.',
+            job.status === 'success' ? 'success' : 'error',
+          );
+        }
       } catch {
         setJobStatus('done');
       }
       source.close();
       sourceRef.current = null;
-      void load(true);
+      if (!quiet) void load(true);
+      resolve(result);
     });
     source.onerror = () => {
       source.close();
       sourceRef.current = null;
+      resolve('error');
     };
-  };
+  });
 
   const install = async (component: string, version?: string) => {
     if (!live) {
@@ -229,6 +247,117 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     } finally {
       setBusy(false);
     }
+  };
+
+  // ---- Install Stack (batch) -------------------------------------------------------------
+  // Recommended, not newest: the versions most sites and frameworks are tested against.
+  const RECOMMENDED: Record<string, string[]> = {
+    php: ['8.3', '8.4', '8.2'],
+    python: ['3.12', '3.13', '3.11'],
+    ruby: ['3.3', '3.4', '3.2'],
+    postgresql: ['17', '16', '18'],
+    mariadb: ['11.8', '11.4', '10.11'],
+    mongodb: ['8.0', '7.0'],
+    redis: ['7.4', '8.0', '7.2'],
+  };
+
+  const recommendedVersion = (name: string, offerable: string[], supported: string[], labels?: Record<string, string>): string | undefined => {
+    if (name === 'rust') return undefined;
+    if (name === 'node') {
+      const lts = offerable.find((v) => /lts/i.test(labels?.[v] ?? ''));
+      if (lts) return lts;
+    }
+    const preferred = (RECOMMENDED[name] ?? []).find((v) => offerable.includes(v));
+    return preferred ?? supported[0] ?? offerable[0];
+  };
+
+  const buildBundle = (): BundleItem[] => {
+    if (!status) return [];
+    const items: BundleItem[] = [];
+    if ((status.repositories ?? []).some((r) => !r.present)) {
+      items.push({ key: 'repositories', component: 'repositories', label: 'Package repositories', kind: 'repo', note: 'needed for the lists below' });
+    }
+    const webInstalled = (engine: string) =>
+      Boolean((status.webServer.managedInstalled ?? status.webServer.installed ?? []).find((e) => e.engine === engine)?.installed);
+    for (const engine of ['nginx', 'caddy', 'openlitespeed', 'apache']) {
+      if (webInstalled(engine)) continue;
+      items.push({
+        key: `web:${engine}`,
+        component: engine,
+        label: engine === 'openlitespeed' ? 'OpenLiteSpeed' : engine.charAt(0).toUpperCase() + engine.slice(1),
+        kind: 'web',
+        version: status.webServer.latest?.[engine] || 'latest',
+        note: 'web server',
+      });
+    }
+    for (const component of componentsOf('runtime')) {
+      const rt = status.runtimes?.[component.name];
+      if ((rt?.installed?.length ?? 0) > 0) continue;
+      const available = rt?.available ?? [];
+      const offerable = available.length > 0 ? available : component.versions ?? [];
+      const version = recommendedVersion(component.name, offerable, rt?.supported ?? [], rt?.labels);
+      items.push({ key: `runtime:${component.name}`, component: component.name, label: component.label, kind: 'runtime', version, note: version ? 'recommended' : 'stable channel' });
+    }
+    for (const component of componentsOf('database')) {
+      const detected = status.databases?.find((d) => d.engine === component.name);
+      const installedList = status.databaseInstalled?.[component.name] ?? [];
+      if (detected?.installedVersion || installedList.length > 0) continue;
+      const offerable = status.databaseAvailable?.[component.name] ?? component.versions ?? [];
+      const version = recommendedVersion(component.name, offerable, []);
+      items.push({ key: `database:${component.name}`, component: component.name, label: component.label, kind: 'database', version, note: 'recommended' });
+    }
+    return items;
+  };
+
+  const openBundle = () => {
+    const items = buildBundle();
+    setBundleSel(Object.fromEntries(items.map((i) => [i.key, true])));
+    setBundleOpen(true);
+  };
+
+  // Arriving from the first-run prompt: open the picker once the status is in.
+  useEffect(() => {
+    if (!status || live !== true) return;
+    if (sessionStorage.getItem('barepod_open_bundle') !== '1') return;
+    sessionStorage.removeItem('barepod_open_bundle');
+    openBundle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, live]);
+
+  const runBundle = async (items: BundleItem[]) => {
+    if (!live) {
+      onShowToast?.('Simulation', 'The daemon is not reachable, so nothing can be installed.', 'info');
+      return;
+    }
+    if (status?.installRunning) {
+      onShowToast?.('Another install is running', `${status.installRunning} must finish first.`, 'info');
+      return;
+    }
+    const failed: string[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      setBundleRun({ total: items.length, index: i, current: item.label + (item.version ? ` ${item.version}` : '') });
+      let result = 'error';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const job = await api.installStackComponent(item.component, item.version);
+          result = await watchJob(job.jobId, true);
+          break;
+        } catch {
+          // the queue may still be releasing the previous job
+          await new Promise((r) => window.setTimeout(r, 2000));
+        }
+      }
+      if (result !== 'success') failed.push(item.label);
+    }
+    setBundleRun(null);
+    setBundleOpen(false);
+    await load(true);
+    onShowToast?.(
+      failed.length === 0 ? 'Stack installed' : 'Stack install finished with errors',
+      failed.length === 0 ? `${items.length} component(s) installed.` : `Failed: ${failed.join(', ')}. See the log below.`,
+      failed.length === 0 ? 'success' : 'error',
+    );
   };
 
   const planAndSwitchDatabase = async (component: string, version: string) => {
@@ -384,6 +513,15 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={openBundle}
+            disabled={live !== true || !status || Boolean(status?.installRunning)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 transition-colors shadow-2xs"
+            title="Install everything that is missing, using recommended versions"
+          >
+            <Package className="w-3.5 h-3.5" />
+            <span>Install Stack</span>
+          </button>
           <button
             onClick={() => void runAutoRepair()}
             disabled={live !== true || refreshing || repairing}
@@ -1298,6 +1436,105 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           </div>
         </div>
       )}
+
+      {/* Install Stack (batch) modal */}
+      {bundleOpen && (() => {
+        const items = buildBundle();
+        const chosen = items.filter((i) => bundleSel[i.key]);
+        const groups: { kind: BundleItem['kind']; title: string }[] = [
+          { kind: 'repo', title: 'Repositories' },
+          { kind: 'web', title: 'Web servers' },
+          { kind: 'runtime', title: 'Runtimes' },
+          { kind: 'database', title: 'Databases' },
+        ];
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <Package className="w-4 h-4 text-slate-700" />
+                  <h3 className="font-bold text-sm text-slate-900">Install Stack</h3>
+                </div>
+                <button
+                  onClick={() => !bundleRun && setBundleOpen(false)}
+                  disabled={Boolean(bundleRun)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 text-xs max-h-[60vh] overflow-y-auto">
+                {items.length === 0 ? (
+                  <div className="py-6 text-center text-slate-500">
+                    <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-2" />
+                    Everything is already installed.
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-slate-500">
+                      Only what is missing is listed. Runtimes and databases use the recommended version, not the newest. Installs run one after another.
+                    </p>
+                    {groups.map((g) => {
+                      const rows = items.filter((i) => i.kind === g.kind);
+                      if (rows.length === 0) return null;
+                      return (
+                        <div key={g.kind}>
+                          <div className="font-semibold text-slate-700 mb-1.5">{g.title}</div>
+                          <div className="space-y-1">
+                            {rows.map((item) => (
+                              <label key={item.key} className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(bundleSel[item.key])}
+                                  disabled={Boolean(bundleRun)}
+                                  onChange={(e) => setBundleSel((prev) => ({ ...prev, [item.key]: e.target.checked }))}
+                                />
+                                <span className="font-medium text-slate-900">{item.label}</span>
+                                <span className="font-mono text-slate-500">{item.version ?? ''}</span>
+                                {item.note && <span className="ml-auto text-[10px] text-slate-400">{item.note}</span>}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+                {bundleRun && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
+                    <div className="flex items-center gap-2 text-blue-900 font-semibold">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Installing {bundleRun.current} ({bundleRun.index + 1}/{bundleRun.total})
+                    </div>
+                    <div className="h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-600 transition-all" style={{ width: `${(bundleRun.index / bundleRun.total) * 100}%` }} />
+                    </div>
+                    <p className="text-[11px] text-blue-800">The live log is below this window once it finishes.</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setBundleOpen(false)}
+                  disabled={Boolean(bundleRun)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-200 disabled:opacity-40"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => void runBundle(chosen)}
+                  disabled={Boolean(bundleRun) || chosen.length === 0 || live !== true}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 shadow-xs"
+                >
+                  Install {chosen.length} selected
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Dedicated Uninstall Confirmation Modal */}
       {uninstallTarget && (

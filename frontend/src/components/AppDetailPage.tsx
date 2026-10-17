@@ -1599,9 +1599,13 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   const [dnsModalDomain, setDnsModalDomain] = useState<ApiDomain | null>(null);
 
   const serverIp = typeof window !== 'undefined' ? window.location.hostname : '';
-  const isTunnelConfigured = Boolean(tunnelStatus?.hasToken && tunnelStatus?.status === 'connected');
-  const isTunnelAutoSync = Boolean(isTunnelConfigured && tunnelStatus?.hasApiToken && cfZones.length > 0);
-  const isTunnelConnectorOnly = Boolean(isTunnelConfigured && !isTunnelAutoSync);
+  const isTunnelAutoSync = Boolean(
+    tunnelStatus?.hasToken &&
+    tunnelStatus?.status === 'connected' &&
+    tunnelStatus?.hasApiToken &&
+    cfZones.length > 0
+  );
+  const isTunnelConfigured = isTunnelAutoSync;
 
   const fetchCloudflareData = useCallback(async () => {
     if (!app?.tenantUser) return;
@@ -1661,7 +1665,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     fetchSiteDomains();
   }, [app.name]);
 
-  const effectiveAliasDomain = (isTunnelConfigured && cfZones.length > 0 && aliasDnsMode === 'cloudflare' && aliasCfZone && aliasCfZone !== 'custom')
+  const effectiveAliasDomain = (isTunnelAutoSync && aliasDnsMode === 'cloudflare' && aliasCfZone && aliasCfZone !== 'custom')
     ? (aliasSubdomain.trim() ? `${aliasSubdomain.trim()}.${aliasCfZone}`.toLowerCase() : aliasCfZone.toLowerCase())
     : newAliasDomain.trim().toLowerCase();
 
@@ -1679,21 +1683,21 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     if (inOther) {
       return { type: 'other_site', message: `Domain "${lower}" is already used by website "${inOther.websiteSlug}".` };
     }
-    if (isTunnelConfigured && tunnelStatus?.routes) {
+    if (isTunnelAutoSync && tunnelStatus?.routes) {
       const route = tunnelStatus.routes.find((r) => r.hostname?.toLowerCase() === lower && r.appName !== app.name);
       if (route) {
         return { type: 'other_route', message: `Domain "${lower}" is already routed to "${route.appName || route.service}" in Cloudflare Tunnel.` };
       }
     }
     return null;
-  }, [effectiveAliasDomain, app.domain, app.name, siteDomains, allPanelDomains, isTunnelConfigured, tunnelStatus]);
+  }, [effectiveAliasDomain, app.domain, app.name, siteDomains, allPanelDomains, isTunnelAutoSync, tunnelStatus]);
 
   const effectiveEditDomain = useMemo(() => {
     if (!editingDomain) return '';
-    return (isTunnelConfigured && cfZones.length > 0 && editDnsMode === 'cloudflare' && editCfZone && editCfZone !== 'custom')
+    return (isTunnelAutoSync && editDnsMode === 'cloudflare' && editCfZone && editCfZone !== 'custom')
       ? (editSubdomain.trim() ? `${editSubdomain.trim()}.${editCfZone}`.toLowerCase() : editCfZone.toLowerCase())
       : newDomainInput.trim().toLowerCase();
-  }, [editingDomain, isTunnelConfigured, cfZones.length, editDnsMode, editCfZone, editSubdomain, newDomainInput]);
+  }, [editingDomain, isTunnelAutoSync, editDnsMode, editCfZone, editSubdomain, newDomainInput]);
 
   const editCollision = useMemo(() => {
     if (!editingDomain || !effectiveEditDomain) return null;
@@ -1713,9 +1717,9 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     return null;
   }, [editingDomain, effectiveEditDomain, allPanelDomains, isTunnelConfigured, tunnelStatus, app.name]);
 
-  // Live validation for alias domain
+  // Live validation for alias domain (only when Cloudflare mode is active)
   useEffect(() => {
-    if (!effectiveAliasDomain || effectiveAliasDomain.indexOf('.') === -1 || aliasCollision) {
+    if (!isTunnelAutoSync || aliasDnsMode !== 'cloudflare' || !effectiveAliasDomain || effectiveAliasDomain.indexOf('.') === -1 || aliasCollision) {
       setAliasValidation(null);
       setIsValidatingAlias(false);
       return;
@@ -1732,11 +1736,11 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [effectiveAliasDomain, aliasCollision, app.tenantUser]);
+  }, [effectiveAliasDomain, aliasCollision, app.tenantUser, isTunnelAutoSync, aliasDnsMode]);
 
-  // Live validation for edit domain
+  // Live validation for edit domain (only when Cloudflare mode is active)
   useEffect(() => {
-    if (!editingDomain || !effectiveEditDomain || effectiveEditDomain.indexOf('.') === -1 || effectiveEditDomain === editingDomain.domain.toLowerCase() || editCollision) {
+    if (!isTunnelAutoSync || editDnsMode !== 'cloudflare' || !editingDomain || !effectiveEditDomain || effectiveEditDomain.indexOf('.') === -1 || effectiveEditDomain === editingDomain.domain.toLowerCase() || editCollision) {
       setEditValidation(null);
       setIsValidatingEdit(false);
       return;
@@ -1753,7 +1757,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [editingDomain, effectiveEditDomain, editCollision, app.tenantUser]);
+  }, [editingDomain, effectiveEditDomain, editCollision, app.tenantUser, isTunnelAutoSync, editDnsMode]);
 
   const handleAddAlias = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1798,7 +1802,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 
     let matchedZone = '';
     let sub = '';
-    if (isTunnelConfigured && cfZones.length > 0) {
+    if (isTunnelAutoSync) {
       const lower = dom.domain.toLowerCase();
       for (const z of cfZones) {
         const zLower = z.name.toLowerCase();
@@ -1830,7 +1834,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   const handleSaveDomainEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingDomain) return;
-    const cleaned = (isTunnelConfigured && cfZones.length > 0 && editDnsMode === 'cloudflare' && editCfZone && editCfZone !== 'custom')
+    const cleaned = (isTunnelAutoSync && editDnsMode === 'cloudflare' && editCfZone && editCfZone !== 'custom')
       ? (editSubdomain.trim() ? `${editSubdomain.trim()}.${editCfZone}`.toLowerCase() : editCfZone.toLowerCase())
       : newDomainInput.trim().toLowerCase();
 
@@ -3591,11 +3595,6 @@ QUEUE_CONNECTION=redis`;
                       <Sparkles className="w-3 h-3 text-emerald-600" />
                       <span>Auto-DNS Ready</span>
                     </span>
-                  ) : isTunnelConnectorOnly ? (
-                    <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 rounded-md flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3 text-amber-600" />
-                      <span>Connector Only (Manual DNS)</span>
-                    </span>
                   ) : (
                     <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 rounded-md">
                       Not Configured
@@ -3614,22 +3613,13 @@ QUEUE_CONNECTION=redis`;
                       </span>
                     </div>
                   </>
-                ) : isTunnelConnectorOnly ? (
-                  <>
-                    <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Zero-NAT connector daemon is running for <strong>@{app.tenantUser}</strong>, but Cloudflare API Token is not configured.
-                    </p>
-                    <p className="text-[11px] text-amber-800 bg-amber-50/80 p-2.5 rounded-xl border border-amber-200/80 leading-relaxed mt-1">
-                      💡 <strong>Manual DNS Required:</strong> Traffic will route through the tunnel, but you must manually add the public hostname in your Cloudflare Zero Trust dashboard. To enable 1-click automatic DNS, add your Cloudflare API Token in <strong>Cloudflare Tunnels</strong>.
-                    </p>
-                  </>
                 ) : (
                   <>
                     <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Want Zero-NAT hosting without exposing VPS ports? Connect your Cloudflare Tunnel under <strong>Cloudflare Tunnels</strong> to auto-manage edge DNS.
+                      Cloudflare Tunnel is not configured for account <strong>@{app.tenantUser}</strong>. Traffic is routed directly through your web server ({app.webServer.toUpperCase()}) on standard ports.
                     </p>
                     <div className="text-[11px] text-slate-400">
-                      Tunnel routes will become selectable once configured.
+                      Configure your tunnel under <strong>Cloudflare Tunnels</strong> to enable 1-click Zero-NAT routing.
                     </div>
                   </>
                 )}
@@ -3649,8 +3639,8 @@ QUEUE_CONNECTION=redis`;
                   </p>
                 </div>
 
-                {/* Routing Mode Switcher (only shown when Cloudflare Tunnel is configured) */}
-                {isTunnelConfigured && cfZones.length > 0 && (
+                {/* Routing Mode Switcher (only shown when Cloudflare Tunnel is fully configured) */}
+                {isTunnelAutoSync && (
                   <div className="flex items-center gap-1 p-0.5 bg-slate-100 rounded-xl border border-slate-200/80">
                     <button
                       type="button"
@@ -3681,7 +3671,7 @@ QUEUE_CONNECTION=redis`;
               </div>
 
               <form onSubmit={handleAddAlias} className="space-y-3">
-                {isTunnelConfigured && cfZones.length > 0 && aliasDnsMode === 'cloudflare' ? (
+                {isTunnelAutoSync && aliasDnsMode === 'cloudflare' ? (
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
@@ -6599,7 +6589,7 @@ QUEUE_CONNECTION=redis`}
             <form onSubmit={handleSaveDomainEdit}>
               <div className="p-5 space-y-4">
                 {/* DNS Routing Type (Cloudflare vs Direct Public IP) */}
-                {isTunnelConfigured && cfZones.length > 0 ? (
+                {isTunnelAutoSync ? (
                   <div className="space-y-3">
                     <label className="block text-xs font-bold text-slate-700">
                       DNS Routing Method

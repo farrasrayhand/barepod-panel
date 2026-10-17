@@ -417,6 +417,40 @@ export function App() {
     }
   };
 
+  // First run: a fresh host has no runtimes or databases yet, so offer to install them in one go
+  // (recommended versions, the admin picks) instead of leaving a blank Stack page.
+  const [stackPrompt, setStackPrompt] = useState(false);
+  useEffect(() => {
+    if (!isAdmin || session.mode !== 'live') return;
+    if (localStorage.getItem('barepod_stack_prompt_done') === '1') return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const s = await api.stack();
+        if (cancelled) return;
+        const anyRuntime = Object.values(s.runtimes ?? {}).some((r) => (r.installed?.length ?? 0) > 0);
+        const anyDatabase = (s.databases ?? []).some((d) => Boolean(d.installedVersion));
+        if (!anyRuntime && !anyDatabase) setStackPrompt(true);
+        else localStorage.setItem('barepod_stack_prompt_done', '1');
+      } catch {
+        // The Stack page stays reachable from the menu.
+      }
+    }, 1500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [isAdmin, session.mode]);
+
+  const closeStackPrompt = (openPicker: boolean) => {
+    localStorage.setItem('barepod_stack_prompt_done', '1');
+    setStackPrompt(false);
+    if (openPicker) {
+      sessionStorage.setItem('barepod_open_bundle', '1');
+      navigatePath(TAB_PATHS.stack);
+    }
+  };
+
   // Protect admin-only routes from regular users navigating directly via URL
   useEffect(() => {
     if (session.mode !== 'live' || !session.user) return;
@@ -945,6 +979,34 @@ export function App() {
             })();
           }}
         />
+      )}
+
+      {stackPrompt && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100">
+              <h3 className="font-bold text-sm text-slate-900">Set up your server stack</h3>
+            </div>
+            <div className="p-5 text-sm text-slate-600 space-y-2">
+              <p>BarePod is installed. Pick the web servers, runtimes and databases you want on this server.</p>
+              <p className="text-xs text-slate-500">Recommended versions are preselected; you can untick anything you do not need. This can also be done later from the Stack page.</p>
+            </div>
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => closeStackPrompt(false)}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-200"
+              >
+                Later
+              </button>
+              <button
+                onClick={() => closeStackPrompt(true)}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 shadow-xs"
+              >
+                Choose components
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Interactive Toast Notifications */}

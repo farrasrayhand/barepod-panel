@@ -205,9 +205,22 @@ func (s *Server) applyVhost(r *http.Request, site *store.Website) error {
 		}
 		spec = spec.WithSSL(aliases, certPath, keyPath, sslEnabled, forceHTTPS, hsts)
 	}
+	secSpec := webserver.SecuritySpec{}
 	if sec, err := s.store.GetWebsiteSecurity(site.Slug); err == nil && sec != nil {
-		spec = spec.WithSecurity(s.buildSecuritySpec(sec))
+		secSpec = s.buildSecuritySpec(sec)
 	}
+	// A stopped website answers 503 at the web server. Static and PHP sites have no
+	// service of their own to stop, so without this Stop only flipped a label.
+	if strings.EqualFold(site.Status, "stopped") {
+		secSpec.MaintenanceMode = true
+		secSpec.MaintenanceTitle = "Website Stopped"
+		secSpec.MaintenanceMessage = "This website has been stopped by its administrator and is currently offline."
+		secSpec.MaintenanceBypassIPs = nil
+	}
+	if secSpec.MaintenanceMode {
+		_, _ = webserver.WriteMaintenancePage(site.Slug, secSpec.MaintenanceTitle, secSpec.MaintenanceMessage)
+	}
+	spec = spec.WithSecurity(secSpec)
 	_, err := webserver.Apply(r.Context(), engine, s.host.VhostsFor(engine), s.host, spec)
 	if active := s.deploy.ActiveEngine(); active != "" && !strings.EqualFold(active, engine) {
 		_ = webserver.GrantRead(r.Context(), s.host, home, siteDir, webserver.WebUser(active))
