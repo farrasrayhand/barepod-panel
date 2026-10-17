@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,15 +12,59 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/files"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
 
 var validUploadID = regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
 
 type extractRequest struct {
-	Path        string `json:"path"`
-	Destination string `json:"destination,omitempty"`
+	Path          string `json:"path"`
+	Destination   string `json:"destination,omitempty"`
+	StripTopLevel bool   `json:"stripTopLevel,omitempty"`
+}
+
+func streamExtraction(w http.ResponseWriter, manager *files.Manager, reqPath, dest string, stripTopLevel bool) ([]string, error) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return manager.ExtractWithProgress(reqPath, dest, stripTopLevel, nil)
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	lastSent := time.Time{}
+	extracted, err := manager.ExtractWithProgress(reqPath, dest, stripTopLevel, func(p files.ExtractProgress) {
+		now := time.Now()
+		if p.Current == 1 || p.Current == p.Total || now.Sub(lastSent) >= 30*time.Millisecond {
+			lastSent = now
+			data, _ := json.Marshal(p)
+			fmt.Fprintf(w, "event: progress\ndata: %s\n\n", data)
+			flusher.Flush()
+		}
+	})
+
+	if err != nil {
+		errData, _ := json.Marshal(map[string]any{"error": err.Error()})
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", errData)
+		flusher.Flush()
+		return nil, err
+	}
+
+	doneData, _ := json.Marshal(map[string]any{
+		"ok":          true,
+		"destination": strings.TrimPrefix(dest, "/"),
+		"total":       len(extracted),
+	})
+	fmt.Fprintf(w, "event: done\ndata: %s\n\n", doneData)
+	flusher.Flush()
+	return extracted, nil
 }
 
 // handleExtractFiles unpacks an archive (.zip, .tar.gz, etc.) into the specified destination folder.
@@ -43,7 +88,16 @@ func (s *Server) handleExtractFiles(w http.ResponseWriter, r *http.Request, user
 		dest = path.Dir(strings.TrimPrefix(req.Path, "/"))
 	}
 
-	extracted, err := manager.Extract(req.Path, dest)
+	if r.URL.Query().Get("stream") == "true" || r.Header.Get("Accept") == "text/event-stream" {
+		extracted, err := streamExtraction(w, manager, req.Path, dest, req.StripTopLevel)
+		if err == nil {
+			_ = s.store.Audit(user.ID, "files.extract", site.Slug+"/"+strings.TrimPrefix(req.Path, "/"), clientIP(r),
+				fmt.Sprintf("extracted %d items to %s", len(extracted), dest))
+		}
+		return
+	}
+
+	extracted, err := manager.ExtractWithProgress(req.Path, dest, req.StripTopLevel, nil)
 	if err != nil {
 		writeFileError(w, err)
 		return
@@ -80,7 +134,16 @@ func (s *Server) handleScopedExtract(w http.ResponseWriter, r *http.Request, use
 		dest = path.Dir(strings.TrimPrefix(req.Path, "/"))
 	}
 
-	extracted, err := scope.manager.Extract(req.Path, dest)
+	if r.URL.Query().Get("stream") == "true" || r.Header.Get("Accept") == "text/event-stream" {
+		extracted, err := streamExtraction(w, scope.manager, req.Path, dest, req.StripTopLevel)
+		if err == nil {
+			_ = s.store.Audit(user.ID, "files.extract", scope.auditTarget(req.Path), clientIP(r),
+				fmt.Sprintf("extracted %d items to %s", len(extracted), dest))
+		}
+		return
+	}
+
+	extracted, err := scope.manager.ExtractWithProgress(req.Path, dest, req.StripTopLevel, nil)
 	if err != nil {
 		s.block(w, r, user, scope, req.Path, err)
 		return

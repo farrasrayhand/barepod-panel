@@ -1269,11 +1269,82 @@ export const api = {
           raw: true,
         }),
 
-  extractFiles: (slug: string, path: string, destination?: string) =>
+  extractFiles: (slug: string, path: string, destination?: string, stripTopLevel?: boolean) =>
     request<{ ok: boolean; destination: string; extracted: string[] }>(`/websites/${slug}/files/extract`, {
       method: 'POST',
-      body: JSON.stringify({ path, destination }),
+      body: JSON.stringify({ path, destination, stripTopLevel }),
     }),
+
+  extractFilesStream: async (
+    slug: string,
+    path: string,
+    destination: string | undefined,
+    stripTopLevel: boolean,
+    onProgress: (p: { current: number; total: number; file: string; percent: number }) => void,
+  ): Promise<{ ok: boolean; destination: string; total: number }> => {
+    const headers = new Headers({
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+    });
+    if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
+
+    const response = await fetch(`${API_BASE}/websites/${slug}/files/extract?stream=true`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ path, destination, stripTopLevel }),
+    });
+
+    if (!response.ok) {
+      let errMsg = `Extraction failed (${response.status})`;
+      try {
+        const payload = await response.json();
+        errMsg = payload?.error?.message || payload?.message || errMsg;
+      } catch {}
+      throw new Error(errMsg);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('Streaming unsupported');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let doneResult = { ok: true, destination: destination || '', total: 0 };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      let currentEvent = '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('event:')) {
+          currentEvent = trimmed.slice(6).trim();
+        } else if (trimmed.startsWith('data:')) {
+          const dataStr = trimmed.slice(5).trim();
+          try {
+            const data = JSON.parse(dataStr);
+            if (currentEvent === 'progress') {
+              onProgress(data);
+            } else if (currentEvent === 'done') {
+              doneResult = data;
+            } else if (currentEvent === 'error') {
+              throw new Error(data.error || 'Extraction failed');
+            }
+          } catch (err: any) {
+            if (currentEvent === 'error' || err.message !== 'Unexpected end of JSON input') {
+              throw err;
+            }
+          }
+        }
+      }
+    }
+
+    return doneResult;
+  },
 
   uploadChunk: (slug: string, form: FormData) =>
     uploadForm<{ uploadId: string; chunkIndex?: number; completed: boolean; path?: string; extracted?: string[] }>(
@@ -1391,6 +1462,77 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ path, destination }),
       }),
+
+    extractStream: async (
+      scope: FileScope,
+      path: string,
+      destination: string | undefined,
+      stripTopLevel: boolean,
+      onProgress: (p: { current: number; total: number; file: string; percent: number }) => void,
+    ): Promise<{ ok: boolean; destination: string; total: number }> => {
+      const headers = new Headers({
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      });
+      if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
+
+      const response = await fetch(`${API_BASE}/files/extract?${fileScopeQuery(scope)}&stream=true`, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ path, destination, stripTopLevel }),
+      });
+
+      if (!response.ok) {
+        let errMsg = `Extraction failed (${response.status})`;
+        try {
+          const payload = await response.json();
+          errMsg = payload?.error?.message || payload?.message || errMsg;
+        } catch {}
+        throw new Error(errMsg);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Streaming unsupported');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let doneResult = { ok: true, destination: destination || '', total: 0 };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        let currentEvent = '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('event:')) {
+            currentEvent = trimmed.slice(6).trim();
+          } else if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.slice(5).trim();
+            try {
+              const data = JSON.parse(dataStr);
+              if (currentEvent === 'progress') {
+                onProgress(data);
+              } else if (currentEvent === 'done') {
+                doneResult = data;
+              } else if (currentEvent === 'error') {
+                throw new Error(data.error || 'Extraction failed');
+              }
+            } catch (err: any) {
+              if (currentEvent === 'error' || err.message !== 'Unexpected end of JSON input') {
+                throw err;
+              }
+            }
+          }
+        }
+      }
+
+      return doneResult;
+    },
 
     uploadChunk: (scope: FileScope, form: FormData) =>
       uploadForm<{ uploadId: string; chunkIndex?: number; completed: boolean; path?: string; extracted?: string[] }>(

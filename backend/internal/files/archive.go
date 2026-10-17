@@ -159,9 +159,22 @@ func (m *Manager) addToTar(tw *tar.Writer, abs, relative string) error {
 	return nil
 }
 
+// ExtractProgress reports the decompression progress of a single item in an archive.
+type ExtractProgress struct {
+	Current int    `json:"current"`
+	Total   int    `json:"total"`
+	File    string `json:"file"`
+	Percent int    `json:"percent"`
+}
+
 // Extract unpacks an archive (.zip, .tar.gz, .tgz, .tar) into destDirRelative.
 // It enforces strict path jail validation (ZipSlip / TarSlip protection).
 func (m *Manager) Extract(archiveRelative, destDirRelative string) ([]string, error) {
+	return m.ExtractWithProgress(archiveRelative, destDirRelative, false, nil)
+}
+
+// ExtractWithProgress unpacks an archive while providing a progress callback.
+func (m *Manager) ExtractWithProgress(archiveRelative, destDirRelative string, stripTopLevel bool, onProgress func(ExtractProgress)) ([]string, error) {
 	archiveAbs, err := m.Resolve(archiveRelative)
 	if err != nil {
 		return nil, err
@@ -185,27 +198,27 @@ func (m *Manager) Extract(archiveRelative, destDirRelative string) ([]string, er
 
 	lower := strings.ToLower(archiveRelative)
 	if strings.HasSuffix(lower, ".zip") {
-		return m.extractZip(data, destAbs)
+		return m.extractZip(data, destAbs, stripTopLevel, onProgress)
 	}
 	if strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") {
-		return m.extractTar(data, destAbs, true)
+		return m.extractTar(data, destAbs, true, stripTopLevel, onProgress)
 	}
 	if strings.HasSuffix(lower, ".tar") {
-		return m.extractTar(data, destAbs, false)
+		return m.extractTar(data, destAbs, false, stripTopLevel, onProgress)
 	}
 
 	// Try auto-detection by sniffing header magic bytes
 	if len(data) >= 4 && bytes.Equal(data[:4], []byte{0x50, 0x4b, 0x03, 0x04}) {
-		return m.extractZip(data, destAbs)
+		return m.extractZip(data, destAbs, stripTopLevel, onProgress)
 	}
 	if len(data) >= 2 && bytes.Equal(data[:2], []byte{0x1f, 0x8b}) {
-		return m.extractTar(data, destAbs, true)
+		return m.extractTar(data, destAbs, true, stripTopLevel, onProgress)
 	}
 
 	return nil, ErrInvalidArchive
 }
 
-func (m *Manager) extractZip(data []byte, destAbs string) ([]string, error) {
+func (m *Manager) extractZip(data []byte, destAbs string, stripTopLevel bool, onProgress func(ExtractProgress)) ([]string, error) {
 	r, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, fmt.Errorf("files: invalid zip archive: %w", err)
@@ -213,16 +226,62 @@ func (m *Manager) extractZip(data []byte, destAbs string) ([]string, error) {
 
 	var extracted []string
 	destClean := filepath.Clean(destAbs)
+	total := len(r.File)
 
+	// Check if all entries share a single common top-level directory
+	var commonPrefix string
+	hasCommonPrefix := true
 	for _, f := range r.File {
 		cleanName := filepath.Clean(filepath.ToSlash(f.Name))
-		if strings.HasPrefix(cleanName, "..") || strings.HasPrefix(cleanName, "/") || filepath.IsAbs(cleanName) {
+		if cleanName == "." || cleanName == "" {
+			continue
+		}
+		parts := strings.Split(cleanName, "/")
+		if len(parts) == 0 {
+			continue
+		}
+		if commonPrefix == "" {
+			commonPrefix = parts[0]
+		} else if commonPrefix != parts[0] {
+			hasCommonPrefix = false
+			break
+		}
+	}
+
+	shouldStrip := stripTopLevel && hasCommonPrefix && commonPrefix != ""
+
+	for i, f := range r.File {
+		cleanName := filepath.Clean(filepath.ToSlash(f.Name))
+		if cleanName == "." || cleanName == "" || strings.HasPrefix(cleanName, "..") || strings.HasPrefix(cleanName, "/") || filepath.IsAbs(cleanName) {
 			continue // ZipSlip protection
+		}
+
+		if shouldStrip {
+			if cleanName == commonPrefix {
+				continue
+			}
+			cleanName = strings.TrimPrefix(cleanName, commonPrefix+"/")
+			if cleanName == "" || cleanName == "." {
+				continue
+			}
 		}
 
 		target := filepath.Join(destClean, cleanName)
 		if !strings.HasPrefix(target, destClean+string(filepath.Separator)) && target != destClean {
 			continue // ZipSlip escape protection
+		}
+
+		if onProgress != nil {
+			percent := 0
+			if total > 0 {
+				percent = int((float64(i+1) / float64(total)) * 100)
+			}
+			onProgress(ExtractProgress{
+				Current: i + 1,
+				Total:   total,
+				File:    cleanName,
+				Percent: percent,
+			})
 		}
 
 		if f.FileInfo().IsDir() {
@@ -262,7 +321,7 @@ func (m *Manager) extractZip(data []byte, destAbs string) ([]string, error) {
 	return extracted, nil
 }
 
-func (m *Manager) extractTar(data []byte, destAbs string, isGzip bool) ([]string, error) {
+func (m *Manager) extractTar(data []byte, destAbs string, isGzip, stripTopLevel bool, onProgress func(ExtractProgress)) ([]string, error) {
 	var tr *tar.Reader
 	if isGzip {
 		gr, err := gzip.NewReader(bytes.NewReader(data))
@@ -277,6 +336,7 @@ func (m *Manager) extractTar(data []byte, destAbs string, isGzip bool) ([]string
 
 	var extracted []string
 	destClean := filepath.Clean(destAbs)
+	count := 0
 
 	for {
 		hdr, err := tr.Next()
@@ -288,13 +348,23 @@ func (m *Manager) extractTar(data []byte, destAbs string, isGzip bool) ([]string
 		}
 
 		cleanName := filepath.Clean(filepath.ToSlash(hdr.Name))
-		if strings.HasPrefix(cleanName, "..") || strings.HasPrefix(cleanName, "/") || filepath.IsAbs(cleanName) {
+		if cleanName == "." || cleanName == "" || strings.HasPrefix(cleanName, "..") || strings.HasPrefix(cleanName, "/") || filepath.IsAbs(cleanName) {
 			continue // TarSlip protection
 		}
 
 		target := filepath.Join(destClean, cleanName)
 		if !strings.HasPrefix(target, destClean+string(filepath.Separator)) && target != destClean {
 			continue
+		}
+
+		count++
+		if onProgress != nil {
+			onProgress(ExtractProgress{
+				Current: count,
+				Total:   0,
+				File:    cleanName,
+				Percent: 0,
+			})
 		}
 
 		if hdr.Typeflag == tar.TypeDir {

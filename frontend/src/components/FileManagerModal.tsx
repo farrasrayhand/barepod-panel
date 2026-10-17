@@ -43,6 +43,7 @@ import {
   KeyRound,
   FileArchive,
   ChevronDown,
+  CornerLeftUp,
 } from 'lucide-react';
 import type { WebApp } from '../types';
 import {
@@ -82,7 +83,13 @@ interface FileOps {
   move(from: string, to: string): Promise<unknown>;
   remove(paths: string[]): Promise<unknown>;
   compress(paths: string[], destination?: string, format?: string): Promise<{ ok: boolean; path: string } | Blob>;
-  extract(path: string, destination?: string): Promise<{ ok: boolean; destination: string; extracted: string[] }>;
+  extract(path: string, destination?: string, stripTopLevel?: boolean): Promise<{ ok: boolean; destination: string; extracted: string[] }>;
+  extractStream?(
+    path: string,
+    destination: string | undefined,
+    stripTopLevel: boolean,
+    onProgress: (p: { current: number; total: number; file: string; percent: number }) => void,
+  ): Promise<{ ok: boolean; destination: string; total: number }>;
   upload(path: string, files: File[], autoExtract?: boolean): Promise<{ uploaded: string[] }>;
   uploadChunk(form: FormData): Promise<{ uploadId: string; chunkIndex?: number; completed: boolean; path?: string; extracted?: string[] }>;
   uploadChunkStatus(uploadId: string): Promise<{ uploadId: string; chunks: number[] }>;
@@ -110,7 +117,9 @@ const buildFileOps = (scope: 'site' | 'host' | 'tenant', target: string): FileOp
       move: (from, to) => api.moveFiles(slug, from, to),
       remove: (paths) => api.deleteFiles(slug, paths),
       compress: (paths, destination, format) => api.compressFiles(slug, paths, destination, format),
-      extract: (path, destination) => api.extractFiles(slug, path, destination),
+      extract: (path, destination, stripTopLevel) => api.extractFiles(slug, path, destination, stripTopLevel),
+      extractStream: (path, destination, stripTopLevel, onProgress) =>
+        api.extractFilesStream(slug, path, destination, stripTopLevel, onProgress),
       upload: (path, files, autoExtract) => api.uploadFiles(slug, path, files, autoExtract),
       uploadChunk: (form) => api.uploadChunk(slug, form),
       uploadChunkStatus: (uploadId) => api.uploadChunkStatus(slug, uploadId),
@@ -134,7 +143,9 @@ const buildFileOps = (scope: 'site' | 'host' | 'tenant', target: string): FileOp
     move: (from, to) => scoped.move(fileScope, from, to),
     remove: (paths) => scoped.remove(fileScope, paths),
     compress: (paths, destination, format) => scoped.compress(fileScope, paths, destination, format),
-    extract: (path, destination) => scoped.extract(fileScope, path, destination),
+    extract: (path, destination, stripTopLevel) => scoped.extract(fileScope, path, destination),
+    extractStream: (path, destination, stripTopLevel, onProgress) =>
+      scoped.extractStream(fileScope, path, destination, stripTopLevel, onProgress),
     upload: (path, files, autoExtract) => scoped.uploadFiles(fileScope, path, files, autoExtract),
     uploadChunk: (form) => scoped.uploadChunk(fileScope, form),
     uploadChunkStatus: (uploadId) => scoped.uploadChunkStatus(fileScope, uploadId),
@@ -380,11 +391,24 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     isOpen: boolean;
     file: FileEntry | null;
     destination: string;
+    stripTopLevel: boolean;
+    isExtracting: boolean;
+    progress: {
+      current: number;
+      total: number;
+      percent: number;
+      currentFile: string;
+      logs: string[];
+    } | null;
   }>({
     isOpen: false,
     file: null,
     destination: '',
+    stripTopLevel: true,
+    isExtracting: false,
+    progress: null,
   });
+  const extractLogEndRef = useRef<HTMLDivElement>(null);
   const [previewModal, setPreviewModal] = useState<{ isOpen: boolean; file: FileEntry | null; zoom: number }>({
     isOpen: false,
     file: null,
@@ -472,6 +496,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         isOpen: true,
         file,
         destination: currentPath,
+        stripTopLevel: true,
+        isExtracting: false,
+        progress: null,
       });
       return;
     }
@@ -915,21 +942,76 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
   const handleExtractSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!extractModal.file) return;
+    if (!extractModal.file || extractModal.isExtracting) return;
     setBusy(true);
+    setExtractModal((prev) => ({
+      ...prev,
+      isExtracting: true,
+      progress: {
+        current: 0,
+        total: 0,
+        percent: 0,
+        currentFile: 'Starting extraction...',
+        logs: [`Starting decompression of ${extractModal.file?.name}...`],
+      },
+    }));
+
     try {
       const targetPath = extractModal.file.apiPath || extractModal.file.name;
       const dest = toApiPath(extractModal.destination.trim() || currentPath);
-      const res = await ops.extract(targetPath, dest);
-      setExtractModal({ isOpen: false, file: null, destination: '' });
-      showToast(`Extracted ${res.extracted?.length || 0} items successfully`);
+
+      if (ops.extractStream) {
+        const res = await ops.extractStream(
+          targetPath,
+          dest,
+          extractModal.stripTopLevel,
+          (p) => {
+            setExtractModal((prev) => {
+              if (!prev.isOpen) return prev;
+              const newLogs = [...(prev.progress?.logs || [])];
+              if (newLogs.length > 80) newLogs.shift();
+              newLogs.push(`[${p.current}${p.total ? '/' + p.total : ''}] ${p.file}`);
+              return {
+                ...prev,
+                progress: {
+                  current: p.current,
+                  total: p.total,
+                  percent: p.percent,
+                  currentFile: p.file,
+                  logs: newLogs,
+                },
+              };
+            });
+          },
+        );
+        showToast(`Extracted ${res.total || 0} items successfully`);
+      } else {
+        const res = await ops.extract(targetPath, dest, extractModal.stripTopLevel);
+        showToast(`Extracted ${res.extracted?.length || 0} items successfully`);
+      }
+
+      setExtractModal({
+        isOpen: false,
+        file: null,
+        destination: '',
+        stripTopLevel: true,
+        isExtracting: false,
+        progress: null,
+      });
       reload();
     } catch (err) {
       setError(describeError(err));
+      setExtractModal((prev) => ({ ...prev, isExtracting: false }));
     } finally {
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (extractModal.progress) {
+      extractLogEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [extractModal.progress?.logs.length]);
 
   // --- Resumable Chunked Upload Engine ---
   const enqueueUploads = (fileList: File[]) => {
@@ -1323,6 +1405,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                     isOpen: true,
                     file: selectedFile,
                     destination: currentPath,
+                    stripTopLevel: true,
+                    isExtracting: false,
+                    progress: null,
                   })
                 }
                 disabled={busy}
@@ -1508,12 +1593,21 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                       setSelectedFile(null);
                       setSelectedFiles([]);
                     }}
-                    className="hover:bg-slate-50 cursor-pointer font-medium text-slate-600 transition-colors"
+                    className="hover:bg-blue-50/60 cursor-pointer text-slate-600 transition-colors group select-none"
+                    title="Go up to parent directory"
                   >
-                    <td colSpan={5} className="py-2 px-4 flex items-center gap-2">
-                      <Folder className="w-4 h-4 text-slate-400" />
-                      <span className="font-mono text-xs text-slate-600">.. (up one level)</span>
+                    <td className="py-2.5 px-3 w-10 text-center">
+                      <CornerLeftUp className="w-4 h-4 text-slate-400 mx-auto group-hover:text-blue-600 group-hover:-translate-y-0.5 transition-all" />
                     </td>
+                    <td className="py-2.5 px-3 font-mono">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-800 group-hover:text-blue-600 transition-colors">..</span>
+                        <span className="text-[11px] text-slate-400 font-sans font-normal">(Up one level)</span>
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3 text-xs text-slate-400 font-mono">—</td>
+                    <td className="py-2.5 px-3 text-xs text-slate-400 font-mono">—</td>
+                    <td className="py-2.5 px-3 text-xs text-slate-400 font-mono">—</td>
                   </tr>
                 )}
 
@@ -1785,6 +1879,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                             isOpen: true,
                             file: activeFile,
                             destination: currentPath,
+                            stripTopLevel: true,
+                            isExtracting: false,
+                            progress: null,
                           })
                         }
                         className="w-full py-2 px-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors shadow-xs"
@@ -2005,6 +2102,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                           isOpen: true,
                           file: contextMenu.file,
                           destination: currentPath,
+                          stripTopLevel: true,
+                          isExtracting: false,
+                          progress: null,
                         });
                       }
                       setContextMenu(null);
@@ -2232,10 +2332,18 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         {/* Modal: Extract */}
         {extractModal.isOpen && extractModal.file && (
           <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-5 space-y-4 text-xs text-slate-800">
-              <div className="flex items-center gap-2 text-sm font-bold text-slate-900 border-b border-slate-100 pb-3">
-                <FileArchive className="w-4 h-4 text-purple-600" />
-                <span>Extract Archive</span>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-5 space-y-4 text-xs text-slate-800">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                  <FileArchive className="w-4 h-4 text-purple-600" />
+                  <span>Extract Archive</span>
+                </div>
+                {extractModal.isExtracting && (
+                  <span className="flex items-center gap-1.5 px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-full font-mono text-[10px] font-semibold animate-pulse">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Extracting...
+                  </span>
+                )}
               </div>
 
               <form onSubmit={handleExtractSubmit} className="space-y-4">
@@ -2244,36 +2352,96 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   <p className="font-mono text-slate-900 font-bold">{extractModal.file.name}</p>
                 </div>
 
-                <div>
-                  <label className="block text-slate-700 font-semibold mb-1">Destination Directory</label>
-                  <input
-                    type="text"
-                    value={extractModal.destination}
-                    onChange={(e) => setExtractModal((prev) => ({ ...prev, destination: e.target.value }))}
-                    placeholder="e.g. / or /extracted-folder"
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 font-mono text-xs focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-xs"
-                    autoFocus
-                    required
-                  />
-                  <p className="text-[10px] text-slate-500 mt-1">Leave as current directory or specify a target subfolder.</p>
-                </div>
+                {!extractModal.isExtracting ? (
+                  <>
+                    <div>
+                      <label className="block text-slate-700 font-semibold mb-1">Destination Directory</label>
+                      <input
+                        type="text"
+                        value={extractModal.destination}
+                        onChange={(e) => setExtractModal((prev) => ({ ...prev, destination: e.target.value }))}
+                        placeholder="e.g. / or /extracted-folder"
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 font-mono text-xs focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-xs"
+                        autoFocus
+                        required
+                      />
+                      <p className="text-[10px] text-slate-500 mt-1">Leave as current directory or specify a target subfolder.</p>
+                    </div>
+
+                    <label className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 cursor-pointer transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={extractModal.stripTopLevel}
+                        onChange={(e) => setExtractModal((prev) => ({ ...prev, stripTopLevel: e.target.checked }))}
+                        className="mt-0.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                      />
+                      <div className="space-y-0.5 text-[11px]">
+                        <span className="font-semibold text-slate-800">Flatten single outer folder</span>
+                        <p className="text-slate-500 text-[10px] leading-relaxed">
+                          If the archive wraps everything inside a single directory (e.g. <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">supri/...</code>), unwrap its contents directly into this destination instead of creating an extra nested folder.
+                        </p>
+                      </div>
+                    </label>
+                  </>
+                ) : (
+                  <div className="space-y-3 p-3.5 bg-slate-900 text-slate-200 rounded-xl border border-slate-800">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-semibold text-purple-300">Extraction Progress</span>
+                      <span className="font-mono text-xs text-slate-300 font-bold">
+                        {extractModal.progress?.percent || 0}%
+                      </span>
+                    </div>
+
+                    <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 transition-all duration-150 rounded-full"
+                        style={{ width: `${Math.max(2, extractModal.progress?.percent || 0)}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                      <span>Files extracted: {extractModal.progress?.current || 0} {extractModal.progress?.total ? `/ ${extractModal.progress.total}` : ''}</span>
+                    </div>
+
+                    <div className="mt-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800/80 font-mono text-[10px] text-slate-300 max-h-36 overflow-y-auto space-y-1 shadow-inner select-text">
+                      {extractModal.progress?.logs.map((log, i) => (
+                        <div key={i} className="truncate text-slate-300">
+                          {log}
+                        </div>
+                      ))}
+                      <div ref={extractLogEndRef} />
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                   <button
                     type="button"
-                    onClick={() => setExtractModal({ isOpen: false, file: null, destination: '' })}
-                    className="px-3.5 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                    disabled={extractModal.isExtracting}
+                    onClick={() =>
+                      setExtractModal({
+                        isOpen: false,
+                        file: null,
+                        destination: '',
+                        stripTopLevel: true,
+                        isExtracting: false,
+                        progress: null,
+                      })
+                    }
+                    className="px-3.5 py-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-50 rounded-lg cursor-pointer transition-colors"
                   >
-                    Cancel
+                    {extractModal.isExtracting ? 'Extracting...' : 'Cancel'}
                   </button>
-                  <button
-                    type="submit"
-                    disabled={busy}
-                    className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors"
-                  >
-                    {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    <span>Extract Here</span>
-                  </button>
+                  {!extractModal.isExtracting && (
+                    <button
+                      type="submit"
+                      disabled={busy}
+                      className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-lg shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <FileArchive className="w-3.5 h-3.5" />
+                      <span>Extract Here</span>
+                    </button>
+                  )}
                 </div>
               </form>
             </div>
