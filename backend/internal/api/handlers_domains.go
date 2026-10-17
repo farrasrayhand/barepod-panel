@@ -492,3 +492,121 @@ func (s *Server) handleToggleSSL(w http.ResponseWriter, r *http.Request, user *s
 	updated, _ := s.store.GetDomain(id)
 	writeJSON(w, http.StatusOK, updated)
 }
+
+// handleValidateDomain checks whether a domain is valid, available in BarePod, and/or already registered in Cloudflare.
+func (s *Server) handleValidateDomain(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	domain := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("domain")))
+	excludeDomainID := strings.TrimSpace(r.URL.Query().Get("currentDomainId"))
+	websiteSlug := strings.TrimSpace(r.URL.Query().Get("websiteSlug"))
+	targetUser := user.Username
+	if user.Role == "admin" && r.URL.Query().Get("tenant") != "" {
+		targetUser = strings.TrimSpace(r.URL.Query().Get("tenant"))
+	}
+
+	if domain == "" || strings.Contains(domain, " ") || strings.Contains(domain, "/") || !strings.Contains(domain, ".") {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"domain":        domain,
+			"validFormat":   false,
+			"available":     false,
+			"collisionType": "invalid_format",
+			"message":       "Please provide a valid fully-qualified domain name (e.g. app.example.com)",
+		})
+		return
+	}
+
+	// 1. Check Panel database for collision (primary or alias domain)
+	if existing, _ := s.store.GetDomainByName(domain); existing != nil && existing.ID != excludeDomainID {
+		isSameSite := websiteSlug != "" && existing.WebsiteSlug == websiteSlug
+		collisionType := "panel_alias"
+		if existing.IsPrimary {
+			collisionType = "panel_primary"
+		}
+		desc := "alias domain"
+		if existing.IsPrimary {
+			desc = "primary domain"
+		}
+		msg := fmt.Sprintf("Domain '%s' is already in use by website '%s' (%s)", domain, existing.WebsiteSlug, desc)
+		if isSameSite {
+			msg = fmt.Sprintf("Domain '%s' is already registered to this website (%s)", domain, desc)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"domain":        domain,
+			"validFormat":   true,
+			"available":     false,
+			"collisionType": collisionType,
+			"message":       msg,
+			"panelUsage": map[string]any{
+				"websiteSlug": existing.WebsiteSlug,
+				"isPrimary":   existing.IsPrimary,
+			},
+		})
+		return
+	}
+
+	if site, _ := s.store.WebsiteByDomain(domain); site != nil && site.Slug != websiteSlug {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"domain":        domain,
+			"validFormat":   true,
+			"available":     false,
+			"collisionType": "panel_primary",
+			"message":       fmt.Sprintf("Domain '%s' is already in use by website '%s' (primary domain)", domain, site.Slug),
+			"panelUsage": map[string]any{
+				"websiteSlug": site.Slug,
+				"isPrimary":   true,
+			},
+		})
+		return
+	}
+
+	// 2. Check local Cloudflare Tunnel routes for collision
+	var tunnelRouteUsage *store.CloudflareTunnelRoute
+	if routes, err := s.store.ListCloudflareTunnelRoutes(targetUser); err == nil {
+		for _, route := range routes {
+			if strings.EqualFold(route.Hostname, domain) {
+				rCopy := route
+				tunnelRouteUsage = &rCopy
+				break
+			}
+		}
+	}
+
+	// 3. Live check against Cloudflare API (if tenant has Cloudflare Tunnel configured)
+	var cfCheck *cloudflare.CloudflareHostnameCheck
+	tunnel, _ := s.store.GetCloudflareTunnel(targetUser)
+	if tunnel != nil && tunnel.ApiToken != "" {
+		cf := cloudflare.NewClient(tunnel.ApiToken, tunnel.AccountID, tunnel.TunnelID)
+		ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+		cfCheck, _ = cf.CheckHostname(ctx, domain)
+		cancel()
+	}
+
+	// Determine collision status for Cloudflare
+	collisionType := "none"
+	var cfMessage string
+	if tunnelRouteUsage != nil {
+		collisionType = "cf_route"
+		cfMessage = fmt.Sprintf("Domain is already routed in your Cloudflare Tunnel to '%s' (App: %s)", tunnelRouteUsage.Service, tunnelRouteUsage.AppName)
+	} else if cfCheck != nil && cfCheck.HasTunnelRoute {
+		collisionType = "cf_route"
+		cfMessage = fmt.Sprintf("Domain is already configured in Cloudflare Tunnel ingress routing to '%s'", cfCheck.TunnelService)
+	} else if cfCheck != nil && cfCheck.HasDNSRecord {
+		collisionType = "cf_dns"
+		recSummary := ""
+		if len(cfCheck.DNSRecords) > 0 {
+			r0 := cfCheck.DNSRecords[0]
+			recSummary = fmt.Sprintf(" (%s -> %s)", r0.Type, r0.Content)
+		}
+		cfMessage = fmt.Sprintf("DNS record already exists in Cloudflare%s. Pointing this domain will update/overwrite the CNAME.", recSummary)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"domain":           domain,
+		"validFormat":      true,
+		"available":        true,
+		"collisionType":    collisionType,
+		"message":          cfMessage,
+		"cloudflareStatus": cfCheck,
+		"tunnelRoute":      tunnelRouteUsage,
+	})
+}
+

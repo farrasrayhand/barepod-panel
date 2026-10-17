@@ -19,6 +19,7 @@ import {
   ExternalLink, 
   CheckCircle2, 
   AlertCircle, 
+  Info,
   Search, 
   Download, 
   Trash2, 
@@ -70,7 +71,7 @@ import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
 import { DangerConfirmModal } from './DangerConfirmModal';
-import { api, apiReachable, subscribeDeploy, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey, type DeployJob, type DetectedFramework, type CloudflareZone, type TunnelStatusResponse } from '../api/client';
+import { api, apiReachable, subscribeDeploy, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey, type DeployJob, type DetectedFramework, type CloudflareZone, type TunnelStatusResponse, type DomainValidationResult } from '../api/client';
 import { describeError } from '../utils/format';
 
 export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'domains' | 'routing' | 'files' | 'env' | 'php' | 'runtime' | 'security' | 'deploy';
@@ -1563,6 +1564,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 
   // Domains & SSL Subtab State
   const [siteDomains, setSiteDomains] = useState<ApiDomain[]>([]);
+  const [allPanelDomains, setAllPanelDomains] = useState<ApiDomain[]>([]);
   const [loadingDomains, setLoadingDomains] = useState(false);
   const [newAliasDomain, setNewAliasDomain] = useState('');
   const [addingAlias, setAddingAlias] = useState(false);
@@ -1574,18 +1576,22 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   const [loadingCf, setLoadingCf] = useState(false);
   const [copiedServerIp, setCopiedServerIp] = useState(false);
 
-  // Add Alias state
+  // Add Alias state & validation
   const [aliasDnsMode, setAliasDnsMode] = useState<'cloudflare' | 'direct'>('direct');
   const [aliasCfZone, setAliasCfZone] = useState('');
   const [aliasSubdomain, setAliasSubdomain] = useState('');
+  const [aliasValidation, setAliasValidation] = useState<DomainValidationResult | null>(null);
+  const [isValidatingAlias, setIsValidatingAlias] = useState(false);
 
-  // Edit Domain modal state
+  // Edit Domain modal state & validation
   const [editingDomain, setEditingDomain] = useState<ApiDomain | null>(null);
   const [editDnsMode, setEditDnsMode] = useState<'cloudflare' | 'direct'>('direct');
   const [editCfZone, setEditCfZone] = useState('');
   const [editSubdomain, setEditSubdomain] = useState('');
   const [newDomainInput, setNewDomainInput] = useState('');
   const [isUpdatingDomain, setIsUpdatingDomain] = useState(false);
+  const [editValidation, setEditValidation] = useState<DomainValidationResult | null>(null);
+  const [isValidatingEdit, setIsValidatingEdit] = useState(false);
 
   // DNS Setup Instructions Modal state
   const [dnsModalDomain, setDnsModalDomain] = useState<ApiDomain | null>(null);
@@ -1636,7 +1642,9 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     try {
       setLoadingDomains(true);
       const res = await api.domains();
-      const list = (res.items || []).filter((d) => d.websiteSlug === app.name);
+      const all = res.items || [];
+      setAllPanelDomains(all);
+      const list = all.filter((d) => d.websiteSlug === app.name);
       setSiteDomains(list);
     } catch (err: any) {
       console.warn('Failed to load domains for site', err);
@@ -1649,13 +1657,103 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     fetchSiteDomains();
   }, [app.name]);
 
+  const effectiveAliasDomain = (isTunnelConfigured && cfZones.length > 0 && aliasDnsMode === 'cloudflare' && aliasCfZone && aliasCfZone !== 'custom')
+    ? (aliasSubdomain.trim() ? `${aliasSubdomain.trim()}.${aliasCfZone}`.toLowerCase() : aliasCfZone.toLowerCase())
+    : newAliasDomain.trim().toLowerCase();
+
+  const aliasCollision = useMemo(() => {
+    if (!effectiveAliasDomain) return null;
+    const lower = effectiveAliasDomain.toLowerCase();
+    if (app.domain.toLowerCase() === lower) {
+      return { type: 'this_site_primary', message: `Domain "${lower}" is already the primary domain of this website.` };
+    }
+    const inThisSite = siteDomains.find((d) => d.domain.toLowerCase() === lower);
+    if (inThisSite) {
+      return { type: 'this_site_alias', message: `Domain "${lower}" is already attached to this website.` };
+    }
+    const inOther = allPanelDomains.find((d) => d.domain.toLowerCase() === lower);
+    if (inOther) {
+      return { type: 'other_site', message: `Domain "${lower}" is already used by website "${inOther.websiteSlug}".` };
+    }
+    if (isTunnelConfigured && tunnelStatus?.routes) {
+      const route = tunnelStatus.routes.find((r) => r.hostname?.toLowerCase() === lower && r.appName !== app.name);
+      if (route) {
+        return { type: 'other_route', message: `Domain "${lower}" is already routed to "${route.appName || route.service}" in Cloudflare Tunnel.` };
+      }
+    }
+    return null;
+  }, [effectiveAliasDomain, app.domain, app.name, siteDomains, allPanelDomains, isTunnelConfigured, tunnelStatus]);
+
+  const effectiveEditDomain = useMemo(() => {
+    if (!editingDomain) return '';
+    return (isTunnelConfigured && cfZones.length > 0 && editDnsMode === 'cloudflare' && editCfZone && editCfZone !== 'custom')
+      ? (editSubdomain.trim() ? `${editSubdomain.trim()}.${editCfZone}`.toLowerCase() : editCfZone.toLowerCase())
+      : newDomainInput.trim().toLowerCase();
+  }, [editingDomain, isTunnelConfigured, cfZones.length, editDnsMode, editCfZone, editSubdomain, newDomainInput]);
+
+  const editCollision = useMemo(() => {
+    if (!editingDomain || !effectiveEditDomain) return null;
+    const lower = effectiveEditDomain.toLowerCase();
+    if (lower === editingDomain.domain.toLowerCase()) return null;
+
+    const inOther = allPanelDomains.find((d) => d.domain.toLowerCase() === lower && d.id !== editingDomain.id);
+    if (inOther) {
+      return { type: 'other_site', message: `Domain "${lower}" is already used by website "${inOther.websiteSlug}".` };
+    }
+    if (isTunnelConfigured && tunnelStatus?.routes) {
+      const route = tunnelStatus.routes.find((r) => r.hostname?.toLowerCase() === lower && r.appName !== app.name);
+      if (route) {
+        return { type: 'other_route', message: `Domain "${lower}" is already routed to "${route.appName || route.service}" in Cloudflare Tunnel.` };
+      }
+    }
+    return null;
+  }, [editingDomain, effectiveEditDomain, allPanelDomains, isTunnelConfigured, tunnelStatus, app.name]);
+
+  // Live validation for alias domain
+  useEffect(() => {
+    if (!effectiveAliasDomain || effectiveAliasDomain.indexOf('.') === -1 || aliasCollision) {
+      setAliasValidation(null);
+      setIsValidatingAlias(false);
+      return;
+    }
+    setIsValidatingAlias(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.validateDomain(effectiveAliasDomain, app.tenantUser);
+        setAliasValidation(res);
+      } catch (e) {
+        console.warn('Validate domain error', e);
+      } finally {
+        setIsValidatingAlias(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [effectiveAliasDomain, aliasCollision, app.tenantUser]);
+
+  // Live validation for edit domain
+  useEffect(() => {
+    if (!editingDomain || !effectiveEditDomain || effectiveEditDomain.indexOf('.') === -1 || effectiveEditDomain === editingDomain.domain.toLowerCase() || editCollision) {
+      setEditValidation(null);
+      setIsValidatingEdit(false);
+      return;
+    }
+    setIsValidatingEdit(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.validateDomain(effectiveEditDomain, app.tenantUser);
+        setEditValidation(res);
+      } catch (e) {
+        console.warn('Validate domain error', e);
+      } finally {
+        setIsValidatingEdit(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [editingDomain, effectiveEditDomain, editCollision, app.tenantUser]);
+
   const handleAddAlias = async (e: React.FormEvent) => {
     e.preventDefault();
-    const effectiveAliasDomain = (isTunnelConfigured && cfZones.length > 0 && aliasDnsMode === 'cloudflare' && aliasCfZone && aliasCfZone !== 'custom')
-      ? (aliasSubdomain.trim() ? `${aliasSubdomain.trim()}.${aliasCfZone}`.toLowerCase() : aliasCfZone.toLowerCase())
-      : newAliasDomain.trim().toLowerCase();
-
-    if (!effectiveAliasDomain) return;
+    if (!effectiveAliasDomain || aliasCollision) return;
     try {
       setAddingAlias(true);
       await api.addDomain({ websiteSlug: app.name, domain: effectiveAliasDomain });
@@ -1732,7 +1830,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
       ? (editSubdomain.trim() ? `${editSubdomain.trim()}.${editCfZone}`.toLowerCase() : editCfZone.toLowerCase())
       : newDomainInput.trim().toLowerCase();
 
-    if (!cleaned) return;
+    if (!cleaned || editCollision) return;
     if (cleaned === editingDomain.domain.toLowerCase()) {
       setEditingDomain(null);
       return;
@@ -3582,15 +3680,38 @@ QUEUE_CONNECTION=redis`;
                     </div>
 
                     <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span className="text-xs text-amber-900">
-                          Resulting Domain: <strong className="font-mono text-amber-950 font-bold">{aliasSubdomain.trim() ? `${aliasSubdomain.trim()}.${aliasCfZone}` : aliasCfZone}</strong>
-                        </span>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span className="text-xs text-amber-900">
+                            Resulting Domain: <strong className="font-mono text-amber-950 font-bold">{aliasSubdomain.trim() ? `${aliasSubdomain.trim()}.${aliasCfZone}` : aliasCfZone}</strong>
+                          </span>
+                        </div>
+                        {aliasCollision ? (
+                          <div className="text-[11px] text-rose-600 font-semibold flex items-center gap-1.5 mt-0.5">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                            <span>{aliasCollision.message}</span>
+                          </div>
+                        ) : isValidatingAlias ? (
+                          <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                            <RefreshCw className="w-3 h-3 animate-spin text-amber-500" />
+                            <span>Validating domain with Cloudflare...</span>
+                          </div>
+                        ) : aliasValidation?.cloudflareStatus?.dnsRecords?.length ? (
+                          <div className="text-[11px] text-amber-700 flex items-center gap-1.5 mt-0.5">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                            <span>Cloudflare DNS: Existing record ({aliasValidation.cloudflareStatus.dnsRecords[0].type}) found. Will be managed by tunnel.</span>
+                          </div>
+                        ) : aliasValidation?.available ? (
+                          <div className="text-[11px] text-emerald-600 font-medium flex items-center gap-1.5 mt-0.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            <span>Domain available in Cloudflare zone</span>
+                          </div>
+                        ) : null}
                       </div>
                       <button
                         type="submit"
-                        disabled={addingAlias || !aliasCfZone}
+                        disabled={addingAlias || !aliasCfZone || Boolean(aliasCollision)}
                         className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0"
                       >
                         <Plus className="w-4 h-4" />
@@ -3599,24 +3720,47 @@ QUEUE_CONNECTION=redis`;
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col sm:flex-row items-center gap-3">
-                    <div className="relative flex-1 w-full">
-                      <input
-                        type="text"
-                        value={newAliasDomain}
-                        onChange={(e) => setNewAliasDomain(e.target.value)}
-                        placeholder="e.g. www.example.com or store.mybrand.id"
-                        className="w-full px-3.5 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                      />
+                  <div className="space-y-2">
+                    <div className="flex flex-col sm:flex-row items-center gap-3">
+                      <div className="relative flex-1 w-full">
+                        <input
+                          type="text"
+                          value={newAliasDomain}
+                          onChange={(e) => setNewAliasDomain(e.target.value)}
+                          placeholder="e.g. www.example.com or store.mybrand.id"
+                          className={`w-full px-3.5 py-2 text-xs font-mono bg-slate-50 border rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 ${
+                            aliasCollision
+                              ? 'border-rose-400 focus:ring-rose-500/20 focus:border-rose-500 bg-rose-50/40'
+                              : 'border-slate-200 focus:ring-emerald-500/20 focus:border-emerald-500'
+                          }`}
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={addingAlias || !newAliasDomain.trim() || Boolean(aliasCollision)}
+                        className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>{addingAlias ? 'Attaching...' : 'Add Domain Alias'}</span>
+                      </button>
                     </div>
-                    <button
-                      type="submit"
-                      disabled={addingAlias || !newAliasDomain.trim()}
-                      className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>{addingAlias ? 'Attaching...' : 'Add Domain Alias'}</span>
-                    </button>
+
+                    {aliasCollision ? (
+                      <p className="text-[11px] font-semibold text-rose-600 flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{aliasCollision.message}</span>
+                      </p>
+                    ) : isValidatingAlias ? (
+                      <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                        <RefreshCw className="w-3 h-3 animate-spin text-slate-400" />
+                        <span>Checking domain availability...</span>
+                      </p>
+                    ) : aliasValidation?.cloudflareStatus?.zoneFound ? (
+                      <p className="text-[11px] text-blue-600 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 shrink-0 text-blue-500" />
+                        <span>Domain is managed in Cloudflare zone ({aliasValidation.cloudflareStatus.zoneName}).</span>
+                      </p>
+                    ) : null}
                   </div>
                 )}
               </form>
@@ -6497,7 +6641,11 @@ QUEUE_CONNECTION=redis`}
                           value={newDomainInput}
                           onChange={(e) => setNewDomainInput(e.target.value)}
                           placeholder="example.com or sub.example.com"
-                          className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500 font-mono"
+                          className={`w-full text-xs bg-slate-50 border rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden font-mono ${
+                            editCollision
+                              ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900'
+                              : 'border-slate-200 focus:border-blue-500'
+                          }`}
                         />
                         <p className="text-[10px] text-slate-400 mt-1">
                           Point your domain's DNS <strong>A Record</strong> to server IP: <code className="font-mono font-bold text-slate-700">{serverIp}</code>.
@@ -6516,7 +6664,11 @@ QUEUE_CONNECTION=redis`}
                       value={newDomainInput}
                       onChange={(e) => setNewDomainInput(e.target.value)}
                       placeholder="example.com or sub.example.com"
-                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500 font-mono"
+                      className={`w-full text-xs bg-slate-50 border rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden font-mono ${
+                        editCollision
+                          ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900'
+                          : 'border-slate-200 focus:border-blue-500'
+                      }`}
                     />
                     <div className="mt-2 p-2.5 bg-blue-50/60 rounded-xl border border-blue-100 flex items-center justify-between text-xs text-blue-900">
                       <span>Server Public IP: <strong className="font-mono">{serverIp}</strong></span>
@@ -6524,6 +6676,24 @@ QUEUE_CONNECTION=redis`}
                     </div>
                   </div>
                 )}
+
+                {/* Validation and Collision feedback */}
+                {editCollision ? (
+                  <div className="p-2.5 bg-rose-50 rounded-xl border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{editCollision.message}</span>
+                  </div>
+                ) : isValidatingEdit ? (
+                  <div className="p-2 bg-slate-50 rounded-xl border border-slate-200 text-slate-500 text-xs flex items-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                    <span>Validating domain with Cloudflare...</span>
+                  </div>
+                ) : editValidation?.cloudflareStatus?.dnsRecords?.length ? (
+                  <div className="p-2 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>Cloudflare DNS: Existing record ({editValidation.cloudflareStatus.dnsRecords[0].type}) found. Will be managed by tunnel.</span>
+                  </div>
+                ) : null}
               </div>
 
               <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
@@ -6536,7 +6706,7 @@ QUEUE_CONNECTION=redis`}
                 </button>
                 <button
                   type="submit"
-                  disabled={isUpdatingDomain}
+                  disabled={isUpdatingDomain || Boolean(editCollision) || (effectiveEditDomain === editingDomain.domain.toLowerCase())}
                   className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
                   {isUpdatingDomain ? (

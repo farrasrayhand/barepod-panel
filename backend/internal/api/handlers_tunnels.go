@@ -427,6 +427,12 @@ func (s *Server) handleSetTunnelToken(w http.ResponseWriter, r *http.Request, us
 		if cfg, err := cf.GetTunnelConfig(r.Context()); err == nil && cfg != nil {
 			for _, rule := range cfg.Ingress {
 				if rule.Hostname != "" {
+					// Guard: skip if this hostname is already registered to a website belonging to another tenant
+					if dom, _ := s.store.GetDomainByName(rule.Hostname); dom != nil {
+						if site, _ := s.store.WebsiteBySlug(dom.WebsiteSlug); site != nil && site.TenantUser != targetUser {
+							continue
+						}
+					}
 					appName := "Cloudflare Route"
 					_, _ = s.store.CreateCloudflareTunnelRoute(targetUser, rule.Hostname, rule.Service, appName)
 				}
@@ -462,6 +468,12 @@ func (s *Server) handleSyncCloudflareRoutes(w http.ResponseWriter, r *http.Reque
 	count := 0
 	for _, rule := range cfg.Ingress {
 		if rule.Hostname != "" {
+			// Guard: skip if this hostname is already registered to a website belonging to another tenant
+			if dom, _ := s.store.GetDomainByName(rule.Hostname); dom != nil {
+				if site, _ := s.store.WebsiteBySlug(dom.WebsiteSlug); site != nil && site.TenantUser != targetUser {
+					continue
+				}
+			}
 			appName := "Cloudflare Route"
 			_, _ = s.store.CreateCloudflareTunnelRoute(targetUser, rule.Hostname, rule.Service, appName)
 			count++

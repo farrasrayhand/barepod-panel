@@ -339,12 +339,31 @@ func (c *Client) DeleteIngressRule(ctx context.Context, hostname string) error {
 	return nil
 }
 
-// findZone returns the Cloudflare zone id that owns a hostname, by testing domain suffixes
-// (e.g. app.example.com -> example.com -> com).
-func (c *Client) findZone(ctx context.Context, hostname string) (string, error) {
+// CloudflareDNSRecord represents an existing DNS record in a Cloudflare Zone.
+type CloudflareDNSRecord struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Name    string `json:"name"`
+	Content string `json:"content"`
+	Proxied bool   `json:"proxied"`
+}
+
+// CloudflareHostnameCheck represents pre-flight information about a hostname in Cloudflare.
+type CloudflareHostnameCheck struct {
+	ZoneFound      bool                  `json:"zoneFound"`
+	ZoneID         string                `json:"zoneId,omitempty"`
+	ZoneName       string                `json:"zoneName,omitempty"`
+	HasDNSRecord   bool                  `json:"hasDnsRecord"`
+	DNSRecords     []CloudflareDNSRecord `json:"dnsRecords,omitempty"`
+	HasTunnelRoute bool                  `json:"hasTunnelRoute"`
+	TunnelService  string                `json:"tunnelService,omitempty"`
+}
+
+// FindZoneDetails returns the Cloudflare zone id and name that owns a hostname.
+func (c *Client) FindZoneDetails(ctx context.Context, hostname string) (string, string, error) {
 	parts := strings.Split(hostname, ".")
 	if len(parts) < 2 {
-		return "", errors.New("invalid hostname")
+		return "", "", errors.New("invalid hostname")
 	}
 	for i := 0; i < len(parts)-1; i++ {
 		candidateZone := strings.Join(parts[i:], ".")
@@ -355,11 +374,56 @@ func (c *Client) findZone(ctx context.Context, hostname string) (string, error) 
 				Name string `json:"name"`
 			}
 			if err := json.Unmarshal(resp.Result, &zones); err == nil && len(zones) > 0 {
-				return zones[0].ID, nil
+				return zones[0].ID, zones[0].Name, nil
 			}
 		}
 	}
-	return "", fmt.Errorf("could not locate Cloudflare Zone for hostname: %s", hostname)
+	return "", "", fmt.Errorf("could not locate Cloudflare Zone for hostname: %s", hostname)
+}
+
+// findZone returns the Cloudflare zone id that owns a hostname, by testing domain suffixes
+// (e.g. app.example.com -> example.com -> com).
+func (c *Client) findZone(ctx context.Context, hostname string) (string, error) {
+	zoneID, _, err := c.FindZoneDetails(ctx, hostname)
+	return zoneID, err
+}
+
+// CheckHostname inspects whether a domain/subdomain is already configured in Cloudflare Tunnel or DNS.
+func (c *Client) CheckHostname(ctx context.Context, hostname string) (*CloudflareHostnameCheck, error) {
+	hostname = strings.ToLower(strings.TrimSpace(hostname))
+	res := &CloudflareHostnameCheck{}
+
+	// 1. Check tunnel ingress routes if tunnel is configured
+	if c.accountID != "" && c.tunnelID != "" {
+		if cfg, err := c.GetTunnelConfig(ctx); err == nil && cfg != nil {
+			for _, rule := range cfg.Ingress {
+				if strings.EqualFold(rule.Hostname, hostname) {
+					res.HasTunnelRoute = true
+					res.TunnelService = rule.Service
+					break
+				}
+			}
+		}
+	}
+
+	// 2. Check Cloudflare Zone and DNS records
+	zoneID, zoneName, err := c.FindZoneDetails(ctx, hostname)
+	if err == nil && zoneID != "" {
+		res.ZoneFound = true
+		res.ZoneID = zoneID
+		res.ZoneName = zoneName
+
+		endpoint := fmt.Sprintf("/zones/%s/dns_records?name=%s", zoneID, hostname)
+		if resp, err := c.request(ctx, "GET", endpoint, nil); err == nil && resp.Success {
+			var records []CloudflareDNSRecord
+			if err := json.Unmarshal(resp.Result, &records); err == nil && len(records) > 0 {
+				res.HasDNSRecord = true
+				res.DNSRecords = records
+			}
+		}
+	}
+
+	return res, nil
 }
 
 // EnsureDNSCname finds the corresponding zone and ensures a CNAME record exists pointing to the tunnel.

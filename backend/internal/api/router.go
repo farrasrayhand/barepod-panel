@@ -426,6 +426,7 @@ func New(d Deps) http.Handler {
 		return s.requireAuth(s.requireCapability(rbac.CapDomains, h))
 	}
 	mux.HandleFunc("GET /api/v1/domains", domains(s.handleListDomains))
+	mux.HandleFunc("GET /api/v1/domains/validate", s.requireAuth(s.handleValidateDomain))
 	mux.HandleFunc("POST /api/v1/domains", domains(s.handleAddDomain))
 	mux.HandleFunc("PUT /api/v1/domains/{id}", domains(s.handleUpdateDomain))
 	mux.HandleFunc("DELETE /api/v1/domains/{id}", domains(s.handleDeleteDomain))

@@ -188,6 +188,39 @@ export interface ApiDomain {
   createdAt: string;
 }
 
+export interface DomainValidationResult {
+  domain: string;
+  validFormat: boolean;
+  available: boolean;
+  collisionType?: 'none' | 'panel_primary' | 'panel_alias' | 'cf_route' | 'cf_dns' | 'invalid_format' | string;
+  message?: string;
+  panelUsage?: {
+    websiteSlug: string;
+    isPrimary: boolean;
+  };
+  cloudflareStatus?: {
+    zoneFound: boolean;
+    zoneId?: string;
+    zoneName?: string;
+    hasDnsRecord: boolean;
+    dnsRecords?: Array<{
+      id: string;
+      type: string;
+      name: string;
+      content: string;
+      proxied: boolean;
+    }>;
+    hasTunnelRoute: boolean;
+    tunnelService?: string;
+  };
+  tunnelRoute?: {
+    id: string;
+    hostname: string;
+    service: string;
+    appName: string;
+  };
+}
+
 export interface ApiWebsiteSecurity {
   websiteSlug: string;
   maintenanceMode: boolean;
@@ -870,6 +903,16 @@ export const api = {
   /** Domains & SSL API */
   domains: (websiteSlug?: string) =>
     request<{ items: ApiDomain[] }>(`/domains${websiteSlug ? `?websiteSlug=${encodeURIComponent(websiteSlug)}` : ''}`),
+
+  validateDomain: (params: string | { domain: string; currentDomainId?: string; websiteSlug?: string; tenant?: string }, tenant?: string) => {
+    const p = typeof params === 'string' ? { domain: params, tenant } : params;
+    const q = new URLSearchParams();
+    q.set('domain', p.domain);
+    if (p.currentDomainId) q.set('currentDomainId', p.currentDomainId);
+    if (p.websiteSlug) q.set('websiteSlug', p.websiteSlug);
+    if (p.tenant) q.set('tenant', p.tenant);
+    return request<DomainValidationResult>(`/domains/validate?${q.toString()}`);
+  },
 
   addDomain: (payload: { websiteSlug: string; domain: string }) =>
     request<ApiDomain>('/domains', {

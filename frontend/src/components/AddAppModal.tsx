@@ -31,12 +31,13 @@ import {
   User,
   Sparkles,
   Loader2,
+  CheckCircle2,
 } from 'lucide-react';
 import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../types';
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
 import { AVAILABLE_ENGINE_VERSIONS, ENGINE_LABELS } from '../data/databaseEngines';
 import { getProvisionPlan } from '../data/frameworkProvision';
-import { api, apiReachable, ApiError, type StackStatus, type DetectedFramework, type CloudflareZone, type DatabaseRow } from '../api/client';
+import { api, apiReachable, ApiError, type StackStatus, type DetectedFramework, type CloudflareZone, type DatabaseRow, type ApiDomain, type DomainValidationResult } from '../api/client';
 
 interface AddAppModalProps {
   isOpen: boolean;
@@ -555,16 +556,37 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   const [subdomain, setSubdomain] = useState<string>('');
   const [userEditedSubdomain, setUserEditedSubdomain] = useState(false);
 
+  // Panel-wide domains & tunnel routes for collision checks
+  const [allPanelDomains, setAllPanelDomains] = useState<ApiDomain[]>([]);
+  const [tenantTunnelRoutes, setTenantTunnelRoutes] = useState<any[]>([]);
+  const [domainValidation, setDomainValidation] = useState<DomainValidationResult | null>(null);
+  const [isValidatingDomain, setIsValidatingDomain] = useState(false);
+
   // Real-time duplicate validation
   const normalizedSlug = useMemo(() => {
     return name.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
   }, [name]);
+
+  // Load all panel domains when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    api.domains()
+      .then((res) => {
+        if (active && res?.items) {
+          setAllPanelDomains(res.items);
+        }
+      })
+      .catch((e) => console.warn('Failed to load domains in AddAppModal', e));
+    return () => { active = false; };
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
     let active = true;
     setCfZones([]);
     setSelectedCfZone('');
+    setTenantTunnelRoutes([]);
     const fetchTunnelAndZones = async () => {
       try {
         setLoadingCfZones(true);
@@ -580,6 +602,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
         if (statusResult.status === 'fulfilled') {
           const s = statusResult.value;
           tunnelReady = Boolean(s && s.hasToken && s.status === 'connected');
+          setTenantTunnelRoutes(s?.routes || []);
         }
         setHasTunnelConfigured(tunnelReady);
 
@@ -606,6 +629,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
           setTunnelEnabled(false);
           setCfZones([]);
           setSelectedCfZone('custom');
+          setTenantTunnelRoutes([]);
         }
       } finally {
         if (active) {
@@ -663,11 +687,50 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
     );
   }, [normalizedSlug, name, existingApps]);
 
-  const duplicateDomainSite = useMemo(() => {
+  const domainCollision = useMemo(() => {
     const clean = domain.trim().toLowerCase();
-    if (!clean || !existingApps.length) return null;
-    return existingApps.find((a) => a.domain.toLowerCase().trim() === clean);
-  }, [domain, existingApps]);
+    if (!clean) return null;
+    // 1. Primary domains of existing apps
+    const primaryMatch = (existingApps || []).find((a) => a.domain.toLowerCase().trim() === clean);
+    if (primaryMatch) {
+      return { type: 'primary', message: `Domain "${clean}" is already assigned to website "${primaryMatch.name}".` };
+    }
+    // 2. Alias domains of all panel sites
+    const aliasMatch = (allPanelDomains || []).find((d) => d.domain.toLowerCase().trim() === clean);
+    if (aliasMatch) {
+      return { type: 'alias', message: `Domain "${clean}" is already used as alias domain for website "${aliasMatch.websiteSlug}".` };
+    }
+    // 3. Existing tunnel routes
+    const routeMatch = (tenantTunnelRoutes || []).find((r) => r.hostname?.toLowerCase().trim() === clean);
+    if (routeMatch) {
+      return { type: 'tunnel_route', message: `Domain "${clean}" is already routed to "${routeMatch.appName || routeMatch.service}" in Cloudflare Tunnel.` };
+    }
+    return null;
+  }, [domain, existingApps, allPanelDomains, tenantTunnelRoutes]);
+
+  const duplicateDomainSite = domainCollision;
+
+  // Live Cloudflare & DNS validation
+  useEffect(() => {
+    const clean = domain.trim().toLowerCase();
+    if (!clean || clean.indexOf('.') === -1 || domainCollision) {
+      setDomainValidation(null);
+      setIsValidatingDomain(false);
+      return;
+    }
+    setIsValidatingDomain(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.validateDomain(clean, tenantUser);
+        setDomainValidation(res);
+      } catch (err) {
+        console.warn('Validate domain error in modal', err);
+      } finally {
+        setIsValidatingDomain(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [domain, domainCollision, tenantUser]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -1564,7 +1627,22 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   {duplicateDomainSite ? (
                     <p className="text-[11px] font-medium text-rose-600 mt-1 flex items-center gap-1">
                       <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                      Domain "{domain.trim()}" is already assigned to website "{duplicateDomainSite.name}".
+                      {duplicateDomainSite.message}
+                    </p>
+                  ) : isValidatingDomain ? (
+                    <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
+                      <RefreshCw className="w-3 h-3 animate-spin text-slate-400" />
+                      Validating domain with Cloudflare...
+                    </p>
+                  ) : domainValidation?.cloudflareStatus?.dnsRecords?.length ? (
+                    <p className="text-[11px] text-amber-700 mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                      Cloudflare DNS: Existing record ({domainValidation.cloudflareStatus.dnsRecords[0].type}) found in zone. Will be managed by tunnel.
+                    </p>
+                  ) : domainValidation?.available ? (
+                    <p className="text-[11px] text-emerald-600 font-medium mt-1 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      Domain is available
                     </p>
                   ) : domain.trim() !== '' && !domainValid ? (
                     <p className="text-[11px] text-rose-600 mt-1">
@@ -1586,7 +1664,11 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                   {isAdmin ? (
                     <select
                       value={tenantUser}
-                      onChange={(e) => setTenantUser(e.target.value)}
+                      onChange={(e) => {
+                        setTenantUser(e.target.value);
+                        setSelectedCfZone('');
+                        setSubdomain('');
+                      }}
                       className={inputClass}
                     >
                       {availableUsers.length > 0 ? (
