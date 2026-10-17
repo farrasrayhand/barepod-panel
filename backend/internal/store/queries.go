@@ -344,6 +344,12 @@ func (s *Store) UpdateWebsiteUpstream(slug, upstreamURL string) error {
 	return err
 }
 
+// UpdateWebsiteFramework updates the framework name/label of a website.
+func (s *Store) UpdateWebsiteFramework(slug, framework string) error {
+	_, err := s.DB.Exec(`UPDATE websites SET framework = ? WHERE slug = ?`, strings.TrimSpace(framework), slug)
+	return err
+}
+
 // --- Website Scheduled Tasks (Cron Jobs) ---
 
 // ListWebsiteCronJobs returns all scheduled tasks configured for a website.

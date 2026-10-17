@@ -45,6 +45,17 @@ func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request, user
 		writeError(w, http.StatusInternalServerError, "internal", "Could not list websites")
 		return
 	}
+
+	// Auto-detect framework for generic or unassigned sites
+	for i := range items {
+		if items[i].Runtime != "proxy" && (items[i].Framework == "" || strings.HasPrefix(strings.ToLower(items[i].Framework), "generic")) {
+			if fw := s.host.DetectFramework(items[i].TenantUser, items[i].Slug); fw != nil && fw.Name != "" && fw.Name != "generic" {
+				items[i].Framework = fw.Title
+				_ = s.store.UpdateWebsiteFramework(items[i].Slug, fw.Title)
+			}
+		}
+	}
+
 	response := map[string]any{"items": items}
 	// An account under a package limit is told what it is, so a create that will be
 	// refused can say "2 of 2 used" beforehand (the same hint the databases list gives).
@@ -64,6 +75,12 @@ func (s *Server) handleGetWebsite(w http.ResponseWriter, r *http.Request, user *
 		writeError(w, http.StatusNotFound, "not_found", "Website not found")
 		return
 	}
+	if site.Runtime != "proxy" && (site.Framework == "" || strings.HasPrefix(strings.ToLower(site.Framework), "generic")) {
+		if fw := s.host.DetectFramework(site.TenantUser, site.Slug); fw != nil && fw.Name != "" && fw.Name != "generic" {
+			site.Framework = fw.Title
+			_ = s.store.UpdateWebsiteFramework(site.Slug, fw.Title)
+		}
+	}
 	writeJSON(w, http.StatusOK, site)
 }
 
@@ -77,6 +94,51 @@ func (s *Server) handleDetectWebsiteFramework(w http.ResponseWriter, r *http.Req
 	}
 
 	fw := s.host.DetectFramework(site.TenantUser, site.Slug)
+	if fw != nil && fw.Name != "" && fw.Name != "generic" {
+		if site.Framework == "" || strings.HasPrefix(strings.ToLower(site.Framework), "generic") {
+			_ = s.store.UpdateWebsiteFramework(site.Slug, fw.Title)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":        true,
+		"framework": fw,
+	})
+}
+
+type updateWebsiteFrameworkRequest struct {
+	Framework string `json:"framework"`
+}
+
+// handleUpdateWebsiteFramework updates the website's framework label.
+func (s *Server) handleUpdateWebsiteFramework(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	slug := r.PathValue("slug")
+	site, err := s.store.WebsiteBySlug(slug)
+	if err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+
+	var req updateWebsiteFrameworkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Invalid request body")
+		return
+	}
+
+	fw := strings.TrimSpace(req.Framework)
+	if fw == "" {
+		if detected := s.host.DetectFramework(site.TenantUser, site.Slug); detected != nil && detected.Name != "" {
+			fw = detected.Title
+		} else {
+			fw = "generic (bring your own code)"
+		}
+	}
+
+	if err := s.store.UpdateWebsiteFramework(site.Slug, fw); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Could not update framework")
+		return
+	}
+
+	_ = s.store.Audit(user.ID, "website.update_framework", slug, clientIP(r), "framework="+fw)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":        true,
 		"framework": fw,

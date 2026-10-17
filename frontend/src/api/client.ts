@@ -799,6 +799,11 @@ export const api = {
   /** Framework CI/CD Auto-Detection */
   detectWebsiteFramework: (slug: string) =>
     request<{ ok: boolean; framework?: DetectedFramework }>(`/websites/${slug}/detect-framework`),
+  updateWebsiteFramework: (slug: string, framework: string) =>
+    request<{ ok: boolean; framework: string }>(`/websites/${slug}/framework`, {
+      method: 'PUT',
+      body: JSON.stringify({ framework }),
+    }),
   detectFrameworkFromArchive: (file: File) => {
     const form = new FormData();
     form.append('archive', file, file.name);

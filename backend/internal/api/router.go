@@ -251,6 +251,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/websites/prepare-directory", deploy(s.handlePrepareDirectory))
 	mux.HandleFunc("GET /api/v1/websites/{slug}", deploy(s.handleGetWebsite))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/detect-framework", deploy(s.handleDetectWebsiteFramework))
+	mux.HandleFunc("PUT /api/v1/websites/{slug}/framework", deploy(s.handleUpdateWebsiteFramework))
 	mux.HandleFunc("POST /api/v1/websites/detect-framework", deploy(s.handleDetectFrameworkFromSource))
 	mux.HandleFunc("DELETE /api/v1/websites/{slug}", deploy(s.handleDeleteWebsite))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/redeploy", deploy(s.handleRedeployWebsite))

@@ -1011,6 +1011,20 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 		} else if fw := framework.Detect(s.siteDir); fw != nil && strings.TrimSpace(fw.BuildCommand) != "" {
 			script = strings.TrimSpace(fw.BuildCommand)
 			s.log("stdout", fmt.Sprintf("auto-detected framework: %s (running recommended build pipeline)", fw.Title))
+			if site, err := s.m.store.WebsiteBySlug(s.req.Slug); err == nil && site != nil {
+				if site.Framework == "" || strings.HasPrefix(strings.ToLower(site.Framework), "generic") {
+					_ = s.m.store.UpdateWebsiteFramework(site.Slug, fw.Title)
+				}
+			}
+		}
+	}
+
+	// Always sync detected framework if site profile is still generic
+	if fw := framework.Detect(s.siteDir); fw != nil && fw.Name != "" && fw.Name != "generic" {
+		if site, err := s.m.store.WebsiteBySlug(s.req.Slug); err == nil && site != nil {
+			if site.Framework == "" || strings.HasPrefix(strings.ToLower(site.Framework), "generic") {
+				_ = s.m.store.UpdateWebsiteFramework(site.Slug, fw.Title)
+			}
 		}
 	}
 
