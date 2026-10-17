@@ -580,23 +580,53 @@ export function App() {
     );
   };
 
-  const handleToggleAppStatus = (appId: string) => {
-    setApps(apps.map(a => {
-      if (a.id === appId) {
-        const nextStatus = a.status === 'running' ? 'stopped' : 'running';
+  const handleToggleAppStatus = async (appId: string) => {
+    const target = apps.find(a => a.id === appId || a.name === appId);
+    if (!target) return;
+    const isCurrentlyRunning = target.status === 'running';
+    const nextAction: 'start' | 'stop' = isCurrentlyRunning ? 'stop' : 'start';
+    const nextStatus = isCurrentlyRunning ? 'stopped' : 'running';
+
+    // Optimistic UI update
+    setApps(prev => prev.map(a => (a.id === appId || a.name === appId) ? {
+      ...a,
+      status: nextStatus,
+      memoryUsage: nextStatus === 'running' ? a.memoryUsage : '0 MB',
+    } : a));
+
+    try {
+      if (session.mode === 'live') {
+        const res = await api.websiteAction(target.name, nextAction);
+        const resolvedStatus = (res.status as any) || nextStatus;
         showToast(
-          nextStatus === 'running' ? 'Service Started' : 'Service Stopped',
-          `Application ${a.name} is now ${nextStatus}.`,
+          nextAction === 'start' ? 'Service Started' : 'Service Stopped',
+          `Application ${target.name} is now ${resolvedStatus}.`,
+          'success'
+        );
+        setApps(prev => prev.map(a => (a.id === appId || a.name === appId) ? {
+          ...a,
+          status: resolvedStatus,
+          memoryUsage: resolvedStatus === 'running' ? a.memoryUsage : '0 MB',
+        } : a));
+      } else {
+        showToast(
+          nextAction === 'start' ? 'Service Started' : 'Service Stopped',
+          `Application ${target.name} is now ${nextStatus} (simulation).`,
           'info'
         );
-        return {
-          ...a,
-          status: nextStatus,
-          memoryUsage: nextStatus === 'running' ? '36 MB' : '0 MB',
-        };
       }
-      return a;
-    }));
+    } catch (err: any) {
+      // Revert optimistic update on failure
+      setApps(prev => prev.map(a => (a.id === appId || a.name === appId) ? {
+        ...a,
+        status: target.status,
+      } : a));
+      showToast(
+        `Failed to ${nextAction} service`,
+        err?.message || `Could not ${nextAction} ${target.name}`,
+        'error'
+      );
+    }
   };
 
   const handleOpenAppTerminal = (app: WebApp) => {

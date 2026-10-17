@@ -461,11 +461,15 @@ func (s *Server) handleWebsiteAction(w http.ResponseWriter, r *http.Request, use
 		}
 	}
 
-	out, runErr := s.host.ServiceAction(r.Context(), action, slug)
-	if runErr != nil && s.host.Materialises() {
-		writeError(w, http.StatusBadGateway, "service_error",
-			fmt.Sprintf("systemctl %s failed: %v (%s)", action, runErr, strings.TrimSpace(out)))
-		return
+	var out string
+	var runErr error
+	if site.Runtime != "proxy" {
+		out, runErr = s.host.ServiceAction(r.Context(), action, slug)
+		if runErr != nil && s.host.Materialises() {
+			writeError(w, http.StatusBadGateway, "service_error",
+				fmt.Sprintf("systemctl %s failed: %v (%s)", action, runErr, strings.TrimSpace(out)))
+			return
+		}
 	}
 
 	status := site.Status

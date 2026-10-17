@@ -590,14 +590,18 @@ export const AppsView: React.FC<AppsViewProps> = ({
 
                           {/* Toggle Status */}
                           <button
-                            onClick={() => onToggleAppStatus(app.id)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleAppStatus(app.id);
+                            }}
                             disabled={isSuspended}
                             className={`p-1.5 rounded-lg transition-colors ${
                               isSuspended
                                 ? 'text-slate-300 cursor-not-allowed'
                                 : isRunning
-                                  ? 'text-amber-600 hover:bg-amber-50'
-                                  : 'text-emerald-600 hover:bg-emerald-50'
+                                  ? 'text-amber-600 hover:bg-amber-50 cursor-pointer'
+                                  : 'text-emerald-600 hover:bg-emerald-50 cursor-pointer'
                             }`}
                             title={isSuspended ? 'Owner suspended — activate the account first' : isRunning ? 'Stop App' : 'Start App'}
                           >

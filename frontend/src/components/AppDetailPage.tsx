@@ -61,6 +61,7 @@ import {
   ChevronRight,
   Archive,
   HelpCircle,
+  Loader2,
   X
 } from 'lucide-react';
 import type { WebApp, WebServerType } from '../types';
@@ -561,6 +562,7 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
   const [isReloadingFpm, setIsReloadingFpm] = useState(false);
   const [phpMaxChildren, setPhpMaxChildren] = useState(5);
   const [phpIdleTimeout, setPhpIdleTimeout] = useState('10s');
+  const [isTogglingStatus, setIsTogglingStatus] = useState(false);
 
   // Polyglot Studio States
   const [runtimeConfigData, setRuntimeConfigData] = useState<any>(null);
@@ -2294,19 +2296,39 @@ QUEUE_CONNECTION=redis`;
                 </button>
 
                 <button
-                  onClick={() => onToggleStatus(app.id)}
-                  disabled={isSuspended}
+                  onClick={async () => {
+                    if (isTogglingStatus) return;
+                    setIsTogglingStatus(true);
+                    try {
+                      await onToggleStatus(app.id);
+                    } finally {
+                      setIsTogglingStatus(false);
+                    }
+                  }}
+                  disabled={isSuspended || isTogglingStatus}
                   title={isSuspended ? 'Owner suspended — activate the account first' : undefined}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-sm ${
+                  className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer ${
                     isSuspended
                       ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                      : isRunning
-                        ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
-                        : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-500/25'
+                      : isTogglingStatus
+                        ? 'bg-slate-100 text-slate-500 border border-slate-200 cursor-wait'
+                        : isRunning
+                          ? 'bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100'
+                          : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-500/25'
                   }`}
                 >
-                  {isRunning ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                  <span>{isRunning ? 'Stop App' : 'Start App'}</span>
+                  {isTogglingStatus ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : isRunning ? (
+                    <Square className="w-3.5 h-3.5" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {isTogglingStatus
+                      ? (isRunning ? 'Stopping...' : 'Starting...')
+                      : (isRunning ? 'Stop App' : 'Start App')}
+                  </span>
                 </button>
               </>
             ) : (

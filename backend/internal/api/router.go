@@ -301,9 +301,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/websites/{slug}/cron", deploy(s.handleCreateCronJob))
 
 	for _, action := range []string{"start", "stop", "restart"} {
-		mux.HandleFunc("POST /api/v1/websites/{slug}/"+action, deploy(
+		act := action
+		mux.HandleFunc("POST /api/v1/websites/{slug}/"+act, deploy(
 			func(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {
-				s.handleWebsiteAction(w, r, user, sess, action)
+				s.handleWebsiteAction(w, r, user, sess, act)
 			}))
 	}
 
