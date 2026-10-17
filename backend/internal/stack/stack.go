@@ -215,12 +215,15 @@ for v in $VERSIONS; do
   if [ -z "$INSTALL_PKGS" ]; then
     echo ">>> [PHP $v] All available extensions are already installed."
   else
-    echo ">>> [PHP $v] Installing missing extensions:"
+    echo ">>> [PHP $v] Installing missing extensions in fast batch mode..."
     echo "    $INSTALL_PKGS"
-    for p in $INSTALL_PKGS; do
-      echo "--> Installing $p..."
-      DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::="--force-confold" install -y "$p" 2>&1 || echo "Notice: skipped $p"
-    done
+    DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::="--force-confold" install -y $INSTALL_PKGS 2>&1 || {
+      echo "Notice: batch install encountered an issue, falling back to per-package install..."
+      for p in $INSTALL_PKGS; do
+        echo "--> Installing $p..."
+        DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 -o Dpkg::Options::="--force-confold" install -y "$p" 2>&1 || echo "Notice: skipped $p"
+      done
+    }
   fi
 
   echo ">>> [PHP $v] Enabling all extensions via phpenmod..."
