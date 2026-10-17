@@ -915,6 +915,8 @@ npm run build`;
     if (preset === 'laravel') {
       presetLabel = 'Laravel';
       script = `${gitPull}composer install --no-dev --optimize-autoloader --quiet
+if ! grep -q "^APP_KEY=.\\+" .env 2>/dev/null; then php artisan key:generate --force; fi
+php artisan storage:link 2>/dev/null || true
 php artisan migrate --force
 php artisan optimize:clear
 php artisan config:cache

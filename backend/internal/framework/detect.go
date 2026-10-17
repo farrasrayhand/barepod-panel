@@ -367,7 +367,7 @@ func detectFromComposer(data []byte, dir string) *DetectedFramework {
 			Version:          phpVer,
 			PackageManager:   "composer",
 			DocRoot:          "public",
-			BuildCommand:     "composer install --no-dev --optimize-autoloader && php artisan config:cache && php artisan route:cache && php artisan view:cache && php artisan migrate --force",
+			BuildCommand:     "composer install --no-dev --optimize-autoloader --quiet && if ! grep -q '^APP_KEY=.\\+' .env 2>/dev/null; then php artisan key:generate --force; fi && (php artisan storage:link 2>/dev/null || true) && php artisan migrate --force && php artisan optimize:clear && php artisan config:cache && php artisan route:cache && php artisan view:cache",
 			DatabaseEngine:   "mariadb",
 			CacheEngine:      "redis",
 			Port:             8001,

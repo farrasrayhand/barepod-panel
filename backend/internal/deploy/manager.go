@@ -1075,6 +1075,8 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 			trimmed = "if [ -f composer.json ]; then " + trimmed + "; else echo 'skipped: composer.json not found in site root'; fi"
 		} else if strings.HasPrefix(trimmed, "npm ") || strings.HasPrefix(trimmed, "pnpm ") || strings.HasPrefix(trimmed, "yarn ") {
 			trimmed = "if [ -f package.json ]; then " + trimmed + "; else echo 'skipped: package.json not found in site root'; fi"
+		} else if strings.HasPrefix(trimmed, "php artisan ") {
+			trimmed = "if [ -f artisan ]; then " + trimmed + "; else echo 'skipped: artisan not found in site root'; fi"
 		}
 		cleanedLines = append(cleanedLines, trimmed)
 	}
