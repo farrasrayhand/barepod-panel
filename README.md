@@ -117,12 +117,16 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 ```
 
 ### Guided & Safe Uninstall:
-To cleanly remove BarePod Panel while automatically taking a safety backup first:
+To cleanly remove BarePod Panel (takes an automatic safety backup first before deleting):
 
 ```bash
-barepod uninstall
+# Option A: Using the CLI (interactive confirmation):
+sudo barepod uninstall
+
+# Option B: Standalone 1-line curl script:
+curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/scripts/uninstall.sh | sudo bash -s -- --yes --purge-data
 ```
-*(Interactive mode shows a confirmation dialog with **No preselected** to prevent accidental data loss).*
+*(Interactive mode shows a confirmation plan first to prevent accidental data loss. Always run with `sudo` or as root).*
 
 ---
 

@@ -67,7 +67,10 @@ section() { printf '\n%s\n' "$*"; }
 act()  { printf '  [run]  %s\n' "$*"; if [ "$ASSUME_YES" -eq 1 ]; then eval "$*" >/dev/null 2>&1 || printf '  [warn] that step did not complete cleanly: %s\n' "$*"; fi; }
 cmd()  { command -v "$1" >/dev/null 2>&1; }
 
-[ "$(id -u)" -eq 0 ] || { echo "run this as root (it edits systemd, nftables and engine configuration)." >&2; exit 1; }
+if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+  echo "BarePod uninstall requires root privileges. Please run with sudo (e.g. sudo bash scripts/uninstall.sh --yes)." >&2
+  exit 1
+fi
 
 # A backup written inside a directory this script deletes is not a backup, and the operator's reason for
 # choosing a path may be exactly the reason it matters — so this refuses rather than quietly relocating it.
@@ -121,6 +124,11 @@ for unit in "${SITE_UNITS[@]:-}"; do
 done
 act "systemctl disable --now barepod.service"
 act "systemctl reset-failed barepod.service"
+mapfile -t TUNNEL_UNITS < <(ls -1 "$UNITS_DIR" 2>/dev/null | grep -E '^barepod-tunnel@.*\.service$' | grep -v '^barepod-tunnel@\.service$' || true)
+for t_unit in "${TUNNEL_UNITS[@]:-}"; do
+  [ -n "${t_unit:-}" ] || continue
+  act "systemctl disable --now '$t_unit'"
+done
 if cmd nft; then
   act "nft delete table inet barepod"
   say "(the lockout's bans lived here; deleting the table releases every blocked address)"
@@ -193,6 +201,11 @@ section "Removing the panel"
 act "rm -f '$UNITS_DIR/barepod.service' '$UNITS_DIR/barepod.service.barepod-backup'"
 act "rm -rf '$UNITS_DIR/barepod.service.d'"
 act "rm -f '$UNITS_DIR/barepod-app@.service'"
+act "rm -f '$UNITS_DIR/barepod-tunnel@.service'"
+for t_unit in "${TUNNEL_UNITS[@]:-}"; do
+  [ -n "${t_unit:-}" ] || continue
+  act "rm -f '$UNITS_DIR/$t_unit'"
+done
 for unit in "${SITE_UNITS[@]:-}"; do
   [ -n "${unit:-}" ] || continue
   act "rm -f '$UNITS_DIR/$unit'"

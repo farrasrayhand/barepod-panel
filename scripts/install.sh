@@ -17,6 +17,11 @@ log()  { printf '\033[1;34m[barepod]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[barepod]\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[barepod]\033[0m %s\n' "$*" >&2; exit 1; }
 
+# --- Privilege check (must run with sudo or as root) ---
+if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+  die "BarePod installation requires root privileges. Please re-run with: curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/scripts/install.sh | sudo bash"
+fi
+
 # --- OS ---
 [ "$(uname -s)" = "Linux" ] || die "BarePod Panel targets Linux only (got $(uname -s))."
 
