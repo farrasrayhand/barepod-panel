@@ -121,12 +121,8 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request, _ *s
 
 	archKey := "linux-" + runtime.GOARCH
 	remoteSHA := manifest.Assets[archKey].SHA256
-
-	// Option 3: Compare SHA-256 of active binary against remote manifest asset
-	// to detect new patch builds even if the semantic version tag is identical.
 	var currentBinarySHA string
-	currentBinary := "/usr/local/bin/barepod"
-	if f, err := os.Open(currentBinary); err == nil {
+	if f, err := os.Open("/usr/local/bin/barepod"); err == nil {
 		h := sha256.New()
 		if _, err := io.Copy(h, f); err == nil {
 			currentBinarySHA = hex.EncodeToString(h.Sum(nil))
@@ -134,13 +130,7 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request, _ *s
 		f.Close()
 	}
 
-	var isPatchBuild bool
-	if !hasUpdate && remoteSHA != "" && currentBinarySHA != "" {
-		if !strings.EqualFold(remoteSHA, currentBinarySHA) {
-			hasUpdate = true
-			isPatchBuild = true
-		}
-	}
+	isPatchBuild := false
 
 	// Clean up duplicate changelog lines if GitHub release notes contain repeats
 	lines := strings.Split(ghRelease.Body, "\n")
