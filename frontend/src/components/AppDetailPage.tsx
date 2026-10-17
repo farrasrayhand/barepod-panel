@@ -1749,7 +1749,7 @@ QUEUE_CONNECTION=redis`;
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                     : 'bg-slate-100 text-slate-600 border-slate-200'
           }`}>
-            <span className={`w-2 h-2 rounded-full ${
+            <span className={`w-2 h-2 rounded-full shrink-0 aspect-square inline-block ${
               isSuspended
                 ? 'bg-amber-500'
                 : isDeployFailed

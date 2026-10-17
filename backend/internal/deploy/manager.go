@@ -1071,6 +1071,10 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 			trimmed = "wp core is-installed || (" + trimmed + " || wp core is-installed)"
 		} else if strings.HasPrefix(trimmed, "wp rewrite structure") {
 			trimmed = trimmed + " || true"
+		} else if strings.HasPrefix(trimmed, "composer ") {
+			trimmed = "if [ -f composer.json ]; then " + trimmed + "; else echo 'skipped: composer.json not found in site root'; fi"
+		} else if strings.HasPrefix(trimmed, "npm ") || strings.HasPrefix(trimmed, "pnpm ") || strings.HasPrefix(trimmed, "yarn ") {
+			trimmed = "if [ -f package.json ]; then " + trimmed + "; else echo 'skipped: package.json not found in site root'; fi"
 		}
 		cleanedLines = append(cleanedLines, trimmed)
 	}

@@ -334,7 +334,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                         ) : (
                           <div className="flex flex-col items-start gap-1">
                             <span className="font-semibold text-slate-800 text-xs flex items-center gap-1.5">
-                              <span className="w-2 h-2 rounded-full bg-blue-500" />
+                              <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 aspect-square inline-block" />
                               {app.framework || app.runtime.toUpperCase()}
                             </span>
                             <span className="text-[10px] text-slate-500 font-mono bg-slate-100 px-1.5 py-0.5 rounded">
@@ -362,7 +362,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                       {/* Status */}
                       <td className="py-3.5 px-4">
                         <div className="inline-flex items-center gap-1.5">
-                          <span className={`h-2 w-2 rounded-full ${
+                          <span className={`h-2 w-2 rounded-full shrink-0 aspect-square inline-block ${
                             isSuspended
                               ? 'bg-amber-500'
                               : isFailed

@@ -496,10 +496,21 @@ func (h *Host) FetchSource(ctx context.Context, tenant, slug, kind, repo, branch
 		return nil, nil
 	case "upload":
 		// The wizard's own screen promises "the archive is extracted into the website
-		// directory on deploy", and nothing extracted anything — a zip simply sat there. It
-		// is unpacked in place, as the tenant, so the unpacked tree belongs to the account.
+		// directory on deploy". It is unpacked in place as the tenant.
+		// If the archive extracts into a single subfolder (e.g. folder/index.php) and site root
+		// has no entrypoint, hoist the files up so web root and build tooling work cleanly.
 		script := `set -e; for f in *.zip; do [ -e "$f" ] || continue; unzip -oq "$f"; rm -f "$f"; done; ` +
-			`for f in *.tar.gz *.tgz; do [ -e "$f" ] || continue; tar xzf "$f"; rm -f "$f"; done`
+			`for f in *.tar.gz *.tgz; do [ -e "$f" ] || continue; tar xzf "$f"; rm -f "$f"; done; ` +
+			`if [ ! -f index.php ] && [ ! -f index.html ] && [ ! -f artisan ] && [ ! -f composer.json ] && [ ! -f package.json ]; then ` +
+			`  for d in */; do ` +
+			`    if [ -d "$d" ] && { [ -f "$d/index.php" ] || [ -f "$d/index.html" ] || [ -f "$d/artisan" ] || [ -f "$d/composer.json" ] || [ -f "$d/package.json" ]; }; then ` +
+			`      shopt -s dotglob; ` +
+			`      mv "$d"* . 2>/dev/null || true; ` +
+			`      rmdir "$d" 2>/dev/null || true; ` +
+			`      break; ` +
+			`    fi; ` +
+			`  done; ` +
+			`fi`
 		if _, err := h.RunInSite(ctx, tenant, slug, []string{"sh", "-c", script}); err != nil {
 			return nil, fmt.Errorf("host: the uploaded archive could not be extracted: %w", err)
 		}
