@@ -557,10 +557,13 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   const [subdomain, setSubdomain] = useState<string>('');
   const [userEditedSubdomain, setUserEditedSubdomain] = useState(false);
 
-  // Computed Cloudflare readiness levels
-  const hasTunnelConnector = Boolean(tunnelStatus?.hasToken && tunnelStatus?.status === 'connected');
-  const isAutoSyncReady = Boolean(hasTunnelConnector && tunnelStatus?.hasApiToken && cfZones.length > 0);
-  const isConnectorOnly = Boolean(hasTunnelConnector && !isAutoSyncReady);
+  // Computed Cloudflare readiness levels: only ready if connector is active + API token is configured + zones exist
+  const isAutoSyncReady = Boolean(
+    tunnelStatus?.hasToken &&
+    tunnelStatus?.status === 'connected' &&
+    tunnelStatus?.hasApiToken &&
+    cfZones.length > 0
+  );
 
   // Panel-wide domains & tunnel routes for collision checks
   const [allPanelDomains, setAllPanelDomains] = useState<ApiDomain[]>([]);
@@ -1565,10 +1568,6 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
                         <Sparkles className="w-3 h-3" /> Cloudflare Auto-DNS
                       </span>
-                    ) : tunnelEnabled && isConnectorOnly ? (
-                      <span className="text-[10px] text-amber-700 font-semibold flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                        <AlertCircle className="w-3 h-3" /> Manual Cloudflare DNS
-                      </span>
                     ) : null}
                   </div>
 
@@ -1644,11 +1643,6 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                             : ''
                         }`}
                       />
-                      {tunnelEnabled && isConnectorOnly && domain.trim() && (
-                        <p className="text-[10px] text-amber-700 bg-amber-50/70 p-2 rounded-lg border border-amber-200/60 leading-relaxed mt-1.5">
-                          ℹ️ <strong>Connector Mode:</strong> BarePod will bind this site to your tunnel daemon on port 80. Remember to add <code className="font-mono font-bold">{domain}</code> under <em>Public Hostnames</em> in your Cloudflare Zero Trust dashboard.
-                        </p>
-                      )}
                     </div>
                   )}
 
@@ -1749,29 +1743,6 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       </span>
                     </span>
                   </label>
-                ) : isConnectorOnly ? (
-                  <label className="flex items-start gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50/30 hover:bg-amber-50/60 cursor-pointer transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={tunnelEnabled}
-                      onChange={(e) => setTunnelEnabled(e.target.checked)}
-                      className="mt-0.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
-                    />
-                    <span className="text-xs">
-                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                        <CloudRain className="w-3.5 h-3.5 text-amber-600" /> Cloudflare Tunnel (Zero-NAT)
-                        <span className="text-[10px] font-bold text-amber-800 bg-amber-100/70 px-1.5 py-0.5 rounded border border-amber-300/80 flex items-center gap-1">
-                          <AlertCircle className="w-2.5 h-2.5 text-amber-600" /> Connector Only (Manual DNS)
-                        </span>
-                      </span>
-                      <span className="text-slate-600 block mt-0.5 text-[11px] leading-relaxed">
-                        Tunnel daemon is connected, but Cloudflare API Token is not configured. Traffic will route via Zero-NAT locally, but you must <strong>manually add this hostname in Cloudflare Zero Trust</strong>.
-                      </span>
-                      <span className="text-amber-800 block mt-1 text-[10px] font-medium">
-                        💡 Want 1-click automatic DNS records? Add your Cloudflare API Token under <strong>Cloudflare Tunnels</strong>.
-                      </span>
-                    </span>
-                  </label>
                 ) : (
                   <div className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/50 text-xs">
                     <Globe className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
@@ -1783,10 +1754,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                         </span>
                       </div>
                       <span className="text-slate-500 block mt-0.5 text-[11px] leading-relaxed">
-                        Cloudflare Tunnel is not configured for account <strong>@{tenantUser}</strong>. The website will be served directly via web server port / local reverse proxy.
-                      </span>
-                      <span className="text-blue-600 block mt-1 text-[11px] font-medium">
-                        💡 Want Zero-NAT & automatic HTTPS without a public IP? Configure your tunnel first in <strong>Cloudflare Tunnels</strong>.
+                        Traffic routes directly through {webServer.toUpperCase()} with automatic SSL certificate. Point your domain's DNS A-record to this server's public IP.
                       </span>
                     </div>
                   </div>

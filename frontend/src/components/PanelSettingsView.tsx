@@ -73,6 +73,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   // The panel's own public hostname: readable by anyone signed in, published by an admin through
   // their Cloudflare Tunnel. Declared here because the settings fetch above loads it.
   const [panelFqdn, setPanelFqdn] = useState('');
+  const [panelFqdnSaving, setPanelFqdnSaving] = useState(false);
   // Which address the panel is reached on: the public IP by default, the Cloudflare hostname once
   // "Use Cloudflare" is ticked. The server stores it so the choice survives a reload.
   const [useCloudflare, setUseCloudflare] = useState(false);
@@ -531,6 +532,28 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }
   };
 
+  const saveDirectPanelFqdn = async () => {
+    if (panelFqdnSaving) return;
+    setPanelFqdnSaving(true);
+    try {
+      const clean = panelFqdn.trim().toLowerCase();
+      const saved = await api.savePanelSettings({ panelFqdn: clean, useCloudflare: false });
+      setPanelFqdn(saved.panelFqdn || '');
+      setUseCloudflare(false);
+      onShowToast?.(
+        saved.panelFqdn ? 'Panel domain saved' : 'Panel domain cleared',
+        saved.panelFqdn
+          ? `Panel domain is set to ${saved.panelFqdn}. Point your DNS A/AAAA record to this server's public IP address.`
+          : 'Panel will be accessed directly via public IP.',
+        'success',
+      );
+    } catch (err) {
+      onShowToast?.('Could not save panel domain', err instanceof Error ? err.message : 'unknown error', 'error');
+    } finally {
+      setPanelFqdnSaving(false);
+    }
+  };
+
   // 2. Security Settings
   const [forceHttps, setForceHttps] = useState(true);
   const [sessionTimeoutHours, setSessionTimeoutHours] = useState(24);
@@ -768,7 +791,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                           type="button"
                           onClick={() => void publishPanel()}
                           disabled={panelPublishing || !computedPanelFqdn}
-                          className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors"
+                          className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors cursor-pointer"
                         >
                           {panelPublishing ? 'Publishing…' : 'Publish via Cloudflare'}
                         </button>
@@ -777,7 +800,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                             type="button"
                             onClick={() => void unpublishPanel()}
                             disabled={panelPublishing}
-                            className="px-3.5 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors"
+                            className="px-3.5 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer"
                           >
                             Unpublish
                           </button>
@@ -785,25 +808,38 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                       </div>
                     </div>
                   ) : (
-                    <input
-                      type="text"
-                      value={panelFqdn}
-                      disabled
-                      placeholder="Using the public IP (no domain)"
-                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono opacity-60"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={panelFqdn}
+                        onChange={(e) => setPanelFqdn(e.target.value)}
+                        disabled={!isAdmin || panelFqdnSaving}
+                        placeholder="panel.example.com"
+                        className="flex-1 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
+                      />
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => void saveDirectPanelFqdn()}
+                          disabled={panelFqdnSaving}
+                          className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors cursor-pointer"
+                        >
+                          {panelFqdnSaving ? 'Saving…' : 'Save'}
+                        </button>
+                      )}
+                    </div>
                   )}
 
                   <p className="text-[10px] text-slate-400 mt-1">
                     {!isAdmin
                       ? 'Only an administrator can change this.'
-                      : !panelTunnel?.configured
-                        ? 'Cloudflare not configured yet. The panel is reached at its public address — add your API token on the Cloudflare Tunnel page to use a domain.'
-                        : !useCloudflare
-                          ? 'Reached at its public address. Tick “Use Cloudflare” to answer on a domain instead — the IP keeps working.'
-                          : panelTunnel.fqdn
-                            ? `Published via Cloudflare: https://${panelTunnel.fqdn}. The panel still answers on its IP.`
-                            : `Pick a domain from the account and publish. Target: ${panelTunnel.service}.`}
+                      : useCloudflare && panelTunnel?.configured
+                        ? panelTunnel.fqdn
+                          ? `Published via Cloudflare Tunnel: https://${panelTunnel.fqdn}. The panel still answers on its IP.`
+                          : `Pick a domain from your Cloudflare account and publish. Target: ${panelTunnel.service}.`
+                        : panelFqdn
+                          ? `Direct Domain active: https://${panelFqdn}:${ports?.panel || '8443'}. Point your DNS A/AAAA record to this server's public IP address.`
+                          : 'Enter a domain to access the panel directly without Cloudflare. Point your domain\'s DNS A record to this server\'s public IP.'}
                   </p>
                 </div>
               </div>
