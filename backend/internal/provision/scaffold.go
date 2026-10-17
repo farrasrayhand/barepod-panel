@@ -112,9 +112,9 @@ func DefaultPort(runtime string) int {
 }
 
 // DefaultPage is the placeholder a website starts with when its source is "default":
-// a website can then exist and answer on its address before an application does. It is
-// deliberately one self-contained file — the site type that serves a directory serves
-// it as-is, with no runtime, no dependency and nothing to build.
+// a website can then exist and answer on its address before an application does.
+// Crafted with a Modern Swiss / Minimalist Editorial aesthetic: zero generic AI slop,
+// hair-thin architectural lines, crisp typography, and real technical utility.
 func DefaultPage(slug, domain string) string {
 	title := html.EscapeString(domain)
 	if domain == "" {
@@ -127,243 +127,394 @@ func DefaultPage(slug, domain string) string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>` + title + ` — Website Ready</title>
+  <title>200 — ` + title + `</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --bg: #fafafa;
+      --card-bg: #ffffff;
+      --border: #e5e7eb;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
+      --accent: #2563eb;
+      --ok: #059669;
+      --ok-bg: #ecfdf5;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      background-color: #f8fafc;
-      background-image: 
-        radial-gradient(at 10% 10%, rgba(224, 231, 255, 0.6) 0px, transparent 50%),
-        radial-gradient(at 90% 90%, rgba(207, 250, 254, 0.5) 0px, transparent 50%),
-        radial-gradient(at 50% 50%, rgba(241, 245, 249, 0.4) 0px, transparent 50%);
-      color: #1e293b;
-      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-      padding: 32px 20px;
-      line-height: 1.6;
+      background: var(--bg);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 40px 20px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
     }
-    .container {
+    .sheet {
       width: 100%;
-      max-width: 660px;
-      background: #ffffff;
-      border: 1px solid #e2e8f0;
-      border-radius: 24px;
-      box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.08), 0 0 1px rgba(0,0,0,0.05);
-      padding: 44px 40px;
-      position: relative;
+      max-width: 720px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 20px 40px -15px rgba(0, 0, 0, 0.05);
+      border-radius: 4px;
       overflow: hidden;
     }
-    .container::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 4px;
-      background: linear-gradient(90deg, #3b82f6, #06b6d4, #10b981);
-    }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      background: #ecfdf5;
-      border: 1px solid #a7f3d0;
-      color: #047857;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      padding: 6px 14px;
-      border-radius: 9999px;
-      margin-bottom: 20px;
-    }
-    .pulse-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 9999px;
-      background: #10b981;
-      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-      animation: pulse-green 2s infinite;
-    }
-    @keyframes pulse-green {
-      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-      70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
-      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-    }
-    h1 {
-      font-size: 26px;
-      font-weight: 800;
-      color: #0f172a;
-      letter-spacing: -0.03em;
-      margin-bottom: 8px;
-    }
-    .subtitle {
-      font-size: 14px;
-      color: #64748b;
-      margin-bottom: 28px;
-    }
-    .host-highlight {
-      display: inline-block;
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      color: #1d4ed8;
-      padding: 2px 8px;
-      border-radius: 6px;
-      font-family: 'JetBrains Mono', monospace;
-      font-weight: 600;
-      word-break: break-all;
-    }
-    .pipeline {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-      gap: 12px;
-      margin-bottom: 28px;
-    }
-    .pipe-step {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 14px;
-      padding: 14px 16px;
-      transition: all 0.2s ease;
-    }
-    .pipe-step:hover {
-      border-color: #cbd5e1;
-      background: #f1f5f9;
-    }
-    .pipe-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #64748b;
-      margin-bottom: 6px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-weight: 600;
-    }
-    .pipe-val {
-      font-size: 13px;
-      font-weight: 700;
-    }
-    .status-ok { color: #059669; }
-    .status-info { color: #2563eb; }
-    .guidance-grid {
-      display: grid;
-      gap: 16px;
-      margin-bottom: 28px;
-    }
-    .guidance-card {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 16px;
-      padding: 20px;
-    }
-    .guidance-card h2 {
-      font-size: 14px;
-      font-weight: 700;
-      color: #0f172a;
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .guidance-card ol, .guidance-card ul {
-      padding-left: 20px;
-      font-size: 13px;
-      color: #475569;
-    }
-    .guidance-card li {
-      margin-bottom: 8px;
-    }
-    .guidance-card li:last-child {
-      margin-bottom: 0;
-    }
-    code {
-      background: #ffffff;
-      border: 1px solid #cbd5e1;
-      border-radius: 6px;
-      padding: 2px 6px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      color: #0369a1;
-      font-weight: 500;
-    }
-    .footer {
-      border-top: 1px solid #f1f5f9;
-      padding-top: 20px;
+    .meta-bar {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 12px;
-      color: #94a3b8;
+      padding: 12px 28px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      text-transform: uppercase;
       flex-wrap: wrap;
       gap: 8px;
-      font-weight: 500;
+    }
+    .meta-bar strong {
+      color: var(--text-main);
+      font-weight: 600;
+    }
+    .hero-section {
+      padding: 36px 32px 28px;
+      border-bottom: 1px solid var(--border);
+    }
+    .status-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--ok);
+      background: var(--ok-bg);
+      display: inline-block;
+      padding: 3px 8px;
+      margin-bottom: 14px;
+    }
+    .title-row {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .status-code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 48px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.05em;
+      color: var(--text-main);
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text-main);
+      line-height: 1.2;
+    }
+    .lead {
+      font-size: 14px;
+      color: var(--text-muted);
+      max-width: 600px;
+    }
+    .host-target {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      color: var(--accent);
+      background: #eff6ff;
+      padding: 1px 6px;
+      border: 1px solid #dbeafe;
+    }
+    /* Technical Flow Diagram */
+    .schematic {
+      padding: 24px 32px;
+      background: #fcfcfd;
+      border-bottom: 1px solid var(--border);
+    }
+    .schematic-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 14px;
+    }
+    .diagram-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      align-items: center;
+      gap: 8px;
+    }
+    @media (max-width: 600px) {
+      .diagram-row {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .diagram-arrow {
+        transform: rotate(90deg);
+        margin: 4px auto;
+      }
+    }
+    .node {
+      border: 1px solid var(--border);
+      background: #ffffff;
+      padding: 10px 14px;
+      border-radius: 2px;
+    }
+    .node-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 2px;
+    }
+    .node-sub {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .node.ok {
+      border-left: 3px solid var(--ok);
+    }
+    .diagram-arrow {
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+    /* Diagnostic Data Grid */
+    .data-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      border-bottom: 1px solid var(--border);
+    }
+    @media (max-width: 540px) {
+      .data-grid { grid-template-columns: 1fr; }
+    }
+    .data-cell {
+      padding: 16px 32px;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .data-cell:nth-child(2n) {
+      border-right: none;
+    }
+    .data-cell:nth-last-child(-n+2) {
+      border-bottom: none;
+    }
+    .data-key {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+    .data-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+    /* Action & Protocol Manual */
+    .protocol-section {
+      padding: 28px 32px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+    }
+    @media (max-width: 620px) {
+      .protocol-section { grid-template-columns: 1fr; }
+    }
+    .protocol-col h2 {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-main);
+      margin-bottom: 10px;
+    }
+    .protocol-col ol {
+      padding-left: 18px;
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .protocol-col ol li {
+      margin-bottom: 6px;
+    }
+    .protocol-col ol li:last-child {
+      margin-bottom: 0;
+    }
+    .cli-box {
+      background: #0f172a;
+      border-radius: 2px;
+      padding: 10px 12px;
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .cli-code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #e2e8f0;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .copy-btn {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #cbd5e1;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      shrink-0: 0;
+    }
+    .copy-btn:hover {
+      background: #334155;
+      color: #ffffff;
+    }
+    .copy-btn:active {
+      transform: scale(0.96);
+    }
+    /* Colophon / Footer */
+    .colophon {
+      padding: 14px 32px;
+      background: #f8fafc;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-dim);
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .brand {
+      font-weight: 600;
+      color: var(--text-muted);
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="badge">
-      <span class="pulse-dot"></span>
-      Website Active • BarePod Web Engine
-    </div>
-    <h1>Website Ready for Deployment</h1>
-    <p class="subtitle">The website for <span id="host-placeholder" class="host-highlight">` + title + `</span> has been provisioned and is online.</p>
-
-    <div class="pipeline">
-      <div class="pipe-step">
-        <div class="pipe-label"><span>🌐</span> Domain &amp; DNS</div>
-        <div class="pipe-val status-ok">✓ Connected</div>
-      </div>
-      <div class="pipe-step">
-        <div class="pipe-label"><span>⚡</span> Web Server</div>
-        <div class="pipe-val status-ok">✓ Active &amp; Ready</div>
-      </div>
-      <div class="pipe-step">
-        <div class="pipe-label"><span>📦</span> Application</div>
-        <div class="pipe-val status-info">ℹ Awaiting Code</div>
-      </div>
+  <div class="sheet">
+    <div class="meta-bar">
+      <span><strong>BarePod</strong> Hosting Platform</span>
+      <span>Runtime Edge Active</span>
+      <span>HTTP 200 OK</span>
     </div>
 
-    <div class="guidance-grid">
-      <div class="guidance-card">
-        <h2>🚀 Next Steps: Deploy Your Code</h2>
+    <div class="hero-section">
+      <div class="status-tag">System Initialized &amp; Online</div>
+      <div class="title-row">
+        <div class="status-code">200</div>
+        <h1>Ready for Deployment</h1>
+      </div>
+      <p class="lead">The website environment for <span id="host-target" class="host-target">` + title + `</span> has been provisioned and is ready for your application code.</p>
+    </div>
+
+    <!-- Technical Flow Schematic -->
+    <div class="schematic">
+      <div class="schematic-label">Routing &amp; Storage Topology</div>
+      <div class="diagram-row">
+        <div class="node ok">
+          <div class="node-title">Public Ingress</div>
+          <div class="node-sub">Port 80/443 Ready</div>
+        </div>
+        <div class="diagram-arrow">──▶</div>
+        <div class="node ok">
+          <div class="node-title">VHost Route</div>
+          <div class="node-sub">` + title + `</div>
+        </div>
+        <div class="diagram-arrow">──▶</div>
+        <div class="node ok">
+          <div class="node-title">DocRoot Storage</div>
+          <div class="node-sub">/web/` + escapedSlug + `</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Diagnostic Data Grid -->
+    <div class="data-grid">
+      <div class="data-cell">
+        <div class="data-key">01 / Website Slug</div>
+        <div class="data-val">` + escapedSlug + `</div>
+      </div>
+      <div class="data-cell">
+        <div class="data-key">02 / Edge Gateway</div>
+        <div class="data-val">HTTP 200 (Online)</div>
+      </div>
+      <div class="data-cell">
+        <div class="data-key">03 / Target Domain</div>
+        <div class="data-val">` + title + `</div>
+      </div>
+      <div class="data-cell">
+        <div class="data-key">04 / Deployment State</div>
+        <div class="data-val">Awaiting Project Code</div>
+      </div>
+    </div>
+
+    <!-- Deployment Protocols & CLI Probe -->
+    <div class="protocol-section">
+      <div class="protocol-col">
+        <h2>§ 01 / Deployment Protocols</h2>
         <ol>
-          <li><b>Git Deployment:</b> Connect your GitHub or Git repository in the panel for automated zero-downtime builds on push.</li>
-          <li><b>File Manager:</b> Upload files or extract archives directly via the panel File Manager.</li>
-          <li><b>Framework Presets:</b> Scaffold popular stacks (Laravel, WordPress, Node.js, Next.js, Python) from the Presets tab.</li>
+          <li><b>Git Push:</b> Connect your repository in BarePod for automated CI/CD deployments.</li>
+          <li><b>File Manager:</b> Upload your web files or extract archives directly into this site.</li>
+          <li><b>Framework Presets:</b> Scaffold Laravel, WordPress, Node.js, Python or Go stacks.</li>
         </ol>
       </div>
 
-      <div class="guidance-card">
-        <h2>📁 Document Root Location</h2>
-        <ul>
-          <li>Files on server: <code>` + escapedSlug + `</code></li>
-          <li>You can replace or edit this <code>index.html</code> file with your custom application at any time.</li>
-        </ul>
+      <div class="protocol-col">
+        <h2>§ 02 / Diagnostic Probe</h2>
+        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">Verify HTTP ingress response headers via terminal:</p>
+        <div class="cli-box">
+          <span class="cli-code" id="cli-cmd">curl -Iv http://` + title + `/</span>
+          <button class="copy-btn" id="copy-btn" onclick="copyProbe()">Copy</button>
+        </div>
       </div>
     </div>
 
-    <div class="footer">
-      <span>BarePod Panel Web Engine</span>
-      <span>Status: 200 OK • Online</span>
+    <div class="colophon">
+      <span class="brand">BarePod Cloud Infrastructure</span>
+      <span>RFC 9110 §15.3.1</span>
     </div>
   </div>
 
   <script>
     try {
       if (window.location && window.location.hostname) {
-        var el = document.getElementById('host-placeholder');
-        if (el) el.textContent = window.location.hostname;
+        var h = window.location.hostname;
+        var el1 = document.getElementById('host-target');
+        var el3 = document.getElementById('cli-cmd');
+        if (el1 && h) el1.textContent = h;
+        if (el3) el3.textContent = 'curl -Iv ' + window.location.origin + '/';
       }
     } catch (e) {}
+
+    function copyProbe() {
+      var cmd = document.getElementById('cli-cmd');
+      var btn = document.getElementById('copy-btn');
+      if (!cmd || !btn) return;
+      navigator.clipboard.writeText(cmd.textContent).then(function() {
+        btn.textContent = 'Copied';
+        setTimeout(function() { btn.textContent = 'Copy'; }, 1800);
+      }).catch(function() {});
+    }
   </script>
 </body>
 </html>`

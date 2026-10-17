@@ -32,7 +32,6 @@ func HashPassword(plain string) (string, error) {
 func EnsureAuthDir() error {
 	dir := AuthDir
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		// Fallback to temp dir if /etc is unwritable (e.g. non-root user or unit test)
 		fallback := filepath.Join(os.TempDir(), "barepod", "auth")
 		if err2 := os.MkdirAll(fallback, 0o755); err2 == nil {
 			AuthDir = fallback
@@ -81,7 +80,6 @@ func EnsureMaintenanceDir(slug string) (string, error) {
 	_ = os.Chmod(MaintenanceDir, 0o755)
 	dir := filepath.Join(MaintenanceDir, slug)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		// Fallback to temp dir if /var/lib is unwritable (e.g. non-root user or unit test)
 		fallback := filepath.Join(os.TempDir(), "barepod", "maintenance", slug)
 		if err2 := os.MkdirAll(fallback, 0o755); err2 == nil {
 			MaintenanceDir = filepath.Join(os.TempDir(), "barepod", "maintenance")
@@ -106,7 +104,6 @@ func WriteMaintenancePage(slug, title, message string) (string, error) {
 	}
 	_ = os.Chmod(dest, 0o644)
 
-	// Also write barepod_503.html so Nginx error_page 503 /barepod_503.html finds it immediately
 	dest503 := filepath.Join(dir, "barepod_503.html")
 	if err := os.WriteFile(dest503, []byte(rendered), 0o644); err == nil {
 		_ = os.Chmod(dest503, 0o644)
@@ -114,8 +111,7 @@ func WriteMaintenancePage(slug, title, message string) (string, error) {
 	return dest, nil
 }
 
-// RenderMaintenanceHTML creates a responsive, clean, modern light-theme 503 status page
-// that is 100% consistent with BarePod's default landing page design system.
+// RenderMaintenanceHTML creates an authentic, Modern Swiss editorial styled 503 status page.
 func RenderMaintenanceHTML(title, message string) string {
 	t := strings.TrimSpace(title)
 	if t == "" {
@@ -129,240 +125,360 @@ func RenderMaintenanceHTML(title, message string) string {
 	escapedTitle := html.EscapeString(t)
 	escapedMessage := html.EscapeString(m)
 
-	return fmt.Sprintf(`<!doctype html>
+	return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>503 Service Unavailable — %%s</title>
+  <title>503 — ` + escapedTitle + `</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --bg: #fafafa;
+      --card-bg: #ffffff;
+      --border: #e5e7eb;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
+      --accent: #2563eb;
+      --warn: #d97706;
+      --warn-bg: #fef3c7;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      background-color: #f8fafc;
-      background-image: 
-        radial-gradient(at 10%% 10%%, rgba(255, 237, 213, 0.6) 0px, transparent 50%%),
-        radial-gradient(at 90%% 90%%, rgba(224, 231, 255, 0.5) 0px, transparent 50%%),
-        radial-gradient(at 50%% 50%%, rgba(241, 245, 249, 0.4) 0px, transparent 50%%);
-      color: #1e293b;
-      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-      padding: 32px 20px;
-      line-height: 1.6;
+      background: var(--bg);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 40px 20px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
     }
-    .container {
-      width: 100%%;
-      max-width: 680px;
-      background: #ffffff;
-      border: 1px solid #e2e8f0;
-      border-radius: 24px;
-      box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.08), 0 0 1px rgba(0,0,0,0.05);
-      padding: 44px 40px;
-      position: relative;
+    .sheet {
+      width: 100%;
+      max-width: 720px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 20px 40px -15px rgba(0, 0, 0, 0.05);
+      border-radius: 4px;
       overflow: hidden;
     }
-    .container::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 4px;
-      background: linear-gradient(90deg, #f97316, #fb923c, #3b82f6);
-    }
-    .badge {
-      display: inline-flex;
+    .meta-bar {
+      display: flex;
+      justify-content: space-between;
       align-items: center;
-      gap: 8px;
-      background: #fff7ed;
-      border: 1px solid #fed7aa;
-      color: #c2410c;
+      padding: 12px 28px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
       font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
       text-transform: uppercase;
-      padding: 6px 14px;
-      border-radius: 9999px;
-      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 8px;
     }
-    .pulse-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 9999px;
-      background: #f97316;
-      box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.7);
-      animation: pulse-orange 2s infinite;
+    .meta-bar strong {
+      color: var(--text-main);
+      font-weight: 600;
     }
-    @keyframes pulse-orange {
-      0%% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.7); }
-      70%% { transform: scale(1); box-shadow: 0 0 0 8px rgba(249, 115, 22, 0); }
-      100%% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
+    .hero-section {
+      padding: 36px 32px 28px;
+      border-bottom: 1px solid var(--border);
+    }
+    .status-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--warn);
+      background: var(--warn-bg);
+      display: inline-block;
+      padding: 3px 8px;
+      margin-bottom: 14px;
+    }
+    .title-row {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .status-code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 48px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.05em;
+      color: var(--text-main);
     }
     h1 {
-      font-size: 26px;
+      font-size: 24px;
       font-weight: 800;
-      color: #0f172a;
       letter-spacing: -0.03em;
-      margin-bottom: 8px;
+      color: var(--text-main);
+      line-height: 1.2;
     }
-    .subtitle {
+    .lead {
       font-size: 14px;
-      color: #64748b;
-      margin-bottom: 28px;
+      color: var(--text-muted);
+      max-width: 600px;
     }
-    .pipeline {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 12px;
-      margin-bottom: 28px;
+    .schematic {
+      padding: 24px 32px;
+      background: #fcfcfd;
+      border-bottom: 1px solid var(--border);
     }
-    .pipe-step {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 14px;
-      padding: 14px 16px;
-      transition: all 0.2s ease;
-    }
-    .pipe-step:hover {
-      border-color: #cbd5e1;
-      background: #f1f5f9;
-    }
-    .pipe-label {
-      font-size: 11px;
+    .schematic-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: #64748b;
-      margin-bottom: 4px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-weight: 600;
+      color: var(--text-dim);
+      margin-bottom: 14px;
     }
-    .pipe-val {
-      font-size: 13px;
-      font-weight: 700;
-    }
-    .status-ok { color: #059669; }
-    .status-warn { color: #d97706; }
-    .status-orange { color: #ea580c; }
-    .guidance-card {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 16px;
-      padding: 20px;
-      margin-bottom: 28px;
-    }
-    .guidance-card h2 {
-      font-size: 13px;
-      font-weight: 700;
-      color: #1e293b;
-      margin-bottom: 8px;
-      display: flex;
+    .diagram-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
       align-items: center;
       gap: 8px;
+    }
+    @media (max-width: 600px) {
+      .diagram-row {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .diagram-arrow {
+        transform: rotate(90deg);
+        margin: 4px auto;
+      }
+    }
+    .node {
+      border: 1px solid var(--border);
+      background: #ffffff;
+      padding: 10px 14px;
+      border-radius: 2px;
+    }
+    .node-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 2px;
+    }
+    .node-sub {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .node.ok {
+      border-left: 3px solid #10b981;
+    }
+    .node.hold {
+      border-left: 3px solid var(--warn);
+      background: #fffbeb;
+    }
+    .diagram-arrow {
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+    .data-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      border-bottom: 1px solid var(--border);
+    }
+    @media (max-width: 540px) {
+      .data-grid { grid-template-columns: 1fr; }
+    }
+    .data-cell {
+      padding: 16px 32px;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .data-cell:nth-child(2n) {
+      border-right: none;
+    }
+    .data-cell:nth-last-child(-n+2) {
+      border-bottom: none;
+    }
+    .data-key {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      color: var(--text-dim);
+      margin-bottom: 4px;
     }
-    .guidance-card p {
-      font-size: 13px;
-      color: #64748b;
-      line-height: 1.6;
-    }
-    .action-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-top: 16px;
-      padding-top: 14px;
-      border-top: 1px solid #e2e8f0;
-      flex-wrap: wrap;
-    }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      background: #0f172a;
-      color: #ffffff;
-      border: 1px solid #0f172a;
-      padding: 8px 16px;
-      border-radius: 10px;
+    .data-val {
+      font-family: 'JetBrains Mono', monospace;
       font-size: 12px;
       font-weight: 600;
-      cursor: pointer;
-      text-decoration: none;
-      transition: all 0.15s ease;
-      font-family: inherit;
+      color: var(--text-main);
     }
-    .btn:hover {
+    .data-val.warn {
+      color: var(--warn);
+    }
+    .protocol-section {
+      padding: 28px 32px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 28px;
+      align-items: center;
+    }
+    @media (max-width: 620px) {
+      .protocol-section {
+        grid-template-columns: 1fr;
+      }
+    }
+    .protocol-info h2 {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-main);
+      margin-bottom: 8px;
+    }
+    .protocol-info p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .action-group {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+      min-width: 170px;
+    }
+    .countdown-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .countdown-num {
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .reload-btn {
+      background: #0f172a;
+      border: 1px solid #0f172a;
+      color: #ffffff;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 2px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+    }
+    .reload-btn:hover {
       background: #1e293b;
       border-color: #1e293b;
     }
-    .footer {
-      border-top: 1px solid #f1f5f9;
-      padding-top: 18px;
+    .reload-btn:active {
+      transform: scale(0.97);
+    }
+    .colophon {
+      padding: 14px 32px;
+      background: #f8fafc;
+      border-top: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 12px;
-      color: #94a3b8;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-dim);
       flex-wrap: wrap;
       gap: 8px;
     }
-    .footer-brand {
+    .brand {
       font-weight: 600;
-      color: #64748b;
+      color: var(--text-muted);
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="badge">
-      <span class="pulse-dot"></span>
-      HTTP 503 • SCHEDULED MAINTENANCE
-    </div>
-    <h1>%%s</h1>
-    <p class="subtitle">%%s</p>
-
-    <div class="pipeline">
-      <div class="pipe-step">
-        <div class="pipe-label"><span>⚡</span> Web Server</div>
-        <div class="pipe-val status-ok">✓ Online &amp; Responding</div>
-      </div>
-      <div class="pipe-step">
-        <div class="pipe-label"><span>🛡️</span> Maintenance Mode</div>
-        <div class="pipe-val status-orange">⚠ Active (HTTP 503)</div>
-      </div>
-      <div class="pipe-step">
-        <div class="pipe-label"><span>⚙️</span> Service Status</div>
-        <div class="pipe-val status-warn">⏳ Maintenance In Progress</div>
-      </div>
+  <div class="sheet">
+    <div class="meta-bar">
+      <span><strong>BarePod</strong> Edge Gateway</span>
+      <span>Traffic Paused</span>
+      <span>HTTP 503</span>
     </div>
 
-    <div class="guidance-card">
-      <h2>🛠️ System Maintenance Information</h2>
-      <p>Access is temporarily restricted to ensure data consistency and integrity during scheduled updates. As soon as maintenance is complete, this site will resume normal operation.</p>
-      
-      <div class="action-row">
-        <span style="font-size: 12px; color: #64748b;">
-          Automatic check in <strong id="timer" style="color: #2563eb; font-family: 'JetBrains Mono', monospace; font-size: 14px;">30</strong> seconds…
-        </span>
-        <button class="btn" onclick="window.location.reload()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-          Check Again Now
+    <div class="hero-section">
+      <div class="status-tag">Maintenance Protocol Active</div>
+      <div class="title-row">
+        <div class="status-code">503</div>
+        <h1>` + escapedTitle + `</h1>
+      </div>
+      <p class="lead">` + escapedMessage + `</p>
+    </div>
+
+    <div class="schematic">
+      <div class="schematic-label">Routing Topology</div>
+      <div class="diagram-row">
+        <div class="node ok">
+          <div class="node-title">Client Request</div>
+          <div class="node-sub">Inbound OK</div>
+        </div>
+        <div class="diagram-arrow">──▶</div>
+        <div class="node ok">
+          <div class="node-title">Web Server Ingress</div>
+          <div class="node-sub">Gateway Online</div>
+        </div>
+        <div class="diagram-arrow">──⏸──</div>
+        <div class="node hold">
+          <div class="node-title">Application Upstream</div>
+          <div class="node-sub">Maintenance Guard</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="data-grid">
+      <div class="data-cell">
+        <div class="data-key">01 / Scope</div>
+        <div class="data-val">` + escapedTitle + `</div>
+      </div>
+      <div class="data-cell">
+        <div class="data-key">02 / Gateway Status</div>
+        <div class="data-val">503 Service Unavailable</div>
+      </div>
+      <div class="data-cell">
+        <div class="data-key">03 / Upstream Ingress</div>
+        <div class="data-val warn">Traffic Paused</div>
+      </div>
+      <div class="data-cell">
+        <div class="data-key">04 / Retry Header</div>
+        <div class="data-val">Auto-Refresh Active</div>
+      </div>
+    </div>
+
+    <div class="protocol-section">
+      <div class="protocol-info">
+        <h2>§ 01 / Maintenance Directive</h2>
+        <p>Public traffic is temporarily held at the edge ingress while database migrations, application updates, or maintenance tasks complete. Normal service will resume immediately upon completion.</p>
+      </div>
+
+      <div class="action-group">
+        <span class="countdown-text">Auto-refresh in <span class="countdown-num" id="timer">30</span>s</span>
+        <button class="reload-btn" onclick="window.location.reload()">
+          <span>Check Again Now</span>
         </button>
       </div>
     </div>
 
-    <div class="footer">
-      <span class="footer-brand">BarePod Web Engine</span>
-      <span>Status: 503 Service Unavailable</span>
+    <div class="colophon">
+      <span class="brand">BarePod Cloud Infrastructure</span>
+      <span>RFC 9110 §15.6.4</span>
     </div>
   </div>
 
@@ -378,7 +494,7 @@ func RenderMaintenanceHTML(title, message string) string {
     }, 1000);
   </script>
 </body>
-</html>`, escapedTitle, escapedTitle, escapedMessage)
+</html>`
 }
 
 // ParseIPList splits a comma- or newline-separated string of IP/CIDR entries and cleans them.
@@ -391,7 +507,6 @@ func ParseIPList(raw string) []string {
 		if part == "" {
 			continue
 		}
-		// Validate if IP or CIDR
 		if strings.Contains(part, "/") {
 			if _, _, err := net.ParseCIDR(part); err == nil {
 				clean = append(clean, part)
