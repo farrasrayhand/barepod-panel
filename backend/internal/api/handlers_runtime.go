@@ -213,7 +213,7 @@ func (s *Server) applyVhost(r *http.Request, site *store.Website) error {
 	// service of their own to stop, so without this Stop only flipped a label.
 	if strings.EqualFold(site.Status, "stopped") {
 		secSpec.MaintenanceMode = true
-		secSpec.MaintenanceTitle = "Website Stopped"
+		secSpec.MaintenanceTitle = webserver.StoppedTitle
 		secSpec.MaintenanceMessage = "This website has been stopped by its administrator and is currently offline."
 		secSpec.MaintenanceBypassIPs = nil
 	}

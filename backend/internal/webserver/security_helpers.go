@@ -99,6 +99,9 @@ func WriteMaintenancePage(slug, title, message string) (string, error) {
 	}
 	dest := filepath.Join(dir, "index.html")
 	rendered := RenderMaintenanceHTML(title, message)
+	if strings.TrimSpace(title) == StoppedTitle {
+		rendered = RenderStoppedHTML(title, message)
+	}
 	if err := os.WriteFile(dest, []byte(rendered), 0o644); err != nil {
 		return "", fmt.Errorf("write maintenance page: %w", err)
 	}
@@ -109,6 +112,26 @@ func WriteMaintenancePage(slug, title, message string) (string, error) {
 		_ = os.Chmod(dest503, 0o644)
 	}
 	return dest, nil
+}
+
+// StoppedTitle marks the page served for a website the operator has stopped.
+const StoppedTitle = "Website Stopped"
+
+// RenderStoppedHTML is the page for a stopped website. It shares the default page's sheet,
+// typography and diagnostic layout, with the wording of a stopped site rather than maintenance.
+func RenderStoppedHTML(title, message string) string {
+	page := RenderMaintenanceHTML(title, message)
+	return strings.NewReplacer(
+		"<span>Traffic Paused</span>", "<span>Website Offline</span>",
+		"Maintenance Protocol Active", "Website Stopped",
+		"Maintenance Guard", "Process Stopped",
+		"──⏸──", "──╳──",
+		"warn\">Traffic Paused", "warn\">Stopped",
+		"Auto-Refresh Active", "Checks Every 30s",
+		"§ 01 / Maintenance Directive", "§ 01 / Operator Note",
+		"Public traffic is temporarily held at the edge ingress while database migrations, application updates, or maintenance tasks complete. Normal service will resume immediately upon completion.",
+		"This website has been stopped from the BarePod control panel. The edge gateway is online, but the application is not running. It serves again as soon as the owner starts it.",
+	).Replace(page)
 }
 
 // RenderMaintenanceHTML creates an authentic, Modern Swiss editorial styled 503 status page.
