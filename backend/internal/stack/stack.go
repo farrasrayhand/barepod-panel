@@ -1800,10 +1800,9 @@ func availableVersions(ctx context.Context, h *host.Host, r runtimeSource) []str
 		}
 		return append(fast, rest...)
 	case "rustup":
-		// rustup publishes three channels, and any released version besides them can be
-		// installed by name — the list below is what its toolchain index answers with.
-		versions := vendorVersions(ctx, h, "rust")
-		return append([]string{"stable", "beta", "nightly"}, versions...)
+		// Rust is standardly managed via rustup channels: stable (production), beta (preview),
+		// and nightly (experimental). We offer these three channels without cluttering with 100+ git tags.
+		return []string{"stable", "beta", "nightly"}
 	}
 	return nil
 }
@@ -1834,8 +1833,7 @@ func vendorVersions(ctx context.Context, h *host.Host, name string) []string {
 	vendorCache.Unlock()
 
 	fetched := map[string][]string{
-		"go":   fetchGoVersions(),
-		"rust": fetchRustVersions(),
+		"go": fetchGoVersions(),
 	}
 	vendorCache.Lock()
 	vendorCache.at = time.Now()
@@ -2034,27 +2032,6 @@ func httpGet(url string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 }
 
-// fetchRustVersions reads the Rust project's release feed: rustup installs any published
-// release by name, and the channel manifests themselves cannot be listed.
-func fetchRustVersions() []string {
-	var releases []struct {
-		TagName string `json:"tag_name"`
-	}
-	body, err := httpGet("https://api.github.com/repos/rust-lang/rust/releases?per_page=100")
-	if err != nil {
-		return nil
-	}
-	if err := json.Unmarshal(body, &releases); err != nil {
-		return nil
-	}
-	set := map[string]bool{}
-	for _, release := range releases {
-		if regexp.MustCompile(`^1\.\d+\.\d+$`).MatchString(release.TagName) {
-			set[release.TagName] = true
-		}
-	}
-	return sortedDescending(set)
-}
 
 // goInstalled lists the Go toolchains on this host: the ones unpacked per version under
 // /usr/local (which is how several coexist) plus whatever `go` is on PATH.
@@ -2175,14 +2152,7 @@ func primaryVersions(name string, available []string) []string {
 		// support, so that list is short by construction.
 		return available
 	case "rust":
-		// Rust is chosen by channel; the numbered releases stay behind the disclosure.
-		var channels []string
-		for _, version := range available {
-			if !runtimesVersionPattern.MatchString(version) {
-				channels = append(channels, version)
-			}
-		}
-		return channels
+		return available
 	}
 	keep := 0
 	switch name {
