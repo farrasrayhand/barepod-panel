@@ -122,11 +122,11 @@ func DefaultPage(slug, domain string) string {
 	}
 
 	return `<!doctype html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>` + title + ` — BarePod</title>
+  <title>` + title + ` — BarePod Panel</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -145,97 +145,116 @@ func DefaultPage(slug, domain string) string {
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 24px;
+      padding: 40px 20px;
       -webkit-font-smoothing: antialiased;
+    }
+    .container {
+      width: 100%;
+      max-width: 520px;
     }
     .card {
       background: #ffffff;
       border: 1px solid #e2e8f0;
       border-radius: 16px;
       box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
-      width: 100%;
-      max-width: 460px;
-      padding: 40px 32px;
+      padding: 44px 36px 36px;
       text-align: center;
     }
-    .icon-box {
-      width: 48px;
-      height: 48px;
+    .brand-mark {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    .logo-box {
+      width: 42px;
+      height: 42px;
       border-radius: 12px;
       background-color: #2563eb;
       color: #ffffff;
-      display: inline-flex;
+      display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 20px;
       box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
     }
-    .icon-box svg {
-      width: 24px;
-      height: 24px;
+    .logo-box svg {
+      width: 22px;
+      height: 22px;
     }
-    h1 {
-      font-size: 20px;
+    .brand-name {
+      font-size: 18px;
       font-weight: 700;
       color: #0f172a;
-      margin-bottom: 8px;
       letter-spacing: -0.02em;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
       word-break: break-all;
     }
-    p.lead {
+    .subtitle {
       font-size: 14px;
       color: #64748b;
       line-height: 1.6;
+      margin-bottom: 24px;
     }
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background-color: #ecfdf5;
-      color: #059669;
-      padding: 4px 10px;
-      border-radius: 9999px;
-      font-size: 12px;
-      font-weight: 500;
-      margin-bottom: 16px;
+    .guidance {
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 16px 20px;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.6;
+      text-align: left;
     }
-    .status-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background-color: #10b981;
+    .guidance strong {
+      color: #0f172a;
     }
     .footer {
       margin-top: 24px;
       font-size: 12px;
       color: #94a3b8;
+      text-align: center;
+    }
+    .footer a {
+      color: #64748b;
+      text-decoration: none;
+    }
+    .footer a:hover {
+      color: #2563eb;
     }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="icon-box">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
-        <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
-        <line x1="6" y1="6" x2="6.01" y2="6"></line>
-        <line x1="6" y1="18" x2="6.01" y2="18"></line>
-      </svg>
-    </div>
+  <div class="container">
+    <div class="card">
+      <div class="brand-mark">
+        <div class="logo-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+            <line x1="6" y1="6" x2="6.01" y2="6"></line>
+            <line x1="6" y1="18" x2="6.01" y2="18"></line>
+          </svg>
+        </div>
+        <span class="brand-name">BarePod Panel</span>
+      </div>
 
-    <div>
-      <div class="status-badge">
-        <span class="status-dot"></span>
-        <span>Website Siap</span>
+      <h1 id="site-name">` + title + `</h1>
+      <p class="subtitle">This domain is successfully pointed to this server.</p>
+
+      <div class="guidance">
+        <strong>Site Owner?</strong> Log in to your BarePod Panel dashboard to upload your website files, manage databases, or deploy application code.
       </div>
     </div>
 
-    <h1 id="site-name">` + title + `</h1>
-    <p class="lead">Website ini telah berhasil dibuat di <strong>BarePod</strong>. Silakan unggah file website Anda untuk mengganti halaman ini.</p>
-  </div>
-
-  <div class="footer">
-    BarePod Panel
+    <div class="footer">
+      Powered by <a href="https://github.com/farrasrayhand/barepod-panel" target="_blank" rel="noopener">BarePod Panel</a>
+    </div>
   </div>
 
   <script>
