@@ -255,6 +255,8 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 	}
 
 	if engine == "caddy" {
+		// Ensure /var/log/caddy exists and is owned by caddy:caddy so Caddy can write access logs
+		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", "mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy && chmod 755 /var/log/caddy && chmod 664 /var/log/caddy/*.log 2>/dev/null || true"})
 		// Nginx moves to internal backend port 127.0.0.1:8082 (and 8444 for ssl) so it never collides with Caddy on :80/:443
 		reconfigNginx := `python3 -c "import glob, re
 for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/conf.d/*.conf'):
@@ -270,7 +272,9 @@ for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/co
 		cleanCaddyPort := "sed -i '/http_port/d; /https_port/d' /etc/caddy/Caddyfile 2>/dev/null || true; sed -i '/{\\s*}/d' /etc/caddy/Caddyfile 2>/dev/null || true"
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", cleanCaddyPort})
 	} else if engine == "nginx" {
-		// Ensure nginx includes sites-enabled and runs as www-data to match system php-fpm permissions
+		// Ensure nginx includes sites-enabled, realip config, and runs as www-data to match system php-fpm permissions
+		_ = webserver.EnsureNginxRealIP("/etc/nginx/conf.d")
+		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", "mkdir -p /var/log/nginx && chown -R www-data:adm /var/log/nginx 2>/dev/null || true"})
 		ensureNginx := "grep -q 'sites-enabled' /etc/nginx/nginx.conf 2>/dev/null || sed -i '/include \\/etc\\/nginx\\/conf.d\\/\\*\\.conf;/a \\    include /etc/nginx/sites-enabled/*.conf;' /etc/nginx/nginx.conf 2>/dev/null || true; sed -i 's/user  nginx;/user www-data;/; s/user nginx;/user www-data;/' /etc/nginx/nginx.conf 2>/dev/null || true; usermod -a -G www-data nginx 2>/dev/null || true"
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", ensureNginx})
 		// Nginx takes edge ingress on :80 and :443

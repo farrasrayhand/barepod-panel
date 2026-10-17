@@ -568,13 +568,16 @@ func caddyAppLocations(b *strings.Builder, s Spec, indent string) {
 		isHTTPS := strings.HasPrefix(strings.ToLower(target), "https://")
 		if isHTTPS {
 			fmt.Fprintf(b, "%sreverse_proxy %s {\n", indent, cleanTarget)
+			fmt.Fprintf(b, "%s\trequest_buffers 4MB\n", indent)
 			fmt.Fprintf(b, "%s\ttransport http {\n", indent)
 			fmt.Fprintf(b, "%s\t\ttls\n", indent)
 			fmt.Fprintf(b, "%s\t\ttls_insecure_skip_verify\n", indent)
 			fmt.Fprintf(b, "%s\t}\n", indent)
 			fmt.Fprintf(b, "%s}\n", indent)
 		} else {
-			fmt.Fprintf(b, "%sreverse_proxy %s\n", indent, cleanTarget)
+			fmt.Fprintf(b, "%sreverse_proxy %s {\n", indent, cleanTarget)
+			fmt.Fprintf(b, "%s\trequest_buffers 4MB\n", indent)
+			fmt.Fprintf(b, "%s}\n", indent)
 		}
 	}
 }
@@ -933,6 +936,9 @@ func WriteDefault(engine, dir string) (string, error) {
 				return "", fmt.Errorf("webserver: move the stock default vhost aside: %w", err)
 			}
 		}
+		// Also ensure conf.d/barepod-realip.conf is in place if conf.d exists beside dir
+		confD := filepath.Join(filepath.Dir(dir), "conf.d")
+		_ = EnsureNginxRealIP(confD)
 	}
 	if strings.EqualFold(engine, Caddy) {
 		if err := writeCaddyConfig(filepath.Join(filepath.Dir(dir), "Caddyfile"), dir); err != nil {
@@ -1160,3 +1166,53 @@ func GrantRead(ctx context.Context, h *host.Host, home, siteDir, webUser string)
 	}
 	return run("find", siteDir, "-type", "d", "-exec", "chmod", "g+s", "{}", "+")
 }
+
+// NginxRealIPConfig is the default global real_ip configuration for Cloudflare Tunnel and reverse proxies.
+const NginxRealIPConfig = `# Managed by BarePod Panel — Real IP configuration (Cloudflare & Ingress Proxies)
+set_real_ip_from 127.0.0.1;
+set_real_ip_from ::1;
+set_real_ip_from 10.0.0.0/8;
+set_real_ip_from 172.16.0.0/12;
+set_real_ip_from 192.168.0.0/16;
+
+# Cloudflare IPv4
+set_real_ip_from 173.245.48.0/20;
+set_real_ip_from 103.21.244.0/22;
+set_real_ip_from 103.22.200.0/22;
+set_real_ip_from 103.31.4.0/22;
+set_real_ip_from 141.101.64.0/18;
+set_real_ip_from 108.162.192.0/18;
+set_real_ip_from 190.93.240.0/20;
+set_real_ip_from 188.114.96.0/20;
+set_real_ip_from 197.234.240.0/22;
+set_real_ip_from 198.41.128.0/17;
+set_real_ip_from 162.158.0.0/15;
+set_real_ip_from 104.16.0.0/13;
+set_real_ip_from 104.24.0.0/14;
+set_real_ip_from 172.64.0.0/13;
+set_real_ip_from 131.0.72.0/22;
+
+# Cloudflare IPv6
+set_real_ip_from 2400:cb00::/32;
+set_real_ip_from 2606:4700::/32;
+set_real_ip_from 2803:f800::/32;
+set_real_ip_from 2405:b500::/32;
+set_real_ip_from 2405:8100::/32;
+set_real_ip_from 2a06:98c0::/29;
+set_real_ip_from 2c0f:f248::/32;
+
+real_ip_header CF-Connecting-IP;
+real_ip_recursive on;
+`
+
+// EnsureNginxRealIP writes the global realip configuration for Cloudflare Tunnel and proxies.
+func EnsureNginxRealIP(confDDir string) error {
+	if confDDir == "" {
+		confDDir = "/etc/nginx/conf.d"
+	}
+	if err := os.MkdirAll(confDDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(confDDir, "barepod-realip.conf"), []byte(NginxRealIPConfig), 0o644)
+}
+

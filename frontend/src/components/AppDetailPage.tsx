@@ -2660,27 +2660,27 @@ QUEUE_CONNECTION=redis`;
                 ? 'bg-white text-slate-800 border-slate-200'
                 : 'bg-slate-950 text-slate-100 border-slate-800 shadow-inner'
             }`}>
-              <div className="min-w-[1080px]">
+              <div className="min-w-[1240px] px-1">
                 {/* Terminal Table Header for Structured View */}
                 {logFormat === 'structured' && (
-                  <div className={`flex items-center gap-3 pb-2.5 mb-2 border-b text-[10px] font-bold uppercase tracking-wider select-none ${
-                    logTheme === 'light' ? 'border-slate-200 text-slate-500 bg-slate-50/50 -mx-2 px-2 py-1.5 rounded-t' : 'border-slate-800 text-slate-400'
+                  <div className={`flex items-center gap-3 pb-2.5 mb-2.5 border-b text-[10px] font-bold uppercase tracking-wider select-none px-3 py-2 rounded-lg ${
+                    logTheme === 'light' ? 'border-slate-200 text-slate-500 bg-slate-50' : 'border-slate-800 text-slate-400 bg-slate-900/60'
                   }`}>
                     <div className="w-[85px] shrink-0">TIME</div>
-                    <div className="w-[170px] shrink-0">VISITOR IP</div>
+                    <div className="w-[280px] shrink-0">VISITOR IP & ISP</div>
                     <div className="w-[125px] shrink-0">METHOD & STATUS</div>
                     <div className="w-[300px] shrink-0">REQUEST PATH</div>
                     <div className="flex-1 min-w-[320px]">LATENCY & CLIENT INFO (USER-AGENT)</div>
-                    <div className="w-[70px] shrink-0 text-center">DETAILS</div>
+                    <div className="w-[75px] shrink-0 text-center">DETAILS</div>
                   </div>
                 )}
 
                 {filteredLogs.map((log, idx) => (
                   logFormat === 'structured' ? (
-                    <div key={idx} className="flex flex-col mb-1">
+                    <div key={idx} className="flex flex-col mb-1.5">
                       <div 
                         onClick={() => setExpandedLogIdx(expandedLogIdx === idx ? null : idx)}
-                        className={`flex items-center gap-3 py-2 px-2.5 rounded-lg border transition-all cursor-pointer ${
+                        className={`flex items-center gap-3 py-2 px-3 rounded-lg border transition-all cursor-pointer ${
                           expandedLogIdx === idx
                             ? (logTheme === 'light' ? 'bg-blue-50/90 border-blue-200' : 'bg-slate-900 border-slate-700')
                             : (logTheme === 'light' ? 'hover:bg-slate-50 border-transparent hover:border-slate-200' : 'hover:bg-slate-900/80 border-transparent hover:border-slate-800')
@@ -2694,10 +2694,10 @@ QUEUE_CONNECTION=redis`;
                         </div>
 
                         {/* Visitor Client IP Badge */}
-                        <div className="w-[170px] shrink-0 flex items-center gap-1.5 overflow-hidden">
+                        <div className="w-[280px] shrink-0 flex items-center gap-1.5 overflow-hidden">
                           {log.ip ? (
                             <span 
-                              className={`inline-flex items-center gap-1.5 font-mono font-bold text-[11px] px-2 py-0.5 rounded shadow-2xs whitespace-nowrap border ${
+                              className={`inline-flex items-center gap-1.5 font-mono font-bold text-[10.5px] px-2 py-0.5 rounded shadow-2xs whitespace-nowrap border ${
                                 logTheme === 'light'
                                   ? 'bg-amber-50 text-amber-900 border-amber-300'
                                   : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
@@ -2706,7 +2706,7 @@ QUEUE_CONNECTION=redis`;
                             >
                               <Globe className={`w-3 h-3 shrink-0 ${logTheme === 'light' ? 'text-amber-600' : 'text-amber-400'}`} />
                               <span className="tracking-tight">{log.ip}</span>
-                              <span className={`text-[9px] px-1 rounded uppercase font-semibold border ${
+                              <span className={`text-[9px] px-1 rounded uppercase font-semibold border shrink-0 ${
                                 logTheme === 'light'
                                   ? 'bg-amber-200/80 text-amber-900 border-amber-300'
                                   : 'bg-amber-950/80 text-amber-200 border-amber-800/40'
@@ -2789,7 +2789,7 @@ QUEUE_CONNECTION=redis`;
                         </div>
 
                         {/* Detail Inspector Toggle */}
-                        <div className="w-[70px] shrink-0 text-center">
+                        <div className="w-[75px] shrink-0 text-center">
                           <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] rounded font-semibold transition-colors ${
                             expandedLogIdx === idx
                               ? 'bg-blue-600 text-white'
@@ -2803,7 +2803,7 @@ QUEUE_CONNECTION=redis`;
 
                       {/* Expanded Request Inspector Drawer */}
                       {expandedLogIdx === idx && (
-                        <div className={`p-3.5 my-1.5 mx-1 rounded-xl border space-y-2.5 text-xs animate-in fade-in duration-150 ${
+                        <div className={`p-4 my-2 rounded-xl border space-y-2.5 text-xs animate-in fade-in duration-150 ${
                           logTheme === 'light' ? 'bg-slate-50 border-blue-200 text-slate-800' : 'bg-slate-900 border-slate-700 text-slate-200'
                         }`}>
                           <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
