@@ -20,7 +20,9 @@ import {
   X,
   CheckCircle2,
   Sparkles,
-  Info
+  Info,
+  Pencil,
+  Loader2
 } from 'lucide-react';
 import { api, type ApiDomain, type ApiWebsite } from '../api/client';
 import type { WebApp } from '../types';
@@ -41,6 +43,9 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedDomain, setSelectedDomain] = useState<ApiDomain | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState<ApiDomain | null>(null);
+  const [editingDomain, setEditingDomain] = useState<ApiDomain | null>(null);
+  const [newDomainInput, setNewDomainInput] = useState('');
+  const [isUpdatingDomain, setIsUpdatingDomain] = useState(false);
 
   // Add Domain Form
   const [addWebsiteSlug, setAddWebsiteSlug] = useState('');
@@ -73,6 +78,32 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
       onShowToast?.('Fetch Error', err?.message || 'Failed to load domains', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openEditModal = (dom: ApiDomain) => {
+    setEditingDomain(dom);
+    setNewDomainInput(dom.domain);
+  };
+
+  const handleSaveEditDomain = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDomain || !newDomainInput.trim()) return;
+    const cleaned = newDomainInput.trim().toLowerCase();
+    if (cleaned === editingDomain.domain.toLowerCase()) {
+      setEditingDomain(null);
+      return;
+    }
+    setIsUpdatingDomain(true);
+    try {
+      await api.updateDomain(editingDomain.id, cleaned);
+      onShowToast?.('Domain Updated', `Domain successfully changed from ${editingDomain.domain} to ${cleaned}`, 'success');
+      setEditingDomain(null);
+      await fetchData();
+    } catch (err: any) {
+      onShowToast?.('Failed to Update Domain', err?.message || 'Error occurred while updating domain', 'error');
+    } finally {
+      setIsUpdatingDomain(false);
     }
   };
 
@@ -493,6 +524,14 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                             <span>{d.sslEnabled ? 'Manage SSL' : 'Enable SSL'}</span>
                           </button>
 
+                          <button
+                            onClick={() => openEditModal(d)}
+                            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                            title="Edit domain name"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+
                           {!d.isPrimary && (
                             <button
                               onClick={() => setShowDeleteModal(d)}
@@ -856,6 +895,79 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 Remove Alias
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- EDIT DOMAIN MODAL --- */}
+      {editingDomain && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Edit Domain Name</h3>
+                  <p className="text-xs text-slate-500 font-mono">
+                    Website: {editingDomain.websiteSlug} ({editingDomain.isPrimary ? 'Primary' : 'Alias'})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingDomain(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditDomain}>
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Domain / Hostname
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newDomainInput}
+                    onChange={(e) => setNewDomainInput(e.target.value)}
+                    placeholder="example.com or sub.example.com"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500 font-mono"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Web server virtual host and linked Cloudflare tunnel routes will be updated automatically with zero downtime.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setEditingDomain(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/70 rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingDomain || !newDomainInput.trim()}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isUpdatingDomain ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Updating Domain...</span>
+                    </>
+                  ) : (
+                    <span>Save Changes</span>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -882,6 +882,18 @@ export const api = {
       method: 'DELETE',
     }),
 
+  updateDomain: (id: string, domain: string) =>
+    request<ApiDomain>(`/domains/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ domain }),
+    }),
+
+  updateWebsiteDomain: (slug: string, domain: string) =>
+    request<ApiDomain>(`/websites/${encodeURIComponent(slug)}/domain`, {
+      method: 'PUT',
+      body: JSON.stringify({ domain }),
+    }),
+
   issueSsl: (
     id: string,
     payload?: { provider?: string; forceHTTPS?: boolean; hsts?: boolean; email?: string }
@@ -1118,6 +1130,11 @@ export const api = {
     request<TunnelStatusResponse>('/tunnels/token', {
       method: 'POST',
       body: JSON.stringify({ token, apiToken, user, tunnelName }),
+    }),
+
+  unlinkTunnel: (user?: string) =>
+    request<TunnelStatusResponse>(`/tunnels/unlink${user ? `?user=${encodeURIComponent(user)}` : ''}`, {
+      method: 'POST',
     }),
 
   syncTunnelRoutes: (user?: string) =>

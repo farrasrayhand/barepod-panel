@@ -77,13 +77,21 @@ type TunnelConfig struct {
 type cfResponse struct {
 	Success  bool            `json:"success"`
 	Errors   []cfError       `json:"errors"`
-	Messages []string        `json:"messages"`
+	Messages []any           `json:"messages"`
 	Result   json.RawMessage `json:"result"`
 }
 
 type cfError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+}
+
+// TunnelDetails contains live metadata of a Cloudflare Zero Trust tunnel.
+type TunnelDetails struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"created_at"`
 }
 
 // Client wraps Cloudflare API v4 calls for tunnel and DNS configuration.
@@ -177,6 +185,25 @@ func (c *Client) GetTunnelConfig(ctx context.Context) (*TunnelConfig, error) {
 	}
 
 	return &wrapper.Config, nil
+}
+
+// GetTunnelDetails fetches the live metadata of the tunnel, including its name in Cloudflare.
+func (c *Client) GetTunnelDetails(ctx context.Context) (*TunnelDetails, error) {
+	if c.accountID == "" || c.tunnelID == "" {
+		return nil, fmt.Errorf("accountID and tunnelID are required to fetch tunnel details")
+	}
+	endpoint := fmt.Sprintf("/accounts/%s/cfd_tunnel/%s", c.accountID, c.tunnelID)
+	resp, err := c.request(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var details TunnelDetails
+	if err := json.Unmarshal(resp.Result, &details); err != nil {
+		return nil, fmt.Errorf("failed to parse tunnel details: %w", err)
+	}
+
+	return &details, nil
 }
 
 // AddIngressRule adds or updates a hostname route in Cloudflare Zero Trust and configures DNS CNAME.

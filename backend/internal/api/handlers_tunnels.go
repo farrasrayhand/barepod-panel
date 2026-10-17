@@ -208,6 +208,17 @@ func (s *Server) handleGetTunnelStatus(w http.ResponseWriter, r *http.Request, u
 		apiToken = tunnel.ApiToken
 		accountID = tunnel.AccountID
 		tunnelID = tunnel.TunnelID
+
+		// If API token is configured, query live Cloudflare tunnel details for the exact tunnel name
+		if apiToken != "" && accountID != "" && tunnelID != "" && (tunnel.TunnelName == "" || tunnel.TunnelName == targetUser+"-tunnel") {
+			cf := cloudflare.NewClient(apiToken, accountID, tunnelID)
+			ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+			if details, err := cf.GetTunnelDetails(ctx); err == nil && details != nil && details.Name != "" {
+				tunnelName = details.Name
+				_, _ = s.store.UpsertCloudflareTunnel(targetUser, details.Name, token, apiToken, accountID, tunnelID)
+			}
+			cancel()
+		}
 	}
 
 	stRoutes, _ := s.store.ListCloudflareTunnelRoutes(targetUser)
@@ -373,7 +384,9 @@ func (s *Server) handleSetTunnelToken(w http.ResponseWriter, r *http.Request, us
 	// If both API Token and Tunnel are configured, verify that this API Token can access this Tunnel
 	if apiToken != "" && accountID != "" && tunnelID != "" {
 		cf := cloudflare.NewClient(apiToken, accountID, tunnelID)
-		if _, err := cf.GetTunnelConfig(r.Context()); err != nil {
+		if details, err := cf.GetTunnelDetails(r.Context()); err == nil && details != nil && details.Name != "" {
+			tunnelName = details.Name
+		} else if _, err := cf.GetTunnelConfig(r.Context()); err != nil {
 			writeError(w, http.StatusBadRequest, "tunnel_access_error", "Connected to Cloudflare API, but cannot access this Tunnel. Please ensure the API Token has Account.Cloudflare Tunnel (Read/Write) permissions for this account. Details: "+err.Error())
 			return
 		}
@@ -459,6 +472,31 @@ func (s *Server) handleSyncCloudflareRoutes(w http.ResponseWriter, r *http.Reque
 	s.handleGetTunnelStatus(w, r, user, nil)
 }
 
+// handleUnlinkTunnel disconnects Cloudflare tunnel, stops daemon, and clears all stored tokens.
+func (s *Server) handleUnlinkTunnel(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	targetUser := user.Username
+	reqUser := r.URL.Query().Get("user")
+	if user.Role == "admin" && reqUser != "" {
+		targetUser = reqUser
+	}
+
+	// 1. Stop and disable systemd daemon
+	_ = exec.Command("systemctl", "stop", "barepod-tunnel@"+targetUser+".service").Run()
+	_ = exec.Command("systemctl", "disable", "barepod-tunnel@"+targetUser+".service").Run()
+
+	// 2. Remove env file
+	envPath := filepath.Join("/etc/barepod/tunnels", targetUser+".env")
+	_ = os.Remove(envPath)
+
+	// 3. Clear tunnel credentials from DB
+	_ = s.store.DeleteCloudflareTunnel(targetUser)
+
+	_ = s.store.Audit(user.ID, "cloudflare.tunnel.unlink", targetUser, clientIP(r), "Unlinked Cloudflare tunnel and stopped daemon")
+
+	time.Sleep(200 * time.Millisecond)
+	s.handleGetTunnelStatus(w, r, user, nil)
+}
+
 // handleRestartTunnel restarts the cloudflared daemon for this tenant.
 func (s *Server) handleRestartTunnel(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	ensureTunnelSystemdTemplate()
@@ -506,6 +544,9 @@ func (s *Server) handleAddTunnelRoute(w http.ResponseWriter, r *http.Request, us
 	service := strings.TrimSpace(req.Service)
 	if service == "" {
 		service = "http://127.0.0.1:80"
+	}
+	if strings.HasPrefix(strings.ToLower(service), "https://") {
+		req.NoTLSVerify = true
 	}
 
 	route, err := s.store.CreateCloudflareTunnelRoute(targetUser, hostname, service, req.AppName)
@@ -662,6 +703,9 @@ func (s *Server) handleUpdateTunnelRoute(w http.ResponseWriter, r *http.Request,
 	service := strings.TrimSpace(req.Service)
 	if service == "" {
 		service = "http://127.0.0.1:80"
+	}
+	if strings.HasPrefix(strings.ToLower(service), "https://") {
+		req.NoTLSVerify = true
 	}
 
 	route, err := s.store.UpdateCloudflareTunnelRoute(targetUser, id, hostname, service, req.AppName)

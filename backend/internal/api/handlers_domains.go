@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/cloudflare"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/ssl"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
@@ -95,6 +97,125 @@ func (s *Server) handleAddDomain(w http.ResponseWriter, r *http.Request, user *s
 
 	_ = s.store.Audit(user.ID, "domain.add", req.Domain, clientIP(r), "site="+site.Slug)
 	writeJSON(w, http.StatusCreated, d)
+}
+
+type updateDomainRequest struct {
+	Domain string `json:"domain"`
+}
+
+// handleUpdateDomain edits the domain name of an existing domain (primary or alias) and reapplies the vhost.
+func (s *Server) handleUpdateDomain(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	id := r.PathValue("id")
+	d, err := s.store.GetDomain(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", "Domain not found")
+		return
+	}
+
+	site, err := s.store.WebsiteBySlug(d.WebsiteSlug)
+	if err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+
+	var req updateDomainRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json", "Malformed JSON request")
+		return
+	}
+
+	newDomain := strings.ToLower(strings.TrimSpace(req.Domain))
+	if newDomain == "" || strings.Contains(newDomain, " ") || strings.Contains(newDomain, "/") || !strings.Contains(newDomain, ".") {
+		writeError(w, http.StatusBadRequest, "invalid_domain", "Please provide a valid fully-qualified domain name (e.g. app.example.com)")
+		return
+	}
+
+	if newDomain == strings.ToLower(d.Domain) {
+		writeJSON(w, http.StatusOK, d)
+		return
+	}
+
+	// Check if domain is already in use by another website/domain
+	if existing, _ := s.store.GetDomainByName(newDomain); existing != nil && existing.ID != d.ID {
+		writeError(w, http.StatusConflict, "domain_exists", fmt.Sprintf("Domain '%s' is already registered to website '%s'", newDomain, existing.WebsiteSlug))
+		return
+	}
+
+	oldDomain := d.Domain
+
+	if d.IsPrimary {
+		if err := s.store.UpdateWebsiteDomain(site.Slug, newDomain); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Failed to update website domain: "+err.Error())
+			return
+		}
+		site.Domain = newDomain
+	} else {
+		if err := s.store.UpdateDomainName(d.ID, newDomain); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Failed to update alias domain: "+err.Error())
+			return
+		}
+	}
+
+	// Reapply web server vhost (Caddy/Nginx/Apache/OLS)
+	if err := s.applyVhost(r, site); err != nil {
+		writeError(w, http.StatusInternalServerError, "webserver_error", "Failed to apply updated domain to web server: "+err.Error())
+		return
+	}
+
+	// If a Cloudflare tunnel route exists for the old domain, automatically update it to the new domain
+	go s.migrateTunnelRouteForDomain(site.TenantUser, oldDomain, newDomain)
+
+	_ = s.store.Audit(user.ID, "domain.update", newDomain, clientIP(r), fmt.Sprintf("site=%s old=%s isPrimary=%v", site.Slug, oldDomain, d.IsPrimary))
+
+	updated, _ := s.store.GetDomain(id)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// handleUpdateWebsiteDomain updates the primary domain of a website directly by website slug.
+func (s *Server) handleUpdateWebsiteDomain(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	slug := r.PathValue("slug")
+	site, err := s.store.WebsiteBySlug(slug)
+	if err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+
+	domains, err := s.store.ListDomainsForSite(slug)
+	if err != nil || len(domains) == 0 {
+		writeError(w, http.StatusNotFound, "not_found", "No domains found for website")
+		return
+	}
+
+	var primaryID string
+	for _, dom := range domains {
+		if dom.IsPrimary {
+			primaryID = dom.ID
+			break
+		}
+	}
+	if primaryID == "" {
+		primaryID = domains[0].ID
+	}
+
+	r.SetPathValue("id", primaryID)
+	s.handleUpdateDomain(w, r, user, nil)
+}
+
+func (s *Server) migrateTunnelRouteForDomain(tenantUser, oldDomain, newDomain string) {
+	if tenantUser == "" || oldDomain == "" || newDomain == "" {
+		return
+	}
+	_ = s.store.UpdateCloudflareTunnelRouteHostname(tenantUser, oldDomain, newDomain)
+
+	// If Cloudflare API token is configured, also sync to Cloudflare Zero Trust
+	tunnel, err := s.store.GetCloudflareTunnel(tenantUser)
+	if err == nil && tunnel != nil && tunnel.ApiToken != "" && tunnel.AccountID != "" && tunnel.TunnelID != "" {
+		cf := cloudflare.NewClient(tunnel.ApiToken, tunnel.AccountID, tunnel.TunnelID)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		_ = cf.DeleteHostname(ctx, oldDomain)
+		_ = cf.AddIngressRule(ctx, newDomain, "http://127.0.0.1:80", false)
+	}
 }
 
 // handleDeleteDomain removes an alias domain and reloads the web server.

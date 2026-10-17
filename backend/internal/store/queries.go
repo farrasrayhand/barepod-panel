@@ -889,3 +889,40 @@ func (s *Store) DeleteDomain(domainID string) error {
 	}
 	return nil
 }
+
+// UpdateWebsiteDomain updates the primary domain of a website and syncs the primary row in website_domains.
+func (s *Store) UpdateWebsiteDomain(slug, newDomain string) error {
+	slug = strings.TrimSpace(slug)
+	newDomain = strings.ToLower(strings.TrimSpace(newDomain))
+	if slug == "" || newDomain == "" {
+		return errors.New("slug and newDomain cannot be empty")
+	}
+
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`UPDATE websites SET domain = ? WHERE slug = ?`, newDomain, slug); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`UPDATE website_domains SET domain = ?, ssl_status = 'pending' WHERE website_slug = ? AND is_primary = 1`, newDomain, slug); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// UpdateDomainName updates the domain name string of a domain record.
+func (s *Store) UpdateDomainName(domainID, newDomain string) error {
+	domainID = strings.TrimSpace(domainID)
+	newDomain = strings.ToLower(strings.TrimSpace(newDomain))
+	if domainID == "" || newDomain == "" {
+		return errors.New("domainID and newDomain cannot be empty")
+	}
+	_, err := s.DB.Exec(`UPDATE website_domains SET domain = ?, ssl_status = 'pending' WHERE id = ?`, newDomain, domainID)
+	return err
+}
+

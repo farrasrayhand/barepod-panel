@@ -224,3 +224,24 @@ func (s *Store) UpdateCloudflareTunnelRoute(tenantUser, id, hostname, service, a
 	}, nil
 }
 
+// DeleteCloudflareTunnel deletes the stored Cloudflare tunnel credentials for a tenant.
+func (s *Store) DeleteCloudflareTunnel(tenantUser string) error {
+	_, err := s.DB.Exec(`DELETE FROM cloudflare_tunnels WHERE tenant_user = ?`, tenantUser)
+	return err
+}
+
+// UpdateCloudflareTunnelRouteHostname renames a tunnel route hostname for a tenant.
+func (s *Store) UpdateCloudflareTunnelRouteHostname(tenantUser, oldHostname, newHostname string) error {
+	oldHostname = strings.ToLower(strings.TrimSpace(oldHostname))
+	newHostname = strings.ToLower(strings.TrimSpace(newHostname))
+	if oldHostname == "" || newHostname == "" {
+		return nil
+	}
+	_, err := s.DB.Exec(
+		`UPDATE cloudflare_tunnel_routes SET hostname = ? WHERE tenant_user = ? AND hostname = ?`,
+		newHostname, tenantUser, oldHostname,
+	)
+	return err
+}
+
+

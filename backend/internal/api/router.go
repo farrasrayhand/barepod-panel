@@ -427,7 +427,9 @@ func New(d Deps) http.Handler {
 	}
 	mux.HandleFunc("GET /api/v1/domains", domains(s.handleListDomains))
 	mux.HandleFunc("POST /api/v1/domains", domains(s.handleAddDomain))
+	mux.HandleFunc("PUT /api/v1/domains/{id}", domains(s.handleUpdateDomain))
 	mux.HandleFunc("DELETE /api/v1/domains/{id}", domains(s.handleDeleteDomain))
+	mux.HandleFunc("PUT /api/v1/websites/{slug}/domain", deploy(s.handleUpdateWebsiteDomain))
 	mux.HandleFunc("POST /api/v1/domains/{id}/ssl/issue", domains(s.handleIssueSSL))
 	mux.HandleFunc("POST /api/v1/domains/{id}/ssl/custom", domains(s.handleUploadCustomSSL))
 	mux.HandleFunc("POST /api/v1/domains/{id}/ssl/toggle", domains(s.handleToggleSSL))
@@ -439,6 +441,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/tunnels/status", tunnels(s.handleGetTunnelStatus))
 	mux.HandleFunc("GET /api/v1/tunnels/zones", tunnels(s.handleListTunnelZones))
 	mux.HandleFunc("POST /api/v1/tunnels/token", tunnels(s.handleSetTunnelToken))
+	mux.HandleFunc("POST /api/v1/tunnels/unlink", tunnels(s.handleUnlinkTunnel))
+	mux.HandleFunc("DELETE /api/v1/tunnels/connection", tunnels(s.handleUnlinkTunnel))
 	mux.HandleFunc("POST /api/v1/tunnels/restart", tunnels(s.handleRestartTunnel))
 	mux.HandleFunc("POST /api/v1/tunnels/sync", tunnels(s.handleSyncCloudflareRoutes))
 	mux.HandleFunc("POST /api/v1/tunnels/routes", tunnels(s.handleAddTunnelRoute))
