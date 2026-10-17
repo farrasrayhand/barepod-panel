@@ -127,394 +127,810 @@ func DefaultPage(slug, domain string) string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>200 — ` + title + `</title>
+  <title>` + title + ` — Online</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #fafafa;
-      --card-bg: #ffffff;
-      --border: #e5e7eb;
-      --text-main: #0f172a;
-      --text-muted: #64748b;
-      --text-dim: #94a3b8;
-      --accent: #2563eb;
-      --ok: #059669;
-      --ok-bg: #ecfdf5;
+      --bg: #07090e;
+      --card-bg: rgba(15, 18, 28, 0.7);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --card-border-hover: rgba(99, 102, 241, 0.3);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent: #6366f1;
+      --accent-glow: rgba(99, 102, 241, 0.25);
+      --emerald: #10b981;
     }
+    
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    
     body {
       min-height: 100vh;
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.6;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Subtle Ambient Aurora Background */
+    .ambient-glow {
+      position: fixed;
+      top: -20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1000px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.1) 40%, transparent 70%);
+      filter: blur(80px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .grid-pattern {
+      position: fixed;
+      inset: 0;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      mask-image: radial-gradient(ellipse 60% 50% at 50% 30%, #000 70%, transparent 100%);
+      -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 30%, #000 70%, transparent 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Layout Container */
+    .wrapper {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* Top Navigation Bar */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0 48px;
+    }
+
+    .brand-mark {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #4f46e5 0%, #06b6d4 100%);
       display: flex;
       align-items: center;
       justify-content: center;
-      background: var(--bg);
-      color: var(--text-main);
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      padding: 40px 20px;
-      line-height: 1.5;
-      -webkit-font-smoothing: antialiased;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
     }
-    .sheet {
-      width: 100%;
-      max-width: 720px;
+
+    .brand-icon svg {
+      width: 16px;
+      height: 16px;
+      color: white;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+      border-radius: 9999px;
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #34d399;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: var(--emerald);
+      box-shadow: 0 0 10px var(--emerald);
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.6; }
+    }
+
+    /* Hero Section */
+    .hero {
+      margin-bottom: 44px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #818cf8;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 16px;
+    }
+
+    h1.hero-title {
+      font-size: clamp(32px, 5vw, 48px);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+      color: #ffffff;
+    }
+
+    .hero-title .host-pill {
+      background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      word-break: break-all;
+    }
+
+    .hero-title .gradient-text {
+      display: block;
+      background: linear-gradient(135deg, #818cf8 0%, #c084fc 50%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-desc {
+      font-size: 16px;
+      color: var(--text-muted);
+      max-width: 620px;
+      line-height: 1.7;
+    }
+
+    /* Main Bento Deck */
+    .bento-grid {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    @media (max-width: 768px) {
+      .bento-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .glass-card {
       background: var(--card-bg);
-      border: 1px solid var(--border);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 20px 40px -15px rgba(0, 0, 0, 0.05);
-      border-radius: 4px;
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      position: relative;
       overflow: hidden;
     }
-    .meta-bar {
+
+    .glass-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+    }
+
+    .glass-card:hover {
+      border-color: var(--card-border-hover);
+      box-shadow: 0 16px 40px -10px rgba(99, 102, 241, 0.12);
+    }
+
+    /* Card 1: Interactive Workspace Guide */
+    .guide-card {
+      padding: 32px;
       display: flex;
+      flex-direction: column;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
       justify-content: space-between;
-      align-items: center;
-      padding: 12px 28px;
-      background: #f8fafc;
-      border-bottom: 1px solid var(--border);
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      letter-spacing: 0.04em;
-      color: var(--text-muted);
-      text-transform: uppercase;
+      margin-bottom: 24px;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 12px;
     }
-    .meta-bar strong {
-      color: var(--text-main);
-      font-weight: 600;
-    }
-    .hero-section {
-      padding: 36px 32px 28px;
-      border-bottom: 1px solid var(--border);
-    }
-    .status-tag {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--ok);
-      background: var(--ok-bg);
-      display: inline-block;
-      padding: 3px 8px;
-      margin-bottom: 14px;
-    }
-    .title-row {
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #ffffff;
       display: flex;
-      align-items: baseline;
-      gap: 16px;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
-    }
-    .status-code {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 48px;
-      font-weight: 700;
-      line-height: 1;
-      letter-spacing: -0.05em;
-      color: var(--text-main);
-    }
-    h1 {
-      font-size: 24px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      color: var(--text-main);
-      line-height: 1.2;
-    }
-    .lead {
-      font-size: 14px;
-      color: var(--text-muted);
-      max-width: 600px;
-    }
-    .host-target {
-      font-family: 'JetBrains Mono', monospace;
-      font-weight: 600;
-      color: var(--accent);
-      background: #eff6ff;
-      padding: 1px 6px;
-      border: 1px solid #dbeafe;
-    }
-    /* Technical Flow Diagram */
-    .schematic {
-      padding: 24px 32px;
-      background: #fcfcfd;
-      border-bottom: 1px solid var(--border);
-    }
-    .schematic-label {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--text-dim);
-      margin-bottom: 14px;
-    }
-    .diagram-row {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr auto 1fr;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
     }
-    @media (max-width: 600px) {
-      .diagram-row {
-        grid-template-columns: 1fr;
-        gap: 12px;
-      }
-      .diagram-arrow {
-        transform: rotate(90deg);
-        margin: 4px auto;
-      }
+
+    .tab-pills {
+      display: flex;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 3px;
+      border-radius: 8px;
+      gap: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
     }
-    .node {
-      border: 1px solid var(--border);
-      background: #ffffff;
-      padding: 10px 14px;
-      border-radius: 2px;
-    }
-    .node-title {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--text-main);
-      margin-bottom: 2px;
-    }
-    .node-sub {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      color: var(--text-muted);
-    }
-    .node.ok {
-      border-left: 3px solid var(--ok);
-    }
-    .diagram-arrow {
+
+    .tab-btn {
+      background: transparent;
+      border: none;
       color: var(--text-dim);
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-    }
-    /* Diagnostic Data Grid */
-    .data-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      border-bottom: 1px solid var(--border);
-    }
-    @media (max-width: 540px) {
-      .data-grid { grid-template-columns: 1fr; }
-    }
-    .data-cell {
-      padding: 16px 32px;
-      border-right: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-    }
-    .data-cell:nth-child(2n) {
-      border-right: none;
-    }
-    .data-cell:nth-last-child(-n+2) {
-      border-bottom: none;
-    }
-    .data-key {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--text-dim);
-      margin-bottom: 4px;
-    }
-    .data-val {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: inherit;
       font-size: 12px;
       font-weight: 600;
-      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
     }
-    /* Action & Protocol Manual */
-    .protocol-section {
-      padding: 28px 32px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 28px;
+
+    .tab-btn.active {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
     }
-    @media (max-width: 620px) {
-      .protocol-section { grid-template-columns: 1fr; }
+
+    .tab-btn:hover:not(.active) {
+      color: var(--text-muted);
     }
-    .protocol-col h2 {
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--text-main);
-      margin-bottom: 10px;
+
+    .tab-content {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      animation: fadeIn 0.2s ease;
     }
-    .protocol-col ol {
-      padding-left: 18px;
-      font-size: 12px;
+
+    .tab-content.active {
+      display: flex;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .tab-desc {
+      font-size: 14px;
       color: var(--text-muted);
       line-height: 1.6;
     }
-    .protocol-col ol li {
-      margin-bottom: 6px;
+
+    /* Terminal Code Block */
+    .terminal-window {
+      background: #05070a;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      overflow: hidden;
+      font-family: 'JetBrains Mono', monospace;
     }
-    .protocol-col ol li:last-child {
-      margin-bottom: 0;
-    }
-    .cli-box {
-      background: #0f172a;
-      border-radius: 2px;
-      padding: 10px 12px;
-      margin-top: 10px;
+
+    .terminal-top {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
-    }
-    .cli-code {
-      font-family: 'JetBrains Mono', monospace;
+      padding: 9px 14px;
+      background: rgba(255, 255, 255, 0.03);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
       font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .window-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .window-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .terminal-body {
+      padding: 14px 16px;
+      font-size: 12px;
+      line-height: 1.7;
       color: #e2e8f0;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
       overflow-x: auto;
+    }
+
+    .terminal-code {
       white-space: nowrap;
     }
-    .copy-btn {
-      background: #1e293b;
-      border: 1px solid #334155;
-      color: #cbd5e1;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      padding: 3px 8px;
-      border-radius: 2px;
+
+    .cmd-prompt {
+      color: #38bdf8;
+      user-select: none;
+      margin-right: 8px;
+    }
+
+    .cmd-arg {
+      color: #f472b6;
+    }
+
+    .copy-chip {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 6px;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       transition: all 0.15s ease;
-      shrink-0: 0;
+      flex-shrink: 0;
     }
-    .copy-btn:hover {
-      background: #334155;
+
+    .copy-chip:hover {
+      background: rgba(255, 255, 255, 0.16);
       color: #ffffff;
+      border-color: rgba(255, 255, 255, 0.25);
     }
-    .copy-btn:active {
-      transform: scale(0.96);
+
+    /* Card 2: Technical Specifications & Status */
+    .specs-card {
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
-    /* Colophon / Footer */
-    .colophon {
-      padding: 14px 32px;
-      background: #f8fafc;
-      border-top: 1px solid var(--border);
+
+    .specs-header {
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .spec-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .spec-item {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 13px;
+    }
+
+    .spec-item:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .spec-label {
+      color: var(--text-dim);
+    }
+
+    .spec-value {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
+      color: var(--text-main);
+      font-weight: 500;
+      font-size: 12px;
+    }
+
+    .spec-value.highlight {
+      color: #38bdf8;
+    }
+
+    .spec-badge {
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      color: #38bdf8;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    /* Bottom Feature Highlights */
+    .features-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 48px;
+    }
+
+    @media (max-width: 768px) {
+      .features-strip {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .feature-tile {
+      padding: 20px 24px;
+      background: rgba(15, 18, 28, 0.4);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: border-color 0.2s ease;
+    }
+
+    .feature-tile:hover {
+      border-color: rgba(255, 255, 255, 0.14);
+    }
+
+    .tile-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #818cf8;
+      margin-bottom: 4px;
+    }
+
+    .tile-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .tile-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Footer Colophon */
+    footer {
+      margin-top: auto;
+      padding-top: 32px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
       color: var(--text-dim);
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 16px;
     }
-    .brand {
-      font-weight: 600;
+
+    .footer-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .footer-left strong {
       color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .live-clock {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: var(--text-dim);
     }
   </style>
 </head>
 <body>
-  <div class="sheet">
-    <div class="meta-bar">
-      <span><strong>BarePod</strong> Hosting Platform</span>
-      <span>Runtime Edge Active</span>
-      <span>HTTP 200 OK</span>
-    </div>
+  <div class="ambient-glow"></div>
+  <div class="grid-pattern"></div>
 
-    <div class="hero-section">
-      <div class="status-tag">System Initialized &amp; Online</div>
-      <div class="title-row">
-        <div class="status-code">200</div>
-        <h1>Ready for Deployment</h1>
-      </div>
-      <p class="lead">The website environment for <span id="host-target" class="host-target">` + title + `</span> has been provisioned and is ready for your application code.</p>
-    </div>
-
-    <!-- Technical Flow Schematic -->
-    <div class="schematic">
-      <div class="schematic-label">Routing &amp; Storage Topology</div>
-      <div class="diagram-row">
-        <div class="node ok">
-          <div class="node-title">Public Ingress</div>
-          <div class="node-sub">Port 80/443 Ready</div>
+  <div class="wrapper">
+    <header>
+      <a href="#" class="brand-mark">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
         </div>
-        <div class="diagram-arrow">──▶</div>
-        <div class="node ok">
-          <div class="node-title">VHost Route</div>
-          <div class="node-sub">` + title + `</div>
+        <span>BarePod</span>
+      </a>
+
+      <div class="status-badge">
+        <span class="pulse-dot"></span>
+        <span id="runtime-status">Node Online</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="eyebrow">
+          <span>Deployment Initialized</span>
         </div>
-        <div class="diagram-arrow">──▶</div>
-        <div class="node ok">
-          <div class="node-title">DocRoot Storage</div>
-          <div class="node-sub">/web/` + escapedSlug + `</div>
+        <h1 class="hero-title">
+          <span class="host-pill" id="site-host">` + title + `</span>
+          <span class="gradient-text">is ready for launch.</span>
+        </h1>
+        <p class="hero-desc">
+          Your web environment has been provisioned and hooked to the edge ingress. Replace this starter page with your application or connect your git repository to get started.
+        </p>
+      </section>
+
+      <section class="bento-grid">
+        <!-- Interactive Deployment Guide -->
+        <div class="glass-card guide-card">
+          <div class="card-header">
+            <div class="card-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="4 17 10 11 4 5"></polyline>
+                <line x1="12" y1="19" x2="20" y2="19"></line>
+              </svg>
+              <span>Quick Start</span>
+            </div>
+
+            <div class="tab-pills">
+              <button class="tab-btn active" onclick="switchTab('html')">Static / HTML</button>
+              <button class="tab-btn" onclick="switchTab('git')">Git Deploy</button>
+              <button class="tab-btn" onclick="switchTab('apps')">App Stacks</button>
+            </div>
+          </div>
+
+          <!-- Tab 1: Static -->
+          <div id="tab-html" class="tab-content active">
+            <p class="tab-desc">
+              Your web root directory is ready on the server. Simply place your <code style="color: #38bdf8;">index.html</code>, stylesheets, or built assets inside this folder:
+            </p>
+            <div class="terminal-window">
+              <div class="terminal-top">
+                <div class="window-dots">
+                  <div class="window-dot"></div>
+                  <div class="window-dot"></div>
+                  <div class="window-dot"></div>
+                </div>
+                <span>Server Document Root</span>
+              </div>
+              <div class="terminal-body">
+                <div class="terminal-code">
+                  <span class="cmd-prompt">root:</span><span id="code-root">/web/` + escapedSlug + `</span>
+                </div>
+                <button class="copy-chip" onclick="copySnippet('code-root', this)">Copy Path</button>
+              </div>
+            </div>
+            <p class="tab-desc" style="font-size: 13px; color: var(--text-dim);">
+              Tip: You can upload files directly using the File Manager inside BarePod Panel, or push via SFTP.
+            </p>
+          </div>
+
+          <!-- Tab 2: Git -->
+          <div id="tab-git" class="tab-content">
+            <p class="tab-desc">
+              Connect your GitHub or GitLab repository in the panel to enable automated zero-downtime deployments on git push:
+            </p>
+            <div class="terminal-window">
+              <div class="terminal-top">
+                <div class="window-dots">
+                  <div class="window-dot"></div>
+                  <div class="window-dot"></div>
+                  <div class="window-dot"></div>
+                </div>
+                <span>Terminal Probe</span>
+              </div>
+              <div class="terminal-body">
+                <div class="terminal-code">
+                  <span class="cmd-prompt">$</span>curl -Iv <span class="cmd-arg" id="probe-url">https://` + title + `/</span>
+                </div>
+                <button class="copy-chip" onclick="copySnippet('probe-url', this)">Copy</button>
+              </div>
+            </div>
+            <p class="tab-desc" style="font-size: 13px; color: var(--text-dim);">
+              Configure build triggers and branch tracking under the <strong>Git Deployment</strong> tab in your site dashboard.
+            </p>
+          </div>
+
+          <!-- Tab 3: Apps -->
+          <div id="tab-apps" class="tab-content">
+            <p class="tab-desc">
+              Looking to run a full-stack framework? BarePod provides native runtime engines and automated supervisors for:
+            </p>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;">
+              <span class="spec-badge">Laravel 12</span>
+              <span class="spec-badge">Node.js / Next.js</span>
+              <span class="spec-badge">WordPress</span>
+              <span class="spec-badge">Python / FastAPI</span>
+              <span class="spec-badge">Go / Fiber</span>
+            </div>
+            <p class="tab-desc" style="font-size: 13px; color: var(--text-dim); margin-top: 8px;">
+              Head over to <strong>BarePod Panel &rarr; Applications</strong> to scaffold or link containerized pods with one click.
+            </p>
+          </div>
         </div>
-      </div>
-    </div>
 
-    <!-- Diagnostic Data Grid -->
-    <div class="data-grid">
-      <div class="data-cell">
-        <div class="data-key">01 / Website Slug</div>
-        <div class="data-val">` + escapedSlug + `</div>
-      </div>
-      <div class="data-cell">
-        <div class="data-key">02 / Edge Gateway</div>
-        <div class="data-val">HTTP 200 (Online)</div>
-      </div>
-      <div class="data-cell">
-        <div class="data-key">03 / Target Domain</div>
-        <div class="data-val">` + title + `</div>
-      </div>
-      <div class="data-cell">
-        <div class="data-key">04 / Deployment State</div>
-        <div class="data-val">Awaiting Project Code</div>
-      </div>
-    </div>
+        <!-- Specifications & Telemetry Card -->
+        <div class="glass-card specs-card">
+          <div>
+            <div class="specs-header">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M12 6v6l4 2"></path>
+              </svg>
+              <span>Environment</span>
+            </div>
 
-    <!-- Deployment Protocols & CLI Probe -->
-    <div class="protocol-section">
-      <div class="protocol-col">
-        <h2>§ 01 / Deployment Protocols</h2>
-        <ol>
-          <li><b>Git Push:</b> Connect your repository in BarePod for automated CI/CD deployments.</li>
-          <li><b>File Manager:</b> Upload your web files or extract archives directly into this site.</li>
-          <li><b>Framework Presets:</b> Scaffold Laravel, WordPress, Node.js, Python or Go stacks.</li>
-        </ol>
-      </div>
+            <div class="spec-list">
+              <div class="spec-item">
+                <span class="spec-label">Domain</span>
+                <span class="spec-value highlight" id="spec-domain">` + title + `</span>
+              </div>
+              <div class="spec-item">
+                <span class="spec-label">SSL Encryption</span>
+                <span class="spec-badge">Auto TLS Active</span>
+              </div>
+              <div class="spec-item">
+                <span class="spec-label">Web Ingress</span>
+                <span class="spec-value">High-Performance Edge</span>
+              </div>
+              <div class="spec-item">
+                <span class="spec-label">HTTP Protocol</span>
+                <span class="spec-value">HTTP/2 • HTTP/3 (QUIC)</span>
+              </div>
+            </div>
+          </div>
 
-      <div class="protocol-col">
-        <h2>§ 02 / Diagnostic Probe</h2>
-        <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">Verify HTTP ingress response headers via terminal:</p>
-        <div class="cli-box">
-          <span class="cli-code" id="cli-cmd">curl -Iv http://` + title + `/</span>
-          <button class="copy-btn" id="copy-btn" onclick="copyProbe()">Copy</button>
+          <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.06);">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <span style="font-size: 12px; color: var(--text-dim);">Latency Probe</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #34d399;" id="latency-val">&lt; 1ms local</span>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+      </section>
 
-    <div class="colophon">
-      <span class="brand">BarePod Cloud Infrastructure</span>
-      <span>RFC 9110 §15.3.1</span>
-    </div>
+      <!-- Three Pillars -->
+      <section class="features-strip">
+        <div class="feature-tile">
+          <div class="tile-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+            </svg>
+          </div>
+          <div class="tile-title">High Speed Edge</div>
+          <div class="tile-desc">Served with automated Brotli &amp; Zstandard compression right from NVMe storage.</div>
+        </div>
+
+        <div class="feature-tile">
+          <div class="tile-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+          </div>
+          <div class="tile-title">Hardened Isolation</div>
+          <div class="tile-desc">Dedicated Linux user permissions and strict dotfile blocking for enterprise safety.</div>
+        </div>
+
+        <div class="feature-tile">
+          <div class="tile-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+              <polyline points="2 17 12 22 22 17"></polyline>
+              <polyline points="2 12 12 17 22 12"></polyline>
+            </svg>
+          </div>
+          <div class="tile-title">Multi-Tenant Engine</div>
+          <div class="tile-desc">Seamlessly scaled across isolated application pods and managed relational databases.</div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-left">
+        <strong>BarePod</strong>
+        <span>Cloud Hosting &amp; Container Infrastructure</span>
+      </div>
+      <div class="live-clock" id="clock">UTC</div>
+    </footer>
   </div>
 
   <script>
+    // Hostname dynamic adaptation
     try {
       if (window.location && window.location.hostname) {
-        var h = window.location.hostname;
-        var el1 = document.getElementById('host-target');
-        var el3 = document.getElementById('cli-cmd');
-        if (el1 && h) el1.textContent = h;
-        if (el3) el3.textContent = 'curl -Iv ' + window.location.origin + '/';
+        var host = window.location.hostname;
+        var hostEl = document.getElementById('site-host');
+        var specEl = document.getElementById('spec-domain');
+        var probeEl = document.getElementById('probe-url');
+        if (hostEl && host) hostEl.textContent = host;
+        if (specEl && host) specEl.textContent = host;
+        if (probeEl && host) probeEl.textContent = 'curl -Iv ' + window.location.origin + '/';
       }
     } catch (e) {}
 
-    function copyProbe() {
-      var cmd = document.getElementById('cli-cmd');
-      var btn = document.getElementById('copy-btn');
-      if (!cmd || !btn) return;
-      navigator.clipboard.writeText(cmd.textContent).then(function() {
-        btn.textContent = 'Copied';
-        setTimeout(function() { btn.textContent = 'Copy'; }, 1800);
+    // Tab switching
+    function switchTab(type) {
+      var btns = document.querySelectorAll('.tab-btn');
+      var contents = document.querySelectorAll('.tab-content');
+      btns.forEach(function(btn) { btn.classList.remove('active'); });
+      contents.forEach(function(c) { c.classList.remove('active'); });
+
+      if (type === 'html') {
+        btns[0].classList.add('active');
+        document.getElementById('tab-html').classList.add('active');
+      } else if (type === 'git') {
+        btns[1].classList.add('active');
+        document.getElementById('tab-git').classList.add('active');
+      } else if (type === 'apps') {
+        btns[2].classList.add('active');
+        document.getElementById('tab-apps').classList.add('active');
+      }
+    }
+
+    // Copy helper
+    function copySnippet(elementId, btn) {
+      var el = document.getElementById(elementId);
+      if (!el) return;
+      var text = el.textContent;
+      navigator.clipboard.writeText(text).then(function() {
+        var orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.style.borderColor = '#10b981';
+        btn.style.color = '#34d399';
+        setTimeout(function() {
+          btn.textContent = orig;
+          btn.style.borderColor = '';
+          btn.style.color = '';
+        }}, 2000);
       }).catch(function() {});
     }
+
+    // Real-time clock
+    function updateClock() {
+      var d = new Date();
+      var el = document.getElementById('clock');
+      if (el) {
+        el.textContent = d.toUTCString().replace('GMT', 'UTC');
+      }
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
   </script>
 </body>
 </html>`
