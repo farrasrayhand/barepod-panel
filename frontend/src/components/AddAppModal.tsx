@@ -1767,13 +1767,13 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     <Globe className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
                     <div className="flex-1">
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold text-slate-700">Direct Web Server ({webServer.toUpperCase()})</span>
+                        <span className="font-semibold text-slate-700">Direct Web Server</span>
                         <span className="text-[10px] font-medium text-slate-500 bg-slate-200/60 px-1.5 py-0.5 rounded">
                           Standard Port
                         </span>
                       </div>
                       <span className="text-slate-500 block mt-0.5 text-[11px] leading-relaxed">
-                        Traffic routes directly through {webServer.toUpperCase()} with automatic SSL certificate. Point your domain's DNS A-record to this server's public IP.
+                        Traffic routes directly with automatic SSL certificate. Point your domain's DNS A-record to this server's public IP.
                       </span>
                     </div>
                   </div>
