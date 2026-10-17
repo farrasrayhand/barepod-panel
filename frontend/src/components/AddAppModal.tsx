@@ -37,7 +37,7 @@ import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../type
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
 import { AVAILABLE_ENGINE_VERSIONS, ENGINE_LABELS } from '../data/databaseEngines';
 import { getProvisionPlan } from '../data/frameworkProvision';
-import { api, apiReachable, ApiError, type StackStatus, type DetectedFramework, type CloudflareZone, type DatabaseRow, type ApiDomain, type DomainValidationResult } from '../api/client';
+import { api, apiReachable, ApiError, type StackStatus, type DetectedFramework, type CloudflareZone, type DatabaseRow, type ApiDomain, type DomainValidationResult, type TunnelStatusResponse } from '../api/client';
 
 interface AddAppModalProps {
   isOpen: boolean;
@@ -546,6 +546,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   const [tenantUser, setTenantUser] = useState(defaultTenant);
   const [availableUsers, setAvailableUsers] = useState<Array<{ username: string; role: string; groupName?: string }>>([]);
   const [tunnelEnabled, setTunnelEnabled] = useState(false);
+  const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusResponse | null>(null);
   const [hasTunnelConfigured, setHasTunnelConfigured] = useState(false);
   const [checkingTunnel, setCheckingTunnel] = useState(false);
 
@@ -555,6 +556,11 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   const [selectedCfZone, setSelectedCfZone] = useState<string>('');
   const [subdomain, setSubdomain] = useState<string>('');
   const [userEditedSubdomain, setUserEditedSubdomain] = useState(false);
+
+  // Computed Cloudflare readiness levels
+  const hasTunnelConnector = Boolean(tunnelStatus?.hasToken && tunnelStatus?.status === 'connected');
+  const isAutoSyncReady = Boolean(hasTunnelConnector && tunnelStatus?.hasApiToken && cfZones.length > 0);
+  const isConnectorOnly = Boolean(hasTunnelConnector && !isAutoSyncReady);
 
   // Panel-wide domains & tunnel routes for collision checks
   const [allPanelDomains, setAllPanelDomains] = useState<ApiDomain[]>([]);
@@ -598,22 +604,26 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
 
         if (!active) return;
 
+        let statusObj: TunnelStatusResponse | null = null;
         let tunnelReady = false;
         if (statusResult.status === 'fulfilled') {
-          const s = statusResult.value;
-          tunnelReady = Boolean(s && s.hasToken && s.status === 'connected');
-          setTenantTunnelRoutes(s?.routes || []);
+          statusObj = statusResult.value;
+          setTunnelStatus(statusObj);
+          tunnelReady = Boolean(statusObj && statusObj.hasToken && statusObj.status === 'connected');
+          setTenantTunnelRoutes(statusObj?.routes || []);
+        } else {
+          setTunnelStatus(null);
         }
         setHasTunnelConfigured(tunnelReady);
 
         if (zonesResult.status === 'fulfilled') {
           const res = zonesResult.value;
-          if (tunnelReady && res.zones && Array.isArray(res.zones) && res.zones.length > 0) {
-            setCfZones(res.zones);
-            setSelectedCfZone(res.zones[0].name);
+          const loadedZones = res.zones && Array.isArray(res.zones) ? res.zones : [];
+          setCfZones(loadedZones);
+          if (tunnelReady && statusObj?.hasApiToken && loadedZones.length > 0) {
+            setSelectedCfZone(loadedZones[0].name);
             setTunnelEnabled(true);
           } else {
-            setCfZones(res.zones && Array.isArray(res.zones) ? res.zones : []);
             setSelectedCfZone('custom');
             setTunnelEnabled(false);
           }
@@ -625,6 +635,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
       } catch (err) {
         console.warn('Failed to load Cloudflare tunnel or zones:', err);
         if (active) {
+          setTunnelStatus(null);
           setHasTunnelConfigured(false);
           setTunnelEnabled(false);
           setCfZones([]);
@@ -662,20 +673,20 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
       } else {
         setDomain(`${activeSub}.${zone}`);
       }
-      setTunnelEnabled(hasTunnelConfigured);
+      setTunnelEnabled(true);
     } else {
       setTunnelEnabled(false);
     }
   };
 
   useEffect(() => {
-    if (!userEditedSubdomain && tunnelEnabled && cfZones.length > 0 && selectedCfZone && selectedCfZone !== 'custom') {
+    if (!userEditedSubdomain && tunnelEnabled && isAutoSyncReady && selectedCfZone && selectedCfZone !== 'custom') {
       if (normalizedSlug) {
         setSubdomain(normalizedSlug);
         setDomain(`${normalizedSlug}.${selectedCfZone}`);
       }
     }
-  }, [normalizedSlug, tunnelEnabled, cfZones, selectedCfZone, userEditedSubdomain]);
+  }, [normalizedSlug, tunnelEnabled, isAutoSyncReady, selectedCfZone, userEditedSubdomain]);
 
   const duplicateNameSite = useMemo(() => {
     if (!normalizedSlug || !existingApps.length) return null;
@@ -1332,7 +1343,13 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
     }
 
     const isDomainInCfZones = cfZones.some(z => domain.toLowerCase() === z.name.toLowerCase() || domain.toLowerCase().endsWith('.' + z.name.toLowerCase()));
-    const effectiveTunnel = Boolean(tunnelEnabled && selectedCfZone !== 'custom' && (cfZones.length > 0 ? isDomainInCfZones : false));
+    const effectiveTunnel = Boolean(
+      tunnelEnabled && (
+        (isAutoSyncReady && selectedCfZone !== 'custom')
+          ? isDomainInCfZones
+          : domain.trim().length > 0
+      )
+    );
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -1544,14 +1561,18 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-semibold text-slate-700">Domain (FQDN)</label>
-                    {tunnelEnabled && cfZones.length > 0 && selectedCfZone !== 'custom' && (
+                    {tunnelEnabled && isAutoSyncReady && selectedCfZone !== 'custom' ? (
                       <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                        <Sparkles className="w-3 h-3" /> Cloudflare Connected
+                        <Sparkles className="w-3 h-3" /> Cloudflare Auto-DNS
                       </span>
-                    )}
+                    ) : tunnelEnabled && isConnectorOnly ? (
+                      <span className="text-[10px] text-amber-700 font-semibold flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                        <AlertCircle className="w-3 h-3" /> Manual Cloudflare DNS
+                      </span>
+                    ) : null}
                   </div>
 
-                  {tunnelEnabled && cfZones.length > 0 ? (
+                  {tunnelEnabled && isAutoSyncReady ? (
                     <div className="space-y-2">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div>
@@ -1611,17 +1632,24 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       )}
                     </div>
                   ) : (
-                    <input
-                      type="text"
-                      value={domain}
-                      onChange={(e) => setDomain(e.target.value)}
-                      placeholder="app.example.com"
-                      className={`${inputClass} ${
-                        duplicateDomainSite || (domain.trim() !== '' && !domainValid)
-                          ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900'
-                          : ''
-                      }`}
-                    />
+                    <div>
+                      <input
+                        type="text"
+                        value={domain}
+                        onChange={(e) => setDomain(e.target.value)}
+                        placeholder="app.example.com"
+                        className={`${inputClass} ${
+                          duplicateDomainSite || (domain.trim() !== '' && !domainValid)
+                            ? 'border-rose-400 focus:border-rose-500 bg-rose-50/40 text-rose-900'
+                            : ''
+                        }`}
+                      />
+                      {tunnelEnabled && isConnectorOnly && domain.trim() && (
+                        <p className="text-[10px] text-amber-700 bg-amber-50/70 p-2 rounded-lg border border-amber-200/60 leading-relaxed mt-1.5">
+                          ℹ️ <strong>Connector Mode:</strong> BarePod will bind this site to your tunnel daemon on port 80. Remember to add <code className="font-mono font-bold">{domain}</code> under <em>Public Hostnames</em> in your Cloudflare Zero Trust dashboard.
+                        </p>
+                      )}
+                    </div>
                   )}
 
                   {duplicateDomainSite ? (
@@ -1701,7 +1729,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
                     <span>Checking Cloudflare Tunnel status for @{tenantUser}...</span>
                   </div>
-                ) : hasTunnelConfigured ? (
+                ) : isAutoSyncReady ? (
                   <label className="flex items-start gap-3 p-3 rounded-xl border border-blue-200 bg-blue-50/30 hover:bg-blue-50/60 cursor-pointer transition-colors">
                     <input
                       type="checkbox"
@@ -1712,12 +1740,35 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     <span className="text-xs">
                       <span className="font-semibold text-slate-800 flex items-center gap-1.5">
                         <CloudRain className="w-3.5 h-3.5 text-blue-500" /> Cloudflare Tunnel (Zero-NAT)
-                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
-                          Configured
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                          <Sparkles className="w-2.5 h-2.5 text-emerald-600" /> Auto-DNS Ready
                         </span>
                       </span>
                       <span className="text-slate-500 block mt-0.5">
-                        Publish domain securely without a public IP or port forwarding.
+                        Publish domain securely without a public IP or port forwarding. DNS records & Public Hostnames are automatically synced to Cloudflare.
+                      </span>
+                    </span>
+                  </label>
+                ) : isConnectorOnly ? (
+                  <label className="flex items-start gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50/30 hover:bg-amber-50/60 cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={tunnelEnabled}
+                      onChange={(e) => setTunnelEnabled(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                    />
+                    <span className="text-xs">
+                      <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                        <CloudRain className="w-3.5 h-3.5 text-amber-600" /> Cloudflare Tunnel (Zero-NAT)
+                        <span className="text-[10px] font-bold text-amber-800 bg-amber-100/70 px-1.5 py-0.5 rounded border border-amber-300/80 flex items-center gap-1">
+                          <AlertCircle className="w-2.5 h-2.5 text-amber-600" /> Connector Only (Manual DNS)
+                        </span>
+                      </span>
+                      <span className="text-slate-600 block mt-0.5 text-[11px] leading-relaxed">
+                        Tunnel daemon is connected, but Cloudflare API Token is not configured. Traffic will route via Zero-NAT locally, but you must <strong>manually add this hostname in Cloudflare Zero Trust</strong>.
+                      </span>
+                      <span className="text-amber-800 block mt-1 text-[10px] font-medium">
+                        💡 Want 1-click automatic DNS records? Add your Cloudflare API Token under <strong>Cloudflare Tunnels</strong>.
                       </span>
                     </span>
                   </label>
@@ -2589,7 +2640,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                         ...(hasCacheSupport ? [['Cache', effectiveCreateCache ? `Redis 7.2 :${activeCacheVersion?.port ?? 6379}` : 'None']] : []),
                       ] as [string, string][])
                     : []),
-                  ['Cloudflare Tunnel', tunnelEnabled ? 'Enabled' : 'Disabled'],
+                  ['Cloudflare Tunnel', tunnelEnabled ? (isAutoSyncReady && selectedCfZone !== 'custom' ? `Enabled (Auto-DNS via ${selectedCfZone})` : 'Enabled (Manual DNS)') : 'Disabled (Direct Web Server)'],
                 ].map(([label, value]) => (
                   <div key={label} className="px-4 py-2.5 flex items-center justify-between gap-3">
                     <span className="text-slate-400">{label}</span>
