@@ -5973,7 +5973,7 @@ QUEUE_CONNECTION=redis`}
               <div className="flex items-center justify-between text-xs font-bold text-slate-700">
                 <span>Associated Databases ({associatedDbs.length})</span>
                 <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-mono">
-                  {associatedDbs.map(d => d.alias || d.name).join(', ')}
+                  {associatedDbs.map(d => `${d.alias || d.name} (${d.engine})`).join(', ')}
                 </span>
               </div>
               <div className="space-y-2">
@@ -6005,7 +6005,7 @@ QUEUE_CONNECTION=redis`}
                   <div>
                     <span className="font-bold text-rose-800">Delete Associated Databases</span>
                     <p className="text-[11px] text-rose-600">
-                      Drop and permanently destroy {associatedDbs.map(d => d.alias || d.name).join(', ')}.
+                      Drop and permanently destroy {associatedDbs.map(d => `${d.alias || d.name} (${d.engine})`).join(', ')}.
                     </p>
                   </div>
                 </label>

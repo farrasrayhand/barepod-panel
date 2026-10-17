@@ -574,6 +574,17 @@ func stepWriteEnv(ctx context.Context, s *state) error {
 
 			s.log("stdout", "database name/user: "+s.dbName+" (tenant-prefixed to avoid shared-daemon collisions)")
 			s.log("stdout", "database password stored encrypted (AES-256-GCM)")
+
+			// If the user selected a managed database engine (mariadb/mysql/postgres) for Laravel,
+			// clean up the placeholder database/database.sqlite created by composer create-project
+			// so it does not get detected as a phantom secondary database.
+			if strings.Contains(strings.ToLower(s.req.Framework), "laravel") {
+				placeholder := filepath.Join(s.siteDir, "database", "database.sqlite")
+				if fi, err := os.Stat(placeholder); err == nil && fi.Size() < 250*1024 {
+					_ = os.Remove(placeholder)
+					s.log("stdout", "cleaned up starter laravel database.sqlite in favor of "+engine)
+				}
+			}
 		}
 	}
 

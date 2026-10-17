@@ -554,7 +554,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                 <span>Associated Databases ({associatedDbs.length})</span>
               </div>
               <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-mono">
-                {associatedDbs.map(d => d.alias || d.name).join(', ')}
+                {associatedDbs.map(d => `${d.alias || d.name} (${d.engine})`).join(', ')}
               </span>
             </div>
             <div className="space-y-2 text-xs">
@@ -586,7 +586,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                 <div>
                   <span className="font-semibold text-rose-700">Delete associated databases</span>
                   <p className="text-[11px] text-rose-600">
-                    Permanently drops {associatedDbs.map(d => d.alias || d.name).join(', ')} from the database server.
+                    Permanently deletes {associatedDbs.map(d => `${d.alias || d.name} (${d.engine})`).join(', ')}.
                   </p>
                 </div>
               </label>
