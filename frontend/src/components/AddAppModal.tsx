@@ -582,20 +582,22 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
           tunnelReady = Boolean(s && (s.hasToken || s.status === 'connected'));
         }
         setHasTunnelConfigured(tunnelReady);
-        setTunnelEnabled(tunnelReady);
 
         if (zonesResult.status === 'fulfilled') {
           const res = zonesResult.value;
           if (res.zones && Array.isArray(res.zones) && res.zones.length > 0) {
             setCfZones(res.zones);
             setSelectedCfZone(res.zones[0].name);
+            setTunnelEnabled(tunnelReady);
           } else {
             setCfZones([]);
-            setSelectedCfZone('');
+            setSelectedCfZone('custom');
+            setTunnelEnabled(false);
           }
         } else {
           setCfZones([]);
-          setSelectedCfZone('');
+          setSelectedCfZone('custom');
+          setTunnelEnabled(false);
         }
       } catch (err) {
         console.warn('Failed to load Cloudflare tunnel or zones:', err);
@@ -603,7 +605,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
           setHasTunnelConfigured(false);
           setTunnelEnabled(false);
           setCfZones([]);
-          setSelectedCfZone('');
+          setSelectedCfZone('custom');
         }
       } finally {
         if (active) {
@@ -636,6 +638,9 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
       } else {
         setDomain(`${activeSub}.${zone}`);
       }
+      setTunnelEnabled(hasTunnelConfigured);
+    } else {
+      setTunnelEnabled(false);
     }
   };
 
@@ -1263,6 +1268,9 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
       });
     }
 
+    const isDomainInCfZones = cfZones.some(z => domain.toLowerCase() === z.name.toLowerCase() || domain.toLowerCase().endsWith('.' + z.name.toLowerCase()));
+    const effectiveTunnel = Boolean(tunnelEnabled && selectedCfZone !== 'custom' && (cfZones.length > 0 ? isDomainInCfZones : false));
+
     setIsSubmitting(true);
     setSubmitError(null);
     try {
@@ -1275,7 +1283,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
         frameworkVersion: appMode === 'proxy' ? undefined : (frameworkVersion || undefined),
         webServer,
         tenantUser,
-        tunnelEnabled,
+        tunnelEnabled: effectiveTunnel,
         ssl: true,
         port: resolvedPort,
         memoryUsage: '36 MB',

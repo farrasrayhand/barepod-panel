@@ -28,9 +28,9 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
 )
 
-// Version is the panel/daemon version (prototype line, see MASTER_PLAN §0).
+// Version is the panel/daemon version matching GitHub release tag.
 // It can be injected at build time using -ldflags="-X 'github.com/farrasrayhand/barepod-panel/backend/internal/api.Version=...'".
-var Version = "0.3.0-prototype"
+var Version = "3.0.1"
 
 // Deps are the dependencies the HTTP layer needs.
 type Deps struct {

@@ -11,7 +11,7 @@ interface FooterProps {
 export const Footer: React.FC<FooterProps> = ({ daemonVersion }) => {
   // The panel is still a prototype: 0.x only, and it never pretends to be a
   // release. When the daemon answers, its version wins so the two cannot drift.
-  const label = daemonVersion ? `v${daemonVersion}` : PANEL_VERSION_LABEL;
+  const label = daemonVersion ? (daemonVersion.startsWith('v') ? daemonVersion : `v${daemonVersion}`) : PANEL_VERSION_LABEL;
 
   return (
     <footer className="mt-8 border-t border-slate-200 px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-slate-400">

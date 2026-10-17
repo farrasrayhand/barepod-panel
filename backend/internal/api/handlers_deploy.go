@@ -846,6 +846,22 @@ func (s *Server) ensureWebsiteTunnelRoute(ctx context.Context, tenantUser, domai
 			bgCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			cf := cloudflare.NewClient(tunnel.ApiToken, tunnel.AccountID, tunnel.TunnelID)
+			zones, zErr := cf.ListZones(bgCtx)
+			if zErr == nil && len(zones) > 0 {
+				matched := false
+				for _, z := range zones {
+					zn := strings.ToLower(z.Name)
+					if hostname == zn || strings.HasSuffix(hostname, "."+zn) {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					log.Printf("cloudflare: skipping tunnel route for %s (domain does not belong to any zone in Cloudflare account)", hostname)
+					_ = s.store.DeleteCloudflareTunnelRoute(tenantUser, hostname)
+					return
+				}
+			}
 			if err := cf.AddIngressRule(bgCtx, hostname, service, false); err != nil {
 				log.Printf("cloudflare: auto-sync tunnel route failed for %s: %v", hostname, err)
 			}
