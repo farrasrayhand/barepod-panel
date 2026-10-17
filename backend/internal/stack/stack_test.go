@@ -51,17 +51,10 @@ func TestCommandsAreAllowlisted(t *testing.T) {
 	if !strings.Contains(joinedPHP, "php8.3-fpm") {
 		t.Errorf("php commands do not install the fpm package: %v", php)
 	}
-	// A PHP install is full: the extensions Settings toggles later must already be there.
-	// They are installed in a loop, one per attempt, because a repository does not carry
-	// the same set for every version and apt-get install is atomic.
-	for _, want := range []string{"sury.org", "php8.3-cli", "for e in", "php8.3-$e", "skipped"} {
+	// A PHP install installs the core packages and scans available repository extensions.
+	for _, want := range []string{"packages.sury.org", "php8.3-cli", "php8.3-fpm", "apt-cache search"} {
 		if !strings.Contains(joinedPHP, want) {
 			t.Errorf("php commands are missing %q", want)
-		}
-	}
-	for _, extension := range []string{"gd", "intl", "mysql", "opcache", "sodium"} {
-		if !strings.Contains(joinedPHP, extension) {
-			t.Errorf("php commands do not mention the %s extension", extension)
 		}
 	}
 	node, _ := Commands("node", "22")

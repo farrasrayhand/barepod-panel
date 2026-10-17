@@ -258,8 +258,11 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 		// Ensure /var/log/caddy exists and is owned by caddy:caddy so Caddy can write access logs
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", "mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy && chmod 755 /var/log/caddy && chmod 664 /var/log/caddy/*.log 2>/dev/null || true"})
 		// Nginx moves to internal backend port 127.0.0.1:8082 (and 8444 for ssl) so it never collides with Caddy on :80/:443
-		reconfigNginx := `python3 -c "import glob, re
-for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/conf.d/*.conf'):
+		reconfigNginx := `python3 -c "import glob, re, os
+if os.path.exists('/etc/nginx/conf.d/default.conf'):
+    os.rename('/etc/nginx/conf.d/default.conf', '/etc/nginx/conf.d/default.conf.barepod-disabled')
+for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/conf.d/*.conf') + ['/etc/nginx/sites-enabled/default']:
+    if not os.path.exists(f): continue
     with open(f, 'r') as fp: content = fp.read()
     content = re.sub(r'listen\s+\[::\]:80(\s+default_server)?;', r'listen [::1]:8082\1;', content)
     content = re.sub(r'listen\s+([0-9.]+:)80(\s+default_server)?;', r'listen 127.0.0.1:8082\2;', content)
@@ -269,8 +272,8 @@ for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/co
     content = re.sub(r'listen\s+443\s+ssl;', r'listen 127.0.0.1:8444 ssl;', content)
     with open(f, 'w') as fp: fp.write(content)" 2>/dev/null || true`
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", reconfigNginx})
-		cleanCaddyPort := "sed -i '/http_port/d; /https_port/d' /etc/caddy/Caddyfile 2>/dev/null || true; sed -i '/{\\s*}/d' /etc/caddy/Caddyfile 2>/dev/null || true"
-		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", cleanCaddyPort})
+		// Caddy runs as active ingress on public ports 80/443
+		_ = webserver.WriteCaddyConfig("/etc/caddy/Caddyfile", "/etc/caddy/sites", false)
 	} else if engine == "nginx" {
 		// Ensure nginx includes sites-enabled, realip config, and runs as www-data to match system php-fpm permissions
 		_ = webserver.EnsureNginxRealIP("/etc/nginx/conf.d")
@@ -278,8 +281,11 @@ for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/co
 		ensureNginx := "grep -q 'sites-enabled' /etc/nginx/nginx.conf 2>/dev/null || sed -i '/include \\/etc\\/nginx\\/conf.d\\/\\*\\.conf;/a \\    include /etc/nginx/sites-enabled/*.conf;' /etc/nginx/nginx.conf 2>/dev/null || true; sed -i 's/user  nginx;/user www-data;/; s/user nginx;/user www-data;/' /etc/nginx/nginx.conf 2>/dev/null || true; usermod -a -G www-data nginx 2>/dev/null || true"
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", ensureNginx})
 		// Nginx takes edge ingress on :80 and :443
-		reconfigNginx := `python3 -c "import glob, re
-for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/conf.d/*.conf'):
+		reconfigNginx := `python3 -c "import glob, re, os
+if os.path.exists('/etc/nginx/conf.d/default.conf'):
+    os.rename('/etc/nginx/conf.d/default.conf', '/etc/nginx/conf.d/default.conf.barepod-disabled')
+for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/conf.d/*.conf') + ['/etc/nginx/sites-enabled/default']:
+    if not os.path.exists(f): continue
     with open(f, 'r') as fp: content = fp.read()
     content = re.sub(r'listen\s+127\.0\.0\.1:8082(\s+default_server)?;', r'listen 80\1;', content)
     content = re.sub(r'listen\s+\[::1\]:8082(\s+default_server)?;', r'listen [::]:80\1;', content)
@@ -288,8 +294,7 @@ for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/co
     with open(f, 'w') as fp: fp.write(content)" 2>/dev/null || true`
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", reconfigNginx})
 		// Caddy moves to internal backend ports 8081 and 8445 (port 8443 is reserved for panel daemon)
-		caddyPortCmd := "sed -i '/http_port/d; /https_port/d' /etc/caddy/Caddyfile 2>/dev/null || true; sed -i '1s/^/{\\n    http_port 8081\\n    https_port 8445\\n}\\n/' /etc/caddy/Caddyfile 2>/dev/null || true"
-		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", caddyPortCmd})
+		_ = webserver.WriteCaddyConfig("/etc/caddy/Caddyfile", "/etc/caddy/sites", true)
 	}
 
 	// Start the new edge ingress engine

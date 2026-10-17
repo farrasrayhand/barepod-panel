@@ -131,7 +131,7 @@ func Commands(component, version string) ([][]string, error) {
 		return append([][]string{{"bash", "-c", nginxRepoScript}}, installEngine("nginx", version)...), nil
 	case "caddy":
 		cmds := append([][]string{{"bash", "-c", caddyRepoScript}}, installEngine("caddy", version)...)
-		caddyPortSetup := "if systemctl is-active --quiet nginx; then if [ -f /etc/caddy/Caddyfile ] && ! grep -q 'http_port' /etc/caddy/Caddyfile; then sed -i '1s/^/{\\n    http_port 8081\\n}\\n/' /etc/caddy/Caddyfile 2>/dev/null || true; systemctl restart caddy 2>/dev/null || true; fi; fi"
+		caddyPortSetup := "if systemctl is-active --quiet nginx; then mkdir -p /etc/caddy/sites; printf '# Managed by BarePod Panel — do not edit by hand.\\n{\\n    http_port 8081\\n    https_port 8445\\n    servers {\\n        trusted_proxies static private_ranges 127.0.0.1/32 ::1/128\\n    }\\n}\\nimport /etc/caddy/sites/*.caddy\\n' > /etc/caddy/Caddyfile; systemctl restart caddy 2>/dev/null || true; fi"
 		return append(cmds, []string{"bash", "-c", caddyPortSetup}), nil
 	case "apache":
 		cmds := append([][]string{{"bash", "-c", apacheRepoScript}}, installEngine("apache2", version)...)

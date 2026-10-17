@@ -49,8 +49,8 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({
 
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      fontSize: 12,
+      fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
+      fontSize: 12.5,
       theme: { background: '#0f172a', foreground: '#e2e8f0' },
       convertEol: true,
     });

@@ -89,8 +89,18 @@ fi
 
 if command -v docker >/dev/null 2>&1; then
   log "Docker: $(docker --version 2>/dev/null || echo 'present')"
+elif command -v apt-get >/dev/null 2>&1; then
+  log "Installing Docker CE (docker.io)..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq && apt-get install -y -qq docker.io >/dev/null 2>&1 || true
+  systemctl enable --now docker >/dev/null 2>&1 || true
+  if command -v docker >/dev/null 2>&1; then
+    log "Docker installed successfully: $(docker --version)"
+  else
+    warn "Docker could not be installed automatically — you can install docker.io via apt."
+  fi
 else
-  warn "Docker not found — required for container pods at runtime (Phase 3)."
+  warn "Docker not found — required for container pods and MongoDB."
 fi
 
 # --- Database engines & Build Dependencies ---
@@ -105,9 +115,53 @@ elif command -v apt-get >/dev/null 2>&1; then
   apt-get update -qq || true
   apt-get install -y -qq curl wget tar git unzip ca-certificates gnupg \
     python3 python3-venv python3-pip python3-dev composer certbot \
-    nginx mariadb-server redis-server >/dev/null 2>&1 || true
-  systemctl enable --now mariadb redis-server nginx >/dev/null 2>&1 || true
+    nginx mariadb-server redis-server docker.io >/dev/null 2>&1 || true
+  systemctl enable --now mariadb redis-server nginx docker >/dev/null 2>&1 || true
 fi
+
+# Configure interactive terminal MOTD banner
+mkdir -p /etc/profile.d
+cat << 'EOFBANNER' > /etc/profile.d/00_barepod.sh
+#!/bin/bash
+# BarePod Panel Custom MOTD / Interactive Terminal Banner
+
+# Clear scrollback if supported
+[ -z "${SSH_CONNECTION:-}${SSH_TTY:-}" ] && [ -t 1 ] && printf '\033[3J\033[H\033[2J'
+
+CYAN='\033[1;36m'
+BLUE='\033[1;34m'
+GREEN='\033[1;32m'
+PURPLE='\033[1;35m'
+AMBER='\033[1;33m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+IP_ADDR=$(ip -4 route get 1 2>/dev/null | sed -n 's/.* src \([0-9.]\+\).*/\1/p' | head -1)
+[ -z "$IP_ADDR" ] && IP_ADDR="127.0.0.1"
+KERNEL=$(uname -r)
+UPTIME=$(uptime -p 2>/dev/null | sed 's/^up //')
+USER_NAME=$(whoami)
+
+echo ""
+echo -e "${CYAN}  ____                  ____           _${NC}"
+echo -e "${CYAN} | __ )  __ _ _ __ ___ |  _ \ ___   __| |${NC}"
+echo -e "${CYAN} |  _ \ / _\` | '__/ _ \| |_) / _ \ / _\` |${NC}"
+echo -e "${CYAN} | |_) | (_| | | |  __/|  __/ (_) | (_| |${NC}"
+echo -e "${CYAN} |____/ \__,_|_|  \___||_|   \___/ \__,_|${NC}"
+echo ""
+echo -e "  ${BOLD}BarePod Cloud Platform${NC} ${DIM}• High-Performance Node${NC}"
+echo -e "  ${DIM}─────────────────────────────────────────────────────────────${NC}"
+echo -e "  💻  OS & Kernel    : Ubuntu $(lsb_release -rs 2>/dev/null || echo '24.04') LTS • ${KERNEL}"
+echo -e "  🏠  Hostname       : $(hostname)$([ -f /run/systemd/container ] && echo ' (LXC Node)')"
+echo -e "  💡  IP Address     : ${GREEN}${IP_ADDR}${NC}"
+echo -e "  🌐  Panel UI       : ${CYAN}https://${IP_ADDR}:8443/${NC}"
+echo -e "  👤  Shell User     : ${PURPLE}${USER_NAME}${NC} (interactive PTY)"
+echo -e "  ⏰  Host Uptime    : ${UPTIME}"
+echo -e "  ${DIM}─────────────────────────────────────────────────────────────${NC}"
+echo ""
+EOFBANNER
+chmod 0755 /etc/profile.d/00_barepod.sh 2>/dev/null || true
 
 # Ensure cloudflared is installed for Cloudflare Tunnel support
 if ! command -v cloudflared >/dev/null 2>&1; then

@@ -120,21 +120,23 @@ const StoppedTitle = "Website Stopped"
 // RenderStoppedHTML is the page for a stopped website. It shares the default page's sheet,
 // typography and diagnostic layout, with the wording of a stopped site rather than maintenance.
 func RenderStoppedHTML(title, message string) string {
-	page := RenderMaintenanceHTML(title, message)
-	return strings.NewReplacer(
-		"<span>Traffic Paused</span>", "<span>Website Offline</span>",
-		"Maintenance Protocol Active", "Website Stopped",
-		"Maintenance Guard", "Process Stopped",
-		"──⏸──", "──╳──",
-		"warn\">Traffic Paused", "warn\">Stopped",
-		"Auto-Refresh Active", "Checks Every 30s",
-		"§ 01 / Maintenance Directive", "§ 01 / Operator Note",
-		"Public traffic is temporarily held at the edge ingress while database migrations, application updates, or maintenance tasks complete. Normal service will resume immediately upon completion.",
-		"This website has been stopped from the BarePod control panel. The edge gateway is online, but the application is not running. It serves again as soon as the owner starts it.",
-	).Replace(page)
+	t := strings.TrimSpace(title)
+	if t == "" {
+		t = "Website Stopped"
+	}
+	m := strings.TrimSpace(message)
+	if m == "" {
+		m = "This website has been stopped by the site owner in the control panel."
+	}
+	escapedTitle := html.EscapeString(t)
+	escapedMessage := html.EscapeString(m)
+
+	return renderCardTemplate("Website Stopped", "badge-gray", escapedTitle, escapedMessage,
+		"<strong>Site Owner?</strong> Log in to your BarePod Panel dashboard and click <strong>Start</strong> to put this website back online.",
+		true)
 }
 
-// RenderMaintenanceHTML creates an authentic, Modern Swiss editorial styled 503 status page.
+// RenderMaintenanceHTML creates an authentic 503 status page matching the BarePod default page theme.
 func RenderMaintenanceHTML(title, message string) string {
 	t := strings.TrimSpace(title)
 	if t == "" {
@@ -148,363 +150,15 @@ func RenderMaintenanceHTML(title, message string) string {
 	escapedTitle := html.EscapeString(t)
 	escapedMessage := html.EscapeString(m)
 
-	return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>503 — ` + escapedTitle + `</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --bg: #fafafa;
-      --card-bg: #ffffff;
-      --border: #e5e7eb;
-      --text-main: #0f172a;
-      --text-muted: #64748b;
-      --text-dim: #94a3b8;
-      --accent: #2563eb;
-      --warn: #d97706;
-      --warn-bg: #fef3c7;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: var(--bg);
-      color: var(--text-main);
-      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      padding: 40px 20px;
-      line-height: 1.5;
-      -webkit-font-smoothing: antialiased;
-    }
-    .sheet {
-      width: 100%;
-      max-width: 720px;
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 20px 40px -15px rgba(0, 0, 0, 0.05);
-      border-radius: 4px;
-      overflow: hidden;
-    }
-    .meta-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 28px;
-      background: #f8fafc;
-      border-bottom: 1px solid var(--border);
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      letter-spacing: 0.04em;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .meta-bar strong {
-      color: var(--text-main);
-      font-weight: 600;
-    }
-    .hero-section {
-      padding: 36px 32px 28px;
-      border-bottom: 1px solid var(--border);
-    }
-    .status-tag {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--warn);
-      background: var(--warn-bg);
-      display: inline-block;
-      padding: 3px 8px;
-      margin-bottom: 14px;
-    }
-    .title-row {
-      display: flex;
-      align-items: baseline;
-      gap: 16px;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
-    }
-    .status-code {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 48px;
-      font-weight: 700;
-      line-height: 1;
-      letter-spacing: -0.05em;
-      color: var(--text-main);
-    }
-    h1 {
-      font-size: 24px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      color: var(--text-main);
-      line-height: 1.2;
-    }
-    .lead {
-      font-size: 14px;
-      color: var(--text-muted);
-      max-width: 600px;
-    }
-    .schematic {
-      padding: 24px 32px;
-      background: #fcfcfd;
-      border-bottom: 1px solid var(--border);
-    }
-    .schematic-label {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--text-dim);
-      margin-bottom: 14px;
-    }
-    .diagram-row {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr auto 1fr;
-      align-items: center;
-      gap: 8px;
-    }
-    @media (max-width: 600px) {
-      .diagram-row {
-        grid-template-columns: 1fr;
-        gap: 12px;
-      }
-      .diagram-arrow {
-        transform: rotate(90deg);
-        margin: 4px auto;
-      }
-    }
-    .node {
-      border: 1px solid var(--border);
-      background: #ffffff;
-      padding: 10px 14px;
-      border-radius: 2px;
-    }
-    .node-title {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--text-main);
-      margin-bottom: 2px;
-    }
-    .node-sub {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      color: var(--text-muted);
-    }
-    .node.ok {
-      border-left: 3px solid #10b981;
-    }
-    .node.hold {
-      border-left: 3px solid var(--warn);
-      background: #fffbeb;
-    }
-    .diagram-arrow {
-      color: var(--text-dim);
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-    }
-    .data-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      border-bottom: 1px solid var(--border);
-    }
-    @media (max-width: 540px) {
-      .data-grid { grid-template-columns: 1fr; }
-    }
-    .data-cell {
-      padding: 16px 32px;
-      border-right: 1px solid var(--border);
-      border-bottom: 1px solid var(--border);
-    }
-    .data-cell:nth-child(2n) {
-      border-right: none;
-    }
-    .data-cell:nth-last-child(-n+2) {
-      border-bottom: none;
-    }
-    .data-key {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--text-dim);
-      margin-bottom: 4px;
-    }
-    .data-val {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text-main);
-    }
-    .data-val.warn {
-      color: var(--warn);
-    }
-    .protocol-section {
-      padding: 28px 32px;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 28px;
-      align-items: center;
-    }
-    @media (max-width: 620px) {
-      .protocol-section {
-        grid-template-columns: 1fr;
-      }
-    }
-    .protocol-info h2 {
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--text-main);
-      margin-bottom: 8px;
-    }
-    .protocol-info p {
-      font-size: 13px;
-      color: var(--text-muted);
-      line-height: 1.6;
-    }
-    .action-group {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 8px;
-      min-width: 170px;
-    }
-    .countdown-text {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 11px;
-      color: var(--text-muted);
-    }
-    .countdown-num {
-      color: var(--accent);
-      font-weight: 700;
-    }
-    .reload-btn {
-      background: #0f172a;
-      border: 1px solid #0f172a;
-      color: #ffffff;
-      font-family: 'Plus Jakarta Sans', sans-serif;
-      font-size: 12px;
-      font-weight: 600;
-      padding: 8px 16px;
-      border-radius: 2px;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      transition: all 0.15s ease;
-    }
-    .reload-btn:hover {
-      background: #1e293b;
-      border-color: #1e293b;
-    }
-    .reload-btn:active {
-      transform: scale(0.97);
-    }
-    .colophon {
-      padding: 14px 32px;
-      background: #f8fafc;
-      border-top: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      color: var(--text-dim);
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .brand {
-      font-weight: 600;
-      color: var(--text-muted);
-    }
-  </style>
-</head>
-<body>
-  <div class="sheet">
-    <div class="meta-bar">
-      <span><strong>BarePod</strong> Edge Gateway</span>
-      <span>Traffic Paused</span>
-      <span>HTTP 503</span>
-    </div>
+	return renderCardTemplate("Maintenance Mode", "badge-amber", escapedTitle, escapedMessage,
+		"<strong>Site Owner?</strong> Maintenance mode is currently active. Disable maintenance in the BarePod Panel dashboard to restore public access.",
+		true)
+}
 
-    <div class="hero-section">
-      <div class="status-tag">Maintenance Protocol Active</div>
-      <div class="title-row">
-        <div class="status-code">503</div>
-        <h1>` + escapedTitle + `</h1>
-      </div>
-      <p class="lead">` + escapedMessage + `</p>
-    </div>
-
-    <div class="schematic">
-      <div class="schematic-label">Routing Topology</div>
-      <div class="diagram-row">
-        <div class="node ok">
-          <div class="node-title">Client Request</div>
-          <div class="node-sub">Inbound OK</div>
-        </div>
-        <div class="diagram-arrow">──▶</div>
-        <div class="node ok">
-          <div class="node-title">Web Server Ingress</div>
-          <div class="node-sub">Gateway Online</div>
-        </div>
-        <div class="diagram-arrow">──⏸──</div>
-        <div class="node hold">
-          <div class="node-title">Application Upstream</div>
-          <div class="node-sub">Maintenance Guard</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="data-grid">
-      <div class="data-cell">
-        <div class="data-key">01 / Scope</div>
-        <div class="data-val">` + escapedTitle + `</div>
-      </div>
-      <div class="data-cell">
-        <div class="data-key">02 / Gateway Status</div>
-        <div class="data-val">503 Service Unavailable</div>
-      </div>
-      <div class="data-cell">
-        <div class="data-key">03 / Upstream Ingress</div>
-        <div class="data-val warn">Traffic Paused</div>
-      </div>
-      <div class="data-cell">
-        <div class="data-key">04 / Retry Header</div>
-        <div class="data-val">Auto-Refresh Active</div>
-      </div>
-    </div>
-
-    <div class="protocol-section">
-      <div class="protocol-info">
-        <h2>§ 01 / Maintenance Directive</h2>
-        <p>Public traffic is temporarily held at the edge ingress while database migrations, application updates, or maintenance tasks complete. Normal service will resume immediately upon completion.</p>
-      </div>
-
-      <div class="action-group">
-        <span class="countdown-text">Auto-refresh in <span class="countdown-num" id="timer">30</span>s</span>
-        <button class="reload-btn" onclick="window.location.reload()">
-          <span>Check Again Now</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="colophon">
-      <span class="brand">BarePod Cloud Infrastructure</span>
-      <span>RFC 9110 §15.6.4</span>
-    </div>
-  </div>
-
+func renderCardTemplate(badgeText, badgeClass, title, subtitle, guidanceHTML string, showTimer bool) string {
+	timerHTML := ""
+	if showTimer {
+		timerHTML = `<div class="timer-note">Auto-checking status in <span id="timer">30</span>s</div>
   <script>
     var timeLeft = 30;
     var timerElem = document.getElementById('timer');
@@ -515,7 +169,188 @@ func RenderMaintenanceHTML(title, message string) string {
         window.location.reload();
       }
     }, 1000);
-  </script>
+  </script>`
+	}
+
+	return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>` + title + ` — BarePod Panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .container {
+      width: 100%;
+      max-width: 520px;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
+      padding: 44px 36px 36px;
+      text-align: center;
+    }
+    .brand-mark {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .logo-box {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background-color: #2563eb;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+    }
+    .logo-box svg {
+      width: 22px;
+      height: 22px;
+    }
+    .brand-name {
+      font-size: 18px;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.02em;
+    }
+    .badge-container {
+      margin-bottom: 14px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-amber {
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .badge-gray {
+      background: #f1f5f9;
+      color: #475569;
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      word-break: break-all;
+    }
+    .subtitle {
+      font-size: 14px;
+      color: #64748b;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    .guidance {
+      background-color: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 16px 20px;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.6;
+      text-align: left;
+    }
+    .guidance strong {
+      color: #0f172a;
+    }
+    .timer-note {
+      margin-top: 18px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .timer-note span {
+      font-weight: 600;
+      color: #64748b;
+    }
+    .footer {
+      margin-top: 24px;
+      font-size: 12px;
+      color: #94a3b8;
+      text-align: center;
+    }
+    .footer a {
+      color: #64748b;
+      text-decoration: none;
+    }
+    .footer a:hover {
+      color: #2563eb;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="brand-mark">
+        <div class="logo-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+            <line x1="6" y1="6" x2="6.01" y2="6"></line>
+            <line x1="6" y1="18" x2="6.01" y2="18"></line>
+          </svg>
+        </div>
+        <span class="brand-name">BarePod Panel</span>
+      </div>
+
+      <div class="badge-container">
+        <span class="badge ` + badgeClass + `">
+          <span class="dot"></span>
+          ` + badgeText + `
+        </span>
+      </div>
+
+      <h1 id="site-name">` + title + `</h1>
+      <p class="subtitle">` + subtitle + `</p>
+
+      <div class="guidance">
+        ` + guidanceHTML + `
+      </div>
+
+      ` + timerHTML + `
+    </div>
+
+    <div class="footer">
+      Powered by <a href="https://github.com/farrasrayhand/barepod-panel" target="_blank" rel="noopener">BarePod Panel</a>
+    </div>
+  </div>
 </body>
 </html>`
 }

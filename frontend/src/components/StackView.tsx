@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert, Globe, Zap, Sparkles, Package } from 'lucide-react';
+import { Server, Database, Code2, Hexagon, RefreshCw, Loader2, Download, CheckCircle2, Play, Trash2, AlertTriangle, X, ShieldAlert, Globe, Zap, Sparkles, Package, Minus } from 'lucide-react';
 import { api, apiReachable, type StackStatus, type StackComponent, type StackJobLogLine, type StackPlanResult, type ApiWebsite } from '../api/client';
 import { describeError } from '../utils/format';
 import { useSubRoute } from '../hooks/useSubRoute';
@@ -271,14 +271,15 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     return preferred ?? supported[0] ?? offerable[0];
   };
 
+  const webInstalled = (engine: string) =>
+    Boolean((status?.webServer.managedInstalled ?? status?.webServer.installed ?? []).find((e) => e.engine === engine)?.installed);
+
   const buildBundle = (): BundleItem[] => {
     if (!status) return [];
     const items: BundleItem[] = [];
     if ((status.repositories ?? []).some((r) => !r.present)) {
       items.push({ key: 'repositories', component: 'repositories', label: 'Package repositories', kind: 'repo', note: 'needed for the lists below' });
     }
-    const webInstalled = (engine: string) =>
-      Boolean((status.webServer.managedInstalled ?? status.webServer.installed ?? []).find((e) => e.engine === engine)?.installed);
     for (const engine of ['nginx', 'caddy', 'openlitespeed', 'apache']) {
       if (webInstalled(engine)) continue;
       items.push({
@@ -307,6 +308,31 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       items.push({ key: `database:${component.name}`, component: component.name, label: component.label, kind: 'database', version, note: 'recommended' });
     }
     return items;
+  };
+
+  const getInstalledSummary = (): string[] => {
+    if (!status) return [];
+    const list: string[] = [];
+    for (const engine of ['nginx', 'caddy', 'openlitespeed', 'apache']) {
+      if (webInstalled(engine)) {
+        list.push(engine === 'openlitespeed' ? 'OpenLiteSpeed' : engine.charAt(0).toUpperCase() + engine.slice(1));
+      }
+    }
+    for (const component of componentsOf('runtime')) {
+      const rt = status.runtimes?.[component.name];
+      if ((rt?.installed?.length ?? 0) > 0) {
+        list.push(`${component.label} (${rt!.installed.join(', ')})`);
+      }
+    }
+    for (const component of componentsOf('database')) {
+      const detected = status.databases?.find((d) => d.engine === component.name);
+      const installedList = status.databaseInstalled?.[component.name] ?? [];
+      if (detected?.installedVersion || installedList.length > 0) {
+        const v = detected?.installedVersion || installedList[0];
+        list.push(`${component.label}${v ? ` ${v}` : ''}`);
+      }
+    }
+    return list;
   };
 
   const openBundle = () => {
@@ -1455,13 +1481,24 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   <Package className="w-4 h-4 text-slate-700" />
                   <h3 className="font-bold text-sm text-slate-900">Install Stack</h3>
                 </div>
-                <button
-                  onClick={() => !bundleRun && setBundleOpen(false)}
-                  disabled={Boolean(bundleRun)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-40"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  {bundleRun && (
+                    <button
+                      onClick={() => setBundleOpen(false)}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 flex items-center gap-1 text-xs font-medium"
+                      title="Minimize to background"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setBundleOpen(false)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                    title={bundleRun ? "Run in background" : "Close"}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               <div className="p-5 space-y-4 text-xs max-h-[60vh] overflow-y-auto">
@@ -1501,6 +1538,25 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                     })}
                   </>
                 )}
+                {(() => {
+                  const already = getInstalledSummary();
+                  if (already.length === 0) return null;
+                  return (
+                    <div className="pt-3 border-t border-slate-100">
+                      <div className="text-[11px] font-semibold text-slate-500 mb-2 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                        Already installed on this server:
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {already.map((name) => (
+                          <span key={name} className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-medium border border-slate-200/60">
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {bundleRun && (
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
                     <div className="flex items-center gap-2 text-blue-900 font-semibold">
@@ -1510,31 +1566,87 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                     <div className="h-1.5 bg-blue-100 rounded-full overflow-hidden">
                       <div className="h-full bg-blue-600 transition-all" style={{ width: `${(bundleRun.index / bundleRun.total) * 100}%` }} />
                     </div>
-                    <p className="text-[11px] text-blue-800">The live log is below this window once it finishes.</p>
+                    <div className="flex items-center justify-between text-[11px] text-blue-800">
+                      <span>Installs continue in the background.</span>
+                      <button
+                        type="button"
+                        onClick={() => setBundleOpen(false)}
+                        className="underline font-semibold hover:text-blue-950"
+                      >
+                        Minimize
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
 
-              <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
-                <button
-                  onClick={() => setBundleOpen(false)}
-                  disabled={Boolean(bundleRun)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-200 disabled:opacity-40"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => void runBundle(chosen)}
-                  disabled={Boolean(bundleRun) || chosen.length === 0 || live !== true}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 shadow-xs"
-                >
-                  Install {chosen.length} selected
-                </button>
+              <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
+                {bundleRun ? (
+                  <>
+                    <span className="text-xs text-slate-500 flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                      <span>Installing in background…</span>
+                    </span>
+                    <button
+                      onClick={() => setBundleOpen(false)}
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 shadow-xs cursor-pointer"
+                    >
+                      Run in Background
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setBundleOpen(false)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-200 cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => void runBundle(chosen)}
+                      disabled={chosen.length === 0 || live !== true}
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 shadow-xs cursor-pointer"
+                    >
+                      Install {chosen.length} selected
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
         );
       })()}
+
+      {/* Floating background installer progress dock */}
+      {bundleRun && !bundleOpen && (
+        <div
+          onClick={() => setBundleOpen(true)}
+          className="fixed bottom-6 right-6 z-50 bg-white border border-blue-200 rounded-2xl shadow-2xl p-4 w-80 cursor-pointer hover:border-blue-400 hover:shadow-blue-500/15 transition-all animate-in slide-in-from-bottom-5"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+              <span className="font-bold text-xs text-slate-900">Installing Stack</span>
+            </div>
+            <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
+              {bundleRun.index + 1} / {bundleRun.total}
+            </span>
+          </div>
+          <div className="text-xs font-medium text-slate-700 truncate mb-2">
+            {bundleRun.current}
+          </div>
+          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-600 transition-all duration-300"
+              style={{ width: `${((bundleRun.index + 1) / bundleRun.total) * 100}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between mt-2.5 text-[10px] text-slate-400">
+            <span className="text-blue-600 font-medium">Click to maximize</span>
+            <span>Running in background</span>
+          </div>
+        </div>
+      )}
 
       {/* Dedicated Uninstall Confirmation Modal */}
       {uninstallTarget && (

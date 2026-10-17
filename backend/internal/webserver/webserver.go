@@ -950,9 +950,13 @@ func WriteDefault(engine, dir string) (string, error) {
 		// Also ensure conf.d/barepod-realip.conf is in place if conf.d exists beside dir
 		confD := filepath.Join(filepath.Dir(dir), "conf.d")
 		_ = EnsureNginxRealIP(confD)
+		defaultConf := filepath.Join(confD, "default.conf")
+		if _, err := os.Lstat(defaultConf); err == nil {
+			_ = os.Rename(defaultConf, defaultConf+".barepod-disabled")
+		}
 	}
 	if strings.EqualFold(engine, Caddy) {
-		if err := writeCaddyConfig(filepath.Join(filepath.Dir(dir), "Caddyfile"), dir); err != nil {
+		if err := WriteCaddyConfig(filepath.Join(filepath.Dir(dir), "Caddyfile"), dir, false); err != nil {
 			return "", err
 		}
 	}
@@ -979,33 +983,27 @@ func WriteDefault(engine, dir string) (string, error) {
 	return path, os.Rename(tmp, path)
 }
 
-// caddyHeader marks the panel-owned Caddyfile.
-const caddyHeader = "# Managed by BarePod Panel — do not edit by hand. The distro's own Caddyfile,\n" +
-	"# which also defines a :80 site, is kept beside this file as Caddyfile.barepod-bak.\n" +
-	"{\n" +
-	"    servers {\n" +
-	"        trusted_proxies static private_ranges 127.0.0.1/32 ::1/128\n" +
-	"    }\n" +
-	"}\n"
-
-// writeCaddyConfig takes the Caddyfile over: the distribution's stock config already
-// defines a `:80` site, and two of them make Caddy refuse the whole file with
-// "ambiguous site definition: :80". The operator's file is kept as a backup.
-func writeCaddyConfig(caddyfile, sitesDir string) error {
+// WriteCaddyConfig writes a valid, single-global-block Caddyfile.
+// When isBackend is true, it configures internal http_port 8081 and https_port 8445.
+func WriteCaddyConfig(caddyfile, sitesDir string, isBackend bool) error {
 	if err := os.MkdirAll(filepath.Dir(caddyfile), 0o755); err != nil {
 		return err
 	}
-	want := caddyHeader + "import " + filepath.Join(sitesDir, "*.caddy") + "\n"
+	header := "# Managed by BarePod Panel — do not edit by hand.\n{\n"
+	if isBackend {
+		header += "    http_port 8081\n    https_port 8445\n"
+	}
+	header += "    servers {\n        trusted_proxies static private_ranges 127.0.0.1/32 ::1/128\n    }\n}\n"
+	want := header + "import " + filepath.Join(sitesDir, "*.caddy") + "\n"
+
 	current, err := os.ReadFile(caddyfile)
 	if err == nil && string(current) == want {
-		return nil // already ours
+		return nil
 	}
 	if err == nil {
 		backup := caddyfile + ".barepod-bak"
 		if _, statErr := os.Stat(backup); os.IsNotExist(statErr) {
-			if writeErr := os.WriteFile(backup, current, 0o644); writeErr != nil {
-				return writeErr
-			}
+			_ = os.WriteFile(backup, current, 0o644)
 		}
 	} else if !os.IsNotExist(err) {
 		return err
