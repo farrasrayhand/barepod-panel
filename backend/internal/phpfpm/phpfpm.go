@@ -23,6 +23,7 @@ type Directives struct {
 	MaxInputVars       int    `json:"maxInputVars,omitempty"`
 	MaxInputTime       int    `json:"maxInputTime,omitempty"`
 	ProcessIdleTimeout string `json:"processIdleTimeout,omitempty"`
+	DisableFunctions   string `json:"disableFunctions,omitempty"`
 }
 
 // Spec describes one site's pool.
@@ -104,6 +105,12 @@ func Config(s Spec) string {
 	// A pool may only reach its own site (plus /tmp): another tenant's files are not
 	// a name to it, which is the same boundary the shell jail draws.
 	fmt.Fprintf(&b, "php_admin_value[open_basedir] = %s:/tmp\n", s.SiteDir)
+	// Harden against web shells by disabling OS shell execution functions while keeping curl_exec and proc_open safe for CMS & frameworks.
+	disableFuncs := strings.TrimSpace(s.Directives.DisableFunctions)
+	if disableFuncs == "" {
+		disableFuncs = "exec,passthru,shell_exec,system,popen,show_source"
+	}
+	fmt.Fprintf(&b, "php_admin_value[disable_functions] = %s\n", disableFuncs)
 	b.WriteString("php_admin_flag[log_errors] = on\n")
 	fmt.Fprintf(&b, "php_admin_value[error_log] = %s\n", filepath.Join(s.SiteDir, "php-error.log"))
 	fmt.Fprintf(&b, "php_admin_value[memory_limit] = %s\n", memLimit)

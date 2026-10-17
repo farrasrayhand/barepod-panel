@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Globe, 
-  ShieldCheck, 
+import {
+  Globe,
+  ShieldCheck,
   ShieldAlert,
-  Plus, 
-  RefreshCw, 
-  ExternalLink, 
-  Check, 
-  Lock, 
+  Plus,
+  RefreshCw,
+  ExternalLink,
+  Check,
+  Lock,
   Unlock,
-  AlertCircle, 
+  AlertCircle,
   Search,
   Server,
   ArrowUpRight,
@@ -22,9 +22,18 @@ import {
   Sparkles,
   Info,
   Pencil,
-  Loader2
+  Loader2,
+  CloudRain,
+  AlertTriangle
 } from 'lucide-react';
-import { api, type ApiDomain, type ApiWebsite } from '../api/client';
+import {
+  api,
+  type ApiDomain,
+  type ApiWebsite,
+  type CloudflareZone,
+  type TunnelStatusResponse,
+  type DomainValidationResult
+} from '../api/client';
 import type { WebApp } from '../types';
 
 interface DomainsViewProps {
@@ -35,6 +44,8 @@ interface DomainsViewProps {
 export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const [domains, setDomains] = useState<ApiDomain[]>([]);
   const [websites, setWebsites] = useState<ApiWebsite[]>([]);
+  const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusResponse | null>(null);
+  const [cfZones, setCfZones] = useState<CloudflareZone[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'primary' | 'alias' | 'ssl' | 'no-ssl'>('all');
@@ -50,6 +61,11 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   // Add Domain Form
   const [addWebsiteSlug, setAddWebsiteSlug] = useState('');
   const [addDomainName, setAddDomainName] = useState('');
+  const [addRoutingMode, setAddRoutingMode] = useState<'direct' | 'cloudflare'>('direct');
+  const [addCfZone, setAddCfZone] = useState('');
+  const [addSubdomain, setAddSubdomain] = useState('');
+  const [isValidatingDomain, setIsValidatingDomain] = useState(false);
+  const [domainValidation, setDomainValidation] = useState<DomainValidationResult | null>(null);
   const [addLoading, setAddLoading] = useState(false);
 
   // SSL Modal Form
@@ -62,15 +78,42 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const [customKey, setCustomKey] = useState('');
   const [sslLoading, setSslLoading] = useState(false);
 
+  const isTunnelConnected = Boolean(tunnelStatus?.hasToken && tunnelStatus?.status === 'connected' && cfZones.length > 0);
+
+  const effectiveAddDomain = isTunnelConnected && addRoutingMode === 'cloudflare'
+    ? (addSubdomain.trim() ? `${addSubdomain.trim().toLowerCase()}.${addCfZone}` : addCfZone)
+    : addDomainName.trim().toLowerCase();
+
+  const isDomainCloudflare = (domName: string) => {
+    if (tunnelStatus?.routes?.some(r => r.hostname.toLowerCase() === domName.toLowerCase())) return true;
+    return cfZones.some(z => domName.toLowerCase() === z.name.toLowerCase() || domName.toLowerCase().endsWith('.' + z.name.toLowerCase()));
+  };
+
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [domRes, webRes] = await Promise.all([
+      const [domRes, webRes, tunRes, zoneRes] = await Promise.all([
         api.domains().catch(() => ({ items: [] })),
         api.websites().catch(() => ({ items: [] })),
+        api.tunnelStatus().catch(() => null),
+        api.cloudflareZones().catch(() => ({ zones: [] })),
       ]);
       setDomains(domRes.items || []);
       setWebsites(webRes.items || []);
+      setTunnelStatus(tunRes);
+
+      const zones = zoneRes?.zones && Array.isArray(zoneRes.zones) ? zoneRes.zones : [];
+      setCfZones(zones);
+      if (zones.length > 0 && !addCfZone) {
+        setAddCfZone(zones[0].name);
+      }
+
+      if (tunRes?.hasToken && tunRes?.status === 'connected' && zones.length > 0) {
+        setAddRoutingMode('cloudflare');
+      } else {
+        setAddRoutingMode('direct');
+      }
+
       if (webRes.items && webRes.items.length > 0 && !addWebsiteSlug) {
         setAddWebsiteSlug(webRes.items[0].slug);
       }
@@ -81,6 +124,29 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
     }
   };
 
+  // Debounced live domain validation with Cloudflare
+  useEffect(() => {
+    if (!showAddModal || !effectiveAddDomain || !effectiveAddDomain.includes('.')) {
+      setDomainValidation(null);
+      setIsValidatingDomain(false);
+      return;
+    }
+
+    setIsValidatingDomain(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.validateDomain(effectiveAddDomain);
+        setDomainValidation(res);
+      } catch (err) {
+        console.warn('Validate domain error in DomainsView', err);
+      } finally {
+        setIsValidatingDomain(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [effectiveAddDomain, showAddModal]);
+
   const openEditModal = (dom: ApiDomain) => {
     setEditingDomain(dom);
     setNewDomainInput(dom.domain);
@@ -88,7 +154,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
 
   const handleSaveEditDomain = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingDomain || !newDomainInput.trim()) return;
+    if (!editingDomain || !newDomainInput.trim() || isValidatingDomain) return;
     const cleaned = newDomainInput.trim().toLowerCase();
     if (cleaned === editingDomain.domain.toLowerCase()) {
       setEditingDomain(null);
@@ -113,8 +179,9 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
 
   const handleAddDomain = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addWebsiteSlug || !addDomainName.trim()) {
-      onShowToast?.('Invalid Input', 'Please select a website and enter a valid domain name.', 'error');
+    const effectiveDomain = effectiveAddDomain;
+    if (!addWebsiteSlug || !effectiveDomain) {
+      onShowToast?.('Invalid Input', 'Please select a website and specify a valid domain name.', 'error');
       return;
     }
 
@@ -122,14 +189,25 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
       setAddLoading(true);
       const newDomain = await api.addDomain({
         websiteSlug: addWebsiteSlug,
-        domain: addDomainName.trim(),
+        domain: effectiveDomain,
       });
+
+      if (isTunnelConnected && addRoutingMode === 'cloudflare') {
+        try {
+          await api.addTunnelRoute(effectiveDomain, 'http://127.0.0.1:80', addWebsiteSlug, true);
+        } catch (tErr: any) {
+          console.warn('Could not auto-add tunnel route:', tErr);
+        }
+      }
+
       onShowToast?.('Domain Added', `Domain '${newDomain.domain}' was successfully attached.`, 'success');
       setShowAddModal(false);
       setAddDomainName('');
+      setAddSubdomain('');
       await fetchData();
-      // Prompt to manage SSL
-      setSelectedDomain(newDomain);
+      if (addRoutingMode !== 'cloudflare') {
+        setSelectedDomain(newDomain);
+      }
     } catch (err: any) {
       onShowToast?.('Add Domain Failed', err?.message || 'Could not attach domain.', 'error');
     } finally {
@@ -141,6 +219,14 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
     if (!showDeleteModal) return;
     try {
       await api.deleteDomain(showDeleteModal.id);
+      const matchingRoute = tunnelStatus?.routes?.find(r => r.hostname.toLowerCase() === showDeleteModal.domain.toLowerCase());
+      if (matchingRoute) {
+        try {
+          await api.deleteTunnelRoute(matchingRoute.id);
+        } catch (tErr) {
+          console.warn('Could not auto-remove tunnel route:', tErr);
+        }
+      }
       onShowToast?.('Domain Removed', `Domain '${showDeleteModal.domain}' has been detached.`, 'success');
       setShowDeleteModal(null);
       await fetchData();
@@ -209,11 +295,11 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
       prev.map((d) =>
         d.id === domain.id
           ? {
-              ...d,
-              forceHttps: field === 'forceHTTPS' ? newVal : d.forceHttps,
-              hstsEnabled: field === 'hsts' ? newVal : d.hstsEnabled,
-              autoRenew: field === 'autoRenew' ? newVal : d.autoRenew,
-            }
+            ...d,
+            forceHttps: field === 'forceHTTPS' ? newVal : d.forceHttps,
+            hstsEnabled: field === 'hsts' ? newVal : d.hstsEnabled,
+            autoRenew: field === 'autoRenew' ? newVal : d.autoRenew,
+          }
           : d
       )
     );
@@ -233,11 +319,11 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
         prev.map((d) =>
           d.id === domain.id
             ? {
-                ...d,
-                forceHttps: field === 'forceHTTPS' ? oldVal : d.forceHttps,
-                hstsEnabled: field === 'hsts' ? oldVal : d.hstsEnabled,
-                autoRenew: field === 'autoRenew' ? oldVal : d.autoRenew,
-              }
+              ...d,
+              forceHttps: field === 'forceHTTPS' ? oldVal : d.forceHttps,
+              hstsEnabled: field === 'hsts' ? oldVal : d.hstsEnabled,
+              autoRenew: field === 'autoRenew' ? oldVal : d.autoRenew,
+            }
             : d
         )
       );
@@ -255,8 +341,8 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
 
   // Filtered domains
   const filtered = domains.filter(d => {
-    const matchesSearch = 
-      d.domain.toLowerCase().includes(search.toLowerCase()) || 
+    const matchesSearch =
+      d.domain.toLowerCase().includes(search.toLowerCase()) ||
       d.websiteSlug.toLowerCase().includes(search.toLowerCase());
     if (!matchesSearch) return false;
 
@@ -368,9 +454,8 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 <button
                   key={type}
                   onClick={() => setFilterType(type)}
-                  className={`px-2.5 py-1 rounded-md transition-colors capitalize ${
-                    filterType === type ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'hover:text-slate-900'
-                  }`}
+                  className={`px-2.5 py-1 rounded-md transition-colors capitalize ${filterType === type ? 'bg-white text-slate-900 shadow-2xs font-bold' : 'hover:text-slate-900'
+                    }`}
                 >
                   {type === 'ssl' ? 'SSL Active' : type === 'no-ssl' ? 'No SSL' : type}
                 </button>
@@ -388,6 +473,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px] tracking-wider">
               <tr>
                 <th className="py-3 px-4">DOMAIN / FQDN</th>
+                <th className="py-3 px-4">ROUTING</th>
                 <th className="py-3 px-4">ROLE</th>
                 <th className="py-3 px-4">WEBSITE</th>
                 <th className="py-3 px-4">SSL / TLS STATUS</th>
@@ -399,14 +485,14 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
             <tbody className="divide-y divide-slate-100 font-mono">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-slate-400" />
                     Loading domain registry...
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     <Globe className="w-6 h-6 mx-auto mb-2 text-slate-300" />
                     No domains found matching your criteria.
                   </td>
@@ -415,6 +501,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 filtered.map((d) => {
                   const targetWeb = websites.find(w => w.slug === d.websiteSlug);
                   const isExpiringSoon = d.sslExpiresAt && (new Date(d.sslExpiresAt).getTime() - Date.now()) < 15 * 86400000;
+                  const isCf = isDomainCloudflare(d.domain);
 
                   return (
                     <tr key={d.id} className="hover:bg-slate-50/80 transition-colors">
@@ -432,6 +519,21 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                             <ArrowUpRight className="w-3 h-3 text-slate-400" />
                           </a>
                         </div>
+                      </td>
+
+                      {/* Routing */}
+                      <td className="py-3.5 px-4 font-sans">
+                        {isCf ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            <CloudRain className="w-3 h-3 text-amber-500" />
+                            <span>Cloudflare</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                            <Server className="w-3 h-3 text-blue-500" />
+                            <span>Direct IP</span>
+                          </span>
+                        )}
                       </td>
 
                       {/* Primary vs Alias */}
@@ -478,11 +580,10 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                           <button
                             onClick={() => handleToggleSettings(d, 'forceHTTPS', !d.forceHttps)}
                             disabled={!d.sslEnabled}
-                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors cursor-pointer ${
-                              d.forceHttps 
-                                ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors cursor-pointer ${d.forceHttps
+                                ? 'bg-blue-50 text-blue-700 border border-blue-200'
                                 : 'bg-slate-100 text-slate-400 border border-slate-200 line-through'
-                            } disabled:opacity-30 disabled:cursor-not-allowed`}
+                              } disabled:opacity-30 disabled:cursor-not-allowed`}
                             title={d.sslEnabled ? "Toggle 301 Force HTTPS" : "Enable SSL first"}
                           >
                             {d.forceHttps ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
@@ -592,22 +693,120 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Domain Name (FQDN)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. blog.example.com or api.domain.org"
-                  value={addDomainName}
-                  onChange={(e) => setAddDomainName(e.target.value)}
-                  className="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500"
-                  required
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Point this domain's DNS A/CNAME record to this server before issuing Let's Encrypt certificates.
-                </p>
-              </div>
+              {/* Routing Mode Segmented Selector - Only displayed if Cloudflare Tunnel is connected */}
+              {isTunnelConnected && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Routing Method
+                  </label>
+                  <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                    <button
+                      type="button"
+                      onClick={() => setAddRoutingMode('cloudflare')}
+                      className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        addRoutingMode === 'cloudflare'
+                          ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <CloudRain className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Cloudflare Zone</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAddRoutingMode('direct')}
+                      className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        addRoutingMode === 'direct'
+                          ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <Server className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Direct Public IP</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {isTunnelConnected && addRoutingMode === 'cloudflare' ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                        Cloudflare Zone
+                      </label>
+                      <select
+                        value={addCfZone}
+                        onChange={(e) => setAddCfZone(e.target.value)}
+                        className="w-full px-3 py-2 text-xs bg-slate-50 text-slate-800 rounded-xl border border-slate-200 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-mono cursor-pointer"
+                      >
+                        {cfZones.map((z) => (
+                          <option key={z.id} value={z.name}>
+                            🌐 {z.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                        Subdomain Prefix (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={addSubdomain}
+                        onChange={(e) => setAddSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                        placeholder="e.g. blog, api, or store"
+                        className="w-full px-3 py-2 text-xs text-slate-800 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-amber-50/70 rounded-xl border border-amber-200/80 flex items-center justify-between text-xs font-mono">
+                    <span className="text-amber-800 text-[11px] font-medium flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Resulting Hostname:
+                    </span>
+                    <span className="font-bold text-amber-950">
+                      {effectiveAddDomain}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Domain Name (FQDN)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. blog.example.com or api.domain.org"
+                    value={addDomainName}
+                    onChange={(e) => setAddDomainName(e.target.value)}
+                    className="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500"
+                    required
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Point this domain's DNS A/CNAME record to this server before issuing Let's Encrypt certificates.
+                  </p>
+                </div>
+              )}
+
+              {/* Validation Feedback */}
+              {isValidatingDomain ? (
+                <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-slate-500 text-xs flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                  <span>Validating domain with Cloudflare...</span>
+                </div>
+              ) : domainValidation?.cloudflareStatus?.dnsRecords?.length ? (
+                <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Cloudflare DNS: Existing record ({domainValidation.cloudflareStatus.dnsRecords[0].type}) found. Will be managed by tunnel.</span>
+                </div>
+              ) : domainValidation?.available ? (
+                <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Domain is available for routing</span>
+                </div>
+              ) : null}
 
               <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-3 flex items-start gap-2.5 text-xs text-blue-900">
                 <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
@@ -626,11 +825,22 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={addLoading}
-                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  disabled={addLoading || isValidatingDomain || (isTunnelConnected && addRoutingMode === 'cloudflare' ? !addCfZone : !addDomainName.trim())}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                 >
-                  {addLoading && <RefreshCw className="w-3 h-3 animate-spin" />}
-                  <span>Attach Domain</span>
+                  {isValidatingDomain ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Validating...</span>
+                    </>
+                  ) : addLoading ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Attaching...</span>
+                    </>
+                  ) : (
+                    <span>{isTunnelConnected && addRoutingMode === 'cloudflare' ? 'Add Cloudflare Domain' : 'Attach Domain'}</span>
+                  )}
                 </button>
               </div>
             </form>
@@ -664,11 +874,10 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
             <div className="flex border-b border-slate-100 px-5 pt-2 bg-slate-50/50">
               <button
                 onClick={() => setSslTab('auto')}
-                className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
-                  sslTab === 'auto'
+                className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${sslTab === 'auto'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
+                  }`}
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Automated / Let's Encrypt</span>
@@ -676,11 +885,10 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
 
               <button
                 onClick={() => setSslTab('custom')}
-                className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${
-                  sslTab === 'custom'
+                className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 ${sslTab === 'custom'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
+                  }`}
               >
                 <Key className="w-3.5 h-3.5" />
                 <span>Custom Keypair</span>
@@ -698,11 +906,10 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                       <button
                         type="button"
                         onClick={() => setSslProvider('auto')}
-                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                          sslProvider === 'auto'
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${sslProvider === 'auto'
                             ? 'border-blue-500 bg-blue-50/50 text-blue-900 ring-2 ring-blue-500/20'
                             : 'border-slate-200 hover:bg-slate-50 text-slate-700'
-                        }`}
+                          }`}
                       >
                         <div className="text-xs font-bold flex items-center gap-1.5">
                           <Sparkles className="w-3.5 h-3.5 text-blue-600" />
@@ -716,11 +923,10 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                       <button
                         type="button"
                         onClick={() => setSslProvider('self_signed')}
-                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                          sslProvider === 'self_signed'
+                        className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${sslProvider === 'self_signed'
                             ? 'border-purple-500 bg-purple-50/50 text-purple-900 ring-2 ring-purple-500/20'
                             : 'border-slate-200 hover:bg-slate-50 text-slate-700'
-                        }`}
+                          }`}
                       >
                         <div className="text-xs font-bold flex items-center gap-1.5">
                           <Lock className="w-3.5 h-3.5 text-purple-600" />

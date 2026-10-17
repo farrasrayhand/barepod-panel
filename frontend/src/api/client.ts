@@ -1202,7 +1202,15 @@ export const api = {
       body: JSON.stringify({ hostname, service, appName, noTLSVerify, user }),
     }),
 
+  deleteTunnelRoute: (id: string, user?: string) =>
+    request<{ ok: boolean }>(`/tunnels/routes/${encodeURIComponent(id)}${user ? `?user=${encodeURIComponent(user)}` : ''}`, {
+      method: 'DELETE',
+    }),
+
   tunnelZones: (user?: string) =>
+    request<{ zones: CloudflareZone[]; error?: string }>(`/tunnels/zones${user ? `?user=${encodeURIComponent(user)}` : ''}`),
+
+  cloudflareZones: (user?: string) =>
     request<{ zones: CloudflareZone[]; error?: string }>(`/tunnels/zones${user ? `?user=${encodeURIComponent(user)}` : ''}`),
 
   // --- The panel's own hostname, published through the admin's Cloudflare Tunnel ----------

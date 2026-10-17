@@ -481,6 +481,8 @@ func nginxLocations(b *strings.Builder, s Spec) {
 	b.WriteString("\n    # Block hidden files, dotfiles, and sensitive extensions (.env, .git, etc.)\n")
 	b.WriteString("    location ~ /\\.(?!well-known) {\n        return 404;\n    }\n")
 	b.WriteString("    location ~* \\.(env|git|sh|sql|bak)$ {\n        return 404;\n    }\n")
+	b.WriteString("\n    # Prevent direct PHP execution in uploads and user media directories (Anti-Webshell)\n")
+	b.WriteString("    location ~* /(?:uploads|files|media)/.*\\.php$ {\n        deny all;\n        return 404;\n    }\n")
 }
 
 func nginxServerBody(b *strings.Builder, s Spec) {
@@ -611,6 +613,11 @@ func caddyVhost(s Spec) string {
 	b.WriteString("\t\tnot path /.well-known/*\n")
 	b.WriteString("\t}\n")
 	b.WriteString("\trespond @dotfiles 404\n\n")
+	b.WriteString("\t# Prevent direct PHP execution in uploads and user media directories (Anti-Webshell)\n")
+	b.WriteString("\t@blockedUploads {\n")
+	b.WriteString("\t\tpath */uploads/*.php */files/*.php */media/*.php\n")
+	b.WriteString("\t}\n")
+	b.WriteString("\trespond @blockedUploads 404\n\n")
 
 	// Static Assets Browser Caching
 	if s.Kind == "php" || s.Kind == "static" {
@@ -794,6 +801,10 @@ func apacheVhost(s Spec) string {
 	b.WriteString("    <FilesMatch \"(^\\.|\\.env|\\.git|\\.sh|\\.sql|\\.bak)\">\n")
 	b.WriteString("        Require all denied\n")
 	b.WriteString("    </FilesMatch>\n\n")
+	b.WriteString("    # Prevent direct PHP execution in uploads and user media directories (Anti-Webshell)\n")
+	b.WriteString("    <LocationMatch \"/(uploads|files|media)/.*\\.php$\">\n")
+	b.WriteString("        Require all denied\n")
+	b.WriteString("    </LocationMatch>\n\n")
 
 	switch s.Kind {
 	case "php":

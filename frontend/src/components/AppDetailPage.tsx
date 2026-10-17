@@ -3711,11 +3711,20 @@ QUEUE_CONNECTION=redis`;
                       </div>
                       <button
                         type="submit"
-                        disabled={addingAlias || !aliasCfZone || Boolean(aliasCollision)}
-                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                        disabled={addingAlias || !aliasCfZone || Boolean(aliasCollision) || isValidatingAlias}
+                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0 disabled:cursor-not-allowed"
                       >
-                        <Plus className="w-4 h-4" />
-                        <span>{addingAlias ? 'Attaching...' : 'Add Cloudflare Alias'}</span>
+                        {isValidatingAlias ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Validating...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-4 h-4" />
+                            <span>{addingAlias ? 'Attaching...' : 'Add Cloudflare Alias'}</span>
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
@@ -3737,11 +3746,20 @@ QUEUE_CONNECTION=redis`;
                       </div>
                       <button
                         type="submit"
-                        disabled={addingAlias || !newAliasDomain.trim() || Boolean(aliasCollision)}
-                        className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                        disabled={addingAlias || !newAliasDomain.trim() || Boolean(aliasCollision) || isValidatingAlias}
+                        className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0 disabled:cursor-not-allowed"
                       >
-                        <Plus className="w-4 h-4" />
-                        <span>{addingAlias ? 'Attaching...' : 'Add Domain Alias'}</span>
+                        {isValidatingAlias ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Validating...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-4 h-4" />
+                            <span>{addingAlias ? 'Attaching...' : 'Add Domain Alias'}</span>
+                          </>
+                        )}
                       </button>
                     </div>
 
@@ -6706,10 +6724,15 @@ QUEUE_CONNECTION=redis`}
                 </button>
                 <button
                   type="submit"
-                  disabled={isUpdatingDomain || Boolean(editCollision) || (effectiveEditDomain === editingDomain.domain.toLowerCase())}
-                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  disabled={isUpdatingDomain || Boolean(editCollision) || (effectiveEditDomain === editingDomain.domain.toLowerCase()) || isValidatingEdit}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                 >
-                  {isUpdatingDomain ? (
+                  {isValidatingEdit ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Validating...</span>
+                    </>
+                  ) : isUpdatingDomain ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                       <span>Updating Domain...</span>

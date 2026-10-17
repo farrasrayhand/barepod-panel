@@ -1446,45 +1446,6 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   </span>
                 </div>
 
-                {/* No TLS Verify Option */}
-                {(() => {
-                  const isHttpsTarget = newTargetService.trim().toLowerCase().startsWith('https://');
-                  const isChecked = isHttpsTarget || noTlsVerify;
-                  return (
-                    <div className={`p-3 rounded-xl border transition-colors ${
-                      isChecked
-                        ? 'bg-amber-50/80 border-amber-200 text-amber-900'
-                        : 'bg-slate-50 border-slate-200 text-slate-700'
-                    }`}>
-                      <label className={`flex items-start gap-2.5 select-none ${isHttpsTarget ? 'cursor-default' : 'cursor-pointer'}`}>
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          disabled={isHttpsTarget}
-                          onChange={(e) => setNoTlsVerify(e.target.checked)}
-                          className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:cursor-default"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-xs block">
-                              No TLS Verify (Bypass Origin SSL Check)
-                            </span>
-                            {isHttpsTarget && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                Auto-Enabled (HTTPS)
-                              </span>
-                            )}
-                          </div>
-                          <span className={`text-[10px] block mt-0.5 ${isChecked ? 'text-amber-800' : 'text-slate-500'}`}>
-                            {isHttpsTarget 
-                              ? 'Automatically enabled because the target service uses HTTPS to prevent 502 Bad Gateway errors.' 
-                              : 'Enable when forwarding to internal or self-signed HTTPS origins to bypass SSL verification.'}
-                          </span>
-                        </div>
-                      </label>
-                    </div>
-                  );
-                })()}
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">

@@ -1296,7 +1296,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
 
   const canContinue =
     (currentStepId !== 'basics' ||
-      (name.trim() !== '' && domainValid && !duplicateNameSite && !duplicateDomainSite)) &&
+      (name.trim() !== '' && domainValid && !duplicateNameSite && !duplicateDomainSite && !isValidatingDomain)) &&
     (currentStepId !== 'source' || sourceValidForMode);
 
   const next = () => setStepIndex((i) => Math.min(i + 1, steps.length - 1));
@@ -2680,10 +2680,19 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                 type="button"
                 onClick={next}
                 disabled={!canContinue}
-                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-40"
+                className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <span>Continue</span>
-                <ChevronRight className="w-3.5 h-3.5" />
+                {isValidatingDomain && currentStepId === 'basics' ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Validating Domain...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Continue</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </>
+                )}
               </button>
             )}
           </div>
