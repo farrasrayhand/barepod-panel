@@ -93,6 +93,9 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     currentVersion: string;
     latestVersion: string;
     hasUpdate: boolean;
+    isPatchBuild?: boolean;
+    currentBinarySha?: string;
+    remoteBinarySha?: string;
     release?: {
       tag: string;
       version: string;
@@ -972,7 +975,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     </span>
                     {updateInfo?.hasUpdate ? (
                       <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-blue-100 text-blue-700 border border-blue-200 animate-pulse">
-                        Update Available
+                        {updateInfo.isPatchBuild ? 'Patch Build Available' : 'Update Available'}
                       </span>
                     ) : (
                       <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
@@ -994,18 +997,22 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               </div>
 
               {/* Update Banner & Action */}
-              {updateInfo?.hasUpdate && updateInfo.release && (
+              {updateInfo?.hasUpdate && updateInfo.release ? (
                 <div className="p-5 rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50/70 to-indigo-50/60 shadow-2xs space-y-4">
                   <div className="flex items-start justify-between flex-wrap gap-3">
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping" />
                         <h3 className="text-sm font-bold text-blue-950">
-                          BarePod Panel {updateInfo.release.tag} is Ready to Install
+                          {updateInfo.isPatchBuild
+                            ? `BarePod Panel ${updateInfo.release.tag} (New Patch Build) is Ready to Install`
+                            : `BarePod Panel ${updateInfo.release.tag} is Ready to Install`}
                         </h3>
                       </div>
                       <p className="text-xs text-blue-700 mt-1">
-                        Zero tenant website downtime guarantee. The daemon swaps binaries atomically and restarts in ~2s.
+                        {updateInfo.isPatchBuild
+                          ? 'Updated binary checksum detected on GitHub. Zero tenant website downtime guarantee.'
+                          : 'Zero tenant website downtime guarantee. The daemon swaps binaries atomically and restarts in ~2s.'}
                       </p>
                     </div>
 
@@ -1016,7 +1023,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                       className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer shadow-md shadow-blue-500/20"
                     >
                       <ArrowUpCircle className="w-4 h-4" />
-                      {isUpdating ? 'Updating Panel…' : 'Install Update Now'}
+                      {isUpdating ? 'Updating Panel…' : updateInfo.isPatchBuild ? 'Install Patch Update' : 'Install Update Now'}
                     </button>
                   </div>
 
@@ -1042,7 +1049,32 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     </div>
                   )}
                 </div>
-              )}
+              ) : updateInfo?.release ? (
+                <div className="p-4 rounded-2xl border border-slate-200 bg-white flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600">
+                      <Check className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900">
+                        BarePod Panel is up to date (v{updateInfo.currentVersion})
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        Running official release {updateInfo.release.tag}. You can force a reinstall anytime to refresh assets.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void startPanelUpdate()}
+                    disabled={isUpdating || !isAdmin}
+                    className="px-4 py-2 border border-slate-300 hover:bg-slate-50 disabled:bg-slate-100 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Force Reinstall / Re-apply Release
+                  </button>
+                </div>
+              ) : null}
 
               {/* Safety & Architecture Notice */}
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">

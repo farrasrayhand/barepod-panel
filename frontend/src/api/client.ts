@@ -1574,6 +1574,9 @@ export const api = {
       rawVersion: string;
       latestVersion: string;
       hasUpdate: boolean;
+      isPatchBuild?: boolean;
+      currentBinarySha?: string;
+      remoteBinarySha?: string;
       release?: {
         tag: string;
         version: string;

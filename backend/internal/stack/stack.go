@@ -204,11 +204,13 @@ for v in $VERSIONS; do
 
   for e in $CORE_EXTS; do
     pkg="php${v}-${e}"
-    if ! dpkg -s "$pkg" 2>/dev/null | grep -q "Status: install ok installed"; then
-      case " $INSTALL_PKGS " in
-        *" $pkg "*) ;;
-        *) INSTALL_PKGS="$INSTALL_PKGS $pkg" ;;
-      esac
+    if apt-cache show "$pkg" >/dev/null 2>&1; then
+      if ! dpkg -s "$pkg" 2>/dev/null | grep -q "Status: install ok installed"; then
+        case " $INSTALL_PKGS " in
+          *" $pkg "*) ;;
+          *) INSTALL_PKGS="$INSTALL_PKGS $pkg" ;;
+        esac
+      fi
     fi
   done
 

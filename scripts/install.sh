@@ -35,6 +35,21 @@ case "$ARCH_RAW" in
 esac
 log "Architecture: linux/${ARCH}"
 
+# --- Target paths & Installation Mode detection ---
+INSTALL_DIR="${BAREPOD_INSTALL_DIR:-/usr/local/bin}"
+DATA_DIR="${BAREPOD_DATA_DIR:-/var/lib/barepod}"
+CONF_DIR="${BAREPOD_CONF_DIR:-/etc/barepod}"
+DB_PATH="${BAREPOD_DB:-$DATA_DIR/barepod.db}"
+DIST_DIR="${DATA_DIR}/dist"
+
+IS_UPDATE=0
+if [ -f "$INSTALL_DIR/barepod" ] || [ -f "$DB_PATH" ]; then
+  IS_UPDATE=1
+  CURRENT_VER=$("$INSTALL_DIR/barepod" version 2>/dev/null || echo "detected")
+  log "Existing BarePod installation detected (${CURRENT_VER})."
+  log "Mode: In-Place Upgrade / Update (Preserving database, tenants, and config)"
+fi
+
 # --- Virtualization / container detection ---
 VIRT=""
 command -v systemd-detect-virt >/dev/null 2>&1 && VIRT="$(systemd-detect-virt || true)"
@@ -80,7 +95,9 @@ fi
 
 # --- Database engines & Build Dependencies ---
 # If running standalone via curl, automatically install essential packages on Ubuntu/Debian
-if [[ -x "$(dirname "$0")/install-engines.sh" ]]; then
+if [ "$IS_UPDATE" -eq 1 ]; then
+  log "Existing installation: skipping full database engine setup."
+elif [[ -x "$(dirname "$0")/install-engines.sh" ]]; then
   "$(dirname "$0")/install-engines.sh" "$@" || echo "   (engine installation reported a problem; the panel will show each engine honestly)"
 elif command -v apt-get >/dev/null 2>&1; then
   log "Installing runtime & build dependencies (apt)..."
@@ -100,12 +117,6 @@ if ! command -v cloudflared >/dev/null 2>&1; then
 fi
 
 # --- BarePod daemon & frontend bundle ---
-INSTALL_DIR="${BAREPOD_INSTALL_DIR:-/usr/local/bin}"
-DATA_DIR="${BAREPOD_DATA_DIR:-/var/lib/barepod}"
-CONF_DIR="${BAREPOD_CONF_DIR:-/etc/barepod}"
-DB_PATH="${BAREPOD_DB:-$DATA_DIR/barepod.db}"
-DIST_DIR="${DATA_DIR}/dist"
-
 mkdir -p "$INSTALL_DIR" "$DATA_DIR" "$CONF_DIR" "$DIST_DIR"
 chmod 0755 "$INSTALL_DIR"
 chmod 0700 "$DATA_DIR" "$CONF_DIR"
@@ -139,7 +150,7 @@ else
 
   # Method 3: Hardcoded latest fallback
   if [ -z "$LATEST_TAG" ]; then
-    LATEST_TAG="v3.0.1"
+    LATEST_TAG="v0.3.1"
   fi
 
   RELEASE_URL="https://github.com/farrasrayhand/barepod-panel/releases/download/${LATEST_TAG}/barepod-${LATEST_TAG}-linux-${ARCH}.tar.gz"
@@ -185,67 +196,95 @@ ADMIN_USER="admin"
 ADMIN_PASS=""
 PANEL_PORT="8443"
 
-# Check if admin already exists
-ALREADY_INITIALIZED=0
-if [ -f "$DB_PATH" ]; then
-  if "$INSTALL_DIR/barepod" user list --db "$DB_PATH" 2>/dev/null | grep -q "admin"; then
-    ALREADY_INITIALIZED=1
+# Detect existing panel port from systemd unit if updating
+if [ -f /etc/systemd/system/barepod.service ]; then
+  DETECTED_PORT=$(grep -oE -- '-listen [^ ]+' /etc/systemd/system/barepod.service 2>/dev/null | awk '{print $2}' | cut -d: -f2 || true)
+  if [ -n "$DETECTED_PORT" ]; then
+    PANEL_PORT="$DETECTED_PORT"
   fi
 fi
 
-if [ "$ALREADY_INITIALIZED" -eq 1 ]; then
-  log "Panel database already contains admin account — skipping creation."
+if [ "$IS_UPDATE" -eq 1 ]; then
+  log "Existing BarePod installation: skipping user creation and preserving database."
+  log "Restarting BarePod daemon via systemd..."
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl restart barepod 2>/dev/null || systemctl start barepod 2>/dev/null || true
 else
-  printf '\n\033[1;36m%s\033[0m\n' "=================================================="
-  printf '\033[1;36m%s\033[0m\n' "     BarePod Panel — Initial Setup Wizard"
-  printf '\033[1;36m%s\033[0m\n' "=================================================="
-  
-  if [ "$HAS_TTY" -eq 1 ] && [ "${BAREPOD_NONINTERACTIVE:-0}" != "1" ]; then
-    printf '\n\033[1;33m[?] Enter root admin username (default: admin): \033[0m'
-    read -r input_user </dev/tty || true
-    if [ -n "$input_user" ]; then
-      ADMIN_USER="$input_user"
+  # Check if admin already exists
+  ALREADY_INITIALIZED=0
+  if [ -f "$DB_PATH" ]; then
+    if "$INSTALL_DIR/barepod" user list --db "$DB_PATH" 2>/dev/null | grep -q "admin"; then
+      ALREADY_INITIALIZED=1
     fi
-
-    printf '\033[1;33m[?] Enter admin password (leave empty to generate secure password): \033[0m'
-    read -r -s input_pass </dev/tty || true
-    printf '\n'
-    if [ -n "$input_pass" ]; then
-      ADMIN_PASS="$input_pass"
-    fi
-
-    printf '\033[1;33m[?] Enter panel port (default: 8443): \033[0m'
-    read -r input_port </dev/tty || true
-    if [ -n "$input_port" ]; then
-      PANEL_PORT="$input_port"
-    fi
-  else
-    log "Non-interactive terminal detected — using default admin username and generating secure password."
   fi
 
-  log "Creating root admin account ($ADMIN_USER)..."
-  if [ -n "$ADMIN_PASS" ]; then
-    "$INSTALL_DIR/barepod" admin create --username "$ADMIN_USER" --password "$ADMIN_PASS" --db "$DB_PATH"
+  if [ "$ALREADY_INITIALIZED" -eq 1 ]; then
+    log "Panel database already contains admin account — skipping creation."
   else
-    "$INSTALL_DIR/barepod" admin create --username "$ADMIN_USER" --db "$DB_PATH"
+    printf '\n\033[1;36m%s\033[0m\n' "=================================================="
+    printf '\033[1;36m%s\033[0m\n' "     BarePod Panel — Initial Setup Wizard"
+    printf '\033[1;36m%s\033[0m\n' "=================================================="
+    
+    if [ "$HAS_TTY" -eq 1 ] && [ "${BAREPOD_NONINTERACTIVE:-0}" != "1" ]; then
+      printf '\n\033[1;33m[?] Enter root admin username (default: admin): \033[0m'
+      read -r input_user </dev/tty || true
+      if [ -n "$input_user" ]; then
+        ADMIN_USER="$input_user"
+      fi
+
+      printf '\033[1;33m[?] Enter admin password (leave empty to generate secure password): \033[0m'
+      read -r -s input_pass </dev/tty || true
+      printf '\n'
+      if [ -n "$input_pass" ]; then
+        ADMIN_PASS="$input_pass"
+      fi
+
+      printf '\033[1;33m[?] Enter panel port (default: 8443): \033[0m'
+      read -r input_port </dev/tty || true
+      if [ -n "$input_port" ]; then
+        PANEL_PORT="$input_port"
+      fi
+    else
+      log "Non-interactive terminal detected — using default admin username and generating secure password."
+    fi
+
+    log "Creating root admin account ($ADMIN_USER)..."
+    if [ -n "$ADMIN_PASS" ]; then
+      "$INSTALL_DIR/barepod" admin create --username "$ADMIN_USER" --password "$ADMIN_PASS" --db "$DB_PATH"
+    else
+      "$INSTALL_DIR/barepod" admin create --username "$ADMIN_USER" --db "$DB_PATH"
+    fi
   fi
+
+  # Automatically configure and start systemd service
+  log "Configuring and starting systemd service (0.0.0.0:${PANEL_PORT})..."
+  "$INSTALL_DIR/barepod" service install -listen "0.0.0.0:${PANEL_PORT}" -db "$DB_PATH" -static "$DIST_DIR" >/dev/null 2>&1 || true
 fi
-
-# Automatically configure and start systemd service
-log "Configuring and starting systemd service (0.0.0.0:${PANEL_PORT})..."
-"$INSTALL_DIR/barepod" service install -listen "0.0.0.0:${PANEL_PORT}" -db "$DB_PATH" -static "$DIST_DIR" >/dev/null 2>&1 || true
 
 # Resolve Server IP for direct access
 SERVER_IP=$(curl -fsSL -m 3 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "your-server-ip")
 
-printf '\n\033[1;32m%s\033[0m\n' "================================================================="
-printf '\033[1;32m%s\033[0m\n' "  🎉 BarePod Panel is installed and running successfully!"
-printf '\033[1;32m%s\033[0m\n' "================================================================="
-printf '\n'
-printf '  \033[1mPanel URL:\033[0m    \033[1;34mhttps://%s:%s\033[0m\n' "$SERVER_IP" "$PANEL_PORT"
-printf '  \033[1mUsername:\033[0m     \033[1;33m%s\033[0m\n' "$ADMIN_USER"
-printf '  \033[1mService:\033[0m      systemctl status barepod\n'
-printf '  \033[1mLogs:\033[0m         journalctl -u barepod -f\n'
-printf '\n'
-printf '\033[1;30m%s\033[0m\n' "Note: If using self-signed TLS, accept your browser certificate warning."
-printf '\033[1;32m%s\033[0m\n\n' "================================================================="
+if [ "$IS_UPDATE" -eq 1 ]; then
+  printf '\n\033[1;32m%s\033[0m\n' "================================================================="
+  printf '\033[1;32m%s\033[0m\n' "  🎉 BarePod Panel successfully updated to ${LATEST_TAG:-latest}!"
+  printf '\033[1;32m%s\033[0m\n' "================================================================="
+  printf '\n'
+  printf '  \033[1mPanel URL:\033[0m    \033[1;34mhttps://%s:%s\033[0m\n' "$SERVER_IP" "$PANEL_PORT"
+  printf '  \033[1mService:\033[0m      systemctl status barepod\n'
+  printf '  \033[1mLogs:\033[0m         journalctl -u barepod -f\n'
+  printf '  \033[1mNotice:\033[0m       All tenant websites, databases, and users remain intact.\n'
+  printf '\n'
+  printf '\033[1;32m%s\033[0m\n\n' "================================================================="
+else
+  printf '\n\033[1;32m%s\033[0m\n' "================================================================="
+  printf '\033[1;32m%s\033[0m\n' "  🎉 BarePod Panel is installed and running successfully!"
+  printf '\033[1;32m%s\033[0m\n' "================================================================="
+  printf '\n'
+  printf '  \033[1mPanel URL:\033[0m    \033[1;34mhttps://%s:%s\033[0m\n' "$SERVER_IP" "$PANEL_PORT"
+  printf '  \033[1mUsername:\033[0m     \033[1;33m%s\033[0m\n' "$ADMIN_USER"
+  printf '  \033[1mService:\033[0m      systemctl status barepod\n'
+  printf '  \033[1mLogs:\033[0m         journalctl -u barepod -f\n'
+  printf '\n'
+  printf '\033[1;30m%s\033[0m\n' "Note: If using self-signed TLS, accept your browser certificate warning."
+  printf '\033[1;32m%s\033[0m\n\n' "================================================================="
+fi

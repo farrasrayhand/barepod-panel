@@ -120,18 +120,58 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request, _ *s
 	}
 
 	archKey := "linux-" + runtime.GOARCH
+	remoteSHA := manifest.Assets[archKey].SHA256
+
+	// Option 3: Compare SHA-256 of active binary against remote manifest asset
+	// to detect new patch builds even if the semantic version tag is identical.
+	var currentBinarySHA string
+	currentBinary := "/usr/local/bin/barepod"
+	if f, err := os.Open(currentBinary); err == nil {
+		h := sha256.New()
+		if _, err := io.Copy(h, f); err == nil {
+			currentBinarySHA = hex.EncodeToString(h.Sum(nil))
+		}
+		f.Close()
+	}
+
+	var isPatchBuild bool
+	if !hasUpdate && remoteSHA != "" && currentBinarySHA != "" {
+		if !strings.EqualFold(remoteSHA, currentBinarySHA) {
+			hasUpdate = true
+			isPatchBuild = true
+		}
+	}
+
+	// Clean up duplicate changelog lines if GitHub release notes contain repeats
+	lines := strings.Split(ghRelease.Body, "\n")
+	seen := make(map[string]bool)
+	var cleanLines []string
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if trimmed != "" && seen[trimmed] {
+			continue
+		}
+		if trimmed != "" {
+			seen[trimmed] = true
+		}
+		cleanLines = append(cleanLines, l)
+	}
+	cleanChangelog := strings.TrimSpace(strings.Join(cleanLines, "\n"))
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"currentVersion": currentVerClean,
-		"rawVersion":     Version,
-		"latestVersion":  latestVersion,
-		"hasUpdate":      hasUpdate,
+		"currentVersion":   currentVerClean,
+		"rawVersion":       Version,
+		"latestVersion":    latestVersion,
+		"hasUpdate":        hasUpdate,
+		"isPatchBuild":     isPatchBuild,
+		"currentBinarySha": currentBinarySHA,
+		"remoteBinarySha":  remoteSHA,
 		"release": map[string]any{
 			"tag":               ghRelease.TagName,
 			"version":           latestVersion,
 			"publishedAt":       ghRelease.PublishedAt,
 			"releaseNotesUrl":   ghRelease.HTMLURL,
-			"changelogMarkdown": ghRelease.Body,
+			"changelogMarkdown": cleanChangelog,
 			"asset": map[string]any{
 				"arch":      archKey,
 				"sha256":    manifest.Assets[archKey].SHA256,

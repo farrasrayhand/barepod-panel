@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Server, Lock, AlertCircle, FlaskConical } from 'lucide-react';
+import { Server, Lock, AlertCircle, FlaskConical, KeyRound, Copy, Check, X } from 'lucide-react';
 
 interface LoginViewProps {
   onSignIn: (username: string, password: string) => Promise<boolean>;
@@ -22,6 +22,18 @@ interface LoginViewProps {
 export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, error, busy, mode, redirectTo }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
+
+  const copyToClipboard = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedCmd(id);
+      setTimeout(() => setCopiedCmd(null), 2000);
+    } catch {
+      // Fallback
+    }
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -63,7 +75,16 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Password</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700">Password</label>
+              <button
+                type="button"
+                onClick={() => setShowForgotModal(true)}
+                className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+              >
+                Forgot password?
+              </button>
+            </div>
             <input
               className={inputClass}
               type="password"
@@ -83,7 +104,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
           <button
             type="submit"
             disabled={busy || !username || !password}
-            className="w-full px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+            className="w-full px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-40 flex items-center justify-center gap-2 cursor-pointer shadow-xs"
           >
             <Lock className="w-3.5 h-3.5" />
             <span>{busy ? 'Signing in…' : 'Sign in'}</span>
@@ -104,7 +125,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
             <button
               type="button"
               onClick={onSimulate}
-              className="w-full px-4 py-2 text-xs font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="w-full px-4 py-2 text-xs font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
               <FlaskConical className="w-3.5 h-3.5" />
               <span>Continue in simulation mode</span>
@@ -115,6 +136,102 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
           </div>
         )}
       </div>
+
+      {/* Forgot Password / Reset Instructions Modal */}
+      {showForgotModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900">Reset Account Password</h3>
+                  <p className="text-[10px] text-slate-500">Host Terminal / SSH Verification</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowForgotModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 text-xs text-blue-900 leading-relaxed">
+                For security reasons, panel passwords can only be reset via the server terminal by the server owner or root operator.
+              </div>
+
+              <div className="space-y-3.5 text-xs text-slate-700">
+                <div className="space-y-1.5">
+                  <span className="font-bold flex items-center gap-1.5 text-slate-900 text-[11px]">
+                    <span className="w-4 h-4 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px]">1</span>
+                    Connect to your server via SSH:
+                  </span>
+                  <div className="p-2.5 rounded-xl bg-slate-900 text-slate-100 font-mono text-[11px] flex items-center justify-between">
+                    <code>ssh root@your-server-ip</code>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard('ssh root@your-server-ip', 'ssh')}
+                      className="text-slate-400 hover:text-white transition p-1 cursor-pointer"
+                      title="Copy command"
+                    >
+                      {copiedCmd === 'ssh' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <span className="font-bold flex items-center gap-1.5 text-slate-900 text-[11px]">
+                    <span className="w-4 h-4 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px]">2</span>
+                    Run the password reset command:
+                  </span>
+                  <div className="p-2.5 rounded-xl bg-slate-900 text-slate-100 font-mono text-[11px] flex items-center justify-between">
+                    <code>barepod admin passwd {username || '<username>'}</code>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(`barepod admin passwd ${username || 'admin'}`, 'reset')}
+                      className="text-slate-400 hover:text-white transition p-1 cursor-pointer"
+                      title="Copy command"
+                    >
+                      {copiedCmd === 'reset' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 pl-5.5">
+                    Or specify your new password directly:
+                    <code className="block mt-1 font-mono text-slate-700 bg-slate-100 p-1.5 rounded text-[10px]">
+                      barepod admin passwd --password "YourNewPassword" {username || 'admin'}
+                    </code>
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <span className="font-bold flex items-center gap-1.5 text-slate-900 text-[11px]">
+                    <span className="w-4 h-4 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px]">3</span>
+                    Sign in to panel:
+                  </span>
+                  <p className="text-[11px] text-slate-600 pl-5.5">
+                    Once the command completes, return to this page and sign in with your updated credentials.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowForgotModal(false)}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

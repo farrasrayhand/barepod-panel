@@ -568,6 +568,9 @@ func (h *Host) Run(ctx context.Context, argv []string) (string, error) {
 // system rather than to the daemon: a restart — a deploy — no longer kills an install
 // mid-flight. --pipe streams its output back the way Run does, and --collect removes the
 // unit afterwards. On a dry-run host it is simply Run.
+// If the command is an inline shell invocation (bash -c / sh -c), the script is written
+// to a temporary file first so that systemd-run does not mangle or evaluate shell variables
+// ($v, ${foo}, etc.) as empty systemd environment variables.
 func (h *Host) RunDetached(ctx context.Context, unit string, argv []string) (string, error) {
 	if len(argv) == 0 {
 		return "", nil
@@ -575,6 +578,19 @@ func (h *Host) RunDetached(ctx context.Context, unit string, argv []string) (str
 	if h.Runner == nil || h.Runner.Mode() != "real" {
 		return h.Run(ctx, argv)
 	}
+
+	cmdArgs := argv
+	var scriptFile string
+	if len(argv) == 3 && (argv[0] == "bash" || argv[0] == "sh") && argv[1] == "-c" {
+		tmpDir := "/var/lib/barepod/tmp"
+		_ = os.MkdirAll(tmpDir, 0700)
+		scriptFile = filepath.Join(tmpDir, unit+".sh")
+		if err := os.WriteFile(scriptFile, []byte("#!/usr/bin/env bash\n"+argv[2]+"\n"), 0700); err == nil {
+			defer os.Remove(scriptFile)
+			cmdArgs = []string{"/usr/bin/bash", scriptFile}
+		}
+	}
+
 	args := append([]string{
 		"systemd-run",
 		"--unit=" + unit,
@@ -586,7 +602,7 @@ func (h *Host) RunDetached(ctx context.Context, unit string, argv []string) (str
 		// EOF and abort the install half-way.
 		"--setenv=DEBIAN_FRONTEND=noninteractive",
 		"--",
-	}, argv...)
+	}, cmdArgs...)
 	return h.Run(ctx, args)
 }
 
