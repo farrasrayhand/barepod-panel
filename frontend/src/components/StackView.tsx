@@ -1453,8 +1453,8 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   setPlanModal(null);
                   if (m) void install(m.component, m.version);
                 }}
-                disabled={busy || live !== true || !planModal?.plan || !planModal.plan.safeToRun}
-                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 shadow-xs"
+                disabled={busy || live !== true || !planModal?.plan}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 shadow-xs cursor-pointer"
               >
                 Proceed with Switch
               </button>
