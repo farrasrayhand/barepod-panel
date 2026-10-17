@@ -388,13 +388,19 @@ echo "=========================================================="
 			"  fi\n" +
 			"fi\n" +
 			"systemctl restart redis-server 2>/dev/null || systemctl start redis-server 2>/dev/null || true\n"
-		return [][]string{{"bash", "-c", script}}, nil
+		return [][]string{{"bash", "-c", redisRepoScript}, {"bash", "-c", script}}, nil
 	case "mongodb":
 		// MongoDB runs in a container on hosts that have Docker.
 		// MongoDB requires featureCompatibilityVersion (fCV) step transitions when moving between major versions.
 		// Downgrading (e.g. 9.0 -> 8.0, 8.0 -> 7.0, or 9.0 -> 7.0) requires lowering fCV while the compatible version
 		// is running before the lower mongod binary can start. Upgrading requires raising fCV.
 		script := `set -e
+if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+  echo "Installing docker.io for containerized MongoDB..."
+  DEBIAN_FRONTEND=noninteractive apt-get update -o Acquire::Retries=3 || true
+  DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io || true
+  systemctl enable --now docker 2>/dev/null || true
+fi
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   TARGET="` + version + `"
   [ -z "$TARGET" ] && TARGET="9.0"
@@ -539,17 +545,29 @@ apt-get -o DPkg::Lock::Timeout=600 update`
 
 const mongodbRepoScript = `set -e
 echo "Configuring MongoDB repository..."
-apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release
+apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release 2>/dev/null || true
+CODENAME=$(lsb_release -cs 2>/dev/null || true)
+if [ -z "$CODENAME" ] && [ -f /etc/os-release ]; then
+  . /etc/os-release
+  CODENAME="${VERSION_CODENAME:-$UBUNTU_CODENAME}"
+fi
+[ -z "$CODENAME" ] && CODENAME="noble"
 curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor --yes -o /usr/share/keyrings/mongodb-server-8.0.gpg
-echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/8.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-8.0.list
+echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${CODENAME}/mongodb-org/8.0 multiverse" > /etc/apt/sources.list.d/mongodb-org-8.0.list
 echo "Updating apt package index..."
-apt-get -o DPkg::Lock::Timeout=600 update`
+apt-get -o DPkg::Lock::Timeout=600 update || true`
 
 const redisRepoScript = `set -e
 echo "Configuring Redis repository..."
-apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release
+apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release 2>/dev/null || true
+CODENAME=$(lsb_release -cs 2>/dev/null || true)
+if [ -z "$CODENAME" ] && [ -f /etc/os-release ]; then
+  . /etc/os-release
+  CODENAME="${VERSION_CODENAME:-$UBUNTU_CODENAME}"
+fi
+[ -z "$CODENAME" ] && CODENAME="noble"
 curl -fsSL https://packages.redis.io/gpg | gpg --dearmor --yes -o /usr/share/keyrings/redis-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb $(lsb_release -cs) main" > /etc/apt/sources.list.d/redis.list
+echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb ${CODENAME} main" > /etc/apt/sources.list.d/redis.list
 echo "Updating apt package index..."
 apt-get -o DPkg::Lock::Timeout=600 update`
 

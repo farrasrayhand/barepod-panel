@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
 )
 
 // AutoHeal inspects core host database and web engine services. It repairs common
@@ -88,11 +89,22 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 	// 4. Web Servers (Nginx, Caddy, Apache2, OpenLiteSpeed)
 	if isBinaryInstalled("caddy") || isServiceInstalled(ctx, runner, "caddy") {
 		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy 2>/dev/null && chmod 755 /var/log/caddy && chmod 664 /var/log/caddy/*.log 2>/dev/null || true")
+		_ = os.MkdirAll("/etc/caddy/sites", 0755)
+
+		isNginxActive := false
+		if ngActive, _ := runner.Run(ctx, "", "systemctl", "is-active", "nginx"); strings.TrimSpace(ngActive) == "active" {
+			isNginxActive = true
+		}
+
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "caddy")
-		if strings.TrimSpace(activeOut) != "active" {
+		testOut, testErr := runner.Run(ctx, "", "caddy", "validate", "--config", "/etc/caddy/Caddyfile")
+		caddyRunning := strings.TrimSpace(activeOut) == "active"
+
+		if testErr != nil || strings.Contains(testOut, "error") || !caddyRunning {
+			_ = webserver.WriteCaddyConfig("/etc/caddy/Caddyfile", "/etc/caddy/sites", isNginxActive)
 			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "caddy")
 			_, _ = runner.Run(ctx, "", "systemctl", "restart", "caddy")
-			actions = append(actions, "caddy: repaired log permissions & restarted service")
+			actions = append(actions, "caddy: regenerated clean Caddyfile & restarted service")
 		}
 	}
 	if isBinaryInstalled("nginx") || isServiceInstalled(ctx, runner, "nginx") {
@@ -106,6 +118,15 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 	}
 	if isBinaryInstalled("apache2") || isServiceInstalled(ctx, runner, "apache2") {
 		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/apache2 && chown -R www-data:adm /var/log/apache2 2>/dev/null && chmod 755 /var/log/apache2 && chmod 664 /var/log/apache2/*.log 2>/dev/null || true")
+		if _, err := os.Stat("/etc/apache2/ports.conf"); err == nil {
+			_, _ = runner.Run(ctx, "", "bash", "-c", "sed -i 's/Listen 80$/Listen 127.0.0.1:8080/' /etc/apache2/ports.conf 2>/dev/null || true; sed -i 's/Listen 443$/Listen 127.0.0.1:8443/' /etc/apache2/ports.conf 2>/dev/null || true")
+		}
+		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "apache2")
+		if strings.TrimSpace(activeOut) != "active" {
+			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "apache2")
+			_, _ = runner.Run(ctx, "", "systemctl", "restart", "apache2")
+			actions = append(actions, "apache2: ensured internal port 8080 & restarted service")
+		}
 	}
 	if isBinaryInstalled("openlitespeed") || isServiceInstalled(ctx, runner, "lshttpd") {
 		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /usr/local/lsws/logs && chown -R nobody:nogroup /usr/local/lsws/logs 2>/dev/null && chmod 755 /usr/local/lsws/logs && chmod 664 /usr/local/lsws/logs/*.log 2>/dev/null || true")
@@ -125,6 +146,11 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 			_, _ = runner.Run(ctx, "", "docker", "start", "barepod-mongo")
 			actions = append(actions, "mongodb: restarted barepod-mongo container")
 		}
+	}
+
+	// 6. Maintenance & Stopped Pages Auto-Refresh
+	if n := webserver.SyncAllMaintenancePages(); n > 0 {
+		actions = append(actions, fmt.Sprintf("maintenance: refreshed %d site pages to unified card theme", n))
 	}
 
 	return actions

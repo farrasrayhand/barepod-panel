@@ -114,6 +114,32 @@ func WriteMaintenancePage(slug, title, message string) (string, error) {
 	return dest, nil
 }
 
+// SyncAllMaintenancePages scans MaintenanceDir and rewrites every index.html and barepod_503.html
+// so that all existing stopped websites and maintenance sites inherit the unified card design.
+func SyncAllMaintenancePages() int {
+	entries, err := os.ReadDir(MaintenanceDir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		slug := entry.Name()
+		indexPath := filepath.Join(MaintenanceDir, slug, "index.html")
+		content, _ := os.ReadFile(indexPath)
+		isStopped := strings.Contains(string(content), "Stopped") || strings.Contains(string(content), "stopped")
+		if isStopped {
+			_, _ = WriteMaintenancePage(slug, StoppedTitle, "This website has been stopped by the site owner in the control panel.")
+		} else {
+			_, _ = WriteMaintenancePage(slug, "Maintenance Mode", "We are currently performing scheduled maintenance. Please check back shortly.")
+		}
+		count++
+	}
+	return count
+}
+
 // StoppedTitle marks the page served for a website the operator has stopped.
 const StoppedTitle = "Website Stopped"
 

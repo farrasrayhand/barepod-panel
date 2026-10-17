@@ -408,6 +408,11 @@ func runServe(args []string) error {
 	// Ensure interactive terminal MOTD banner exists
 	ensureProfileMOTD()
 
+	// Synchronize any existing stopped/maintenance pages to the latest design
+	if n := webserver.SyncAllMaintenancePages(); n > 0 {
+		log.Printf("refreshed %d maintenance/stopped website page(s) to unified card design", n)
+	}
+
 	// An install job cannot survive its own daemon: the goroutine that would write the final
 	// status dies with the process, while the steps themselves (run under systemd) carry on
 	// and usually finish. So a job left unfinished is marked as such rather than reading
