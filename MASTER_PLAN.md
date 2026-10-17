@@ -88,6 +88,10 @@ The detailed build log of every fix — with its measurements — is in this fil
 - **Automated Environment (.env) Injection & Non-Destructive Merging:** The Add-Website wizard and backend deploy pipeline (`stepWriteEnv`) inject runtime `.env` configurations automatically from user selections: database credentials (`DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, `DATABASE_URL`), Redis cache configurations (`CACHE_STORE`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`), application encryption keys, and custom key-value pairs. During redeployment or subsequent configuration updates, the existing `.env` is treated as the source of truth and merged non-destructively: tenant-defined variables and existing secrets are never wiped out or overwritten by blank defaults.
 - **Deep Framework Version Detection & Runtime Compatibility Guardrails:** BarePod inspects composer lockfiles (`composer.lock`), package manifests (`package.json`), Python requirements/pyproject files, and CMS manifests (`wp-includes/version.php`) to extract exact framework versions (e.g. `Laravel 12 (12.70.0)`). It derives minimum runtime version constraints (`minPhpVersion`, `compatiblePhp`). In the project detail view (`AppDetailPage`), incompatible runtime versions (e.g. PHP 7.1–8.1 on Laravel 12 requiring PHP ≥ 8.2) are proactively locked and disabled (`disabled={true}`, badge `Req ≥ 8.2`) with clear visual alert notices, preventing operator misconfiguration and fatal syntax crashes.
 - **Certbot & Automated ACME Tooling in Host Baseline:** To support zero-configuration Let's Encrypt automated issuance, `certbot` is included in the host baseline engine installer (`scripts/install-engines.sh`). If certbot is missing or DNS resolution fails during issuance, BarePod gracefully falls back to an internal high-grade ECDSA P-256 self-signed certificate accompanied by actionable diagnostics, ensuring HTTPS availability without crashing web server daemons or triggering Let's Encrypt rate limits.
+- **Multi-Tenant Website Scoping, Smart Scoped Slug & Cross-Tenant Collision Resilience:** In a multi-tenant hosting panel, multiple users (and admins) can independently name websites, pods, or databases using common names (e.g., `blog`, `portfolio`, `wordpress`). To prevent vhost file collisions in `/etc/<webserver>/sites-available/barepod-<slug>.conf`, systemd unit collisions (`barepod-<slug>.service`), and MySQL database collisions:
+  - *Websites*: Validation of display names is strictly scoped per-tenant (`duplicateNameSite`). If a technical slug is already claimed by another user, the daemon automatically resolves the global namespace collision by auto-prefixing with the tenant's username (`<tenantUser>-<slug>`), ensuring zero friction for users and zero OS-level collision.
+  - *Databases*: All shared daemon engines prefix engine database names and database users with the tenant (`<tenantUser>_<alias>`), allowing identical database names across tenants while keeping display aliases clean.
+  - *Admin Management*: `AppsView`, `PodsView`, and `DatabasesView` provide first-class Owner/Tenant filtering dropdowns (`All Owners` vs `@tenantUser`), comprehensive multi-attribute sorting (Owner, Name, Status, Engine, Size), and interactive clickable table headers.
 
 > **Versioning note:** the panel is still a prototype, so the document stays in the 0.x line (**0.3** — the databases module; see the policy at the top).
 
@@ -406,6 +410,17 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - Action Button: **"Check for Updates"** and **"Install Update Now"**.
   - Installation opens a live console modal streaming the update progress steps over SSE (`GET /api/v1/system/updates/stream`): Download -> Checksum Verify -> Smoke Test -> DB Backup -> Atomic Swap -> Daemon Reload -> Post-flight Health Check.
   - On completion, UI displays a 3-second countdown and smoothly reloads the browser tab.
+
+### 3.10. Multi-Tenant Governance, Smart Scoped Slugs & Cross-View Sorting
+- **Smart Scoped Slug Strategy**:
+  - Decouples user-facing **Display Name** (`name`) from low-level Linux/SQLite **System Slug** (`slug`).
+  - Allows multiple tenant accounts (e.g., `admin` and `suprion7`) to independently create websites, databases, and pods with common, friendly names (e.g., `blog`, `portfolio`, `wordpress`).
+  - When provisioning (`POST /api/v1/websites`), if `slug` is globally vacant, it is retained directly. If already claimed by another user, the daemon automatically provisions `<tenantUser>-<slug>` (e.g. `suprion7-blog`), preventing `/etc/<webserver>/sites-available/barepod-<slug>.conf` and systemd unit collisions.
+  - Per-tenant isolated filesystem hierarchy: `/home/<tenantUser>/web/<name>` (or `<slug>`), owned by that tenant's dedicated Linux UID.
+- **Cross-View Multi-Tenant Sorting & Filtering**:
+  - In `AppsView`, `PodsView`, and `DatabasesView`, administrators can filter resources by tenant owner (`All Owners` or `@<tenantUser>`).
+  - Multi-attribute sort controls support sorting by Owner/Tenant, Name, Status, Runtime/Engine, and Size, with instant A-Z / Z-A direction toggles.
+  - Interactive table column headers support 1-click toggle sorting with directional arrow indicators.
 
 ## 4. Implementation Status & Development Roadmap
 

@@ -130,6 +130,25 @@ This is the main rework risk — the UI currently stores some values as presenta
 - **`POST /websites/prepare-directory`** `{ slug, tenantUser }` → `201 { slug, tenantUser, path, created, existed, mode }`. **Tenants have no shell on the server**, so this is how "Existing Files" is reachable from the panel: create the folder here → upload the code with the File Manager → deploy. Idempotent; also gated on `deployApps` and restricted to the caller's own tenant.
 - **`DELETE /websites/:slug` has to be told what happens to the website's databases.** A SQLite file lives *inside* the site directory, so deleting the site used to take the file and leave the record behind, pointing at nothing (`409 not_ready — its file is gone`). The request now answers `409 has_databases` listing them unless it carries `?databases=keep` — the record is detached (its `websiteSlug` cleared) and a file-based database's file is **moved out of the site** into the tenant's own home — `<sites root>/<tenant>/detached/<file>`, handed back to that account so it stays reachable in their File Manager — and the record's `path` is updated, so the manager still opens it — or `?databases=delete`, which purges them with the website. A kept record carries `detachedAt` (migration 8) and `GET /databases?detached=true` lists exactly those, which is what the panel's **Detached** tab shows; the mark is cleared if the record belongs to a website again.
 - **`POST /websites` returns `202 Accepted`** with `{ slug, deployId, mode, status, totalSteps, stream }` — provisioning runs asynchronously. `mode` is `real` on Linux+systemd and `dry-run` everywhere else; **in dry-run nothing is started and the website stays `stopped`** (units and `.env` are still written, and the recorded commands are logged).
+- **Multi-Tenant Scoping & Smart Scoped Slug Strategy**:
+  - `name`: User-facing display title/name (e.g. `blog`, `portfolio`, `shop`). Distinct tenant users can create websites with identical display names without conflict.
+  - `slug`: System-level unique identifier across the operating system and database.
+  - **Collision Resolution Contract**:
+    When `POST /websites` is invoked:
+    - If `slug` is globally unassigned, the daemon allocates `slug` directly.
+    - If `slug` is already owned by *another* tenant account, the daemon automatically resolves the collision by prefixing the slug with the owner's username: `<tenantUser>-<slug>` (e.g. `suprion7-blog`), returning `202 Accepted` with the resolved `slug`.
+    - If `slug` is already owned by the *same* tenant account, the daemon returns `409 Conflict` (`{"slug": "this website name is already in use by your account"}`).
+    - Linux Virtual Host configuration path: `/etc/<webserver>/sites-available/barepod-<resolved_slug>.conf`.
+    - Systemd Service unit: `barepod-<resolved_slug>.service`.
+    - Website Home Directory: `/home/<tenantUser>/web/<name>` (isolated under tenant UID/GID).
+- **Collection Filtering and Sorting Contract**:
+  - `GET /websites?owner=<tenantUser>&sort_by=<field>&order=asc|desc`
+  - `GET /databases?owner=<tenantUser>&sort_by=<field>&order=asc|desc`
+  - `GET /caches?owner=<tenantUser>&sort_by=<field>&order=asc|desc`
+  - `GET /pods?owner=<tenantUser>&sort_by=<field>&order=asc|desc`
+    - `owner`: Optional string to filter resources by tenant username. Permitted for `role: "admin"`; non-admin tenants are strictly scoped to their own resources regardless of parameter.
+    - `sort_by`: `owner | name | status | engine | runtime | size`
+    - `order`: `asc | desc` (default: `asc`).
 - **`GET /websites/:slug/deploy`** → the latest job · **`GET /websites/:slug/deploy/:id?after=<logId>`** → `{ job, log[] }` (safe polling) · **`GET /websites/:slug/deploy/stream?id=`** → **SSE** `event: log` frames, closed by `event: done` with the final job. Every line is persisted, so a reconnect loses nothing.
 - **`DELETE /websites/:slug`** → `200 { slug, steps[], mode }`. Full teardown: stop + disable the unit, remove the per-site drop-in and reload systemd, delete the app directory (bounded to `<sites-root>/<tenant>/web/<slug>` or legacy `<sites-root>/<tenant>/apps/<slug>` — the daemon refuses the root or a tenant home), then forget the stored secrets and the row. A second delete is a `404`.
 - **`POST /websites/:slug/redeploy`** → `202` with the same envelope as create. The pipeline runs again from the **source recorded at create time** (`sourceKind`/`sourceRepo`/`sourceBranch` are part of the website model); when a row predates that field the source falls back to `existing`. A redeploy **keeps the existing database and cache** and says so in the log, and it is refused with `409 not_applicable` for a reverse proxy (nothing to build).
