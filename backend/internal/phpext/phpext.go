@@ -37,11 +37,16 @@ var (
 	namePattern    = regexp.MustCompile(`^[a-z0-9_]+$`)
 )
 
-// notExtensions are packages that carry the interpreter itself rather than an extension.
+// notExtensions are packages that carry the interpreter itself rather than an extension,
+// or modules that are excluded (dangerous, heavy profiling, obsolete, or conflicting).
 var notExtensions = map[string]bool{
 	"fpm": true, "cli": true, "common": true, "dev": true, "dbg": true, "phpdbg": true,
-	"cgi": true, "pear": true, "apache2": true,
+	"cgi": true, "pear": true, "apache2": true, "litespeed": true,
 	"mysql": true, // a metapackage: the real modules are mysqli, pdo_mysql and mysqlnd
+	"gmagick": true, "yac": true, "openswoole": true, "xcache": true,
+	"xdebug": true, "xhprof": true, "pcov": true, "uopz": true, "tideways": true,
+	"sybase": true, "interbase": true, "snmp": true, "pinba": true, "solr": true,
+	"enchant": true, "ps": true, "dio": true, "gearman": true, "ast": true, "rrd": true,
 }
 
 // List reads the host: the mods-available directory is the set of extensions that can be
@@ -90,7 +95,7 @@ func List(ctx context.Context, h *host.Host, version string) (Report, error) {
 		extension := strings.TrimPrefix(pkg, prefix)
 		// A package whose name is also a mod this host already has adds nothing new: xsl,
 		// for one, arrives with php-xml.
-		if notExtensions[extension] || have[extension] {
+		if notExtensions[extension] || have[extension] || strings.HasPrefix(extension, "phalcon") {
 			continue
 		}
 		report.Installable = append(report.Installable, extension)

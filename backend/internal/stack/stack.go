@@ -198,6 +198,8 @@ for v in $VERSIONS; do
     case "$pkg" in
       *-fpm|*-cli|*-common|*-dev|*-dbg|*-phpdbg|*-cgi|*-apache2|*-pear|lib*|*-litespeed) continue ;;
       *-gmagick|*-yac|*-openswoole|*-phalcon*|*-xcache) continue ;;
+      *-xdebug|*-xhprof|*-pcov|*-uopz|*-tideways) continue ;;
+      *-sybase|*-interbase|*-snmp|*-pinba|*-solr|*-enchant|*-ps|*-dio|*-gearman|*-ast|*-rrd) continue ;;
     esac
     if [ "$pkg" = "php7.2-sodium" ]; then
       continue
@@ -246,6 +248,8 @@ echo "=========================================================="
 			"  case \"$pkg\" in\n" +
 			"    *-fpm|*-cli|*-common|*-dev|*-dbg|*-phpdbg|*-cgi|*-apache2|*-pear|lib*|*-litespeed) continue ;;\n" +
 			"    *-gmagick|*-yac|*-openswoole|*-phalcon*|*-xcache) continue ;;\n" +
+			"    *-xdebug|*-xhprof|*-pcov|*-uopz|*-tideways) continue ;;\n" +
+			"    *-sybase|*-interbase|*-snmp|*-pinba|*-solr|*-enchant|*-ps|*-dio|*-gearman|*-ast|*-rrd) continue ;;\n" +
 			"  esac\n" +
 			"  if [ \"$pkg\" = \"php7.2-sodium\" ]; then continue; fi\n" +
 			"  if ! dpkg -s \"$pkg\" 2>/dev/null | grep -q \"Status: install ok installed\"; then\n" +
