@@ -21,26 +21,17 @@
 
 ## ⚡ Quick 1-Line Installation (No Git Clone Required!)
 
-Install BarePod Panel directly on any clean **Ubuntu 22.04+ / Debian 12+** server (VPS or LXC container). This script automatically detects your architecture (`amd64` / `arm64`), downloads the latest release bundle from GitHub, configures your environment, and prepares the background service:
+Install BarePod Panel directly on any clean **Ubuntu 22.04+ / Debian 12+** server (VPS or LXC container). This script automatically detects your architecture (`amd64` / `arm64`), downloads the precompiled release bundle, installs web engines and runtimes, runs an interactive setup wizard to create your root admin, and starts the systemd service automatically:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/scripts/install.sh | sudo bash
 ```
 
-### Next Steps:
-1. **Create your root admin account** (there are no default credentials by design):
-   ```bash
-   barepod admin create --username admin
-   ```
-   *(Your secure random password will be generated and printed once to your terminal).*
-
-2. **Install and start BarePod as a background systemd service**:
-   ```bash
-   barepod service install -listen 0.0.0.0:8443
-   ```
-
-3. **Access your panel**:
-   Open **`https://<your-server-ip>:8443`** in your browser and sign in!
+### What the installer does automatically:
+1. **Installs System Dependencies**: Nginx edge ingress, MariaDB, Redis, Certbot, Composer, Python3 venv, and `cloudflared`.
+2. **Interactive Admin Wizard**: Prompts you for your admin username, password (or auto-generates a secure 12-char token), and panel port (default `8443`).
+3. **Starts Systemd Service**: Configures `/etc/systemd/system/barepod.service` and starts it immediately.
+4. **Access your panel**: Open **`https://<your-server-ip>:8443`** in your browser and sign in!
 
 ---
 

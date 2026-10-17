@@ -169,13 +169,78 @@ else
 fi
 
 log "Environment OK: linux/${ARCH}$([ "$IS_LXC" -eq 1 ] && echo ' (LXC)')"
-log "Next steps:"
-log "  1. Create your root admin account:"
-log "     barepod admin create --username <you> --db $DB_PATH"
-log "     (creates your root admin; the password is generated and shown once)"
-log ""
-log "  2. Install and start as a background systemd service:"
-log "     barepod service install -listen 0.0.0.0:8443 -db $DB_PATH -static $DIST_DIR"
-log ""
-log "  3. Open your browser at: https://<server-ip>:8443"
-log "There is no default account and no default password by design."
+
+# --- Interactive Setup & Automated Service Configuration ---
+HAS_TTY=0
+if [ -c /dev/tty ]; then
+  HAS_TTY=1
+fi
+
+ADMIN_USER="admin"
+ADMIN_PASS=""
+PANEL_PORT="8443"
+
+# Check if admin already exists
+ALREADY_INITIALIZED=0
+if [ -f "$DB_PATH" ]; then
+  if "$INSTALL_DIR/barepod" user list --db "$DB_PATH" 2>/dev/null | grep -q "admin"; then
+    ALREADY_INITIALIZED=1
+  fi
+fi
+
+if [ "$ALREADY_INITIALIZED" -eq 1 ]; then
+  log "Panel database already contains admin account — skipping creation."
+else
+  printf '\n\033[1;36m%s\033[0m\n' "=================================================="
+  printf '\033[1;36m%s\033[0m\n' "     BarePod Panel — Initial Setup Wizard"
+  printf '\033[1;36m%s\033[0m\n' "=================================================="
+  
+  if [ "$HAS_TTY" -eq 1 ] && [ "${BAREPOD_NONINTERACTIVE:-0}" != "1" ]; then
+    printf '\n\033[1;33m[?] Enter root admin username (default: admin): \033[0m'
+    read -r input_user </dev/tty || true
+    if [ -n "$input_user" ]; then
+      ADMIN_USER="$input_user"
+    fi
+
+    printf '\033[1;33m[?] Enter admin password (leave empty to generate secure password): \033[0m'
+    read -r -s input_pass </dev/tty || true
+    printf '\n'
+    if [ -n "$input_pass" ]; then
+      ADMIN_PASS="$input_pass"
+    fi
+
+    printf '\033[1;33m[?] Enter panel port (default: 8443): \033[0m'
+    read -r input_port </dev/tty || true
+    if [ -n "$input_port" ]; then
+      PANEL_PORT="$input_port"
+    fi
+  else
+    log "Non-interactive terminal detected — using default admin username and generating secure password."
+  fi
+
+  log "Creating root admin account ($ADMIN_USER)..."
+  if [ -n "$ADMIN_PASS" ]; then
+    "$INSTALL_DIR/barepod" admin create --username "$ADMIN_USER" --password "$ADMIN_PASS" --db "$DB_PATH"
+  else
+    "$INSTALL_DIR/barepod" admin create --username "$ADMIN_USER" --db "$DB_PATH"
+  fi
+fi
+
+# Automatically configure and start systemd service
+log "Configuring and starting systemd service (0.0.0.0:${PANEL_PORT})..."
+"$INSTALL_DIR/barepod" service install -listen "0.0.0.0:${PANEL_PORT}" -db "$DB_PATH" -static "$DIST_DIR" >/dev/null 2>&1 || true
+
+# Resolve Server IP for direct access
+SERVER_IP=$(curl -fsSL -m 3 https://api.ipify.org 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || echo "your-server-ip")
+
+printf '\n\033[1;32m%s\033[0m\n' "================================================================="
+printf '\033[1;32m%s\033[0m\n' "  🎉 BarePod Panel is installed and running successfully!"
+printf '\033[1;32m%s\033[0m\n' "================================================================="
+printf '\n'
+printf '  \033[1mPanel URL:\033[0m    \033[1;34mhttps://%s:%s\033[0m\n' "$SERVER_IP" "$PANEL_PORT"
+printf '  \033[1mUsername:\033[0m     \033[1;33m%s\033[0m\n' "$ADMIN_USER"
+printf '  \033[1mService:\033[0m      systemctl status barepod\n'
+printf '  \033[1mLogs:\033[0m         journalctl -u barepod -f\n'
+printf '\n'
+printf '\033[1;30m%s\033[0m\n' "Note: If using self-signed TLS, accept your browser certificate warning."
+printf '\033[1;32m%s\033[0m\n\n' "================================================================="
