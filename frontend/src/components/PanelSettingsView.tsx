@@ -41,6 +41,7 @@ import { useSubRoute } from '../hooks/useSubRoute';
 import { describeError } from '../utils/format';
 import { PhpExtensionsPanel } from './PhpExtensionsPanel';
 import { CronJobsManager } from './CronJobsManager';
+import { isNewerVersion } from '../version';
 
 interface PanelSettingsViewProps {
   /** False hides controls a signed-in user may look at but not change — the daemon refuses them
@@ -121,9 +122,11 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     setCheckingUpdate(true);
     try {
       const res = await api.checkUpdates();
-      setUpdateInfo(res);
+      const hasActualUpdate = res.hasUpdate && isNewerVersion(res.latestVersion, res.currentVersion);
+      const normalized = { ...res, hasUpdate: hasActualUpdate };
+      setUpdateInfo(normalized);
       if (!silent) {
-        if (res.hasUpdate) {
+        if (hasActualUpdate) {
           onShowToast?.('Update available', `BarePod Panel ${res.release?.tag || res.latestVersion} is ready to install.`, 'info');
         } else {
           onShowToast?.('Up to date', `BarePod Panel is on the latest version (${res.currentVersion}).`, 'success');

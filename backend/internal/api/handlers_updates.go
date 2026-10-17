@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -98,8 +99,7 @@ func (s *Server) handleCheckUpdates(w http.ResponseWriter, r *http.Request, _ *s
 
 	latestVersion := strings.TrimPrefix(ghRelease.TagName, "v")
 	currentVerClean := strings.TrimPrefix(strings.Split(Version, "-")[0], "v")
-
-	hasUpdate := latestVersion != "" && latestVersion != currentVerClean
+	hasUpdate := isNewerVersion(latestVersion, currentVerClean)
 
 	var manifestURL string
 	for _, a := range ghRelease.Assets {
@@ -541,4 +541,33 @@ func copyDir(src, dst string) error {
 		}
 		return copyFile(path, target)
 	})
+}
+
+// isNewerVersion reports whether remote represents a higher semantic version than current.
+func isNewerVersion(remote, current string) bool {
+	if remote == "" || current == "" || remote == current {
+		return false
+	}
+	rParts := strings.Split(strings.TrimPrefix(remote, "v"), ".")
+	cParts := strings.Split(strings.TrimPrefix(current, "v"), ".")
+	maxLen := len(rParts)
+	if len(cParts) > maxLen {
+		maxLen = len(cParts)
+	}
+	for i := 0; i < maxLen; i++ {
+		rNum, cNum := 0, 0
+		if i < len(rParts) {
+			rNum, _ = strconv.Atoi(strings.Split(rParts[i], "-")[0])
+		}
+		if i < len(cParts) {
+			cNum, _ = strconv.Atoi(strings.Split(cParts[i], "-")[0])
+		}
+		if rNum > cNum {
+			return true
+		}
+		if rNum < cNum {
+			return false
+		}
+	}
+	return false
 }

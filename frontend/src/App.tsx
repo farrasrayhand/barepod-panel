@@ -28,6 +28,7 @@ import { useSession } from './hooks/useSession';
 import { api } from './api/client';
 import { toWebApp, formatBytes } from './api/adapters';
 import { siteSupportsShell, siteShellNote } from './utils/siteRuntime';
+import { isNewerVersion } from './version';
 
 // Identity used only while the daemon is unreachable (simulation mode).
 const MOCK_USER = { username: 'farras', role: 'admin' as const };
@@ -361,7 +362,7 @@ export function App() {
       try {
         const res = await api.checkUpdates();
         if (!mounted || !res) return;
-        if (res.hasUpdate && res.latestVersion) {
+        if (res.hasUpdate && res.latestVersion && isNewerVersion(res.latestVersion, res.currentVersion)) {
           const info: UpdateInfo = {
             hasUpdate: true,
             latestVersion: res.latestVersion,
