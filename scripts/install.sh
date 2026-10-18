@@ -230,7 +230,7 @@ else
 
   # Method 3: Hardcoded latest fallback
   if [ -z "$LATEST_TAG" ]; then
-    LATEST_TAG="v0.3.7"
+    LATEST_TAG="v0.3.8"
   fi
 
   RELEASE_URL="https://github.com/farrasrayhand/barepod-panel/releases/download/${LATEST_TAG}/barepod-${LATEST_TAG}-linux-${ARCH}.tar.gz"
