@@ -306,6 +306,10 @@ func (s *Server) runUpdatePipeline(jobID, targetVersion, operator string) {
 
 	updatesDir := "/var/lib/barepod/updates"
 	_ = os.MkdirAll(updatesDir, 0700)
+	// A staged download is only needed until the swap. Anything still here is from an earlier update
+	// (or one that failed before the swap) and is ~9 MB a time, so it is cleared before this run
+	// stages its own.
+	pruneUpdateStaging(updatesDir)
 	destTarball := filepath.Join(updatesDir, expectedTarball)
 
 	sendProgress("download", 30, fmt.Sprintf("Downloading %s...", expectedTarball))
@@ -405,6 +409,9 @@ func (s *Server) runUpdatePipeline(jobID, targetVersion, operator string) {
 	}
 
 	_ = os.RemoveAll(stagingExtract)
+	// The archive has been extracted, verified and swapped in; keeping it would be the only thing
+	// this pipeline leaves behind.
+	_ = os.Remove(destTarball)
 
 	sendProgress("restarting", 98, "Triggering daemon restart via supervisor...")
 
@@ -477,6 +484,22 @@ func (s *Server) handleUpdateStream(w http.ResponseWriter, r *http.Request, _ *s
 			fmt.Fprintf(w, "event: step\ndata: %s\n\n", data)
 			flusher.Flush()
 		}
+	}
+}
+
+// pruneUpdateStaging removes release archives staged by an earlier update. An archive is only needed
+// between the download and the swap; keeping them would grow /var/lib/barepod/updates by one ~9 MB
+// tarball per update, for ever.
+func pruneUpdateStaging(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tar.gz") {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, entry.Name()))
 	}
 }
 

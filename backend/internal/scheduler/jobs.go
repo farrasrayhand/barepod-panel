@@ -93,7 +93,15 @@ var registry = []Job{
 				return "no /etc/logrotate.conf on this host; nothing to rotate", nil
 			}
 			out, err := env.Host.Run(ctx, []string{"logrotate", "-f", "/etc/logrotate.conf"})
-			return strings.TrimSpace(out), err
+			out = strings.TrimSpace(out)
+			if err != nil {
+				return out, err
+			}
+			// logrotate prints nothing on a clean pass.
+			if out == "" {
+				return "forced a rotation pass over /etc/logrotate.conf; logrotate reported no errors", nil
+			}
+			return out, nil
 		},
 	},
 	{
@@ -106,7 +114,16 @@ var registry = []Job{
 			}
 			out, err := env.Host.Run(ctx, []string{"certbot", "renew", "--quiet", "--no-random-sleep-on-renew"})
 			reloadWebServers(ctx, env)
-			return strings.TrimSpace(out), err
+			out = strings.TrimSpace(out)
+			if err != nil {
+				return out, err
+			}
+			// certbot renew is silent when nothing was due, which otherwise reads as "the job did
+			// nothing".
+			if out == "" {
+				return "certbot renew completed: no certificate was due for renewal (web servers reloaded)", nil
+			}
+			return out, nil
 		},
 	},
 	{
