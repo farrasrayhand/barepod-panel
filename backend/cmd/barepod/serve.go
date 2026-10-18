@@ -27,6 +27,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/guard"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/metrics"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/scheduler"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/stack"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
@@ -571,6 +572,18 @@ func runServe(args []string) error {
 	} else {
 		log.Printf("guard: %d record port(s) reconciled against the firewall set", applied)
 	}
+
+	// The built-in maintenance scheduler. Its jobs are the ones the panel lists under Cron; each is
+	// seeded once — never overwriting an operator's choice — and then run by the daemon on its own
+	// schedule. Seeding is idempotent and a failure here only logs: a job list that could not be
+	// written must not stop the panel from starting.
+	if err := st.EnsureSystemCronJobs(scheduler.Defaults()); err != nil {
+		log.Printf("scheduler: could not seed the built-in jobs: %v", err)
+	}
+	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
+	defer stopScheduler()
+	go (&scheduler.Scheduler{Store: st, Host: h, Key: key, Caps: caps, Logf: log.Printf}).Run(schedulerCtx)
+	log.Printf("scheduler: %d built-in maintenance job(s) available", len(scheduler.Registry()))
 
 	// Hardware-adaptive auto-tuning for engines (MariaDB, PostgreSQL, Redis)
 	dbengine.AutoTune(context.Background(), h.Runner, cfg.RedisURL, log.Printf)

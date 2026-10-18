@@ -206,6 +206,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/system/settings/php-defaults", s.requireAuth(s.handleGetPhpDefaults))
 	mux.HandleFunc("PUT /api/v1/system/settings/php-defaults", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSavePhpDefaults)))
 
+	// Alert channels the maintenance jobs report through. Reading is open to any signed-in user
+	// (secrets are masked); changing or testing them is administrative.
+	mux.HandleFunc("GET /api/v1/system/notifications", s.requireAuth(s.handleGetNotifications))
+	mux.HandleFunc("PUT /api/v1/system/notifications", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSaveNotifications)))
+	mux.HandleFunc("POST /api/v1/system/notifications/test", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleTestNotification)))
+
 	// In-Panel Self-Update & Over-The-Air (OTA) engine. Reading update status is accessible to
 	// operators; applying an update requires administrative capability (CapUsers) and audit.
 	mux.HandleFunc("GET /api/v1/system/updates/check", s.requireAuth(s.handleCheckUpdates))
@@ -297,6 +303,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/v1/cron/jobs/{id}", s.requireAuth(s.handleUpdateCronJob))
 	mux.HandleFunc("DELETE /api/v1/cron/jobs/{id}", s.requireAuth(s.handleDeleteCronJob))
 	mux.HandleFunc("POST /api/v1/cron/jobs/{id}/run", s.requireAuth(s.handleRunCronJob))
+	// Built-in maintenance jobs: the daemon runs these itself, so changing or forcing one is
+	// administrative.
+	mux.HandleFunc("PUT /api/v1/cron/jobs/system/{id}", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleUpdateSystemCronJob)))
+	mux.HandleFunc("POST /api/v1/cron/jobs/system/{id}/run", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleRunSystemCronJob)))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/cron", deploy(s.handleListCronJobs))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/cron", deploy(s.handleCreateCronJob))
 

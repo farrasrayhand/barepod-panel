@@ -1,4 +1,4 @@
-import { api, type CloudflareZone, type PanelTunnelStatus, type PhpDefaultsConfig } from '../api/client';
+import { api, type CloudflareZone, type NotificationConfig, type PanelTunnelStatus, type PhpDefaultsConfig } from '../api/client';
 import React, { useEffect, useState } from 'react';
 import { GuardCard } from './GuardCard';
 import { 
@@ -36,7 +36,6 @@ import {
   ExternalLink,
   Download
 } from 'lucide-react';
-import type { WebServerType } from '../types';
 import { useSubRoute } from '../hooks/useSubRoute';
 import { describeError } from '../utils/format';
 import { PhpExtensionsPanel } from './PhpExtensionsPanel';
@@ -58,7 +57,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   onShowToast,
   onOpenTerminal,
 }) => {
-  const [activeTab, setActiveTab] = useSubRoute<'general' | 'updates' | 'cron' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults' | 'maintenance'>('general');
+  const [activeTab, setActiveTab] = useSubRoute<'general' | 'updates' | 'cron' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults'>('general');
   const [isSaving, setIsSaving] = useState(false);
   // The address an external client should use. Unlike most of this screen it is real: the daemon
   // stores it and every connection snippet prefers it. It cannot be detected — behind NAT there is
@@ -149,6 +148,30 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }
   }, [activeTab]);
 
+  // After the swap the daemon restarts, so reloading on a timer lands on a port that is not
+  // answering yet — an error page the operator has to refresh a second time. Poll the health
+  // endpoint until the new process is serving, then reload exactly once.
+  const reloadWhenDaemonIsBack = async (targetVersion: string, fromVersion: string) => {
+    const target = (targetVersion || '').replace(/^v/, '');
+    const from = (fromVersion || '').replace(/^v/, '');
+    // A force-reinstall keeps the same version, so its only signal is the restart itself.
+    const versionChanges = target !== '' && target !== from;
+    const deadline = Date.now() + 90_000;
+    let sawRestart = false;
+    for (;;) {
+      try {
+        const health = await api.health();
+        const running = health.version.replace(/^v/, '');
+        if (versionChanges ? !isNewerVersion(target, running) : sawRestart) break;
+      } catch {
+        sawRestart = true;
+      }
+      if (Date.now() >= deadline) break;
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    window.location.reload();
+  };
+
   const startPanelUpdate = async () => {
     if (!updateInfo?.latestVersion || isUpdating) return;
     setIsUpdating(true);
@@ -177,10 +200,8 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             setIsUpdating(false);
           } else {
             setUpdateSuccess(true);
-            setUpdateLogs((prev) => [...prev, { step: 'complete', message: 'Update completed! Reloading dashboard in 3 seconds...', pct: 100 }]);
-            setTimeout(() => {
-              window.location.reload();
-            }, 3000);
+            setUpdateLogs((prev) => [...prev, { step: 'complete', message: 'Update applied. Waiting for the daemon to come back…', pct: 100 }]);
+            void reloadWhenDaemonIsBack(payload.newVersion || updateInfo.latestVersion, updateInfo.currentVersion);
           }
         } catch {
           setIsUpdating(false);
@@ -189,11 +210,10 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
       evSource.onerror = () => {
         evSource.close();
-        // Server restart will drop the SSE stream — this usually means success and restarting!
-        setUpdateLogs((prev) => [...prev, { step: 'restart', message: 'Daemon restarted. Waiting for panel to answer...', pct: 95 }]);
-        setTimeout(() => {
-          window.location.reload();
-        }, 4000);
+        // The restart drops the SSE stream — this usually means the swap succeeded and the daemon
+        // is coming back. Wait for it to answer instead of reloading into a port that is still down.
+        setUpdateLogs((prev) => [...prev, { step: 'restart', message: 'Daemon restarting. Waiting for the panel to answer…', pct: 95 }]);
+        void reloadWhenDaemonIsBack(updateInfo.latestVersion, updateInfo.currentVersion);
       };
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : 'Failed to trigger update');
@@ -310,53 +330,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }
   };
 
-  // System & Docker Cleanup
-  const [autoCleanupEnabled, setAutoCleanupEnabled] = useState(true);
-  const [cleanupCron, setCleanupCron] = useState('0 4 * * *');
-  const [pruneSystemJunk, setPruneSystemJunk] = useState(true);
-  const [systemJunkRetentionDays, setSystemJunkRetentionDays] = useState(7);
-  const [pruneDocker, setPruneDocker] = useState(true);
-  const [dockerPruneDanglingImages, setDockerPruneDanglingImages] = useState(true);
-  const [dockerPruneStoppedContainers, setDockerPruneStoppedContainers] = useState(true);
-  const [dockerPruneUnusedVolumes, setDockerPruneUnusedVolumes] = useState(false);
-  const [dockerPruneBuildCache, setDockerPruneBuildCache] = useState(true);
-  const [isPruningSystem, setIsPruningSystem] = useState(false);
-  const [lastCleanup, setLastCleanup] = useState('Never');
-
-  // Recommended default maintenance jobs (keeps the server healthy out of the box)
-  const [cronJobs, setCronJobs] = useState([
-    { id: 'metrics_prune', label: 'Metrics & log retention prune', desc: 'Trim time-series metrics and rotated logs past retention.', schedule: '0 3 * * *', enabled: true },
-    { id: 'system_junk', label: 'System junk cleanup', desc: 'Clear /tmp, orphan build artifacts, and expired snapshots.', schedule: '0 4 * * *', enabled: true },
-    { id: 'docker_prune', label: 'Docker system prune', desc: 'Dangling images, stopped containers, and build cache.', schedule: '30 4 * * *', enabled: true },
-    { id: 'ssl_renew', label: 'SSL certificate renewal', desc: "Renew Let's Encrypt / Caddy certificates before expiry.", schedule: '0 0,12 * * *', enabled: true },
-    { id: 'security_updates', label: 'Security OS updates', desc: 'Unattended security upgrades (apt unattended-upgrades).', schedule: '0 5 * * *', enabled: true },
-    { id: 'logrotate', label: 'Log rotation', desc: 'Rotate and compress service logs.', schedule: '0 2 * * *', enabled: true },
-    { id: 'db_maintenance', label: 'Database maintenance', desc: 'PostgreSQL VACUUM ANALYZE & MariaDB table optimize.', schedule: '0 3 * * 0', enabled: true },
-    { id: 'fstrim', label: 'SSD TRIM (fstrim)', desc: 'Discard unused blocks to keep NVMe/SSD performance.', schedule: '0 2 * * 0', enabled: true },
-    { id: 'smart_test', label: 'S.M.A.R.T. short self-test', desc: 'Weekly disk health self-test.', schedule: '0 1 * * 0', enabled: true },
-    { id: 'service_watchdog', label: 'Service watchdog', desc: 'Restart nginx/caddy/php-fpm/docker/cloudflared if down.', schedule: '*/5 * * * *', enabled: true },
-    { id: 'disk_alert', label: 'Disk & resource alerts', desc: 'Notify when disk or RAM crosses the threshold.', schedule: '*/15 * * * *', enabled: true },
-  ]);
-
-  const toggleCronJob = (id: string) => {
-    setCronJobs((prev) => prev.map((job) => (job.id === id ? { ...job, enabled: !job.enabled } : job)));
-  };
-
-  const handleRunCleanupNow = () => {
-    setIsPruningSystem(true);
-    setTimeout(() => {
-      setIsPruningSystem(false);
-      const systemMb = pruneSystemJunk ? Math.floor(120 + Math.random() * 400) : 0;
-      const dockerMb = pruneDocker ? Math.floor(200 + Math.random() * 900) : 0;
-      setLastCleanup(new Date().toLocaleString());
-      onShowToast?.(
-        'Cleanup Complete',
-        `Reclaimed ${systemMb} MB system junk${pruneDocker ? ` and ${dockerMb} MB Docker data` : ''}.`,
-        'success'
-      );
-    }, 1400);
-  };
-
   // Global PHP Extensions Blueprint & Tuning Settings
   const [phpConfig, setPhpConfig] = useState<PhpDefaultsConfig>({
     memoryLimit: '256M',
@@ -438,7 +411,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [panelZone, setPanelZone] = useState('');
   const [panelSubdomain, setPanelSubdomain] = useState('panel');
   const [panelPublishing, setPanelPublishing] = useState(false);
-  const [defaultWebServer, setDefaultWebServer] = useState<WebServerType>('openlitespeed');
   const [timezone, setTimezone] = useState('Asia/Jakarta');
   const [language, setLanguage] = useState('id');
   const [autoUpdate, setAutoUpdate] = useState(true);
@@ -506,36 +478,24 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }
   };
 
-  // Ticking "Use Cloudflare" switches the panel's address to the tunnel hostname; unticking it takes
-  // the hostname out of Cloudflare and falls back to the public address.
-  const toggleCloudflare = async (next: boolean) => {
+  // The checkbox only chooses which address the panel should use; nothing is sent to the server
+  // until the operator saves. Unticking it used to unpublish the tunnel at once, which cut off the
+  // very hostname the admin was connected through. The unpublish now happens in saveDirectPanelFqdn.
+  const toggleCloudflare = (next: boolean) => {
     if (panelPublishing) return;
     setUseCloudflare(next);
-    try {
-      if (!next && panelTunnel?.fqdn) {
-        const status = await api.unpublishPanelTunnel();
-        setPanelTunnel(status);
-        setPanelFqdn('');
-      } else {
-        await api.savePanelSettings({ useCloudflare: next });
-      }
-      onShowToast?.(
-        next ? 'Cloudflare enabled' : 'Cloudflare disabled',
-        next
-          ? 'Pick a domain below, then publish. The panel keeps answering on its IP too.'
-          : 'The panel is reached at its public address.',
-        'info',
-      );
-    } catch (err) {
-      setUseCloudflare(!next);
-      onShowToast?.('Could not change', err instanceof Error ? err.message : 'unknown error', 'error');
-    }
   };
 
   const saveDirectPanelFqdn = async () => {
     if (panelFqdnSaving) return;
     setPanelFqdnSaving(true);
     try {
+      // Saving the direct address is what takes the panel off Cloudflare — deferred from the
+      // checkbox so that unticking it never drops an in-flight session.
+      if (panelTunnel?.fqdn) {
+        const status = await api.unpublishPanelTunnel();
+        setPanelTunnel(status);
+      }
       const clean = panelFqdn.trim().toLowerCase();
       const saved = await api.savePanelSettings({ panelFqdn: clean, useCloudflare: false });
       setPanelFqdn(saved.panelFqdn || '');
@@ -578,15 +538,12 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [s3Endpoint, setS3Endpoint] = useState('');
   const [isBackingUp, setIsBackingUp] = useState(false);
 
-  // 5. Notifications
-  const [telegramEnabled, setTelegramEnabled] = useState(false);
-  const [telegramBotToken, setTelegramBotToken] = useState('');
-  const [telegramChatId, setTelegramChatId] = useState('');
-  const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
-  const [smtpHost, setSmtpHost] = useState('smtp.mailgun.org');
-  const [smtpPort, setSmtpPort] = useState(587);
-  const [smtpUser, setSmtpUser] = useState('postmaster@barepod.cloud');
-  const [smtpPassword, setSmtpPassword] = useState('••••••••••••');
+  // 5. Notifications — real now: the config is stored by the daemon and the maintenance jobs (notably
+  // disk_alert) deliver through it. Secrets are write-only: the panel never reads them back.
+  const [alerts, setAlerts] = useState<NotificationConfig | null>(null);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsSaving, setAlertsSaving] = useState(false);
+  const [alertSecrets, setAlertSecrets] = useState({ telegramBotToken: '', discordWebhookUrl: '', smtpPassword: '' });
 
 
   const handleSaveAll = (e: React.FormEvent) => {
@@ -607,8 +564,66 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }, 2500);
   };
 
-  const handleTestNotification = () => {
-    onShowToast?.('Test Notification Sent', 'Verification ping sent to configured alert channel.', 'success');
+  // Alerts are loaded when the tab is opened, so the panel never holds a secret it is not showing.
+  useEffect(() => {
+    if (activeTab !== 'notifications') return;
+    let alive = true;
+    setAlertsLoading(true);
+    void (async () => {
+      try {
+        const loaded = await api.notifications();
+        if (alive) setAlerts(loaded);
+      } catch (err) {
+        if (alive) onShowToast?.('Could not load alert settings', describeError(err), 'error');
+      } finally {
+        if (alive) setAlertsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [activeTab]);
+
+  const saveAlerts = async () => {
+    if (!alerts || alertsSaving) return;
+    setAlertsSaving(true);
+    try {
+      const updated = await api.saveNotifications({
+        telegramEnabled: alerts.telegramEnabled,
+        telegramChatId: alerts.telegramChatId,
+        telegramBotToken: alertSecrets.telegramBotToken || undefined,
+        discordEnabled: alerts.discordEnabled,
+        discordWebhookUrl: alertSecrets.discordWebhookUrl || undefined,
+        smtpEnabled: alerts.smtpEnabled,
+        smtpHost: alerts.smtpHost,
+        smtpPort: alerts.smtpPort,
+        smtpUser: alerts.smtpUser,
+        smtpPassword: alertSecrets.smtpPassword || undefined,
+        smtpFrom: alerts.smtpFrom,
+        smtpTo: alerts.smtpTo,
+        diskAlertThresholdPercent: alerts.diskAlertThresholdPercent,
+      });
+      setAlerts(updated);
+      setAlertSecrets({ telegramBotToken: '', discordWebhookUrl: '', smtpPassword: '' });
+      onShowToast?.('Alert settings saved', `Active channels: ${updated.channels.join(', ') || 'none'}`, 'success');
+    } catch (err) {
+      onShowToast?.('Could not save alert settings', describeError(err), 'error');
+    } finally {
+      setAlertsSaving(false);
+    }
+  };
+
+  const handleTestNotification = async () => {
+    try {
+      const res = await api.testNotification();
+      if (res.ok) {
+        onShowToast?.('Test sent', `Delivered via ${res.channels.join(', ')}.`, 'success');
+      } else {
+        onShowToast?.('Test failed', (res.errors || []).join('; ') || 'delivery failed', 'error');
+      }
+    } catch (err) {
+      onShowToast?.('Test failed', describeError(err), 'error');
+    }
   };
 
   const handleRestartDaemon = () => {
@@ -678,7 +693,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             { id: 'backups', label: 'Backup Policy', icon: HardDrive },
             { id: 'notifications', label: 'Alerts & Webhooks', icon: Bell },
             { id: 'php_defaults', label: 'PHP Tuning & Exts', icon: Cpu },
-            { id: 'maintenance', label: 'System & Cleanup', icon: Trash2 },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -753,7 +767,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                         <input
                           type="checkbox"
                           checked={useCloudflare}
-                          onChange={(e) => void toggleCloudflare(e.target.checked)}
+                          onChange={(e) => toggleCloudflare(e.target.checked)}
                           className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300"
                         />
                         Use Cloudflare
@@ -844,23 +858,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Default Web Server Engine for New Apps
-                </label>
-                <select
-                  value={defaultWebServer}
-                  onChange={(e) => setDefaultWebServer(e.target.value as WebServerType)}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-semibold focus:border-blue-500"
-                >
-                  <option value="openlitespeed">OpenLiteSpeed (Recommended - LSCache, fastest for PHP)</option>
-                  <option value="nginx">Nginx (Industry standard, strong reverse proxy)</option>
-                  <option value="caddy">Caddy (Automatic HTTPS & modern HTTP/3)</option>
-                  <option value="apache">Apache 2.4 (Best .htaccess compatibility)</option>
-                </select>
-                  <p className="text-[10px] text-slate-400 mt-1">The web server is a host-level choice now — set it on the <strong>Stack</strong> page (nginx or Caddy).</p>
-
-              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Panel (HTTPS) port</label>
@@ -1748,279 +1745,216 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             </div>
           )}
 
-          {/* 5. SYSTEM & DOCKER CLEANUP */}
-          {activeTab === 'maintenance' && (
-            <div className="space-y-6 w-full">
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-bold text-slate-900">System & Docker Cleanup</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Reclaim disk space by pruning junk files and unused Docker resources. Last run: <strong className="text-slate-600">{lastCleanup}</strong>
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRunCleanupNow}
-                  disabled={isPruningSystem}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 transition-colors shadow-2xs shrink-0"
-                >
-                  <RotateCw className={`w-3.5 h-3.5 ${isPruningSystem ? 'animate-spin' : ''}`} />
-                  <span>{isPruningSystem ? 'Cleaning...' : 'Run Cleanup Now'}</span>
-                </button>
-              </div>
-
-              {/* Prune sources */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3">
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={pruneSystemJunk}
-                      onChange={(e) => setPruneSystemJunk(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 rounded text-blue-600 border-slate-300"
-                    />
-                    <div>
-                      <span className="text-sm font-bold text-slate-900 block">System junk</span>
-                      <span className="text-xs text-slate-500">Rotated logs, /tmp, orphan build artifacts, expired snapshots.</span>
-                    </div>
-                  </label>
-                  {pruneSystemJunk && (
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Keep files newer than</label>
-                      <select
-                        value={systemJunkRetentionDays}
-                        onChange={(e) => setSystemJunkRetentionDays(Number(e.target.value))}
-                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl"
-                      >
-                        <option value={1}>1 Day</option>
-                        <option value={3}>3 Days</option>
-                        <option value={7}>7 Days</option>
-                        <option value={30}>30 Days</option>
-                      </select>
-                    </div>
-                  )}
-                </div>
-
-                <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3">
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={pruneDocker}
-                      onChange={(e) => setPruneDocker(e.target.checked)}
-                      className="mt-0.5 w-4 h-4 rounded text-blue-600 border-slate-300"
-                    />
-                    <div>
-                      <span className="text-sm font-bold text-slate-900 block">Docker resources</span>
-                      <span className="text-xs text-slate-500">Equivalent to <code className="font-mono">docker system prune</code>.</span>
-                    </div>
-                  </label>
-                  {pruneDocker && (
-                    <>
-                      <div className="grid grid-cols-1 gap-2 text-xs">
-                        {[
-                          { label: 'Dangling images', checked: dockerPruneDanglingImages, set: setDockerPruneDanglingImages },
-                          { label: 'Stopped containers', checked: dockerPruneStoppedContainers, set: setDockerPruneStoppedContainers },
-                          { label: 'Unused volumes', checked: dockerPruneUnusedVolumes, set: setDockerPruneUnusedVolumes },
-                          { label: 'Build cache', checked: dockerPruneBuildCache, set: setDockerPruneBuildCache },
-                        ].map((opt) => (
-                          <label key={opt.label} className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50/60 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={opt.checked}
-                              onChange={(e) => opt.set(e.target.checked)}
-                              className="w-4 h-4 rounded text-blue-600 border-slate-300"
-                            />
-                            <span className="text-slate-700">{opt.label}</span>
-                          </label>
-                        ))}
-                      </div>
-                      {dockerPruneUnusedVolumes && (
-                        <p className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-relaxed">
-                          Unused volumes can hold persistent data (e.g. a stopped pod's database or uploaded files). Pruned volumes cannot be recovered.
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Scheduler */}
-              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
-                <label className="flex items-center justify-between cursor-pointer">
-                  <div>
-                    <span className="text-sm font-bold text-slate-900 block">Automatic Cleanup</span>
-                    <span className="text-xs text-slate-500">Run the prune sources above on a schedule.</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={autoCleanupEnabled}
-                    onChange={(e) => setAutoCleanupEnabled(e.target.checked)}
-                    className="w-4 h-4 rounded text-purple-600 border-slate-300"
-                  />
-                </label>
-                {autoCleanupEnabled && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">Cron Schedule</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={cleanupCron}
-                        onChange={(e) => setCleanupCron(e.target.value)}
-                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-mono"
-                      />
-                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-1.5 rounded-lg whitespace-nowrap">04:00 AM Daily</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Recommended default maintenance jobs */}
-              <div className="rounded-2xl border border-slate-200 bg-white shadow-2xs overflow-hidden">
-                <div className="px-5 py-3.5 border-b border-slate-100">
-                  <h3 className="text-sm font-bold text-slate-900">Recommended Default Cron Jobs</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">Enabled by default to keep the host healthy. Toggle any job off if unneeded.</p>
-                </div>
-                <div className="divide-y divide-slate-100">
-                  {cronJobs.map((job) => (
-                    <div key={job.id} className="px-5 py-3 flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <span className="text-xs font-semibold text-slate-800 block">{job.label}</span>
-                        <span className="text-[11px] text-slate-500 block">{job.desc}</span>
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <code className={`text-[10px] px-2 py-1 rounded font-mono ${job.enabled ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'}`}>
-                          {job.schedule}
-                        </code>
-                        <button
-                          type="button"
-                          onClick={() => toggleCronJob(job.id)}
-                          className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors cursor-pointer ${
-                            job.enabled ? 'bg-blue-600' : 'bg-slate-200'
-                          }`}
-                          title={job.enabled ? 'Disable job' : 'Enable job'}
-                        >
-                          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ${job.enabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleSaveAll}
-                  disabled={isSaving}
-                  className="px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-500/25 transition-all flex items-center gap-1.5"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>Save Cleanup Policy</span>
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* 6. NOTIFICATIONS */}
           {activeTab === 'notifications' && (
             <div className="space-y-6 w-full">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-base font-bold text-slate-900">Notifications & Alert Channels</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Get instant alerts when CPU &gt; 90%, disks fill up, or brute-force attacks occur.</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Where the daemon's alerts go — most visibly the disk-usage alert from the Cron tab.
+                  </p>
                 </div>
                 <button
                   type="button"
-                  onClick={handleTestNotification}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
+                  onClick={() => void handleTestNotification()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors cursor-pointer"
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>Send Test Ping</span>
                 </button>
               </div>
 
-              {/* Telegram Bot */}
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Send className="w-5 h-5 text-blue-600" />
-                    <h3 className="text-xs font-bold text-slate-900">Telegram Bot Notifications</h3>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={telegramEnabled}
-                    onChange={(e) => setTelegramEnabled(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 rounded border-slate-300"
-                  />
+              {alertsLoading && !alerts ? (
+                <div className="p-6 text-center text-xs text-slate-500">Loading alert settings…</div>
+              ) : !alerts ? (
+                <div className="p-4 rounded-xl border border-rose-200 bg-rose-50 text-xs text-rose-700">
+                  Alert settings could not be loaded. Sign in as an administrator and retry.
                 </div>
-                {telegramEnabled && (
-                  <div className="grid grid-cols-2 gap-3 pt-2">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-600 mb-1">Bot Token</label>
+              ) : (
+                <>
+                  {/* Telegram Bot */}
+                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Send className="w-5 h-5 text-blue-600" />
+                        <h3 className="text-xs font-bold text-slate-900">Telegram Bot Notifications</h3>
+                      </div>
                       <input
-                        type="text"
-                        placeholder="123456789:ABCDef..."
-                        value={telegramBotToken}
-                        onChange={(e) => setTelegramBotToken(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                        type="checkbox"
+                        checked={alerts.telegramEnabled}
+                        onChange={(e) => setAlerts({ ...alerts, telegramEnabled: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 rounded border-slate-300"
                       />
                     </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-600 mb-1">Chat ID</label>
+                    {alerts.telegramEnabled && (
+                      <div className="grid grid-cols-2 gap-3 pt-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                            Bot Token {alerts.telegramHasToken && <span className="text-emerald-600">· saved</span>}
+                          </label>
+                          <input
+                            type="text"
+                            placeholder={alerts.telegramHasToken ? '•••••• leave empty to keep' : '123456789:ABCDef...'}
+                            value={alertSecrets.telegramBotToken}
+                            onChange={(e) => setAlertSecrets((s) => ({ ...s, telegramBotToken: e.target.value }))}
+                            className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-600 mb-1">Chat ID</label>
+                          <input
+                            type="text"
+                            placeholder="-100123456789"
+                            value={alerts.telegramChatId}
+                            onChange={(e) => setAlerts({ ...alerts, telegramChatId: e.target.value })}
+                            className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Discord Webhook */}
+                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🎮</span>
+                        <h3 className="text-xs font-bold text-slate-900">Discord Channel Webhook</h3>
+                      </div>
                       <input
-                        type="text"
-                        placeholder="-100123456789"
-                        value={telegramChatId}
-                        onChange={(e) => setTelegramChatId(e.target.value)}
-                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                        type="checkbox"
+                        checked={alerts.discordEnabled}
+                        onChange={(e) => setAlerts({ ...alerts, discordEnabled: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 rounded border-slate-300"
                       />
                     </div>
+                    {alerts.discordEnabled && (
+                      <input
+                        type="text"
+                        placeholder={alerts.discordHasWebhook ? '•••••• leave empty to keep' : 'https://discord.com/api/webhooks/...'}
+                        value={alertSecrets.discordWebhookUrl}
+                        onChange={(e) => setAlertSecrets((s) => ({ ...s, discordWebhookUrl: e.target.value }))}
+                        className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                      />
+                    )}
                   </div>
-                )}
-              </div>
 
-              {/* Discord Webhook */}
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">🎮</span>
-                  <h3 className="text-xs font-bold text-slate-900">Discord Channel Webhook</h3>
-                </div>
-                <input
-                  type="text"
-                  placeholder="https://discord.com/api/webhooks/..."
-                  value={discordWebhookUrl}
-                  onChange={(e) => setDiscordWebhookUrl(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg font-mono"
-                />
-              </div>
+                  {/* SMTP Email */}
+                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-4 h-4 text-slate-600" />
+                        <h3 className="text-xs font-bold text-slate-900">SMTP Server for Email Notifications</h3>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={alerts.smtpEnabled}
+                        onChange={(e) => setAlerts({ ...alerts, smtpEnabled: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 rounded border-slate-300"
+                      />
+                    </div>
+                    {alerts.smtpEnabled && (
+                      <div className="space-y-3 pt-1">
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="col-span-2">
+                            <label className="block text-[10px] font-bold text-slate-600 mb-1">SMTP Host</label>
+                            <input
+                              type="text"
+                              value={alerts.smtpHost}
+                              onChange={(e) => setAlerts({ ...alerts, smtpHost: e.target.value })}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-600 mb-1">Port</label>
+                            <input
+                              type="number"
+                              value={alerts.smtpPort}
+                              onChange={(e) => setAlerts({ ...alerts, smtpPort: Number(e.target.value) })}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-600 mb-1">Username</label>
+                            <input
+                              type="text"
+                              value={alerts.smtpUser}
+                              onChange={(e) => setAlerts({ ...alerts, smtpUser: e.target.value })}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                              Password {alerts.smtpHasPassword && <span className="text-emerald-600">· saved</span>}
+                            </label>
+                            <input
+                              type="password"
+                              placeholder={alerts.smtpHasPassword ? '•••••• leave empty to keep' : ''}
+                              value={alertSecrets.smtpPassword}
+                              onChange={(e) => setAlertSecrets((s) => ({ ...s, smtpPassword: e.target.value }))}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-600 mb-1">From</label>
+                            <input
+                              type="text"
+                              value={alerts.smtpFrom}
+                              onChange={(e) => setAlerts({ ...alerts, smtpFrom: e.target.value })}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-600 mb-1">To</label>
+                            <input
+                              type="text"
+                              value={alerts.smtpTo}
+                              onChange={(e) => setAlerts({ ...alerts, smtpTo: e.target.value })}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-              {/* SMTP Email */}
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-slate-600" />
-                  <h3 className="text-xs font-bold text-slate-900">SMTP Server for Email Notifications</h3>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-600 mb-1">SMTP Host</label>
-                    <input
-                      type="text"
-                      value={smtpHost}
-                      onChange={(e) => setSmtpHost(e.target.value)}
-                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
-                    />
+                  {/* Disk alert threshold */}
+                  <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
+                    <h3 className="text-xs font-bold text-slate-900">Disk alert threshold</h3>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={alerts.diskAlertThresholdPercent}
+                        onChange={(e) => setAlerts({ ...alerts, diskAlertThresholdPercent: Number(e.target.value) })}
+                        className="w-24 px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                      />
+                      <span className="text-xs text-slate-500">% — the disk_alert job notifies at or above this.</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Active channels: <strong className="text-slate-600">{alerts.channels.join(', ') || 'none'}</strong>
+                    </p>
                   </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-600 mb-1">Port</label>
-                    <input
-                      type="number"
-                      value={smtpPort}
-                      onChange={(e) => setSmtpPort(Number(e.target.value))}
-                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
-                    />
+
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void saveAlerts()}
+                      disabled={alertsSaving}
+                      className="flex items-center gap-1.5 px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-xl shadow-sm shadow-blue-500/25 transition-all cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>{alertsSaving ? 'Saving…' : 'Save Alert Settings'}</span>
+                    </button>
                   </div>
-                </div>
-              </div>
+                </>
+              )}
             </div>
           )}
 

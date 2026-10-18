@@ -6,30 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/scheduler"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
 
-// SystemCronJobItem represents a built-in server level maintenance schedule.
-type SystemCronJobItem struct {
-	ID       string `json:"id"`
-	Label    string `json:"label"`
-	Desc     string `json:"desc"`
-	Schedule string `json:"schedule"`
-	Enabled  bool   `json:"enabled"`
-	Category string `json:"category"`
-}
-
-var defaultSystemCronJobs = []SystemCronJobItem{
-	{ID: "metrics_prune", Label: "Metrics & log retention prune", Desc: "Trim time-series metrics and rotated logs past retention.", Schedule: "0 3 * * *", Enabled: true, Category: "maintenance"},
-	{ID: "system_junk", Label: "System junk cleanup", Desc: "Clear /tmp, orphan build artifacts, and expired snapshots.", Schedule: "0 4 * * *", Enabled: true, Category: "maintenance"},
-	{ID: "docker_prune", Label: "Docker system prune", Desc: "Dangling images, stopped containers, and build cache.", Schedule: "30 4 * * *", Enabled: true, Category: "docker"},
-	{ID: "ssl_renew", Label: "SSL certificate renewal", Desc: "Renew Let's Encrypt / Caddy certificates before expiry.", Schedule: "0 0,12 * * *", Enabled: true, Category: "security"},
-	{ID: "security_updates", Label: "Security OS updates", Desc: "Unattended security upgrades (apt unattended-upgrades).", Schedule: "0 5 * * *", Enabled: true, Category: "security"},
-	{ID: "logrotate", Label: "Log rotation", Desc: "Rotate and compress service logs.", Schedule: "0 2 * * *", Enabled: true, Category: "system"},
-	{ID: "db_maintenance", Label: "Database maintenance", Desc: "PostgreSQL VACUUM ANALYZE & MariaDB table optimize.", Schedule: "0 3 * * 0", Enabled: true, Category: "database"},
-	{ID: "fstrim", Label: "SSD TRIM (fstrim)", Desc: "Discard unused blocks to keep NVMe/SSD performance.", Schedule: "0 2 * * 0", Enabled: true, Category: "system"},
-	{ID: "service_watchdog", Label: "Service watchdog", Desc: "Restart nginx/caddy/php-fpm/docker/cloudflared if down.", Schedule: "*/5 * * * *", Enabled: true, Category: "watchdog"},
-}
+// The built-in maintenance jobs used to be a hardcoded list returned verbatim, and nothing executed
+// them. They now live in internal/scheduler (the registry) backed by the system_cron_jobs table, and
+// the panel reads their real state through systemCronJobViews.
 
 // handleListCronJobs returns both system-level cron jobs and website-level scheduled tasks.
 func (s *Server) handleListCronJobs(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
@@ -58,8 +41,14 @@ func (s *Server) handleListCronJobs(w http.ResponseWriter, r *http.Request, user
 		}
 	}
 
+	systemJobs, err := s.systemCronJobViews()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"systemJobs":  defaultSystemCronJobs,
+		"systemJobs":  systemJobs,
 		"websiteJobs": allWebsiteJobs,
 	})
 }
@@ -88,6 +77,12 @@ func (s *Server) handleCreateCronJob(w http.ResponseWriter, r *http.Request, use
 
 	if req.WebsiteSlug == "" || req.Name == "" || req.Schedule == "" || req.Command == "" {
 		writeError(w, http.StatusBadRequest, "missing_fields", "websiteSlug, name, schedule, and command are required")
+		return
+	}
+	// The schedule is stored and later matched by the daemon's own cron matcher, so a spec it cannot
+	// parse would be accepted here and then silently never fire. Reject it at the door instead.
+	if _, err := scheduler.Parse(req.Schedule); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_schedule", "not a valid cron expression: "+err.Error())
 		return
 	}
 
@@ -149,6 +144,10 @@ func (s *Server) handleUpdateCronJob(w http.ResponseWriter, r *http.Request, use
 		job.Name = strings.TrimSpace(req.Name)
 	}
 	if req.Schedule != "" {
+		if _, err := scheduler.Parse(req.Schedule); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_schedule", "not a valid cron expression: "+err.Error())
+			return
+		}
 		job.Schedule = strings.TrimSpace(req.Schedule)
 	}
 	if req.Command != "" {

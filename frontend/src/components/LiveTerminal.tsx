@@ -142,8 +142,11 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({
       });
     })();
 
-    // Keep the PTY in sync with the pane size.
-    const onResize = () => {
+    // Keep the PTY in sync with the pane size. A ResizeObserver catches window
+    // resizes and the S/M/L height presets alike, and always fits against the
+    // freshly laid-out box.
+    let frame = 0;
+    const syncSize = () => {
       if (!fitRef.current || !termRef.current) return;
       fitRef.current.fit();
       const socket = socketRef.current;
@@ -151,27 +154,20 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({
         socket.send(JSON.stringify({ type: 'resize', cols: termRef.current.cols, rows: termRef.current.rows }));
       }
     };
-    window.addEventListener('resize', onResize);
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(syncSize);
+    });
+    if (containerRef.current) observer.observe(containerRef.current);
 
     return () => {
       disposed = true;
-      window.removeEventListener('resize', onResize);
+      cancelAnimationFrame(frame);
+      observer.disconnect();
       socketRef.current?.close();
       term.dispose();
     };
   }, [slug]);
-
-  useEffect(() => {
-    if (fitRef.current && termRef.current) {
-      setTimeout(() => {
-        fitRef.current?.fit();
-        const socket = socketRef.current;
-        if (socket?.readyState === WebSocket.OPEN && termRef.current) {
-          socket.send(JSON.stringify({ type: 'resize', cols: termRef.current.cols, rows: termRef.current.rows }));
-        }
-      }, 50);
-    }
-  }, [activeHeight]);
 
   return (
     <div className="space-y-3">
@@ -209,13 +205,20 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({
       )}
 
       {/* Terminal Screen Frame with Height Resize Controls */}
-      <div className="w-full rounded-xl overflow-hidden border border-slate-800 shadow-2xs bg-[#0a0f1d] flex flex-col">
-        <div
-          ref={containerRef}
-          className="w-full bg-[#0a0f1d] p-3"
-          style={{ height: activeHeight }}
-          onMouseDown={() => termRef.current?.focus()}
-        />
+      <div
+        className="w-full rounded-xl overflow-hidden border border-slate-800 shadow-2xs bg-[#0a0f1d] flex flex-col"
+        style={{ height: activeHeight }}
+      >
+        {/* Padding sits on this wrapper, never on the xterm mount: FitAddon
+            measures the mount's border box, so padding on it would over-allocate
+            a row that the frame's overflow-hidden then clips. */}
+        <div className="flex-1 min-h-0 p-3 flex">
+          <div
+            ref={containerRef}
+            className="w-full h-full"
+            onMouseDown={() => termRef.current?.focus()}
+          />
+        </div>
         {showSizeControl && (
           <PanelSizeControl value={termSize} onChange={setTermSize} dark={true} />
         )}

@@ -31,7 +31,24 @@ var migrations = []migration{
 	{version: 21, statements: schemaV21},
 	{version: 22, statements: schemaV22},
 	{version: 23, statements: schemaV23},
+	{version: 24, statements: schemaV24},
 }
+
+// schemaV24 is the built-in maintenance scheduler's state: one row per system job the daemon can run
+// on a schedule. It mirrors website_cron_jobs on purpose — an operator may disable a job or move its
+// schedule, and the last run has to survive a restart either way. The rows are seeded from the
+// daemon's job registry (EnsureSystemCronJobs), so the table only ever holds what actually exists.
+const schemaV24 = `
+CREATE TABLE IF NOT EXISTS system_cron_jobs (
+  id           TEXT PRIMARY KEY,
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  schedule     TEXT NOT NULL,
+  last_run_at  TEXT NOT NULL DEFAULT '',
+  last_status  TEXT NOT NULL DEFAULT '',
+  last_output  TEXT NOT NULL DEFAULT '',
+  updated_at   TEXT NOT NULL DEFAULT ''
+);
+`
 
 // schemaV23 adds upstream_url to websites table so reverse proxy upstreams are permanently stored.
 const schemaV23 = `

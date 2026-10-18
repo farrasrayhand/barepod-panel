@@ -157,6 +157,29 @@ export interface SystemCronJob {
   schedule: string;
   enabled: boolean;
   category: string;
+  /** False for a job the daemon lists but cannot run yet. */
+  implemented: boolean;
+  lastRunAt?: string;
+  lastStatus?: string;
+  lastOutput?: string;
+}
+
+/** The alert configuration as the panel reads it: secrets are masked to "has…" booleans. */
+export interface NotificationConfig {
+  telegramEnabled: boolean;
+  telegramHasToken: boolean;
+  telegramChatId: string;
+  discordEnabled: boolean;
+  discordHasWebhook: boolean;
+  smtpEnabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpHasPassword: boolean;
+  smtpFrom: string;
+  smtpTo: string;
+  diskAlertThresholdPercent: number;
+  channels: string[];
 }
 
 export interface UserGitProvider {
@@ -877,6 +900,30 @@ export const api = {
       `/cron/jobs/${id}/run`,
       { method: 'POST' },
     ),
+
+  /** Built-in maintenance jobs the daemon runs itself. */
+  updateSystemCronJob: (id: string, payload: { enabled?: boolean; schedule?: string }) =>
+    request<SystemCronJob>(`/cron/jobs/system/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  runSystemCronJob: (id: string) =>
+    request<{ ok: boolean; status: string; output: string; durationMs: number; runAt: string }>(
+      `/cron/jobs/system/${encodeURIComponent(id)}/run`,
+      { method: 'POST' },
+    ),
+
+  /** Alert channels the maintenance jobs report through. */
+  notifications: () => request<NotificationConfig>('/system/notifications'),
+  saveNotifications: (payload: Record<string, unknown>) =>
+    request<NotificationConfig>('/system/notifications', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  testNotification: () =>
+    request<{ ok: boolean; channels: string[]; errors?: string[] }>('/system/notifications/test', {
+      method: 'POST',
+    }),
 
   /** User Git Providers */
   userGitProviders: () => request<{ items: UserGitProvider[] }>('/git/providers'),

@@ -539,21 +539,31 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `POST /settings/prune` (system junk + docker, per option) → `{ reclaimedBytes }`
 - `POST /system/daemon/restart`
 
+### 4.12.1 Alert Channels (Notifications)
+- `GET /system/notifications` → `NotificationConfig` with secrets masked: `{ telegramEnabled, telegramHasToken, telegramChatId, discordEnabled, discordHasWebhook, smtpEnabled, smtpHost, smtpPort, smtpUser, smtpHasPassword, smtpFrom, smtpTo, diskAlertThresholdPercent, channels[] }`.
+- `PUT /system/notifications` → same fields (all optional). Secret fields (`telegramBotToken`, `discordWebhookUrl`, `smtpPassword`) are **write-only**: an empty or omitted secret keeps the stored one, so the masked form round-trips without the browser holding a secret. Stored in `panel_settings` with the secrets encrypted under the panel key (`internal/secrets`, AES-256-GCM). Administrative (`users` capability) and audited as `system.notifications`.
+- `POST /system/notifications/test` → `200 { ok, channels[], errors? }`. Sends one test message through every configured channel; `400 no_channels` when none is complete. Audited as `system.notifications_test`.
+  Used by the `disk_alert` maintenance job (`diskAlertThresholdPercent`, default 90) and available to any alert source.
+
 ### 4.13 Docker Pods
 - `GET|POST /pods` (image / dockerfile / compose) · `GET|PATCH|DELETE /pods/:id`
 - `POST /pods/:id/start|stop|restart` · `GET /pods/:id/logs` (+ `WS: pod-logs`) · `GET /pods/:id/compose`
 
 ### 4.14 Unified Cron Jobs & Scheduled Tasks (Settings & Website Modules)
 - **`GET /cron/jobs`** → `{ items: ApiCronJob[], systemJobs: SystemCronJob[] }`
-  Returns all website-scoped scheduled tasks (filtered by tenant for non-admins) as well as global host maintenance cron recommendations (`systemJobs`, e.g. SSL renewal, metric retention, logrotate, DB vacuum).
+  Returns all website-scoped scheduled tasks (filtered by tenant for non-admins) as well as the daemon's **built-in maintenance jobs** (`systemJobs`) with their real, stored state: `{ id, label, desc, schedule, enabled, category, implemented, lastRunAt?, lastStatus?, lastOutput? }`. The jobs are seeded into `system_cron_jobs` from the daemon's own registry and executed by an in-daemon scheduler (no host systemd timers); a job's `enabled` flag and `schedule` survive restarts, and seeding is `INSERT OR IGNORE`, so a reinstall/update never re-enables a job an operator turned off. `implemented: false` marks a job the panel lists but the daemon cannot run yet (`security_updates`, `db_maintenance`). Jobs that free or change disk state seed as disabled.
 - **`POST /cron/jobs`** → Body `{ websiteSlug: string, name: string, schedule: string, command: string, enabled?: boolean, timeoutSec?: number }` → `201 ApiCronJob`.
-  Validates standard 5-field cron syntax (`@yearly`, `@monthly`, `@weekly`, `@daily`, `@hourly`, or `* * * * *`). Checks website existence and tenant ownership.
+  Validates the schedule against the daemon's matcher: five fields (`min hour dom month dow`) with lists, ranges, steps, names, and the `@yearly|@annually|@monthly|@weekly|@daily|@midnight|@hourly` aliases; anything else is `400 invalid_schedule`. Checks website existence and tenant ownership.
 - **`PUT /cron/jobs/:id`** → Body `{ name?: string, schedule?: string, command?: string, enabled?: boolean, timeoutSec?: number }` → `200 ApiCronJob`.
-  Updates schedule, command, or pauses/resumes execution.
+  Updates schedule, command, or pauses/resumes execution. A supplied `schedule` is validated the same way (`400 invalid_schedule`).
 - **`DELETE /cron/jobs/:id`** → `200 { status: "deleted", id }`.
   Removes the scheduled job.
 - **`POST /cron/jobs/:id/run`** → `200 { status: "completed" | "failed", output: string, durationMs: number }`.
   Manually triggers immediate execution. Runs isolated as the tenant UID/GID (`Runner.RunAs`) inside the website root directory (`/home/<tenant>/web/<slug>`). Captures stdout/stderr into `last_output` and updates `last_run_at` and `last_status`.
+- **`PUT /cron/jobs/system/:id`** → Body `{ enabled?: boolean, schedule?: string }` → `200 SystemCronJob`.
+  Changes one built-in maintenance job. A non-empty `schedule` is validated the same way as above (`400 invalid_schedule`). Administrative (`users` capability) and audited as `system.cron_update`.
+- **`POST /cron/jobs/system/:id/run`** → `200 { ok: boolean, status: "success" | "failed", output: string, durationMs: number, runAt: string }`.
+  Runs a built-in job once, immediately, outside its schedule. Refuses with `501 not_implemented` when the job is not implemented. Records `last_run_at`/`last_status`/`last_output` and audits as `system.cron_run`.
 
 ---
 
@@ -577,7 +587,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 | `/profile` | `GET /profile`, `POST /profile/password`, `GET|DELETE /sessions` |
 | `/backup/*` | backup & migration endpoints |
 | `/users/*` | users & groups endpoints |
-| `/settings/*` | settings, system cleanup, PHP defaults, and cron (`GET|POST|PUT|DELETE /cron/jobs`, `POST /cron/jobs/:id/run`) |
+| `/settings/*` | settings, PHP defaults, alerts (`GET\|PUT /system/notifications`, `POST /system/notifications/test`), and cron (`GET\|POST\|PUT\|DELETE /cron/jobs`, `POST /cron/jobs/:id/run`, `PUT /cron/jobs/system/:id`, `POST /cron/jobs/system/:id/run`) |
 
 ---
 
@@ -589,7 +599,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 4. **Terminal** (`pty` bridge: tenant + host, host gated to admins).
 5. **Databases + SSO gateway**, then **Domains/SSL**, **Tunnels**.
 6. **Monitoring** (read `/proc`, `smartctl`, `ss`) + **Backup/Migration** (rsync stream + `.bpod` + S3/R2).
-7. **Cleanup & Cron** (systemd timers), **Pods** (Docker SDK).
+7. **Cleanup & Cron** — done as an **in-daemon scheduler** (`internal/scheduler`, `system_cron_jobs`), not host systemd timers: job state stays visible/controllable in the panel and travels with a deploy. **Pods** (Docker SDK) next.
 
 > Platform note: everything above must run on **linux/amd64 & linux/arm64** (see MASTER_PLAN §5). On LXC, disable unavailable features (S.M.A.R.T./fstrim) and surface a status instead of an error.
 
