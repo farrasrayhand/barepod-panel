@@ -43,12 +43,14 @@ export const GitDeploymentModal: React.FC<GitDeploymentModalProps> = ({
   const getDefaultScript = (runtime?: string, hasGit = false, targetBranch = 'main') => {
     const gitPull = hasGit ? `git pull origin ${targetBranch}\n` : '';
     if (runtime === 'php') {
+      // The daemon guards composer/artisan (they run only when the file exists) and reloads php-fpm
+      // itself after writing the pool; a hardcoded "systemctl reload php8.4-fpm" failed on hosts with
+      // another version or without that unit.
       return `${gitPull}composer install --no-dev --optimize-autoloader --quiet
 php artisan migrate --force
 php artisan config:cache
 php artisan route:cache
-php artisan view:cache
-systemctl reload php8.4-fpm`;
+php artisan view:cache`;
     } else if (runtime === 'python') {
       return `${gitPull}source venv/bin/activate
 pip install -r requirements.txt --quiet

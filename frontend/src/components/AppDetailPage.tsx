@@ -279,12 +279,15 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const getDefaultBuildScript = (runtime?: string, hasGit = false, branch = 'main') => {
     const gitPull = hasGit ? `git pull origin ${branch}\n` : '';
     if (runtime === 'php') {
+      // Plain PHP sites are the common case: the steps below are guarded by the daemon (composer and
+      // artisan run only when the file exists), and php-fpm is reloaded by the daemon itself after the
+      // pool is written — a hardcoded "systemctl reload php8.4-fpm" failed on hosts with another
+      // version or without that unit.
       return `${gitPull}composer install --no-dev --optimize-autoloader --quiet
 php artisan migrate --force
 php artisan config:cache
 php artisan route:cache
-php artisan view:cache
-systemctl reload php8.4-fpm`;
+php artisan view:cache`;
     } else if (runtime === 'python') {
       return `${gitPull}source venv/bin/activate
 pip install -r requirements.txt --quiet
