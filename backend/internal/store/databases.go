@@ -54,6 +54,11 @@ type Database struct {
 	// Detected marks a file the panel found inside a website: the application made
 	// it, so the panel reports and browses it but never deletes it.
 	Detected bool `json:"detected,omitempty"`
+	// UnusedByApp marks a detected file the application is not connected to: Laravel's
+	// starter database/database.sqlite on a site whose .env names another engine. The
+	// screen hides these by default, but they are *reported* rather than dropped so the
+	// list is never silently missing something.
+	UnusedByApp bool `json:"unusedByApp,omitempty"`
 	// SizeBytes is measured when it can be (a file-based database is one stat
 	// call); it stays 0 rather than carrying an invented number.
 	SizeBytes int64 `json:"sizeBytes,omitempty"`

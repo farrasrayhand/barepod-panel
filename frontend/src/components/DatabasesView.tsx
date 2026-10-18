@@ -106,6 +106,7 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
           : 'utf8mb4',
   status: row.deletedAt || row.status !== 'ready' ? 'inactive' : 'active',
   detachedAt: row.detachedAt,
+  unusedByApp: row.unusedByApp,
   connections: 0,
   host: row.host,
   port: row.port,
@@ -137,6 +138,9 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [sortBy, setSortBy] = useState<'name' | 'owner' | 'engine' | 'size'>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  // Detected files the application is not connected to are hidden by default; the
+  // toggle below brings them back so a wrong guess is never invisible.
+  const [showUnused, setShowUnused] = useState(false);
 
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -451,6 +455,11 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
   const isInBin = (db: DatabaseItem) => Boolean(db.deletedAt);
   const binnedDatabases = databases.filter(isInBin);
   const activeDatabases = databases.filter((db) => !isInBin(db));
+  // A detected file the app is not connected to (Laravel's starter database.sqlite on a
+  // site whose .env names another engine) is hidden until asked for — reported by the
+  // API, just not listed, so nothing can be invisible.
+  const unusedCount = activeDatabases.filter((db) => db.unusedByApp).length;
+  const visibleDatabases = showUnused ? activeDatabases : activeDatabases.filter((db) => !db.unusedByApp);
 
   const availableOwners = React.useMemo(() => {
     const set = new Set<string>();
@@ -466,6 +475,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
         if (!isInBin(db)) return false;
       } else {
         if (isInBin(db)) return false;
+        if (!showUnused && db.unusedByApp) return false;
         if (activeTab === 'all' && db.type === 'redis') return false;
         if (activeTab === 'caches' && db.type !== 'redis') return false;
         if ((activeTab === 'mysql' || activeTab === 'mariadb') && db.type !== 'mysql' && db.type !== 'mariadb') return false;
@@ -488,7 +498,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
 
       return true;
     });
-  }, [databases, activeTab, ownerFilter, searchQuery]);
+  }, [databases, activeTab, ownerFilter, searchQuery, showUnused]);
 
   const sortedDatabases = React.useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -626,7 +636,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
         >
           <span>All Databases</span>
           <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'all' ? 'bg-blue-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
-            {activeDatabases.filter((d) => d.type !== 'redis').length}
+            {visibleDatabases.filter((d) => d.type !== 'redis').length}
           </span>
         </button>
         <button
@@ -639,7 +649,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
         >
           <span>PostgreSQL</span>
           <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'postgres' ? 'bg-blue-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
-            {activeDatabases.filter((d) => d.type === 'postgres').length}
+            {visibleDatabases.filter((d) => d.type === 'postgres').length}
           </span>
         </button>
         <button
@@ -652,7 +662,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
         >
           <span>MySQL / MariaDB</span>
           <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'mysql' ? 'bg-blue-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
-            {activeDatabases.filter((d) => d.type === 'mysql' || d.type === 'mariadb').length}
+            {visibleDatabases.filter((d) => d.type === 'mysql' || d.type === 'mariadb').length}
           </span>
         </button>
         <button
@@ -665,7 +675,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
         >
           <span>MongoDB</span>
           <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'mongodb' ? 'bg-blue-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
-            {activeDatabases.filter((d) => d.type === 'mongodb').length}
+            {visibleDatabases.filter((d) => d.type === 'mongodb').length}
           </span>
         </button>
         <button
@@ -678,7 +688,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
         >
           <span>SQLite</span>
           <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'sqlite' ? 'bg-blue-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
-            {activeDatabases.filter((d) => d.type === 'sqlite').length}
+            {visibleDatabases.filter((d) => d.type === 'sqlite').length}
           </span>
         </button>
         <button
@@ -691,7 +701,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
         >
           <span>Caches (Redis)</span>
           <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${activeTab === 'caches' ? 'bg-rose-700/70 text-white' : 'bg-slate-100 text-slate-500'}`}>
-            {activeDatabases.filter((d) => d.type === 'redis').length}
+            {visibleDatabases.filter((d) => d.type === 'redis').length}
           </span>
         </button>
         <button
@@ -737,6 +747,19 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
 
         {/* Filters and Sorters */}
         <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+          {/* Unused detected files are hidden by default; this brings them back. */}
+          <label
+            className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-[11px] font-medium text-slate-600 cursor-pointer select-none"
+            title="Detected database files the application is not connected to — for example Laravel's starter database.sqlite on a site whose .env names another engine"
+          >
+            <input
+              type="checkbox"
+              checked={showUnused}
+              onChange={(e) => setShowUnused(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600"
+            />
+            <span>Unused files{unusedCount > 0 ? ` (${unusedCount})` : ''}</span>
+          </label>
           {/* Owner Filter (Visible to Admin or when multiple owners present) */}
           {(isAdmin || availableOwners.length > 1) && (
             <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs">
@@ -905,6 +928,14 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
                           {db.detected && (
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200/80 shrink-0">
                               App-managed
+                            </span>
+                          )}
+                          {db.unusedByApp && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/80 shrink-0"
+                              title="The site's .env names a different database engine, so the application is not connected to this file"
+                            >
+                              Not used by app
                             </span>
                           )}
                         </div>

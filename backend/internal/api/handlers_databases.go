@@ -205,9 +205,9 @@ func (s *Server) detectedFor(user *store.User, kind string) []store.Database {
 			if known[filepath.Clean(file.Path)] || !dbengine.FileHasSQLiteHeader(file.Path) {
 				continue
 			}
-			if dbengine.IsUnusedLaravelPlaceholder(file.Relative, appDatabase, hasAppDatabase) {
-				continue
-			}
+			// Reported, not dropped: the screen hides it unless the operator asks to see
+			// unused files, so a mis-judged entry is never invisible.
+			unusedByApp := dbengine.IsUnusedLaravelPlaceholder(file.Relative, appDatabase, hasAppDatabase)
 			ver := file.Version
 			if ver == "" {
 				ver = "3"
@@ -215,6 +215,7 @@ func (s *Server) detectedFor(user *store.User, kind string) []store.Database {
 			out = append(out, store.Database{
 				ID: dbengine.DetectedID(file.SiteSlug, file.Relative), Kind: kind,
 				Engine: "sqlite", Version: ver, FileBased: true, Detected: true,
+				UnusedByApp: unusedByApp,
 				WebsiteSlug: file.SiteSlug, TenantUser: file.TenantUser,
 				Alias: filepath.Base(file.Relative), Name: filepath.Base(file.Relative),
 				FilePath: file.Path, Status: "ready", SizeBytes: file.SizeBytes,

@@ -465,6 +465,10 @@ export interface DatabaseRow {
   deletedAt?: string;
   /** Set when the website this database lived in was deleted but the database was kept. */
   detachedAt?: string;
+  /** True for a detected file the application is not connected to (Laravel's starter
+   *  database.sqlite on a site whose .env names another engine). The screen hides these
+   *  unless "show unused" is on. */
+  unusedByApp?: boolean;
   createdAt: string;
   fileBased: boolean;
   detected?: boolean;

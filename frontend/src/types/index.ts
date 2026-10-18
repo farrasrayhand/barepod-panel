@@ -114,6 +114,9 @@ export interface DatabaseItem {
   deletedAt?: string;
   /** Kept when its website was deleted: the file moved into the tenant's home. */
   detachedAt?: string;
+  /** A detected file the application is not connected to (Laravel's starter
+   *  database.sqlite on a site whose .env names another engine). */
+  unusedByApp?: boolean;
   /**
    * "" or "private" until an operator opens the port, then "public". The note is what the panel
    * actually did about it — an engine whose listener is engine-wide says so there rather than
