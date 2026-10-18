@@ -305,8 +305,8 @@ func stepPrepareDirs(ctx context.Context, s *state) error {
 
 	// Prepare initial placeholder page so the domain immediately answers with HTTP 200
 	// while longer tasks (git clone, composer/npm install, database provisioning) run in background.
-	// Only run on fresh deploy, never on redeploy.
-	if !s.req.Redeploy && s.req.Domain != "" {
+	// Only run on fresh deploy if no application files exist yet.
+	if !s.req.Redeploy && s.req.Domain != "" && !s.hasApplicationEntry() {
 		_ = s.writeDefaultPage(ctx)
 	}
 	return nil
@@ -317,10 +317,13 @@ func stepFetchSource(ctx context.Context, s *state) error {
 		s.log("stdout", "skipped: reverse proxy site has no source code")
 		return nil
 	}
-	// "default" has no code to fetch: the panel writes one placeholder page, so a website
-	// can be created (and answer on its address) before its application exists.
+	// "default" has no code to fetch: the panel writes one placeholder page only if no app exists yet
 	if s.req.Source.Kind == "default" {
-		return s.writeDefaultPage(ctx)
+		if !s.req.Redeploy && !s.hasApplicationEntry() {
+			_ = s.writeDefaultPage(ctx)
+		}
+		s.cleanupPlaceholderIndex()
+		return nil
 	}
 	cmds, err := s.m.host.FetchSource(ctx, s.req.Tenant, s.req.Slug, s.req.Source.Kind, s.req.Source.Repo, s.req.Source.Branch)
 	for _, c := range cmds {
@@ -428,6 +431,16 @@ func (s *state) writeDefaultPage(ctx context.Context) error {
 	return nil
 }
 
+func (s *state) hasApplicationEntry() bool {
+	markers := []string{"index.php", "public/index.php", "composer.json", "package.json", "artisan", "wp-config.php", "requirements.txt", "pyproject.toml", "go.mod", "app.py", "main.py", "server.js", "app.js"}
+	for _, m := range markers {
+		if _, err := os.Stat(filepath.Join(s.siteDir, m)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // cleanupPlaceholderIndex removes the temporary BarePod default page if the project
 // has its own application entrypoint (e.g. index.php, composer.json, package.json).
 func (s *state) cleanupPlaceholderIndex() {
@@ -439,14 +452,7 @@ func (s *state) cleanupPlaceholderIndex() {
 	if !strings.Contains(string(data), "BarePod Panel") {
 		return
 	}
-	hasAppEntry := false
-	for _, marker := range []string{"index.php", "public/index.php", "composer.json", "package.json", "artisan", "wp-config.php", "requirements.txt", "pyproject.toml", "go.mod"} {
-		if _, err := os.Stat(filepath.Join(s.siteDir, marker)); err == nil {
-			hasAppEntry = true
-			break
-		}
-	}
-	if hasAppEntry {
+	if s.hasApplicationEntry() {
 		if err := os.Remove(target); err == nil {
 			s.log("stdout", "cleaned up BarePod default placeholder index.html in favor of application entrypoint")
 		}

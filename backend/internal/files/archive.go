@@ -117,7 +117,7 @@ func (m *Manager) addToTar(tw *tar.Writer, abs, relative string) error {
 	}
 
 	// Never archive unix sockets (e.g. fpm.sock), pipes, or device files
-	if info.Mode()&os.ModeSocket != 0 || info.Mode()&os.ModeNamedPipe != 0 || info.Mode()&os.ModeDevice != 0 {
+	if info.Mode()&os.ModeSocket != 0 || info.Mode()&os.ModeNamedPipe != 0 || info.Mode()&os.ModeDevice != 0 || strings.HasSuffix(cleanRel, ".sock") || filepath.Base(abs) == "fpm.sock" {
 		return nil
 	}
 
