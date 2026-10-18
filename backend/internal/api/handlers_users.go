@@ -560,7 +560,7 @@ func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request, actor
 	if req.Limits != nil {
 		limits = *req.Limits
 	}
-	if limits.CPUQuotaPercent < 0 || limits.MemoryMB < 0 || limits.TasksMax < 0 ||
+	if limits.CPUQuotaPercent < 0 || limits.CPUWeight < 0 || limits.MemoryMB < 0 || limits.TasksMax < 0 ||
 		limits.DiskQuotaGB < 0 || limits.InodeQuota < 0 || limits.MaxSites < 0 || limits.MaxDatabases < 0 {
 		writeJSON(w, http.StatusBadRequest, validationResponse(
 			map[string]string{"limits": "limits cannot be negative"}, "Invalid package limits"))

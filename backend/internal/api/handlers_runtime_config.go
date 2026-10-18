@@ -13,6 +13,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/phpext"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/phpfpm"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/provision"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/supervisor"
 )
@@ -184,6 +185,8 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 	siteDir := s.host.SitePath(site.TenantUser, site.Slug)
 	runtime := strings.ToLower(strings.TrimSpace(site.Runtime))
 	limits := s.limitsForTenant(site.TenantUser)
+	// The hard quota or the shared weight, whichever the panel's allocation mode calls for.
+	cpuQuota, cpuWeight := resources.CPUPlan(limits, s.sharingPolicy())
 
 	switch runtime {
 	case "php":
@@ -257,7 +260,8 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			ExecStart:   execStart,
 			Port:        site.Port,
 			MemoryMaxMB: limits.MemoryMB,
-			CPUQuota:    limits.CPUQuotaPercent,
+			CPUQuota:    cpuQuota,
+			CPUWeight:   cpuWeight,
 			TasksMax:    limits.TasksMax,
 			ExtraEnv:    extraEnv,
 		}
@@ -321,7 +325,8 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			ExecStart:   execStart,
 			Port:        site.Port,
 			MemoryMaxMB: limits.MemoryMB,
-			CPUQuota:    limits.CPUQuotaPercent,
+			CPUQuota:    cpuQuota,
+			CPUWeight:   cpuWeight,
 			TasksMax:    limits.TasksMax,
 		}
 
@@ -358,7 +363,8 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			ExecStart:   execStart,
 			Port:        site.Port,
 			MemoryMaxMB: limits.MemoryMB,
-			CPUQuota:    limits.CPUQuotaPercent,
+			CPUQuota:    cpuQuota,
+			CPUWeight:   cpuWeight,
 			TasksMax:    limits.TasksMax,
 		}
 
@@ -401,7 +407,8 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			ExecStart:   execStart,
 			Port:        site.Port,
 			MemoryMaxMB: limits.MemoryMB,
-			CPUQuota:    limits.CPUQuotaPercent,
+			CPUQuota:    cpuQuota,
+			CPUWeight:   cpuWeight,
 			TasksMax:    limits.TasksMax,
 		}
 
@@ -449,7 +456,8 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			ExecStart:   execStart,
 			Port:        site.Port,
 			MemoryMaxMB: limits.MemoryMB,
-			CPUQuota:    limits.CPUQuotaPercent,
+			CPUQuota:    cpuQuota,
+			CPUWeight:   cpuWeight,
 			TasksMax:    limits.TasksMax,
 		}
 		_, _, _ = supervisor.Write(s.host.UnitsDir, unitSpec)

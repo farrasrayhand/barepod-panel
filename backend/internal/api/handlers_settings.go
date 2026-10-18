@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/validate"
 )
@@ -96,6 +97,11 @@ func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *
 		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
+	sharing, err := s.store.PanelSetting(store.OvercommitSettingKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
 	trusted, err := s.store.TrustedAddresses()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
@@ -108,6 +114,7 @@ func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *
 		"letsencryptEmail":    letsEncrypt,
 		"sessionTimeoutHours": parseSessionHours(sessionHours),
 		"ipAllowlist":         splitAllowlist(allowlist),
+		"overcommit":          resources.ParseSharing(sharing),
 		// The addresses the lockout must never ban, and the reason it matters that they are visible:
 		// this list can be empty without anything saying so, which is exactly the foot-gun it exists to
 		// remove. The operator's own address is added by any successful sign-in.
@@ -119,13 +126,14 @@ func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *
 // is a decision worth a name against it.
 func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	var body struct {
-		ExternalAddress     *string   `json:"externalAddress"`
-		PanelFQDN           *string   `json:"panelFqdn"`
-		UseCloudflare       *bool     `json:"useCloudflare"`
-		LetsEncryptEmail    *string   `json:"letsencryptEmail"`
-		SessionTimeoutHours *int      `json:"sessionTimeoutHours"`
-		IPAllowlist         *[]string `json:"ipAllowlist"`
-		TrustedAddresses    *[]string `json:"trustedAddresses"`
+		ExternalAddress     *string            `json:"externalAddress"`
+		PanelFQDN           *string            `json:"panelFqdn"`
+		UseCloudflare       *bool              `json:"useCloudflare"`
+		LetsEncryptEmail    *string            `json:"letsencryptEmail"`
+		SessionTimeoutHours *int               `json:"sessionTimeoutHours"`
+		IPAllowlist         *[]string          `json:"ipAllowlist"`
+		TrustedAddresses    *[]string          `json:"trustedAddresses"`
+		Overcommit          *resources.Sharing `json:"overcommit"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "could not read the settings")
@@ -133,7 +141,7 @@ func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request,
 	}
 	if body.ExternalAddress == nil && body.PanelFQDN == nil && body.UseCloudflare == nil &&
 		body.LetsEncryptEmail == nil && body.SessionTimeoutHours == nil && body.IPAllowlist == nil &&
-		body.TrustedAddresses == nil {
+		body.TrustedAddresses == nil && body.Overcommit == nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "nothing to change")
 		return
 	}
@@ -238,18 +246,31 @@ func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request,
 		_ = s.store.Audit(user.ID, "panel.settings", "panel_ip_allowlist", clientIP(r),
 			fmt.Sprintf("%d entry/entries: %s", len(entries), strings.Join(entries, ",")))
 	}
+	if body.Overcommit != nil {
+		value := body.Overcommit.List()
+		if err := s.store.SavePanelSetting(store.OvercommitSettingKey, value); err != nil {
+			writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+			return
+		}
+		_ = s.store.Audit(user.ID, "panel.settings", "overcommit_resources", clientIP(r), "set to "+value)
+		// A policy is only real once it reaches the sites already running: re-apply the
+		// allocation to every deployed site now, rather than waiting for its next deploy.
+		s.reapplyResourceLimits(r.Context())
+	}
 	if body.ExternalAddress == nil {
 		fqdn, _ := s.store.PanelSetting(panelFQDNKey)
 		useCloudflare, _ := s.store.PanelSetting(panelUseCloudflareKey)
 		letsEncrypt, _ := s.store.PanelSetting(letsEncryptEmailKey)
 		sessionHours, _ := s.store.PanelSetting(sessionTimeoutHoursKey)
 		allowlist, _ := s.store.PanelSetting(panelIPAllowlistKey)
+		sharing, _ := s.store.PanelSetting(store.OvercommitSettingKey)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"panelFqdn":           fqdn,
 			"useCloudflare":       useCloudflare == "true",
 			"letsencryptEmail":    letsEncrypt,
 			"sessionTimeoutHours": parseSessionHours(sessionHours),
 			"ipAllowlist":         splitAllowlist(allowlist),
+			"overcommit":          resources.ParseSharing(sharing),
 			"trustedAddresses":    clean,
 		})
 		return

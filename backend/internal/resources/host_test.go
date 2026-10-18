@@ -41,7 +41,7 @@ func TestExceedsListsLiveOvercommit(t *testing.T) {
 	usages := []Usage{{Name: "Developer", Members: 2, Limits: Limits{MemoryMB: 4096}}}
 	small := Capacity{CPUCores: 2, MemoryMB: 4096, DiskGB: 80}
 
-	problems := Exceeds(usages, small)
+	problems := Exceeds(usages, small, Sharing{})
 	if len(problems) != 1 {
 		t.Fatalf("Exceeds = %v, want exactly one problem", problems)
 	}
@@ -51,14 +51,14 @@ func TestExceedsListsLiveOvercommit(t *testing.T) {
 
 	// After a scale-up the same plan fits again.
 	big := Capacity{CPUCores: 8, MemoryMB: 32768, DiskGB: 400}
-	if got := Exceeds(usages, big); len(got) != 0 {
+	if got := Exceeds(usages, big, Sharing{}); len(got) != 0 {
 		t.Fatalf("Exceeds after scale-up = %v, want none", got)
 	}
 }
 
 func TestExceedsIsSortedForStableOutput(t *testing.T) {
 	usages := []Usage{{Name: "Developer", Members: 4, Limits: Limits{CPUQuotaPercent: 400, MemoryMB: 8192, DiskQuotaGB: 200}}}
-	problems := Exceeds(usages, Capacity{CPUCores: 1, MemoryMB: 1024, DiskGB: 10})
+	problems := Exceeds(usages, Capacity{CPUCores: 1, MemoryMB: 1024, DiskGB: 10}, Sharing{})
 	if len(problems) != 3 {
 		t.Fatalf("Exceeds = %v, want 3 problems", problems)
 	}

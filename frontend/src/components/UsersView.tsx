@@ -50,7 +50,7 @@ const MOCK_GROUPS: GroupRow[] = [
     name: 'Unlimited',
     description: 'Built-in package — every capability, no resource limits.',
     permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: true, apiTokens: true },
-    limits: { cpuQuotaPercent: 0, memoryMb: 0, tasksMax: 0, diskQuotaGb: 0, inodeQuota: 0, maxSites: 0, maxDatabases: 0 },
+    limits: { cpuQuotaPercent: 0, cpuWeight: 0, memoryMb: 0, tasksMax: 0, diskQuotaGb: 0, inodeQuota: 0, maxSites: 0, maxDatabases: 0 },
     members: 1,
     isDefault: true,
     isSystem: true,
@@ -60,7 +60,7 @@ const MOCK_GROUPS: GroupRow[] = [
     name: 'Basic',
     description: 'Deploy and operate websites; no user or token administration.',
     permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false, apiTokens: false },
-    limits: { cpuQuotaPercent: 100, memoryMb: 1024, tasksMax: 256, diskQuotaGb: 10, inodeQuota: 0, maxSites: 5, maxDatabases: 2 },
+    limits: { cpuQuotaPercent: 100, cpuWeight: 100, memoryMb: 1024, tasksMax: 256, diskQuotaGb: 10, inodeQuota: 0, maxSites: 5, maxDatabases: 2 },
     members: 2,
     isDefault: true,
     isSystem: true,
@@ -77,6 +77,7 @@ const fmtCount = (n: number): string => (n > 0 ? String(n) : 'Unlimited');
 const fmtGb = (gb: number): string => (gb > 0 ? `${gb} GB` : 'Unlimited');
 const fmtMb = (mb: number): string => (mb <= 0 ? 'Unlimited' : mb >= 1024 ? `${mb / 1024} GB` : `${mb} MB`);
 const fmtCpu = (pct: number): string => (pct <= 0 ? 'Unlimited' : `${pct}%`);
+const fmtShare = (weight: number): string => (weight <= 0 ? 'Unlimited' : `${weight} share`);
 const permCount = (p?: Record<string, boolean>): number => (p ? Object.values(p).filter(Boolean).length : 0);
 
 export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUsername }) => {
@@ -91,6 +92,9 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
 
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [groups, setGroups] = useState<GroupRow[]>([]);
+  // Whether the panel shares CPU (overcommit). It decides which CPU field a package
+  // editor shows — the hard quota, or the share.
+  const [cpuShared, setCpuShared] = useState(false);
 
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<ApiUser | null>(null);
@@ -120,6 +124,14 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
         if (cancelled) return;
         setUsers(userList.items ?? []);
         setGroups(groupList.items ?? []);
+        // Read separately: a signed-in user who cannot read the settings must still see
+        // the tables, so a failure here only leaves the CPU field on its default label.
+        try {
+          const settings = await api.panelSettings();
+          if (!cancelled) setCpuShared(Boolean(settings.overcommit?.cpu));
+        } catch {
+          // leave the hardcap default in place
+        }
       } catch (err) {
         if (cancelled) return;
         const msg = describeError(err);
@@ -292,7 +304,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Users & Packages</h1>
             <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" /> cgroups v2 Quotas
+              <ShieldCheck className="w-3.5 h-3.5" /> {cpuShared ? 'cgroups v2 Sharing' : 'cgroups v2 Quotas'}
             </span>
             {live === true && (
               <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">Live</span>
@@ -546,7 +558,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
                   >
                     {g.permissions?.databases ? fmtCount(g.limits?.maxDatabases ?? 0) : '—'}
                   </td>
-                  <td className="py-3.5 px-4 font-mono text-slate-700">{fmtMb(g.limits?.memoryMb ?? 0)} • {fmtCpu(g.limits?.cpuQuotaPercent ?? 0)}</td>
+                  <td className="py-3.5 px-4 font-mono text-slate-700">{fmtMb(g.limits?.memoryMb ?? 0)} • {cpuShared ? fmtShare(g.limits?.cpuWeight ?? 0) : fmtCpu(g.limits?.cpuQuotaPercent ?? 0)}</td>
 
                   <td className="py-3.5 px-4">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -611,6 +623,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
         onClose={() => { setIsGroupModalOpen(false); setEditingGroup(null); }}
         onSubmit={submitGroup}
         editGroup={editingGroup}
+        cpuShared={cpuShared}
         busy={busy}
       />
 

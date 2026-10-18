@@ -17,13 +17,70 @@ import (
 // Limits are per-member allowances. Zero means "unlimited" for every field, so a
 // fresh install (built-in groups with no limits) can never fail the guard.
 type Limits struct {
-	CPUQuotaPercent int `json:"cpuQuotaPercent"` // 100 = one core
-	MemoryMB        int `json:"memoryMb"`
-	TasksMax        int `json:"tasksMax"` // processes/threads
-	DiskQuotaGB     int `json:"diskQuotaGb"`
-	InodeQuota      int `json:"inodeQuota"`
-	MaxSites        int `json:"maxSites"`
-	MaxDatabases    int `json:"maxDatabases"`
+	CPUQuotaPercent int `json:"cpuQuotaPercent"` // hard cap: 100 = one core
+	// CPUWeight is the member's share of a contended CPU, used instead of the hard
+	// quota when the operator turns CPU sharing on. A package keeps both, so the
+	// allocation mode can be switched back and forth without losing either value.
+	// Relative: 200 gets twice the CPU of 100 (systemd's own default is 100).
+	CPUWeight    int `json:"cpuWeight"`
+	MemoryMB     int `json:"memoryMb"`
+	TasksMax     int `json:"tasksMax"` // processes/threads
+	DiskQuotaGB  int `json:"diskQuotaGb"`
+	InodeQuota   int `json:"inodeQuota"`
+	MaxSites     int `json:"maxSites"`
+	MaxDatabases int `json:"maxDatabases"`
+}
+
+// Sharing says which resources stop being treated as reservations: a resource
+// with its flag set may be overcommitted (the guard warns instead of refusing),
+// and CPU — the only one whose *enforcement* has to change — is handed out as a
+// proportional weight instead of a hard quota. The zero value is hardcap-for-all,
+// which is what every existing install already behaves as.
+type Sharing struct {
+	CPU  bool `json:"cpu"`
+	RAM  bool `json:"ram"`
+	Disk bool `json:"disk"`
+}
+
+// ParseSharing reads the stored CSV form ("cpu,ram,disk"; any subset, empty for none).
+func ParseSharing(csv string) Sharing {
+	var s Sharing
+	for _, part := range strings.Split(csv, ",") {
+		switch strings.TrimSpace(strings.ToLower(part)) {
+		case "cpu":
+			s.CPU = true
+		case "ram", "memory":
+			s.RAM = true
+		case "disk":
+			s.Disk = true
+		}
+	}
+	return s
+}
+
+// List renders the set back to the stored CSV form, in a stable order.
+func (s Sharing) List() string {
+	parts := []string{}
+	if s.CPU {
+		parts = append(parts, "cpu")
+	}
+	if s.RAM {
+		parts = append(parts, "ram")
+	}
+	if s.Disk {
+		parts = append(parts, "disk")
+	}
+	return strings.Join(parts, ",")
+}
+
+// CPUPlan decides how a package's CPU is enforced: the hard quota that caps it, or
+// the weight that shares it. Exactly one of the two is non-zero, so the caller can
+// write whichever it is. This is the single place the quota-vs-share decision lives.
+func CPUPlan(l Limits, s Sharing) (quotaPercent, weight int) {
+	if s.CPU {
+		return 0, l.CPUWeight
+	}
+	return l.CPUQuotaPercent, 0
 }
 
 // IsZero reports whether no limit is set.
@@ -39,6 +96,7 @@ func (l Limits) Multiply(n int) Limits {
 	}
 	return Limits{
 		CPUQuotaPercent: l.CPUQuotaPercent * n,
+		CPUWeight:       l.CPUWeight * n,
 		MemoryMB:        l.MemoryMB * n,
 		TasksMax:        l.TasksMax * n,
 		DiskQuotaGB:     l.DiskQuotaGB * n,
@@ -52,6 +110,7 @@ func (l Limits) Multiply(n int) Limits {
 func (l Limits) Add(o Limits) Limits {
 	return Limits{
 		CPUQuotaPercent: l.CPUQuotaPercent + o.CPUQuotaPercent,
+		CPUWeight:       l.CPUWeight + o.CPUWeight,
 		MemoryMB:        l.MemoryMB + o.MemoryMB,
 		TasksMax:        l.TasksMax + o.TasksMax,
 		DiskQuotaGB:     l.DiskQuotaGB + o.DiskQuotaGB,
@@ -74,6 +133,7 @@ type Capacity struct {
 func DefaultLimits() Limits {
 	return Limits{
 		CPUQuotaPercent: 100,
+		CPUWeight:       100,
 		MemoryMB:        1024,
 		TasksMax:        256,
 		DiskQuotaGB:     10,
@@ -124,8 +184,11 @@ type Overcommit struct {
 	Disk float64 `json:"disk"`
 }
 
-// Fits reports whether every ratio is within the host.
-func (o Overcommit) Fits() bool { return o.CPU <= 1 && o.RAM <= 1 && o.Disk <= 1 }
+// Fits reports whether every ratio is within the host. A shared resource is never
+// counted as "not fitting": it is allowed to be overcommitted.
+func (o Overcommit) Fits(s Sharing) bool {
+	return (s.CPU || o.CPU <= 1) && (s.RAM || o.RAM <= 1) && (s.Disk || o.Disk <= 1)
+}
 
 // Ratios measures the allocation against the capacity.
 func Ratios(allocation Limits, c Capacity) Overcommit {
@@ -150,7 +213,10 @@ func Ratios(allocation Limits, c Capacity) Overcommit {
 //
 // Capacity is re-read on every call, so a resized (or scaled-down) server is
 // reported immediately instead of waiting for a daemon restart.
-func Exceeds(usages []Usage, c Capacity) []string {
+//
+// A resource the operator has marked shared is deliberately skipped: overcommitting
+// it is the whole point of sharing, so it is not a problem to report.
+func Exceeds(usages []Usage, c Capacity, s Sharing) []string {
 	alloc := Allocation(usages)
 	ratios := Ratios(alloc, c)
 
@@ -161,17 +227,24 @@ func Exceeds(usages []Usage, c Capacity) []string {
 				"%s: allocated %d of %d available (%.0f%%)", label, used, total, ratio*100))
 		}
 	}
-	check("CPU", alloc.CPUQuotaPercent, c.CPUCores*100, ratios.CPU)
-	check("memory", alloc.MemoryMB, c.MemoryMB, ratios.RAM)
-	check("disk", alloc.DiskQuotaGB, c.DiskGB, ratios.Disk)
+	if !s.CPU {
+		check("CPU", alloc.CPUQuotaPercent, c.CPUCores*100, ratios.CPU)
+	}
+	if !s.RAM {
+		check("memory", alloc.MemoryMB, c.MemoryMB, ratios.RAM)
+	}
+	if !s.Disk {
+		check("disk", alloc.DiskQuotaGB, c.DiskGB, ratios.Disk)
+	}
 	sort.Strings(problems)
 	return problems
 }
 
 // Validate refuses an allocation that exceeds the host. It lists every resource
-// that does not fit, with the numbers, so the operator can fix the package.
-func Validate(usages []Usage, c Capacity) error {
-	problems := Exceeds(usages, c)
+// that does not fit, with the numbers, so the operator can fix the package. A
+// shared resource never triggers it.
+func Validate(usages []Usage, c Capacity, s Sharing) error {
+	problems := Exceeds(usages, c, s)
 	if len(problems) == 0 {
 		return nil
 	}
@@ -190,6 +263,7 @@ func (l Limits) Describe() string {
 		}
 	}
 	add("%d%% CPU", l.CPUQuotaPercent)
+	add("%d CPU share", l.CPUWeight)
 	add("%d MiB RAM", l.MemoryMB)
 	add("%d tasks", l.TasksMax)
 	add("%d GiB disk", l.DiskQuotaGB)

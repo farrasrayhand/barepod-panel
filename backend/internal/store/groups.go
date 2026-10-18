@@ -12,7 +12,7 @@ import (
 )
 
 const groupColumns = `g.id, g.name, g.description, g.permissions, g.is_default, g.is_system, g.created_at,
-	g.cpu_quota_percent, g.memory_mb, g.tasks_max, g.disk_quota_gb, g.inode_quota, g.max_sites, g.max_databases,
+	g.cpu_quota_percent, g.cpu_weight, g.memory_mb, g.tasks_max, g.disk_quota_gb, g.inode_quota, g.max_sites, g.max_databases,
 	(SELECT COUNT(*) FROM users u WHERE u.group_name = g.name)`
 
 // groupScanner reads a group row into the model.
@@ -29,7 +29,7 @@ func scanGroupRow(sc groupScanner) (*rbac.Group, error) {
 	)
 	err := sc.Scan(
 		&g.ID, &g.Name, &g.Description, &permissions, &isDefault, &isSystem, &g.CreatedAt,
-		&g.Limits.CPUQuotaPercent, &g.Limits.MemoryMB, &g.Limits.TasksMax, &g.Limits.DiskQuotaGB,
+		&g.Limits.CPUQuotaPercent, &g.Limits.CPUWeight, &g.Limits.MemoryMB, &g.Limits.TasksMax, &g.Limits.DiskQuotaGB,
 		&g.Limits.InodeQuota, &g.Limits.MaxSites, &g.Limits.MaxDatabases,
 		&g.Members,
 	)
@@ -79,10 +79,10 @@ func (s *Store) EnsureDefaultGroups() (int, error) {
 		}
 		_, err := s.DB.Exec(
 			`INSERT INTO groups (id, name, permissions, description, is_default, is_system, created_at,
-			                     cpu_quota_percent, memory_mb, tasks_max, disk_quota_gb, inode_quota, max_sites, max_databases)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			                     cpu_quota_percent, cpu_weight, memory_mb, tasks_max, disk_quota_gb, inode_quota, max_sites, max_databases)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id.New(), g.Name, encodePermissions(g.Permissions), g.Description, g.IsDefault, g.IsSystem, now(),
-			g.Limits.CPUQuotaPercent, g.Limits.MemoryMB, g.Limits.TasksMax, g.Limits.DiskQuotaGB,
+			g.Limits.CPUQuotaPercent, g.Limits.CPUWeight, g.Limits.MemoryMB, g.Limits.TasksMax, g.Limits.DiskQuotaGB,
 			g.Limits.InodeQuota, g.Limits.MaxSites, g.Limits.MaxDatabases,
 		)
 		if err != nil {
@@ -121,10 +121,10 @@ func (s *Store) GroupByName(name string) (*rbac.Group, error) {
 // UpdateGroup replaces a group's description, capabilities and resource limits.
 func (s *Store) UpdateGroup(name, description string, permissions rbac.Permissions, limits resources.Limits) error {
 	res, err := s.DB.Exec(
-		`UPDATE groups SET description = ?, permissions = ?, cpu_quota_percent = ?, memory_mb = ?, tasks_max = ?,
+		`UPDATE groups SET description = ?, permissions = ?, cpu_quota_percent = ?, cpu_weight = ?, memory_mb = ?, tasks_max = ?,
 		                   disk_quota_gb = ?, inode_quota = ?, max_sites = ?, max_databases = ?
 		 WHERE name = ?`,
-		description, encodePermissions(permissions), limits.CPUQuotaPercent, limits.MemoryMB, limits.TasksMax,
+		description, encodePermissions(permissions), limits.CPUQuotaPercent, limits.CPUWeight, limits.MemoryMB, limits.TasksMax,
 		limits.DiskQuotaGB, limits.InodeQuota, limits.MaxSites, limits.MaxDatabases, name,
 	)
 	if err != nil {
@@ -142,10 +142,10 @@ func (s *Store) UpdateGroup(name, description string, permissions rbac.Permissio
 func (s *Store) CreateGroup(name, description string, permissions rbac.Permissions, limits resources.Limits) (*rbac.Group, error) {
 	_, err := s.DB.Exec(
 		`INSERT INTO groups (id, name, permissions, description, is_default, is_system, created_at,
-		                     cpu_quota_percent, memory_mb, tasks_max, disk_quota_gb, inode_quota, max_sites, max_databases)
-		 VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                     cpu_quota_percent, cpu_weight, memory_mb, tasks_max, disk_quota_gb, inode_quota, max_sites, max_databases)
+		 VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id.New(), name, encodePermissions(permissions), description, now(),
-		limits.CPUQuotaPercent, limits.MemoryMB, limits.TasksMax, limits.DiskQuotaGB,
+		limits.CPUQuotaPercent, limits.CPUWeight, limits.MemoryMB, limits.TasksMax, limits.DiskQuotaGB,
 		limits.InodeQuota, limits.MaxSites, limits.MaxDatabases,
 	)
 	if err != nil {

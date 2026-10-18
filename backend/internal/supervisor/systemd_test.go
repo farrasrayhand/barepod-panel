@@ -63,13 +63,41 @@ func TestDropInContainsSiteSettings(t *testing.T) {
 		"EnvironmentFile=/home/tenant_alex/apps/billing-api/.env",
 		"Environment=PORT=3000",
 		"ExecStart=npm start -- --port 3000",
-		"MemoryMax=512M",
-		"CPUQuota=100%",
 		"Environment=APP_NAME=billing",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("drop-in is missing %q\n---\n%s", want, out)
 		}
+	}
+	// Resource controls live in their own drop-in now, so the runtime drop-in must not
+	// carry them: two files setting the same thing is exactly the disagreement the split
+	// removes.
+	for _, unwanted := range []string{"MemoryMax=", "CPUQuota=", "CPUWeight="} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("runtime drop-in must not set %q\n---\n%s", unwanted, out)
+		}
+	}
+}
+
+func TestResourcesDropInRendersQuotaOrWeight(t *testing.T) {
+	// Hardcap: a quota, and no weight.
+	hardcap := ResourcesDropIn(Spec{MemoryMaxMB: 512, CPUQuota: 100, TasksMax: 256})
+	for _, want := range []string{"MemoryMax=512M", "CPUQuota=100%", "TasksMax=256"} {
+		if !strings.Contains(hardcap, want) {
+			t.Errorf("hardcap resources.conf is missing %q\n---\n%s", want, hardcap)
+		}
+	}
+	if strings.Contains(hardcap, "CPUWeight=") {
+		t.Errorf("hardcap must not set a weight\n---\n%s", hardcap)
+	}
+
+	// Sharing: a weight, and no quota.
+	shared := ResourcesDropIn(Spec{MemoryMaxMB: 512, CPUWeight: 200, TasksMax: 256})
+	if !strings.Contains(shared, "CPUWeight=200") {
+		t.Errorf("shared resources.conf is missing the weight\n---\n%s", shared)
+	}
+	if strings.Contains(shared, "CPUQuota=") {
+		t.Errorf("shared must not set a hard quota\n---\n%s", shared)
 	}
 }
 
@@ -92,6 +120,12 @@ func TestWriteCreatesTemplateAndDropIn(t *testing.T) {
 	}
 	if !strings.Contains(dropInPath, "barepod-app@demo.service.d") {
 		t.Errorf("unexpected drop-in path: %s", dropInPath)
+	}
+	// The resource-controls drop-in is written alongside the runtime one, so a mode switch
+	// can rewrite it without rebuilding the runtime content.
+	resourcesPath := filepath.Join(DropInDir(units, "demo"), "resources.conf")
+	if _, err := os.Stat(resourcesPath); err != nil {
+		t.Fatalf("resources drop-in not written: %v", err)
 	}
 
 	if err := Remove(units, "demo"); err != nil {

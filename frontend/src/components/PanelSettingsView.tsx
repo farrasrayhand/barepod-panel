@@ -76,6 +76,11 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   // Which address the panel is reached on: the public IP by default, the Cloudflare hostname once
   // "Use Cloudflare" is ticked. The server stores it so the choice survives a reload.
   const [useCloudflare, setUseCloudflare] = useState(false);
+  // Which resources are shared (overcommitted) rather than reserved. Empty means every
+  // resource is reserved — the historic behaviour — so an install that never touches this
+  // is unchanged.
+  const [overcommit, setOvercommit] = useState<{ cpu: boolean; ram: boolean; disk: boolean }>({ cpu: false, ram: false, disk: false });
+  const [overcommitSaving, setOvercommitSaving] = useState(false);
   // Measured, not written into the screen: the settings page used to state the engines' ports and the
   // panel's, and SSH was missing entirely.
   const [ports, setPorts] = useState<{
@@ -278,6 +283,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           setExternalAddress(settings.externalAddress || '');
           setPanelFqdn(settings.panelFqdn || '');
           setUseCloudflare(Boolean(settings.useCloudflare));
+          setOvercommit(settings.overcommit ?? { cpu: false, ram: false, disk: false });
           setLetsEncryptEmail(settings.letsencryptEmail || '');
           setSessionTimeoutHours(settings.sessionTimeoutHours || 24);
           setIpWhitelist((settings.ipAllowlist || []).join('\n'));
@@ -460,6 +466,20 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       onShowToast?.('Could not save', err instanceof Error ? err.message : 'unknown error', 'error');
     } finally {
       setExternalSaving(false);
+    }
+  };
+
+  const saveOvercommit = async (next: { cpu: boolean; ram: boolean; disk: boolean }) => {
+    if (!isAdmin || overcommitSaving) return;
+    setOvercommitSaving(true);
+    try {
+      const saved = await api.savePanelSettings({ overcommit: next });
+      if (saved.overcommit) setOvercommit(saved.overcommit);
+      onShowToast?.('Resource sharing updated', 'Applied to every deployed site now.', 'success');
+    } catch (err) {
+      onShowToast?.('Could not change resource sharing', err instanceof Error ? err.message : 'unknown error', 'error');
+    } finally {
+      setOvercommitSaving(false);
     }
   };
 
@@ -908,6 +928,35 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     {externalSaving ? 'Saving…' : 'Save'}
                   </button>
                 </div>
+              </div>
+
+              {/* A policy, not a measurement: what a shared resource does is decided by the daemon. */}
+              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-3">
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-800">Resource sharing (overcommit)</span>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Tick a resource to stop treating its package limits as reservations — the capacity guard
+                    then warns instead of refusing a plan that exceeds the server. A shared CPU is handed out
+                    as a proportional <span className="font-mono">CPUWeight</span> (idle sites lend their
+                    cores, busy ones borrow them); RAM and disk keep their per-site cap, only the total may
+                    exceed the host. Applied to every deployed site the moment you tick it.
+                  </p>
+                </label>
+                <div className="flex flex-wrap gap-5">
+                  {(['cpu', 'ram', 'disk'] as const).map((key) => (
+                    <label key={key} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={overcommit[key]}
+                        disabled={!isAdmin || overcommitSaving}
+                        onChange={(e) => void saveOvercommit({ ...overcommit, [key]: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 rounded border-slate-300 disabled:opacity-60"
+                      />
+                      {key === 'cpu' ? 'CPU (share)' : key === 'ram' ? 'RAM' : 'Disk'}
+                    </label>
+                  ))}
+                </div>
+                {!isAdmin && <p className="text-[10px] text-slate-400">Only an administrator can change this.</p>}
               </div>
 
               <div className="space-y-4">

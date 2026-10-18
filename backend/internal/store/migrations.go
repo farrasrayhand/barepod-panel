@@ -33,7 +33,19 @@ var migrations = []migration{
 	{version: 23, statements: schemaV23},
 	{version: 24, statements: schemaV24},
 	{version: 25, statements: schemaV25},
+	{version: 26, statements: schemaV26},
 }
+
+// schemaV26 gives each package a CPU *share* next to its hard quota. The quota
+// (cpu_quota_percent) stays the cap used in hardcap mode; cpu_weight is the
+// relative share used when the operator turns CPU sharing on. Both are kept, so
+// switching the allocation mode never loses either value. Existing packages are
+// backfilled from their quota so a package that was "1 core" becomes "1 core of
+// share" the moment sharing is switched on. 0 means unset (systemd default 100).
+const schemaV26 = `
+ALTER TABLE groups ADD COLUMN cpu_weight INTEGER NOT NULL DEFAULT 0;
+UPDATE groups SET cpu_weight = cpu_quota_percent WHERE cpu_weight = 0 AND cpu_quota_percent > 0;
+`
 
 // schemaV25 gives an account a TOTP secret. The secret is encrypted like every other secret, and is
 // only written once enrolment starts; totp_enabled marks a secret the operator has confirmed with a

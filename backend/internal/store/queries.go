@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 )
 
 // ErrNotFound is returned when a row does not exist.
@@ -625,6 +626,22 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.upd
 	return nil
 }
 
+// OvercommitSettingKey names the panel setting that records which resources the operator
+// has chosen to share rather than reserve ("cpu,ram,disk"; any subset, empty for none).
+// It lives here so the API and the deployer read the same key.
+const OvercommitSettingKey = "overcommit_resources"
+
+// Sharing reads the panel's overcommit policy. An unset value is the zero value — every
+// resource reserved — which is the historic behaviour, so a failure to read can never
+// loosen a guard by accident.
+func (s *Store) Sharing() (resources.Sharing, error) {
+	raw, err := s.PanelSetting(OvercommitSettingKey)
+	if err != nil {
+		return resources.Sharing{}, err
+	}
+	return resources.ParseSharing(raw), nil
+}
+
 // trustedAddressesKey holds the addresses the lockout must never ban. It exists because the operator
 // administers the panel from somewhere, and a host-wide ban that includes that somewhere takes away
 // the way back in: measured, an operator's own address was banned by their own brute-force test and
@@ -925,4 +942,3 @@ func (s *Store) UpdateDomainName(domainID, newDomain string) error {
 	_, err := s.DB.Exec(`UPDATE website_domains SET domain = ?, ssl_status = 'pending' WHERE id = ?`, newDomain, domainID)
 	return err
 }
-

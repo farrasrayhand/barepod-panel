@@ -167,13 +167,26 @@ A group **is** the tenant package: the same row carries the capabilities and the
 per-member resource limits — CPU, RAM, tasks, disk quota, inodes, max websites,
 max databases. Zero means unlimited.
 
-- **Applied for real:** the limits land in the website's systemd drop-in
-  (`MemoryMax=`, `CPUQuota=`, `TasksMax=`, cgroup v2) and in the tenant's disk
-  quota (`setquota`). Nothing is hardcoded in the pipeline any more.
+- **Applied for real:** the limits land in the website's systemd drop-in and in
+  the tenant's disk quota (`setquota`). Nothing is hardcoded in the pipeline any
+  more. The resource controls live in their **own** drop-in
+  (`…service.d/resources.conf`: `MemoryMax=`, `CPUQuota=`/`CPUWeight=`,
+  `TasksMax=`, cgroup v2), separate from the runtime one — so the daemon can
+  re-apply the allocation to every deployed site by rewriting one small file,
+  without rebuilding any site's `ExecStart`.
 - **Capacity guard:** `PATCH /groups/{name}` refuses a plan whose total
   (limits × members, summed over all packages) exceeds the server, and returns
   the numbers: `409 insufficient_capacity` →
   `"memory: allocated 65536 of 16384 available (400%)"`.
+- **Sharing (overcommit):** `GET/PATCH /system/settings` carries an `overcommit`
+  set (`cpu`, `ram`, `disk`). A resource in the set stops being a reservation —
+  the guard warns instead of refusing. A shared CPU is written as `CPUWeight=`
+  (proportional share, `cpu.weight`) instead of a hard `CPUQuota=`, so idle sites
+  lend their cores and a busy one can borrow them; RAM and disk keep their
+  per-site cap and only the total may exceed the host. Both the quota and the
+  weight are stored per package, so toggling the mode never loses either. Saved
+  through the panel it is applied to every running site immediately; a package
+  *edit* still reaches a site at its next deploy.
 - **Live re-detection:** capacity is measured on every read — cgroup v2 `cpu.max`
   (so a running container resize is seen), `/sys/.../cpu/online`, `/proc/meminfo`,
   `statfs` of the sites filesystem (walking up if the path does not exist yet).

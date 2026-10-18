@@ -1,8 +1,11 @@
 package api
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -10,6 +13,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/rbac"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/supervisor"
 )
 
 // capacityWarnings memoises the last verdict so a resize is logged/audited once
@@ -49,6 +53,65 @@ func (s *Server) limitsForTenant(tenant string) resources.Limits {
 		return resources.Limits{}
 	}
 	return group.Limits
+}
+
+// sharingPolicy reads which resources the operator has chosen to share (overcommit)
+// rather than reserve. An unset or unreadable setting is the zero value — every
+// resource reserved — so a failure can never accidentally loosen the guard.
+func (s *Server) sharingPolicy() resources.Sharing {
+	policy, err := s.store.Sharing()
+	if err != nil {
+		return resources.Sharing{}
+	}
+	return policy
+}
+
+// reapplyResourceLimits rewrites the resource-controls drop-in of every deployed site
+// under the current sharing policy, then reloads systemd. It is what makes a policy
+// change take effect on sites that are already running instead of waiting for each
+// site's next deploy. Only resources.conf is touched, so no runtime content is rebuilt.
+func (s *Server) reapplyResourceLimits(ctx context.Context) {
+	if !s.host.Materialises() {
+		return
+	}
+	sites, err := s.store.ListWebsites()
+	if err != nil {
+		return
+	}
+	policy := s.sharingPolicy()
+	changed := 0
+	for _, site := range sites {
+		switch site.Runtime {
+		case "proxy", "static":
+			// No supervised daemon, so no unit and no cgroup limits to set.
+			continue
+		}
+		// Only a site that has actually been deployed: a drop-in written for a site with
+		// no unit yet would be a limit attached to nothing.
+		override := filepath.Join(supervisor.DropInDir(s.host.UnitsDir, site.Slug), "override.conf")
+		if _, err := os.Stat(override); err != nil {
+			continue
+		}
+		limits := s.limitsForTenant(site.TenantUser)
+		quota, weight := resources.CPUPlan(limits, policy)
+		spec := supervisor.Spec{
+			Slug:        site.Slug,
+			MemoryMaxMB: limits.MemoryMB,
+			CPUQuota:    quota,
+			CPUWeight:   weight,
+			TasksMax:    limits.TasksMax,
+		}
+		if _, err := supervisor.WriteResources(s.host.UnitsDir, site.Slug, spec); err != nil {
+			continue
+		}
+		changed++
+	}
+	if changed == 0 {
+		return
+	}
+	// systemd re-applies cgroup resource controls to active units on daemon-reload, so a
+	// running site picks up the new quota/share without being restarted.
+	_, _ = s.host.Runner.Run(ctx, "", "systemctl", "daemon-reload")
 }
 
 // usages turns the stored groups into resource claims.
@@ -94,7 +157,7 @@ func (s *Server) guardPlan(override *rbac.Group, delta map[string]int) (resource
 		prospective = append(prospective, resources.Usage{Name: override.Name, Members: members, Limits: override.Limits})
 	}
 	capacity := resources.DetectCapacity(s.host.SitesRoot)
-	return capacity, resources.Allocation(prospective), resources.Validate(prospective, capacity)
+	return capacity, resources.Allocation(prospective), resources.Validate(prospective, capacity, s.sharingPolicy())
 }
 
 // handleCapacity reports what the host has, what the packages claim, and whether
@@ -111,18 +174,20 @@ func (s *Server) handleCapacity(w http.ResponseWriter, r *http.Request, _ *store
 	}
 
 	capacity := resources.DetectCapacity(s.host.SitesRoot)
+	policy := s.sharingPolicy()
 	claims := usages(groups)
 	allocation := resources.Allocation(claims)
 	ratios := resources.Ratios(allocation, capacity)
-	exceeds := resources.Exceeds(claims, capacity)
+	exceeds := resources.Exceeds(claims, capacity, policy)
 	s.noteCapacityChange(exceeds)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"capacity":   capacity,
 		"allocation": allocation,
 		"usage":      ratios,
-		"fits":       ratios.Fits(),
+		"fits":       ratios.Fits(policy),
 		"exceeds":    exceeds,
+		"overcommit": policy,
 		"suggested":  capacity.Suggest(),
 		"packages":   claims,
 		"mode":       s.host.Mode(),
@@ -165,7 +230,7 @@ func (s *Server) handleUpdateGroup(w http.ResponseWriter, r *http.Request, user 
 	if req.Limits != nil {
 		limits = *req.Limits
 	}
-	if limits.CPUQuotaPercent < 0 || limits.MemoryMB < 0 || limits.TasksMax < 0 ||
+	if limits.CPUQuotaPercent < 0 || limits.CPUWeight < 0 || limits.MemoryMB < 0 || limits.TasksMax < 0 ||
 		limits.DiskQuotaGB < 0 || limits.InodeQuota < 0 || limits.MaxSites < 0 || limits.MaxDatabases < 0 {
 		writeJSON(w, http.StatusBadRequest, validationResponse(
 			map[string]string{"limits": "limits cannot be negative"}, "Invalid package limits"))

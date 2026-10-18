@@ -751,10 +751,10 @@ export const api = {
     }),
 
   panelSettings: () =>
-    request<{ externalAddress: string; panelFqdn: string; useCloudflare: boolean; letsencryptEmail: string; sessionTimeoutHours: number; ipAllowlist: string[]; trustedAddresses: string[] }>('/system/settings'),
+    request<{ externalAddress: string; panelFqdn: string; useCloudflare: boolean; letsencryptEmail: string; sessionTimeoutHours: number; ipAllowlist: string[]; trustedAddresses: string[]; overcommit: OvercommitPolicy }>('/system/settings'),
 
-  savePanelSettings: (settings: { externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; sessionTimeoutHours?: number; ipAllowlist?: string[]; trustedAddresses?: string[] }) =>
-    request<{ externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; sessionTimeoutHours?: number; ipAllowlist?: string[]; trustedAddresses?: string[] }>('/system/settings', {
+  savePanelSettings: (settings: { externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; sessionTimeoutHours?: number; ipAllowlist?: string[]; trustedAddresses?: string[]; overcommit?: OvercommitPolicy }) =>
+    request<{ externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; sessionTimeoutHours?: number; ipAllowlist?: string[]; trustedAddresses?: string[]; overcommit?: OvercommitPolicy }>('/system/settings', {
       method: 'PATCH',
       body: JSON.stringify(settings),
     }),
@@ -1965,6 +1965,8 @@ export interface GroupRow {
 /** A package's resource limits, as the API reports them (0 = unlimited). */
 export interface GroupLimits {
   cpuQuotaPercent: number;
+  /** The member's CPU share, used instead of the quota when the panel is in sharing mode. */
+  cpuWeight: number;
   memoryMb: number;
   tasksMax: number;
   diskQuotaGb: number;
@@ -1978,6 +1980,17 @@ export interface GroupPayload {
   description?: string;
   permissions?: Record<string, boolean>;
   limits?: Partial<GroupLimits>;
+}
+
+/**
+ * Which resources are shared (overcommitted) rather than reserved. With a resource
+ * ticked the capacity guard warns instead of refusing, and a shared CPU is handed out
+ * as a proportional share instead of a hard quota.
+ */
+export interface OvercommitPolicy {
+  cpu: boolean;
+  ram: boolean;
+  disk: boolean;
 }
 
 /** One account, as the Tenants screen needs it. */

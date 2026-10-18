@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/rbac"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -15,6 +16,102 @@ func newTestStore(t *testing.T) *Store {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	return st
+}
+
+// TestMigrationsAreIdempotent guards the in-place update path: the daemon migrates on every
+// start, so re-opening an already-migrated database must apply nothing and fail on nothing.
+func TestMigrationsAreIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "panel.db")
+
+	first, err := Open(path)
+	if err != nil {
+		t.Fatalf("first open: %v", err)
+	}
+	_ = first.Close()
+
+	second, err := Open(path)
+	if err != nil {
+		t.Fatalf("re-open of a migrated database: %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+
+	var applied int
+	if err := second.DB.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if applied != len(migrations) {
+		t.Fatalf("schema_migrations has %d rows, want %d", applied, len(migrations))
+	}
+}
+
+// TestGroupCPUWeightRoundTrip proves the package keeps its quota and its share side by side, so
+// switching the allocation mode does not lose either value.
+func TestGroupCPUWeightRoundTrip(t *testing.T) {
+	st := newTestStore(t)
+	if _, err := st.EnsureDefaultGroups(); err != nil {
+		t.Fatal(err)
+	}
+
+	limits := resources.Limits{CPUQuotaPercent: 100, CPUWeight: 250, MemoryMB: 1024}
+	if _, err := st.CreateGroup("Pro", "pro plan", rbac.Permissions{}, limits); err != nil {
+		t.Fatal(err)
+	}
+	group, err := st.GroupByName("Pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group.Limits.CPUQuotaPercent != 100 || group.Limits.CPUWeight != 250 {
+		t.Fatalf("stored limits = %+v, want quota 100 and weight 250", group.Limits)
+	}
+
+	limits.CPUWeight = 400
+	if err := st.UpdateGroup("Pro", "pro plan", rbac.Permissions{}, limits); err != nil {
+		t.Fatal(err)
+	}
+	group, err = st.GroupByName("Pro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group.Limits.CPUWeight != 400 {
+		t.Fatalf("cpuWeight after update = %d, want 400", group.Limits.CPUWeight)
+	}
+}
+
+func TestBuiltInBasicCarriesACPUWeight(t *testing.T) {
+	st := newTestStore(t)
+	if _, err := st.EnsureDefaultGroups(); err != nil {
+		t.Fatal(err)
+	}
+	group, err := st.GroupByName("Basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group.Limits.CPUWeight != 100 {
+		t.Fatalf("Basic cpuWeight = %d, want 100", group.Limits.CPUWeight)
+	}
+}
+
+func TestSharingDefaultsToReservedAndRoundTrips(t *testing.T) {
+	st := newTestStore(t)
+
+	policy, err := st.Sharing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy != (resources.Sharing{}) {
+		t.Fatalf("a fresh install shares %+v, want every resource reserved", policy)
+	}
+
+	if err := st.SavePanelSetting(OvercommitSettingKey, "cpu,ram"); err != nil {
+		t.Fatal(err)
+	}
+	policy, err = st.Sharing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !policy.CPU || !policy.RAM || policy.Disk {
+		t.Fatalf("policy = %+v, want cpu and ram shared, disk reserved", policy)
+	}
 }
 
 func TestEnsureDefaultGroupsIsIdempotent(t *testing.T) {

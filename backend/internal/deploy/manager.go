@@ -1212,6 +1212,17 @@ func (m *Manager) tenantLimits(tenant string) resources.Limits {
 	return group.Limits
 }
 
+// sharingPolicy reads which resources the operator has chosen to share rather than
+// reserve, so the unit this deploy renders matches the mode the panel is in. An
+// unreadable setting is the zero value (every resource reserved), never a loosening.
+func (m *Manager) sharingPolicy() resources.Sharing {
+	policy, err := m.store.Sharing()
+	if err != nil {
+		return resources.Sharing{}
+	}
+	return policy
+}
+
 // stepWritePhpPool writes the per-site PHP-FPM pool. The unit's ExecStart already
 // points php-fpm at <siteDir>/php-fpm.conf; without this file the master cannot start.
 func stepWritePhpPool(ctx context.Context, s *state) error {
@@ -1336,6 +1347,8 @@ func stepRenderUnit(ctx context.Context, s *state) error {
 	}
 	// cgroup v2 limits come from the tenant's package (group), never hardcoded.
 	limits := s.m.tenantLimits(s.req.Tenant)
+	// The hard quota or the shared weight, whichever the panel's allocation mode calls for.
+	cpuQuota, cpuWeight := resources.CPUPlan(limits, s.m.sharingPolicy())
 	spec := supervisor.Spec{
 		Slug:      s.req.Slug,
 		Tenant:    s.req.Tenant,
@@ -1351,7 +1364,8 @@ func stepRenderUnit(ctx context.Context, s *state) error {
 		ExecStart:     provision.ExecStart(s.req.Runtime, s.req.Version, s.req.Framework, s.siteDir, s.req.Port),
 		Port:          s.req.Port,
 		MemoryMaxMB:   limits.MemoryMB,
-		CPUQuota:      limits.CPUQuotaPercent,
+		CPUQuota:      cpuQuota,
+		CPUWeight:     cpuWeight,
 		TasksMax:      limits.TasksMax,
 	}
 

@@ -29,7 +29,8 @@ type Spec struct {
 	// ReadWritePath is re-opened for writing under ProtectHome (default: WorkDir).
 	ReadWritePath string
 	MemoryMaxMB   int
-	CPUQuota      int // percent of one core, e.g. 100 = one full core
+	CPUQuota      int // percent of one core, e.g. 100 = one full core (hard cap)
+	CPUWeight     int // relative CPU share, used instead of CPUQuota when CPU is shared
 	TasksMax      int // max processes/threads
 	Restart       string
 	ExtraEnv      map[string]string
@@ -92,15 +93,6 @@ func DropIn(s Spec) string {
 		fmt.Fprintf(&b, "ExecStart=%s\n", strings.Join(s.ExecStart, " "))
 	}
 	fmt.Fprintf(&b, "Restart=%s\n", restart)
-	if s.MemoryMaxMB > 0 {
-		fmt.Fprintf(&b, "MemoryMax=%dM\n", s.MemoryMaxMB)
-	}
-	if s.CPUQuota > 0 {
-		fmt.Fprintf(&b, "CPUQuota=%d%%\n", s.CPUQuota)
-	}
-	if s.TasksMax > 0 {
-		fmt.Fprintf(&b, "TasksMax=%d\n", s.TasksMax)
-	}
 	b.WriteString("NoNewPrivileges=true\n")
 	b.WriteString("PrivateTmp=true\n")
 	b.WriteString("ProtectSystem=full\n")
@@ -114,6 +106,35 @@ func DropIn(s Spec) string {
 	}
 	if rw != "" {
 		fmt.Fprintf(&b, "ReadWritePaths=%s\n", rw)
+	}
+	return b.String()
+}
+
+// ResourcesDropIn returns the per-site resource-controls drop-in. It is deliberately
+// separate from DropIn: systemd merges every *.conf in the .d directory, so this file
+// alone carries MemoryMax / CPUQuota / CPUWeight / TasksMax. Keeping it apart is what
+// lets the daemon re-apply the allocation (a mode switch, a package edit) to every site
+// by rewriting only this file — no runtime-specific content to rebuild, and no way for
+// the two to disagree.
+//
+// A package being hard-capped gets CPUQuota; one being shared gets CPUWeight. Only one
+// of the two is ever set, and because the file is rewritten whole, switching between
+// them cannot leave the other behind.
+func ResourcesDropIn(s Spec) string {
+	var b strings.Builder
+	b.WriteString("# Managed by BarePod Panel — resource limits.\n")
+	b.WriteString("[Service]\n")
+	if s.MemoryMaxMB > 0 {
+		fmt.Fprintf(&b, "MemoryMax=%dM\n", s.MemoryMaxMB)
+	}
+	if s.CPUQuota > 0 {
+		fmt.Fprintf(&b, "CPUQuota=%d%%\n", s.CPUQuota)
+	}
+	if s.CPUWeight > 0 {
+		fmt.Fprintf(&b, "CPUWeight=%d\n", s.CPUWeight)
+	}
+	if s.TasksMax > 0 {
+		fmt.Fprintf(&b, "TasksMax=%d\n", s.TasksMax)
 	}
 	return b.String()
 }
@@ -157,7 +178,27 @@ func Write(unitsDir string, s Spec) (templatePath, dropInPath string, err error)
 	if err := os.WriteFile(dropInPath, []byte(DropIn(s)), 0o644); err != nil {
 		return "", "", err
 	}
+	if _, err := WriteResources(unitsDir, s.Slug, s); err != nil {
+		return "", "", err
+	}
 	return templatePath, dropInPath, nil
+}
+
+// WriteResources writes only the resource-controls drop-in for a site (resources.conf).
+// It is what the daemon uses to re-apply the current allocation to an already-deployed
+// site without rebuilding its runtime configuration.
+func WriteResources(unitsDir, slug string, s Spec) (string, error) {
+	if unitsDir == "" {
+		return "", fmt.Errorf("supervisor: units directory is empty")
+	}
+	path := filepath.Join(DropInDir(unitsDir, slug), "resources.conf")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(ResourcesDropIn(s)), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // Remove deletes a website's drop-in (used when a website is deleted).

@@ -9,6 +9,8 @@ interface CreateGroupModalProps {
   onSubmit: (payload: GroupPayload) => void;
   editGroup?: GroupRow | null;
   busy?: boolean;
+  /** True when the panel shares CPU: the editor then shows the share, not the hard quota. */
+  cpuShared?: boolean;
 }
 
 type PermMap = Record<string, boolean>;
@@ -37,6 +39,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   onSubmit,
   editGroup,
   busy,
+  cpuShared = false,
 }) => {
   const isEditing = Boolean(editGroup);
   const [name, setName] = useState('');
@@ -46,6 +49,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   const [diskQuotaGb, setDiskQuotaGb] = useState('5');
   const [memoryMb, setMemoryMb] = useState('1536');
   const [cpuQuotaPercent, setCpuQuotaPercent] = useState('100');
+  const [cpuWeight, setCpuWeight] = useState('100');
   const [tasksMax, setTasksMax] = useState('256');
   const [inodeQuota, setInodeQuota] = useState('0');
   const [permissions, setPermissions] = useState<PermMap>({ ...DEFAULT_PERMISSIONS });
@@ -61,6 +65,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     setDiskQuotaGb(str(l.diskQuotaGb, '5'));
     setMemoryMb(str(l.memoryMb, '1536'));
     setCpuQuotaPercent(str(l.cpuQuotaPercent, '100'));
+    setCpuWeight(str(l.cpuWeight, '100'));
     setTasksMax(str(l.tasksMax, '256'));
     setInodeQuota(str(l.inodeQuota, '0'));
     setPermissions(editGroup ? { ...DEFAULT_PERMISSIONS, ...editGroup.permissions } : { ...DEFAULT_PERMISSIONS });
@@ -81,6 +86,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
         diskQuotaGb: num(diskQuotaGb),
         memoryMb: num(memoryMb),
         cpuQuotaPercent: num(cpuQuotaPercent),
+        cpuWeight: num(cpuWeight),
         tasksMax: num(tasksMax),
         inodeQuota: num(inodeQuota),
       },
@@ -160,10 +166,24 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
                 <span className="text-[11px] text-slate-500">RAM (MB)</span>
                 <input type="number" min="0" value={memoryMb} onChange={(e) => setMemoryMb(e.target.value)} className={`${field} mt-1`} />
               </label>
-              <label className="block">
-                <span className="text-[11px] text-slate-500">CPU Quota (%)</span>
-                <input type="number" min="0" value={cpuQuotaPercent} onChange={(e) => setCpuQuotaPercent(e.target.value)} className={`${field} mt-1`} />
-              </label>
+              {cpuShared ? (
+                <label className="block">
+                  <span className="text-[11px] text-slate-500">CPU Share (weight)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={cpuWeight}
+                    onChange={(e) => setCpuWeight(e.target.value)}
+                    title="Relative share of a contended CPU. 100 is the default; 200 gets twice the CPU of 100. Idle cores are shared automatically."
+                    className={`${field} mt-1`}
+                  />
+                </label>
+              ) : (
+                <label className="block">
+                  <span className="text-[11px] text-slate-500">CPU Quota (%)</span>
+                  <input type="number" min="0" value={cpuQuotaPercent} onChange={(e) => setCpuQuotaPercent(e.target.value)} className={`${field} mt-1`} />
+                </label>
+              )}
               <label className="block">
                 <span className="text-[11px] text-slate-500">Tasks Max</span>
                 <input type="number" min="0" value={tasksMax} onChange={(e) => setTasksMax(e.target.value)} className={`${field} mt-1`} />
