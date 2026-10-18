@@ -461,19 +461,6 @@ func runServe(args []string) error {
 	deploys.SetRedisURL(cfg.RedisURL)
 	tenants := tenant.New(runner, cfg.SitesRoot, caps)
 
-	// Self-healing watchdog: auto-enables and auto-recovers database engines (MariaDB, Redis, Postgres)
-	// and web servers right after boot, updates, or crash events.
-	if !dryRun {
-		healActions := stack.AutoHeal(context.Background(), runner)
-		for _, act := range healActions {
-			log.Printf("[auto-repair] %s", act)
-		}
-		stack.StartAutoHealWatchdog(context.Background(), runner, 60*time.Second)
-		if _, err := os.Stat("/var/spool/postfix/maildrop"); err == nil {
-			_ = os.Chmod("/var/spool/postfix/maildrop", 0o1777)
-		}
-	}
-
 	// On-demand database managers (pgweb). A previous daemon may have left one
 	// running and nothing knows how long it has been idle, so leftovers are
 	// cleared at start; a sweeper then stops the ones that go idle.
@@ -481,14 +468,9 @@ func runServe(args []string) error {
 	// A manager's output is kept beside the panel database (a root-only directory),
 	// so a start that fails reports the tool's own reason instead of a bare timeout.
 	tools.LogDir = filepath.Dir(cfg.DBPath)
-	reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), 15*time.Second)
-	if adopted := tools.Reconcile(reconcileCtx); len(adopted) > 0 {
-		log.Printf("dbtools: adopted %d running manager(s) from a previous daemon: %s (stopped after %s idle)",
-			len(adopted), strings.Join(adopted, ", "), tools.IdleTimeout())
-	} else {
-		log.Printf("dbtools: no managers running from a previous daemon (idle window %s)", tools.IdleTimeout())
-	}
-	cancelReconcile()
+	// Reconcile, guard adoption, exposure reconciliation and engine auto-tune all run after the
+	// panel is listening — see the startup-reconciliation block below. They are host work that can
+	// take a few seconds, and doing them first left the port unbound for that whole time.
 
 	// Metrics run in the background so history exists even while nobody is
 	// looking at the UI.
@@ -554,24 +536,14 @@ func runServe(args []string) error {
 	// Both doors read from the host: the panel's from how the daemon was started, SSH's from sshd's own
 	// configuration, so neither is a number written into the code.
 	watchdog.SetScopes(map[string][]int{"panel": {panelPort}})
-	// Adopt first and wait for it: the reconciliation below needs the table and its sets to
-	// exist, and racing the goroutine left ports out of the set while reporting success —
-	// measured, a containerised MongoDB stayed reachable from the LAN that way.
-	if err := watchdog.Adopt(context.Background()); err != nil {
-		log.Printf("guard: the panel's firewall table could not be prepared: %v", err)
-	}
 	go watchdog.Run(guardCtx)
 	log.Printf("guard: watching %d log source(s) every %s; table inet %s",
 		len(guard.Sources()), guardInterval, guard.Table)
 
 	// A record that says "private" has to be private in the kernel too, not only in the
 	// database: without this the port of a containerised engine stayed reachable from the LAN
-	// until somebody happened to move the switch.
-	if applied, err := api.ReconcileExposure(context.Background(), st, h.Runner.Run); err != nil {
-		log.Printf("guard: could only reconcile %d port(s) against the firewall set: %v", applied, err)
-	} else {
-		log.Printf("guard: %d record port(s) reconciled against the firewall set", applied)
-	}
+	// until somebody happened to move the switch. It runs after the panel is listening — see the
+	// startup-reconciliation block below.
 
 	// The built-in maintenance scheduler. Its jobs are the ones the panel lists under Cron; each is
 	// seeded once — never overwriting an operator's choice — and then run by the daemon on its own
@@ -584,9 +556,6 @@ func runServe(args []string) error {
 	defer stopScheduler()
 	go (&scheduler.Scheduler{Store: st, Host: h, Key: key, Caps: caps, Logf: log.Printf}).Run(schedulerCtx)
 	log.Printf("scheduler: %d built-in maintenance job(s) available", len(scheduler.Registry()))
-
-	// Hardware-adaptive auto-tuning for engines (MariaDB, PostgreSQL, Redis)
-	dbengine.AutoTune(context.Background(), h.Runner, cfg.RedisURL, log.Printf)
 
 	log.Printf("host: %s/%s %q systemd=%v lxc=%v docker=%v smart=%v fstrim=%v",
 		caps.OS, caps.Arch, caps.Distro, caps.Systemd, caps.LXC, caps.Docker, caps.Smart, caps.Fstrim)
@@ -661,6 +630,45 @@ func runServe(args []string) error {
 			errCh <- err
 		}
 	}()
+
+	// Startup reconciliation. Everything below is host work, and it now runs AFTER the panel is
+	// listening. It used to run before the listener existed, and repairing a service (AutoHeal), the
+	// dbtools and firewall reconciliations and the engine auto-tune could hold the port unbound for
+	// several seconds — which is exactly what an in-panel update's refresh landed on, because there
+	// was nothing to connect to yet. Binding the port first turns that gap into a blink.
+	//
+	// The order is preserved from before: the guard's firewall table is adopted before the exposure
+	// reconciliation, which needs it to exist.
+	if !dryRun {
+		for _, act := range stack.AutoHeal(context.Background(), runner) {
+			log.Printf("[auto-repair] %s", act)
+		}
+		stack.StartAutoHealWatchdog(context.Background(), runner, 60*time.Second)
+		if _, err := os.Stat("/var/spool/postfix/maildrop"); err == nil {
+			_ = os.Chmod("/var/spool/postfix/maildrop", 0o1777)
+		}
+	}
+
+	reconcileCtx, cancelReconcile := context.WithTimeout(context.Background(), 15*time.Second)
+	if adopted := tools.Reconcile(reconcileCtx); len(adopted) > 0 {
+		log.Printf("dbtools: adopted %d running manager(s) from a previous daemon: %s (stopped after %s idle)",
+			len(adopted), strings.Join(adopted, ", "), tools.IdleTimeout())
+	} else {
+		log.Printf("dbtools: no managers running from a previous daemon (idle window %s)", tools.IdleTimeout())
+	}
+	cancelReconcile()
+
+	if err := watchdog.Adopt(context.Background()); err != nil {
+		log.Printf("guard: the panel's firewall table could not be prepared: %v", err)
+	}
+	if applied, err := api.ReconcileExposure(context.Background(), st, h.Runner.Run); err != nil {
+		log.Printf("guard: could only reconcile %d port(s) against the firewall set: %v", applied, err)
+	} else {
+		log.Printf("guard: %d record port(s) reconciled against the firewall set", applied)
+	}
+
+	// Hardware-adaptive auto-tuning for engines (MariaDB, PostgreSQL, Redis)
+	dbengine.AutoTune(context.Background(), h.Runner, cfg.RedisURL, log.Printf)
 
 	// The server's default page: a bare visit to its address answers — "nothing is
 	// hosted on this port yet, the panel is here" — instead of a browser's "This
