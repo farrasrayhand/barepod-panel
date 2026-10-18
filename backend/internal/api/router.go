@@ -212,6 +212,10 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("PUT /api/v1/system/notifications", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSaveNotifications)))
 	mux.HandleFunc("POST /api/v1/system/notifications/test", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleTestNotification)))
 
+	// The host clock. Reading it is open to any signed-in user; moving the host's timezone is not.
+	mux.HandleFunc("GET /api/v1/system/time", s.requireAuth(s.handleGetSystemTime))
+	mux.HandleFunc("POST /api/v1/system/time", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSetSystemTimezone)))
+
 	// In-Panel Self-Update & Over-The-Air (OTA) engine. Reading update status is accessible to
 	// operators; applying an update requires administrative capability (CapUsers) and audit.
 	mux.HandleFunc("GET /api/v1/system/updates/check", s.requireAuth(s.handleCheckUpdates))
@@ -470,7 +474,7 @@ func New(d Deps) http.Handler {
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)
 
-	return withLogging(s.hostGuard(mux))
+	return withLogging(s.panelAccessGuard(s.hostGuard(mux)))
 }
 
 // ---- helpers ----

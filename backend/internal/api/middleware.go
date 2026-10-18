@@ -23,6 +23,89 @@ func sessionElevated(sess *store.Session) bool {
 	return err == nil && until.After(time.Now())
 }
 
+// sessionLifetime is how long a browser session may live, counted from its creation. An unset or
+// invalid value means the 24-hour default.
+func (s *Server) sessionLifetime() time.Duration {
+	raw, err := s.store.PanelSetting(sessionTimeoutHoursKey)
+	if err != nil {
+		return 24 * time.Hour
+	}
+	return time.Duration(parseSessionHours(raw)) * time.Hour
+}
+
+// sessionExpired reports whether a session has outlived the configured lifetime.
+func (s *Server) sessionExpired(sess *store.Session) bool {
+	created, err := time.Parse(time.RFC3339, sess.CreatedAt)
+	if err != nil {
+		return false
+	}
+	return time.Since(created) > s.sessionLifetime()
+}
+
+// requestIP is the address the panel decides access with: the direct peer, except when that peer is
+// loopback — which is where a local reverse proxy (cloudflared, a local nginx) connects — in which
+// case the first X-Forwarded-For hop is used. A non-local peer's X-Forwarded-For is ignored on
+// purpose: it is client-controlled and would otherwise let anyone claim an allowed address.
+func requestIP(r *http.Request) string {
+	remote := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(remote); err == nil {
+		remote = host
+	}
+	remote = strings.Trim(remote, "[]")
+	if ip := net.ParseIP(remote); ip != nil && ip.IsLoopback() {
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			first := strings.TrimSpace(strings.Split(forwarded, ",")[0])
+			if host, _, err := net.SplitHostPort(first); err == nil {
+				first = host
+			}
+			if parsed := net.ParseIP(strings.Trim(first, "[]")); parsed != nil {
+				return parsed.String()
+			}
+		}
+	}
+	return remote
+}
+
+// panelAccessGuard keeps the panel to the addresses an operator listed, one address or network per
+// line. An empty list allows every address. Loopback is always allowed, so a bad list cannot take
+// away the way back in over an SSH tunnel, and the health endpoint stays reachable because it is what
+// monitoring and the updater read.
+func (s *Server) panelAccessGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		raw, err := s.store.PanelSetting(panelIPAllowlistKey)
+		if err != nil || strings.TrimSpace(raw) == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		remote := requestIP(r)
+		ip := net.ParseIP(remote)
+		if ip != nil && ip.IsLoopback() {
+			next.ServeHTTP(w, r)
+			return
+		}
+		for _, entry := range strings.Split(raw, "\n") {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+			if ip != nil && ip.Equal(net.ParseIP(entry)) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if _, network, err := net.ParseCIDR(entry); err == nil && ip != nil && network.Contains(ip) {
+				next.ServeHTTP(w, r)
+				return
+			}
+		}
+		writeError(w, http.StatusForbidden, "ip_not_allowed",
+			"this panel does not accept connections from "+remote)
+	})
+}
+
 // requireCapability wraps a handler so the caller's group must grant capability.
 // Permissions are per account (via its group), never global.
 func (s *Server) requireCapability(capability string, next authedHandler) authedHandler {
@@ -147,6 +230,13 @@ func (s *Server) requireSession(csrf bool, next authedHandler) http.HandlerFunc 
 		sess, err := s.store.SessionByID(cookie.Value)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "unauthenticated", "Session is invalid or expired")
+			return
+		}
+		if s.sessionExpired(sess) {
+			// Deleted on the way out: an expired row has no further use, and leaving it would keep
+			// reporting a session the operator can no longer use.
+			_ = s.store.DeleteSession(sess.ID)
+			writeError(w, http.StatusUnauthorized, "unauthenticated", "Session expired — sign in again")
 			return
 		}
 		user, err := s.store.UserByID(sess.UserID)

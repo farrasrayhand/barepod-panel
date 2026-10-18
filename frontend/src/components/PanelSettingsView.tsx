@@ -271,6 +271,8 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           setPanelFqdn(settings.panelFqdn || '');
           setUseCloudflare(Boolean(settings.useCloudflare));
           setLetsEncryptEmail(settings.letsencryptEmail || '');
+          setSessionTimeoutHours(settings.sessionTimeoutHours || 24);
+          setIpWhitelist((settings.ipAllowlist || []).join('\n'));
           setTrustedDraft((settings.trustedAddresses || []).join('\n'));
         }
       } catch {
@@ -287,6 +289,68 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       alive = false;
     };
   }, []);
+
+  // The host's clock is not a panel setting: read it from the host and offer the host's own zones.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const clock = await api.systemTime();
+        if (alive) {
+          setTimezone(clock.timezone);
+          setTimezoneZones(clock.zones || []);
+        }
+      } catch {
+        // Left empty: the field then falls back to a plain text input.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const applyTimezone = async () => {
+    if (timezoneSaving || !timezone.trim()) return;
+    setTimezoneSaving(true);
+    try {
+      const res = await api.setSystemTimezone(timezone.trim());
+      setTimezone(res.timezone);
+      onShowToast?.(
+        'Timezone applied',
+        `The host now runs on ${res.timezone}.`,
+        res.mode === 'dry-run' ? 'info' : 'success',
+      );
+    } catch (err) {
+      onShowToast?.('Could not set the timezone', describeError(err), 'error');
+    } finally {
+      setTimezoneSaving(false);
+    }
+  };
+
+  const saveSecurityPolicy = async () => {
+    if (securitySaving) return;
+    setSecuritySaving(true);
+    try {
+      const entries = ipWhitelist
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line !== '');
+      const saved = await api.savePanelSettings({ sessionTimeoutHours, ipAllowlist: entries });
+      setSessionTimeoutHours(saved.sessionTimeoutHours || 24);
+      setIpWhitelist((saved.ipAllowlist || []).join('\n'));
+      onShowToast?.(
+        'Security policy saved',
+        entries.length === 0
+          ? 'No IP restriction: every address may reach the panel.'
+          : `Panel access limited to ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}.`,
+        'success',
+      );
+    } catch (err) {
+      onShowToast?.('Could not save the security policy', describeError(err), 'error');
+    } finally {
+      setSecuritySaving(false);
+    }
+  };
 
   const saveExternalAddress = async () => {
     setExternalSaving(true);
@@ -427,9 +491,11 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [panelTunnel, setPanelTunnel] = useState<PanelTunnelStatus | null>(null);
   const [panelZones, setPanelZones] = useState<CloudflareZone[]>([]);
   const [panelZone, setPanelZone] = useState('');
-  const [panelSubdomain, setPanelSubdomain] = useState('panel');
+  const [panelSubdomain, setPanelSubdomain] = useState('barepod');
   const [panelPublishing, setPanelPublishing] = useState(false);
-  const [timezone, setTimezone] = useState('Asia/Jakarta');
+  const [timezone, setTimezone] = useState('');
+  const [timezoneZones, setTimezoneZones] = useState<string[]>([]);
+  const [timezoneSaving, setTimezoneSaving] = useState(false);
 
   // Detection for the panel's own domain. Admin only: the panel may only ever be published through
   // the administrator's Cloudflare account, so the zone picker is filled from that account.
@@ -533,6 +599,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   // 2. Security Settings
   const [forceHttps, setForceHttps] = useState(true);
   const [sessionTimeoutHours, setSessionTimeoutHours] = useState(24);
+  const [securitySaving, setSecuritySaving] = useState(false);
   // A feature this panel does not have yet: kept as the plan it is, marked so nobody relies on it.
   const [ipWhitelist, setIpWhitelist] = useState('');
   const [jwtSecretMasked, setJwtSecretMasked] = useState(true);
@@ -770,7 +837,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                         <input
                           value={panelSubdomain}
                           onChange={(e) => setPanelSubdomain(e.target.value)}
-                          placeholder="panel"
+                          placeholder="barepod"
                           className="w-36 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
                         />
                         {panelZones.length > 0 ? (
@@ -899,23 +966,44 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               </div>
 
               <div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Server Timezone
-                  </label>
-                  <select
-                    value={timezone}
-                    onChange={(e) => setTimezone(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Server Timezone
+                </label>
+                <div className="flex gap-2">
+                  {timezoneZones.length > 0 ? (
+                    <select
+                      value={timezone}
+                      onChange={(e) => setTimezone(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                    >
+                      {timezone && !timezoneZones.includes(timezone) && (
+                        <option value={timezone}>{timezone} (current)</option>
+                      )}
+                      {timezoneZones.map((zone) => (
+                        <option key={zone} value={zone}>{zone}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={timezone}
+                      onChange={(e) => setTimezone(e.target.value)}
+                      placeholder="Asia/Makassar"
+                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void applyTimezone()}
+                    disabled={!isAdmin || timezoneSaving}
+                    className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors shrink-0"
                   >
-                    <option value="Asia/Jakarta">Asia/Jakarta (WIB - UTC+7)</option>
-                    <option value="Asia/Makassar">Asia/Makassar (WITA - UTC+8)</option>
-                    <option value="Asia/Jayapura">Asia/Jayapura (WIT - UTC+9)</option>
-                    <option value="UTC">UTC (Universal Time)</option>
-                    <option value="Asia/Singapore">Asia/Singapore (SGT - UTC+8)</option>
-                  </select>
-                    <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this yet — this host runs WITA (UTC+8), not WIB.</p>
+                    {timezoneSaving ? 'Applying…' : 'Apply'}
+                  </button>
                 </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Applied to the host with <code className="font-mono">timedatectl set-timezone</code> — the
+                  server clock, not just the panel.
+                </p>
               </div>
 
             </div>
@@ -1272,18 +1360,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 )}
               </div>
 
-              {/* Everything from here to the end of this tab is the prototype's, and none of it is
-                  applied by the daemon. Saying so once, above the group, is what keeps a screen from
-                  promising protections nobody has. The Brute-Force Guard above is the part that is
-                  real — and it is enforced in the host's firewall. */}
-              <div className="p-3 rounded-xl border border-amber-200 bg-amber-50">
-                <p className="text-[11px] text-amber-800 leading-relaxed">
-                  <strong>Prototype controls.</strong> The settings below are not applied by the daemon:
-                  they neither restrict access nor change its behaviour. The panel's real protections on
-                  this screen are the Brute-Force Guard above and the host's firewall.
-                </p>
-              </div>
-
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1301,43 +1377,53 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Admin Session Lifetime (not applied)
-                  </label>
-                  <select
-                    value={sessionTimeoutHours}
-                    onChange={(e) => setSessionTimeoutHours(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
-                  >
-                    <option value={12}>12 Hours</option>
-                    <option value={24}>24 Hours (1 day)</option>
-                    <option value={72}>3 Days</option>
-                    <option value={168}>7 Days</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Admin Session Lifetime
+                </label>
+                <select
+                  value={sessionTimeoutHours}
+                  onChange={(e) => setSessionTimeoutHours(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                >
+                  <option value={12}>12 Hours</option>
+                  <option value={24}>24 Hours (1 day)</option>
+                  <option value={72}>3 Days</option>
+                  <option value={168}>7 Days</option>
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Counted from sign-in. A session older than this is deleted on its next request.
+                </p>
               </div>
-
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  IP Whitelist for Admin Panel Access (not implemented)
+                  Panel IP allowlist
                 </label>
                 <textarea
                   rows={3}
                   value={ipWhitelist}
                   onChange={(e) => setIpWhitelist(e.target.value)}
-                  placeholder="Example: 192.168.1.100&#10;103.45.12.0/24&#10;(Leave empty to allow all IPs)"
+                  placeholder={'172.19.1.100\n10.8.0.0/24\n(empty = every address may reach the panel)'}
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
                 />
-                <p className="text-[10px] text-rose-600 font-semibold mt-1">
-                  Not enforced: nothing in the daemon reads this, so it does not restrict who may open the
-                  panel. Do not rely on it — the host's firewall and the panel's own lockout are the real
-                  controls. The never-ban list under the lockout is a different thing: it exempts from
-                  bans, it does not restrict access.
+                <p className="text-[10px] text-slate-500 mt-1">
+                  One address or network per line. Empty allows everyone. Loopback is always allowed and
+                  <code className="font-mono"> /api/v1/health</code> stays reachable, so a bad list cannot
+                  lock you out of the panel over an SSH tunnel.
                 </p>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => void saveSecurityPolicy()}
+                  disabled={!isAdmin || securitySaving}
+                  className="px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-xl transition-all flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{securitySaving ? 'Saving…' : 'Save security policy'}</span>
+                </button>
               </div>
 
               <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">

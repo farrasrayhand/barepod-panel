@@ -751,12 +751,20 @@ export const api = {
     }),
 
   panelSettings: () =>
-    request<{ externalAddress: string; panelFqdn: string; useCloudflare: boolean; letsencryptEmail: string; trustedAddresses: string[] }>('/system/settings'),
+    request<{ externalAddress: string; panelFqdn: string; useCloudflare: boolean; letsencryptEmail: string; sessionTimeoutHours: number; ipAllowlist: string[]; trustedAddresses: string[] }>('/system/settings'),
 
-  savePanelSettings: (settings: { externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; trustedAddresses?: string[] }) =>
-    request<{ externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; trustedAddresses?: string[] }>('/system/settings', {
+  savePanelSettings: (settings: { externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; sessionTimeoutHours?: number; ipAllowlist?: string[]; trustedAddresses?: string[] }) =>
+    request<{ externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; sessionTimeoutHours?: number; ipAllowlist?: string[]; trustedAddresses?: string[] }>('/system/settings', {
       method: 'PATCH',
       body: JSON.stringify(settings),
+    }),
+
+  /** The host clock: reading is open, changing the timezone is administrative. */
+  systemTime: () => request<{ timezone: string; zones: string[] }>('/system/time'),
+  setSystemTimezone: (timezone: string) =>
+    request<{ timezone: string; mode: string }>('/system/time', {
+      method: 'POST',
+      body: JSON.stringify({ timezone }),
     }),
 
   login: async (username: string, password: string) => {
