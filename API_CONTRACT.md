@@ -530,8 +530,9 @@ Normative: a client must not offer a control the site type cannot use, and the s
   Returns baseline PHP tuning blueprint directives (`memoryLimit`, `uploadMaxSize`, `postMaxSize`, `maxExecutionTime`, `maxInputTime`, `maxInputVars`, OPcache settings, and `recommendedExtensions[]`) from SQLite `panel_settings` (defaults if unset) and lists all installed PHP versions on the host (`phpext.InstalledVersions()`).
 - `PUT /system/settings/php-defaults` → Payload `{ config: PhpDefaultsConfig, applyToHost?: bool }`
   Validates parameters and saves the global blueprint preset to SQLite `panel_settings`. When `applyToHost: true`, writes `/etc/php/<version>/mods-available/99-barepod-tuning.ini` across all installed PHP versions, executes `phpenmod -v <version> 99-barepod-tuning`, ensures recommended extensions in the blueprint are enabled via `phpenmod -v <version> <ext>`, and reloads `php<version>-fpm`. Audited as `panel.php_defaults`.
-- `GET /system/settings` → `{ externalAddress, panelFqdn, useCloudflare, trustedAddresses }`
-- `PATCH /system/settings` → `{ externalAddress?: string, panelFqdn?: string, useCloudflare?: boolean, trustedAddresses?: string[] }`
+- `GET /system/settings` → `{ externalAddress, panelFqdn, useCloudflare, letsencryptEmail, trustedAddresses }`
+- `PATCH /system/settings` → `{ externalAddress?: string, panelFqdn?: string, useCloudflare?: boolean, letsencryptEmail?: string, trustedAddresses?: string[] }`
+  - `letsencryptEmail` is the default contact for certificate issuance (`panel_settings.letsencrypt_email`); an empty value clears it. The Domains dialog can still override it per certificate.
   - `panelFqdn` (a validated FQDN; empty clears it) and `useCloudflare` record how the panel itself is reached: the public IP by default, or the Cloudflare Tunnel hostname once turned on. See §4.7 for publishing the panel's own hostname.
 - `GET /system/ports` → `{ panel: number, ssh: number, engines: map, sshPorts: number[] }`
 - `POST /system/ports/panel` → `{ port: number }`
