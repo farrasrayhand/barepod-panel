@@ -352,6 +352,75 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }
   };
 
+  // This account's second factor, read once; enabling or disabling updates it in place.
+  useEffect(() => {
+    let alive = true;
+    void api.totpStatus()
+      .then((status) => {
+        if (alive) setTotpEnabled(status.enabled);
+      })
+      .catch(() => {
+        // The card stays "Off"; starting the setup reports the reason if it fails too.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const startTotpSetup = async () => {
+    setTotpBusy(true);
+    try {
+      setTotpSetup(await api.totpSetup());
+      setTotpCode('');
+    } catch (err) {
+      onShowToast?.('Could not start 2FA setup', describeError(err), 'error');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const confirmTotp = async () => {
+    if (totpCode.length !== 6 || totpBusy) return;
+    setTotpBusy(true);
+    try {
+      const res = await api.totpEnable(totpCode);
+      setTotpEnabled(res.enabled);
+      setTotpSetup(null);
+      setTotpCode('');
+      onShowToast?.('2FA enabled', 'Signing in now also needs a code from your authenticator.', 'success');
+    } catch (err) {
+      onShowToast?.('Could not enable 2FA', describeError(err), 'error');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const disableTotp = async () => {
+    if (totpCode.length !== 6 || totpBusy) return;
+    setTotpBusy(true);
+    try {
+      const res = await api.totpDisable(totpCode);
+      setTotpEnabled(res.enabled);
+      setTotpCode('');
+      onShowToast?.('2FA disabled', 'This account signs in with its password only.', 'info');
+    } catch (err) {
+      onShowToast?.('Could not disable 2FA', describeError(err), 'error');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const copyTotpSecret = async () => {
+    if (!totpSetup) return;
+    try {
+      await navigator.clipboard.writeText(totpSetup.secret);
+      setCopiedTotp(true);
+      setTimeout(() => setCopiedTotp(false), 1500);
+    } catch {
+      // Clipboard permission denied: the secret is on screen to type in.
+    }
+  };
+
   const saveExternalAddress = async () => {
     setExternalSaving(true);
     try {
@@ -603,6 +672,12 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   // A feature this panel does not have yet: kept as the plan it is, marked so nobody relies on it.
   const [ipWhitelist, setIpWhitelist] = useState('');
   const [jwtSecretMasked, setJwtSecretMasked] = useState(true);
+  // Two-factor authentication for this account (TOTP).
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; otpauthUrl: string } | null>(null);
+  const [totpCode, setTotpCode] = useState('');
+  const [totpBusy, setTotpBusy] = useState(false);
+  const [copiedTotp, setCopiedTotp] = useState(false);
 
   // 3. Proxy & SSL — only the Let's Encrypt contact is stored here; the ingress engine, host ports
   // and per-site certificates are owned by the Stack and Domains screens.
@@ -1364,17 +1439,96 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-xs font-bold text-slate-900">Two-Factor Authentication (2FA TOTP)</h3>
-                    <p className="text-[11px] text-slate-500">Require Google Authenticator / Authy for admin account logins.</p>
+                    <p className="text-[11px] text-slate-500">
+                      A 6-digit code from an authenticator app, on top of the password, for this account.
+                    </p>
                   </div>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                      totpEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
+                    {totpEnabled ? 'Enabled' : 'Off'}
+                  </span>
+                </div>
+
+                {totpSetup ? (
+                  <div className="space-y-3">
+                    <p className="text-[11px] text-slate-600">
+                      Add this secret to your authenticator (or open the link), then enter the current code
+                      to confirm. It is not required until you confirm.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 px-2.5 py-2 rounded-lg bg-slate-900 text-slate-100 font-mono text-[11px] break-all">
+                        {totpSetup.secret}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => void copyTotpSecret()}
+                        className="px-2.5 py-2 text-[11px] font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg shrink-0 cursor-pointer"
+                      >
+                        {copiedTotp ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-mono break-all">{totpSetup.otpauthUrl}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        value={totpCode}
+                        onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="123456"
+                        className="w-28 px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg font-mono tracking-[0.2em]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void confirmTotp()}
+                        disabled={totpCode.length !== 6 || totpBusy}
+                        className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg cursor-pointer"
+                      >
+                        {totpBusy ? 'Confirming…' : 'Confirm & enable'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTotpSetup(null);
+                          setTotpCode('');
+                        }}
+                        className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : totpEnabled ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      value={totpCode}
+                      onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="Code to disable"
+                      className="w-36 px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg font-mono tracking-[0.2em]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void disableTotp()}
+                      disabled={totpCode.length !== 6 || totpBusy}
+                      className="px-3.5 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 disabled:opacity-40 rounded-lg cursor-pointer"
+                    >
+                      {totpBusy ? 'Disabling…' : 'Disable 2FA'}
+                    </button>
+                  </div>
+                ) : (
                   <button
                     type="button"
-                    disabled
-                    title="Two-factor authentication is not implemented — this control does nothing yet."
-                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-200 text-slate-500 cursor-not-allowed"
+                    onClick={() => void startTotpSetup()}
+                    disabled={totpBusy}
+                    className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg cursor-pointer"
                   >
-                    Not available yet
+                    {totpBusy ? 'Starting…' : 'Set up 2FA'}
                   </button>
-                </div>
+                )}
               </div>
 
               <div>

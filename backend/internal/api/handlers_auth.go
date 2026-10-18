@@ -7,7 +7,9 @@ import (
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/auth"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/totp"
 )
 
 const elevatedWindow = 5 * time.Minute
@@ -15,6 +17,9 @@ const elevatedWindow = 5 * time.Minute
 type loginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// TOTPCode is the authenticator's current six digits, required only for an account that has
+	// confirmed a second factor.
+	TOTPCode string `json:"totpCode"`
 }
 
 type sessionResponse struct {
@@ -66,6 +71,24 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if user.Status != "active" {
 		writeError(w, http.StatusForbidden, "suspended", "This account is suspended")
 		return
+	}
+
+	// A confirmed second factor is required before a session exists. The password has already been
+	// proved above, so a missing or wrong code is not a credential failure — it is a second step, and
+	// the frontend answers it by showing the code field.
+	cipher, totpEnabled, totpErr := s.store.UserTOTP(user.ID)
+	if totpErr == nil && totpEnabled && cipher != "" {
+		secret, decryptErr := secrets.Decrypt(s.key, cipher)
+		if decryptErr != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not read the stored second factor")
+			return
+		}
+		if !totp.Validate(secret, req.TOTPCode, time.Now()) {
+			_ = s.store.Audit("", "auth.totp_refused", user.Username, clientIP(r), "")
+			writeError(w, http.StatusUnauthorized, "totp_required",
+				"Enter the 6-digit code from your authenticator app")
+			return
+		}
 	}
 
 	sess, err := s.store.CreateSession(user.ID, r.UserAgent(), clientIP(r), id.Token(24))

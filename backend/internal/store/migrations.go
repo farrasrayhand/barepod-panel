@@ -32,7 +32,16 @@ var migrations = []migration{
 	{version: 22, statements: schemaV22},
 	{version: 23, statements: schemaV23},
 	{version: 24, statements: schemaV24},
+	{version: 25, statements: schemaV25},
 }
+
+// schemaV25 gives an account a TOTP secret. The secret is encrypted like every other secret, and is
+// only written once enrolment starts; totp_enabled marks a secret the operator has confirmed with a
+// code, and only an enabled one is demanded at sign-in.
+const schemaV25 = `
+ALTER TABLE users ADD COLUMN totp_secret_cipher TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+`
 
 // schemaV24 is the built-in maintenance scheduler's state: one row per system job the daemon can run
 // on a schedule. It mirrors website_cron_jobs on purpose — an operator may disable a job or move its

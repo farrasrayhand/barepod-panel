@@ -1092,6 +1092,10 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 			trimmed = "wp core is-installed || (" + trimmed + " || wp core is-installed)"
 		} else if strings.HasPrefix(trimmed, "wp rewrite structure") {
 			trimmed = trimmed + " || true"
+		} else if strings.HasPrefix(trimmed, "cp ") && strings.Contains(trimmed, "dist/*") {
+			// A project with no frontend build has no dist/ (a Static HTML site, say). Copying its
+			// contents used to fail the whole deploy with "cannot stat 'dist/*'".
+			trimmed = "if [ -d dist ] && [ -n \"$(ls -A dist 2>/dev/null)\" ]; then " + trimmed + "; else echo 'skipped: dist/ is empty or missing'; fi"
 		} else if strings.HasPrefix(trimmed, "composer ") {
 			trimmed = "if [ -f composer.json ]; then " + trimmed + "; else echo 'skipped: composer.json not found in site root'; fi"
 		} else if strings.HasPrefix(trimmed, "npm ") || strings.HasPrefix(trimmed, "pnpm ") || strings.HasPrefix(trimmed, "yarn ") {
@@ -1114,14 +1118,51 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 		return nil
 	}
 
-	execScript := pre.String() + strings.Join(cleanedLines, "\n")
-	out, err := s.m.host.RunInSite(ctx, s.req.Tenant, s.req.Slug, []string{"sh", "-c", execScript})
-	s.logOutput(out)
-	if err != nil {
-		return fmt.Errorf("build script failed: %w", err)
+	// The script runs as the tenant, which cannot reload a service: systemctl needs root. Those lines
+	// are run by the daemon itself, in place, so a "systemctl reload php-fpm" after a build still lands
+	// at the same point. Their failure is a notice, not a deploy failure — a reload with nothing to
+	// reload must not undo an otherwise successful deploy.
+	runTenantBlock := func(block []string) error {
+		if len(block) == 0 {
+			return nil
+		}
+		out, err := s.m.host.RunInSite(ctx, s.req.Tenant, s.req.Slug,
+			[]string{"sh", "-c", pre.String() + strings.Join(block, "\n")})
+		s.logOutput(out)
+		if err != nil {
+			return fmt.Errorf("build script failed: %w", err)
+		}
+		return nil
 	}
+
+	var tenantBlock []string
+	for _, line := range cleanedLines {
+		if isPrivilegedBuildLine(line) {
+			if err := runTenantBlock(tenantBlock); err != nil {
+				return err
+			}
+			tenantBlock = nil
+			out, err := s.m.host.Run(ctx, []string{"sh", "-c", line})
+			s.logOutput(out)
+			if err != nil {
+				s.log("stderr", "notice: privileged build step could not run (continuing): "+err.Error())
+			}
+			continue
+		}
+		tenantBlock = append(tenantBlock, line)
+	}
+	if err := runTenantBlock(tenantBlock); err != nil {
+		return err
+	}
+
 	s.log("stdout", "build automation completed successfully")
 	return nil
+}
+
+// isPrivilegedBuildLine reports a step that cannot run as the tenant. Only service control is
+// recognised: it is the one thing a build script legitimately asks for that needs root.
+func isPrivilegedBuildLine(line string) bool {
+	return strings.HasPrefix(line, "systemctl ") || strings.HasPrefix(line, "service ")
 }
 
 // tenantLimits resolves the resource package of a tenant's group.

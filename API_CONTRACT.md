@@ -91,12 +91,12 @@ This is the main rework risk — the UI currently stores some values as presenta
 
 ### 4.1 Auth, Profile & Session
 - **`POST /auth/password`** `{ currentPassword, newPassword }` (session + CSRF) → `200 { status: "changed", signedOutEverywhere: true }`. The current password is verified (`403` when it is not right, `400` when the new one is under 12 characters) and **every session for the account is invalidated**, the caller's included — the store's own rule, and what the CLI does. Both outcomes are audited (`auth.password_change`, `auth.password_change_refused`).
-- `POST /auth/login` `{ username, password }` → sets the session cookie, `200 { user, csrfToken }`
+- `POST /auth/login` `{ username, password, totpCode? }` → sets the session cookie, `200 { user, csrfToken }`. For an account with a **confirmed** TOTP secret, the password alone is not enough: a missing or wrong `totpCode` answers `401 { code: "totp_required" }` and no session is created.
+- **TOTP (two-factor):** `GET /auth/totp` → `{ enabled }`; `POST /auth/totp/setup` → `{ secret, otpauthUrl }` (stores an unconfirmed secret, encrypted); `POST /auth/totp/enable` `{ code }` → `{ enabled: true }` (a valid code confirms it); `POST /auth/totp/disable` `{ code }` → `{ enabled: false }`. Secrets are AES-256-GCM under the panel key, and the code accepts the current 30-second step plus one either side for clock skew.
 - `POST /auth/logout`
 - `GET /auth/me` → `{ user, csrfToken, elevated, permissions }`
 - **CSRF:** every state-changing request carries `X-CSRF-Token`, and the token is returned by **`/auth/me`** as well as by login — a client must store it on *every* session read, because a reloaded page restores its session from `/auth/me` and would otherwise fail every write with `403 { code: "csrf" }`. A missing or stale token is rejected, never ignored.
 - `POST /auth/verify` (re-auth for revealing DB passwords / sensitive actions)
-- `POST /auth/2fa/enable` · `POST /auth/2fa/verify`
 - `GET|PATCH /profile` (identity: username, email, group)
 - `POST /profile/password` (change the panel password)
 - `GET /sessions` · `DELETE /sessions/:id` (active sessions, revoke). **Only a hash of each session token is stored** (`sha256`, in `sessions.id`), so a leaked database holds no usable session — the cookie carries the raw token and the daemon hashes it on the way in.

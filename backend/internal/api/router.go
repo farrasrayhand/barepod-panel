@@ -147,6 +147,13 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/auth/me", s.requireAuth(s.handleMe))
 	mux.HandleFunc("POST /api/v1/auth/verify", s.requireAuth(s.handleVerify))
 	mux.HandleFunc("POST /api/v1/auth/password", s.requireAuth(s.handleChangePassword))
+
+	// Two-factor authentication for the signed-in account. Enrolment only takes effect once a code
+	// confirms it, and the secret is encrypted like every other secret.
+	mux.HandleFunc("GET /api/v1/auth/totp", s.requireAuth(s.handleTOTPStatus))
+	mux.HandleFunc("POST /api/v1/auth/totp/setup", s.requireAuth(s.handleTOTPSetup))
+	mux.HandleFunc("POST /api/v1/auth/totp/enable", s.requireAuth(s.handleTOTPEnable))
+	mux.HandleFunc("POST /api/v1/auth/totp/disable", s.requireAuth(s.handleTOTPDisable))
 	mux.HandleFunc("GET /api/v1/sessions", s.requireAuth(s.handleListSessions))
 	mux.HandleFunc("DELETE /api/v1/sessions/{id}", s.requireAuth(s.handleRevokeSession))
 	mux.HandleFunc("GET /api/v1/audit", s.requireAuth(s.handleListAudit))

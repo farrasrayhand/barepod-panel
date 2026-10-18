@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { Server, Lock, AlertCircle, FlaskConical, KeyRound, Copy, Check, X } from 'lucide-react';
 
 interface LoginViewProps {
-  onSignIn: (username: string, password: string) => Promise<boolean>;
+  onSignIn: (username: string, password: string, totpCode?: string) => Promise<boolean>;
   onSimulate: () => void;
   error: string;
   busy: boolean;
   mode: 'checking' | 'live' | 'mock';
+  /** The daemon accepted the password and wants the authenticator code for this account. */
+  totpRequired?: boolean;
   /** Path the browser asked for; kept in the URL so signing in lands there. */
   redirectTo?: string;
 }
@@ -19,9 +21,10 @@ interface LoginViewProps {
  * prototype's simulation — is shown only when the daemon is *unreachable*; a live
  * panel already has an account, so neither belongs in front of the operator.
  */
-export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, error, busy, mode, redirectTo }) => {
+export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, error, busy, mode, totpRequired = false, redirectTo }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [totpCode, setTotpCode] = useState('');
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
 
@@ -38,7 +41,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!username || !password) return;
-    await onSignIn(username, password);
+    if (totpRequired && totpCode.length !== 6) return;
+    await onSignIn(username, password, totpRequired ? totpCode : undefined);
   };
 
   const inputClass =
@@ -94,6 +98,25 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
             />
           </div>
 
+          {totpRequired && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Authentication code</label>
+              <input
+                className={`${inputClass} font-mono tracking-[0.3em]`}
+                value={totpCode}
+                onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                placeholder="123456"
+                autoFocus
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                The 6-digit code from your authenticator app.
+              </p>
+            </div>
+          )}
+
           {error && (
             <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-xs text-rose-800 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -103,7 +126,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
 
           <button
             type="submit"
-            disabled={busy || !username || !password}
+            disabled={busy || !username || !password || (totpRequired && totpCode.length !== 6)}
             className="w-full px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-40 flex items-center justify-center gap-2 cursor-pointer shadow-xs"
           >
             <Lock className="w-3.5 h-3.5" />

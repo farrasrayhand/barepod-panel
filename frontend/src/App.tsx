@@ -306,8 +306,8 @@ export function App() {
     setRoute(parseRoute('/login'));
   }, [signedOut]);
 
-  const handleSignIn = async (username: string, password: string) => {
-    const ok = await session.signIn(username, password);
+  const handleSignIn = async (username: string, password: string, totpCode?: string) => {
+    const ok = await session.signIn(username, password, totpCode);
     if (ok) {
       const target = redirectTo ?? TAB_PATHS.overview;
       setRedirectTo(null);
@@ -715,6 +715,7 @@ export function App() {
         error={session.error}
         busy={session.busy}
         mode={session.mode}
+        totpRequired={session.totpRequired}
         redirectTo={redirectTo ?? undefined}
       />
     );

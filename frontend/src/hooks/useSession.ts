@@ -18,9 +18,11 @@ export interface SessionState {
   elevated: boolean;
   error: string;
   busy: boolean;
+  /** True once the daemon has asked for an authenticator code for these credentials. */
+  totpRequired: boolean;
   /** Version reported by the daemon, so the UI never shows a made-up number. */
   daemonVersion: string;
-  signIn: (username: string, password: string) => Promise<boolean>;
+  signIn: (username: string, password: string, totpCode?: string) => Promise<boolean>;
   signOut: () => Promise<void>;
   useSimulation: () => void;
   can: (capability: string) => boolean;
@@ -33,6 +35,7 @@ export function useSession(): SessionState {
   const [elevated, setElevated] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [totpRequired, setTotpRequired] = useState(false);
   const [daemonVersion, setDaemonVersion] = useState('');
 
   // On mount: is a daemon there, and is this browser already signed in?
@@ -66,11 +69,12 @@ export function useSession(): SessionState {
     };
   }, []);
 
-  const signIn = useCallback(async (username: string, password: string) => {
+  const signIn = useCallback(async (username: string, password: string, totpCode?: string) => {
     setBusy(true);
     setError('');
     try {
-      const session = await api.login(username, password);
+      const session = await api.login(username, password, totpCode);
+      setTotpRequired(false);
       const me = await api.me();
       setUser(session.user);
       setPermissions(me.permissions);
@@ -78,6 +82,13 @@ export function useSession(): SessionState {
       setMode('live');
       return true;
     } catch (err) {
+      if (err instanceof ApiError && err.code === 'totp_required') {
+        // The password was right; the second factor is missing or wrong. The form shows the code
+        // field, and only a code the daemon rejected earns an error message.
+        setTotpRequired(true);
+        setError(totpCode ? 'That code is not right. Try the current one.' : '');
+        return false;
+      }
       setError(err instanceof ApiError ? err.message : 'Could not reach the daemon');
       return false;
     } finally {
@@ -94,12 +105,14 @@ export function useSession(): SessionState {
     setUser(null);
     setPermissions({});
     setElevated(false);
+    setTotpRequired(false);
   }, []);
 
   const useSimulation = useCallback(() => {
     setMode('mock');
     setUser(null);
     setPermissions({});
+    setTotpRequired(false);
   }, []);
 
   const can = useCallback(
@@ -111,5 +124,5 @@ export function useSession(): SessionState {
     [mode, user, permissions],
   );
 
-  return { mode, user, permissions, elevated, error, busy, daemonVersion, signIn, signOut, useSimulation, can };
+  return { mode, user, permissions, elevated, error, busy, totpRequired, daemonVersion, signIn, signOut, useSimulation, can };
 }

@@ -767,14 +767,22 @@ export const api = {
       body: JSON.stringify({ timezone }),
     }),
 
-  login: async (username: string, password: string) => {
+  login: async (username: string, password: string, totpCode?: string) => {
     const session = await request<{ user: PanelUser; csrfToken: string }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, totpCode: totpCode || '' }),
     });
     csrfToken = session.csrfToken;
     return session;
   },
+
+  /** Two-factor authentication for the signed-in account. */
+  totpStatus: () => request<{ enabled: boolean }>('/auth/totp'),
+  totpSetup: () => request<{ secret: string; otpauthUrl: string }>('/auth/totp/setup', { method: 'POST' }),
+  totpEnable: (code: string) =>
+    request<{ enabled: boolean }>('/auth/totp/enable', { method: 'POST', body: JSON.stringify({ code }) }),
+  totpDisable: (code: string) =>
+    request<{ enabled: boolean }>('/auth/totp/disable', { method: 'POST', body: JSON.stringify({ code }) }),
 
   logout: async () => {
     await request('/auth/logout', { method: 'POST' });
