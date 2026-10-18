@@ -193,12 +193,19 @@ func (s *Server) detectedFor(user *store.User, kind string) []store.Database {
 			continue
 		}
 		root := s.host.SitePath(site.TenantUser, site.Slug)
+		// What the application itself connects to. The ledger records what the panel
+		// created; only the .env says what is actually in use, which is how a starter
+		// file the framework left behind is told apart from a real database.
+		appDatabase, hasAppDatabase := dbengine.EnvDatabase(filepath.Join(root, ".env"))
 		found, err := dbengine.ScanSQLiteFiles(root, site.Slug, site.TenantUser, 3, 25)
 		if err != nil {
 			continue
 		}
 		for _, file := range found {
 			if known[filepath.Clean(file.Path)] || !dbengine.FileHasSQLiteHeader(file.Path) {
+				continue
+			}
+			if dbengine.IsUnusedLaravelPlaceholder(file.Relative, appDatabase, hasAppDatabase) {
 				continue
 			}
 			ver := file.Version

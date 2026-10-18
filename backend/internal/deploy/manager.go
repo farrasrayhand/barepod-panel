@@ -484,6 +484,17 @@ func (s *state) writeStarterFiles(ctx context.Context) error {
 	return nil
 }
 
+// isLaravelSite reports whether the site is a Laravel application: the framework the
+// wizard recorded, or the `artisan` console the framework always ships (a site uploaded
+// or cloned without framework detection still has one).
+func isLaravelSite(siteDir, framework string) bool {
+	if strings.Contains(strings.ToLower(framework), "laravel") {
+		return true
+	}
+	_, err := os.Stat(filepath.Join(siteDir, "artisan"))
+	return err == nil
+}
+
 func readEnvFileMap(path string) map[string]string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -615,14 +626,17 @@ func stepWriteEnv(ctx context.Context, s *state) error {
 			s.log("stdout", "database name/user: "+s.dbName+" (tenant-prefixed to avoid shared-daemon collisions)")
 			s.log("stdout", "database password stored encrypted (AES-256-GCM)")
 
-			// If the user selected a managed database engine (mariadb/mysql/postgres) for Laravel,
-			// clean up the placeholder database/database.sqlite created by composer create-project
-			// so it does not get detected as a phantom secondary database.
-			if strings.Contains(strings.ToLower(s.req.Framework), "laravel") {
-				placeholder := filepath.Join(s.siteDir, "database", "database.sqlite")
-				if fi, err := os.Stat(placeholder); err == nil && fi.Size() < 250*1024 {
+			// If the user selected a managed database engine (mariadb/mysql/postgres) for
+			// Laravel, clean up the empty placeholder database/database.sqlite that the
+			// starter project ships, so it is not detected as a phantom second database.
+			// Only a genuinely empty file is removed: once the application has migrated
+			// into it the file holds data, and deleting it would be data loss. (An 84 KB
+			// file is a migrated SQLite database, not a placeholder.)
+			if isLaravelSite(s.siteDir, s.req.Framework) {
+				placeholder := filepath.Join(s.siteDir, dbengine.LaravelDatabaseFile)
+				if fi, err := os.Stat(placeholder); err == nil && fi.Size() == 0 {
 					_ = os.Remove(placeholder)
-					s.log("stdout", "cleaned up starter laravel database.sqlite in favor of "+engine)
+					s.log("stdout", "removed the empty Laravel starter database.sqlite in favor of "+engine)
 				}
 			}
 		}

@@ -135,6 +135,26 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
 
   const tabSupport = siteTabSupport(app);
 
+  // Read the real .env when the tab opens, not on mount: most visits never look at it.
+  useEffect(() => {
+    if (activeTab !== 'env') return;
+    let alive = true;
+    setEnvLoading(true);
+    api.websiteEnv(app.name)
+      .then((res) => {
+        if (alive) setEnvFile(res);
+      })
+      .catch(() => {
+        if (alive) setEnvFile(null);
+      })
+      .finally(() => {
+        if (alive) setEnvLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activeTab, app.name]);
+
   // Tabs that do not exist for this site type are hidden, so a deep link to one
   // (or a stale tab) falls back to the primary tab instead of rendering an empty pane.
   React.useEffect(() => {
@@ -162,7 +182,11 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [autoScroll, setAutoScroll] = useState(true);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
   const [copiedEnv, setCopiedEnv] = useState(false);
-  const [maskSecrets, setMaskSecrets] = useState(true);
+  // The site's real .env, read from the daemon (secret values arrive masked). The tab
+  // used to render a fabricated file, which is how the panel could claim an application
+  // used PostgreSQL while it ran on SQLite.
+  const [envFile, setEnvFile] = useState<{ path: string; exists: boolean; content?: string; note?: string } | null>(null);
+  const [envLoading, setEnvLoading] = useState(false);
   const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [telemetry, setTelemetry] = useState<ApiWebsiteTelemetry | null>(null);
   const [realLogs, setRealLogs] = useState<LogItem[] | null>(null);
@@ -1994,26 +2018,8 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   });
 
   const handleCopyEnv = () => {
-    const envContent = `APP_NAME=${app.name}
-APP_ENV=production
-APP_KEY=base64:X8n49f03jfa94klsm49v02kflasjfo32=
-APP_DEBUG=false
-APP_URL=https://${app.domain}
-
-DB_CONNECTION=pgsql
-DB_HOST=127.0.0.1
-DB_PORT=5432
-DB_DATABASE=app_${app.name.replace(/[^a-zA-Z0-9]/g, '_')}
-DB_USERNAME=${app.tenantUser}
-DB_PASSWORD=••••••••••••••••
-
-REDIS_HOST=redis-${app.name.toLowerCase().replace(/[^a-z0-9-]+/g, '-')}
-REDIS_PORT=6379
-
-SESSION_DRIVER=redis
-CACHE_STORE=redis
-QUEUE_CONNECTION=redis`;
-    navigator.clipboard.writeText(envContent);
+    if (!envFile?.content) return;
+    navigator.clipboard.writeText(envFile.content);
     setCopiedEnv(true);
     setTimeout(() => setCopiedEnv(false), 2000);
   };
@@ -4296,56 +4302,40 @@ QUEUE_CONNECTION=redis`;
         {/* TAB 4: ENVIRONMENT VARIABLES (.ENV) */}
         {activeTab === 'env' && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                  .env Configuration File (Production Secrets)
+                  .env Configuration File
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Stored securely at <code>{appPath}/.env</code> with permission <code>0600</code> (chown {app.tenantUser}).
+                  Read from <code>{envFile?.path ?? `${appPath}/.env`}</code> — secret values are masked by the daemon.
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setMaskSecrets(!maskSecrets)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg"
-                >
-                  {maskSecrets ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                  <span>{maskSecrets ? 'Show Secrets' : 'Hide Secrets'}</span>
-                </button>
-
-                <button
-                  onClick={handleCopyEnv}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg border border-blue-200"
-                >
-                  {copiedEnv ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedEnv ? 'Copied!' : 'Copy to Clipboard'}</span>
-                </button>
-              </div>
+              <button
+                onClick={handleCopyEnv}
+                disabled={!envFile?.exists}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg border border-blue-200 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {copiedEnv ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedEnv ? 'Copied!' : 'Copy to Clipboard'}</span>
+              </button>
             </div>
 
-            <pre className="p-4 bg-slate-950 text-emerald-400 font-mono text-xs rounded-xl border border-slate-800 overflow-x-auto leading-relaxed max-h-96">
-{`APP_NAME=${app.name}
-APP_ENV=production
-APP_KEY=${maskSecrets ? 'base64:••••••••••••••••••••••••••••••••••••••••' : 'base64:X8n49f03jfa94klsm49v02kflasjfo32='}
-APP_DEBUG=false
-APP_URL=https://${app.domain}
-
-DB_CONNECTION=pgsql
-DB_HOST=127.0.0.1
-DB_PORT=5432
-DB_DATABASE=app_${app.name.replace(/[^a-zA-Z0-9]/g, '_')}
-DB_USERNAME=${app.tenantUser}
-DB_PASSWORD=${maskSecrets ? '••••••••••••••••••••••••' : 'secret_prod_database_pw_9921'}
-
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6379
-
-SESSION_DRIVER=redis
-CACHE_STORE=redis
-QUEUE_CONNECTION=redis`}
-            </pre>
+            {envLoading ? (
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500">
+                Reading .env…
+              </div>
+            ) : envFile?.exists ? (
+              <pre className="p-4 bg-slate-950 text-emerald-400 font-mono text-xs rounded-xl border border-slate-800 overflow-x-auto leading-relaxed max-h-96">
+{envFile.content ?? ''}
+              </pre>
+            ) : (
+              <div className="p-4 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-xs text-slate-500 space-y-1">
+                <p className="font-semibold text-slate-700">No .env file.</p>
+                <p>{envFile?.note ?? 'This site has not written one — the panel will not invent it.'}</p>
+              </div>
+            )}
           </div>
         )}
 

@@ -267,6 +267,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/websites", deploy(s.handleCreateWebsite))
 	mux.HandleFunc("POST /api/v1/websites/prepare-directory", deploy(s.handlePrepareDirectory))
 	mux.HandleFunc("GET /api/v1/websites/{slug}", deploy(s.handleGetWebsite))
+	// The site's real .env (secrets masked): what the application actually connects to.
+	mux.HandleFunc("GET /api/v1/websites/{slug}/env", deploy(s.handleWebsiteEnv))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/detect-framework", deploy(s.handleDetectWebsiteFramework))
 	mux.HandleFunc("PUT /api/v1/websites/{slug}/framework", deploy(s.handleUpdateWebsiteFramework))
 	mux.HandleFunc("POST /api/v1/websites/detect-framework", deploy(s.handleDetectFrameworkFromSource))

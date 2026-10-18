@@ -833,6 +833,11 @@ export const api = {
     ),
 
   website: (slug: string) => request<ApiWebsite>(`/websites/${slug}`),
+  /** The site's real .env, read from the daemon. Secret values come masked. */
+  websiteEnv: (slug: string) =>
+    request<{ path: string; exists: boolean; content?: string; note?: string }>(
+      `/websites/${encodeURIComponent(slug)}/env`,
+    ),
 
   deleteWebsite: (slug: string, options?: { databases?: 'keep' | 'delete' }) =>
     request<{ slug: string; steps: string[]; mode: string }>(

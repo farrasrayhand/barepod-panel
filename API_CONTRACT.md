@@ -104,6 +104,7 @@ This is the main rework risk — the UI currently stores some values as presenta
 
 ### 4.2 Websites
 - `GET /websites` · `POST /websites` · `GET|PATCH|DELETE /websites/:slug`
+- `GET /websites/:slug/env` → `{ path, exists, content?, note? }` — the site's **real** `.env`, read from the daemon with secret-looking values (`*PASSWORD*`, `*SECRET*`, `*TOKEN*`, `APP_KEY`, `*_KEY`) replaced by `********`. It is the only honest answer to "which database does this application use": the Environment tab used to render a fabricated file whose `DB_CONNECTION` was hardcoded to `pgsql`, which is how the panel could claim PostgreSQL for a site running on SQLite. A missing file answers `exists: false` with a note instead of inventing one.
 - `POST /websites` — deploy payload from the wizard:
   ```json
   {

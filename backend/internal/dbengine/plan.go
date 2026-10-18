@@ -192,9 +192,19 @@ func mysqlPlan(step Step, resource Resource) (Plan, error) {
 		if resource.Secret == "" {
 			return Plan{}, errors.New("dbengine: a password is required")
 		}
+		// A rotate has to leave a *working* account, not merely change an existing
+		// password: a ledger row can outlive its MySQL user — created by an older path,
+		// dropped by hand, or only ever made for @localhost while phpMyAdmin connects
+		// over TCP. CREATE USER IF NOT EXISTS repairs all three and is a no-op when the
+		// account is there, which is what the plain ALTER did not do (it answered
+		// "Operation ALTER USER failed" and the panel surfaced a 502).
 		return Plan{Commands: [][]string{client(strings.Join([]string{
+			fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", accountLocal, escapeSingleQuotes(resource.Secret)),
 			fmt.Sprintf("ALTER USER %s IDENTIFIED BY '%s'", accountLocal, escapeSingleQuotes(resource.Secret)),
+			fmt.Sprintf("GRANT ALL PRIVILEGES ON %s.* TO %s", db, accountLocal),
+			fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", accountTCP, escapeSingleQuotes(resource.Secret)),
 			fmt.Sprintf("ALTER USER %s IDENTIFIED BY '%s'", accountTCP, escapeSingleQuotes(resource.Secret)),
+			fmt.Sprintf("GRANT ALL PRIVILEGES ON %s.* TO %s", db, accountTCP),
 			"FLUSH PRIVILEGES",
 		}, "; "))}}, nil
 	case StepSuspend:
