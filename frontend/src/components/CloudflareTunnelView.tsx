@@ -385,6 +385,18 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
   };
 
   // Add / Edit Route
+  const handleDeleteRoute = async (route: IngressRouteDTO) => {
+    const label = route.hostname || 'this ingress route';
+    if (!confirm(`Delete the ingress route ${label}? It is removed from Cloudflare too.`)) return;
+    try {
+      await api.deleteTunnelRoute(route.id, activeUser);
+      onShowToast?.('Ingress route deleted', `${label} was removed from Cloudflare.`, 'success');
+      await fetchTunnel(activeUser, true);
+    } catch (err) {
+      onShowToast?.('Could not delete the route', err instanceof Error ? err.message : 'unknown error', 'error');
+    }
+  };
+
   const handleSaveRoute = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newHostname.trim()) return;
@@ -1030,6 +1042,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
             <p className="text-xs text-slate-400 mt-0.5">
               Hostnames forwarded to local application ports on <strong>@{activeUser}</strong>
             </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">
+              Routes that no website or the panel's own domain claims are removed automatically, in Cloudflare too.
+            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -1118,6 +1133,13 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                         title="Edit Ingress Route"
                       >
                         <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => void handleDeleteRoute(route)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                        title="Delete Ingress Route (also removes it in Cloudflare)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </td>

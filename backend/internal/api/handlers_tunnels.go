@@ -183,6 +183,50 @@ func maskToken(token string) string {
 	return token[:6] + "..." + token[len(token)-6:]
 }
 
+// purgeOrphanIngressRoutes removes ingress routes nothing claims: not a current website's domain or
+// alias, not the panel's own hostname, and not a route whose app still exists. Deleting a website
+// already purges its hostnames; this catches rows left behind by older versions (and entries that
+// were never linked to a site), in Cloudflare as well as locally. Best-effort.
+func (s *Server) purgeOrphanIngressRoutes(ctx context.Context, tenantUser string, websites []store.Website) {
+	routes, err := s.store.ListCloudflareTunnelRoutes(tenantUser)
+	if err != nil {
+		return
+	}
+
+	ownedHosts := map[string]bool{}
+	for _, site := range websites {
+		if domain := strings.ToLower(strings.TrimSpace(site.Domain)); domain != "" {
+			ownedHosts[domain] = true
+		}
+		if domains, err := s.store.ListDomainsForSite(site.Slug); err == nil {
+			for _, d := range domains {
+				ownedHosts[strings.ToLower(strings.TrimSpace(d.Domain))] = true
+			}
+		}
+	}
+	if fqdn, _ := s.store.PanelSetting(panelFQDNKey); fqdn != "" {
+		ownedHosts[strings.ToLower(strings.TrimSpace(fqdn))] = true
+	}
+
+	for _, route := range routes {
+		host := strings.ToLower(strings.TrimSpace(route.Hostname))
+		if host == "" || ownedHosts[host] {
+			continue
+		}
+		// The panel's own publish and a route whose app still exists are claimed.
+		if route.AppName == "BarePod Panel" {
+			continue
+		}
+		if route.AppName != "" && route.AppName != "BarePod App" {
+			if _, err := s.store.WebsiteBySlug(route.AppName); err == nil {
+				continue
+			}
+		}
+		log.Printf("cloudflare: removing unclaimed ingress route %s (owner %s)", route.Hostname, tenantUser)
+		s.purgeHostnames(ctx, tenantUser, tenantUser, route.Hostname)
+	}
+}
+
 // handleGetTunnelStatus returns the live status and routes for a tenant.
 func (s *Server) handleGetTunnelStatus(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	ensureTunnelSystemdTemplate()
@@ -221,6 +265,19 @@ func (s *Server) handleGetTunnelStatus(w http.ResponseWriter, r *http.Request, u
 		}
 	}
 
+	// Available apps for this tenant
+	var availApps []map[string]any
+	var websites []store.Website
+	if user.Role == "admin" && targetUser == user.Username {
+		websites, _ = s.store.ListWebsites()
+	} else {
+		websites, _ = s.store.ListWebsitesByTenant(targetUser)
+	}
+
+	// Routes nothing claims are leftovers from a site that no longer exists (or an unlinked entry).
+	// Remove them before listing, so the screen never offers a hostname that belongs to nothing.
+	s.purgeOrphanIngressRoutes(r.Context(), targetUser, websites)
+
 	stRoutes, _ := s.store.ListCloudflareTunnelRoutes(targetUser)
 	var routes []IngressRouteDTO
 	for _, r := range stRoutes {
@@ -235,15 +292,6 @@ func (s *Server) handleGetTunnelStatus(w http.ResponseWriter, r *http.Request, u
 	}
 	if routes == nil {
 		routes = []IngressRouteDTO{}
-	}
-
-	// Available apps for this tenant
-	var availApps []map[string]any
-	var websites []store.Website
-	if user.Role == "admin" && targetUser == user.Username {
-		websites, _ = s.store.ListWebsites()
-	} else {
-		websites, _ = s.store.ListWebsitesByTenant(targetUser)
 	}
 	for _, app := range websites {
 		// All managed web apps (PHP, Static, NodeJS, Python, Go, Docker) route through BarePod Edge Ingress on port 80

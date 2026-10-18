@@ -345,6 +345,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 
 ### 4.7 Cloudflare Zero Trust Tunnels & Ingress Routing
 - `GET /api/v1/tunnels/status` (query `?user=<tenant>`) → `200 TunnelStatusResponse`.
+  Before returning the list it **removes unclaimed ingress routes**: a route whose hostname is not a current website domain/alias, is not the panel's own `panel_fqdn`, and whose `app_name` does not resolve to an existing website is deleted in Cloudflare and locally. This is what cleans up rows left by an older delete (and entries that were never linked to a site).
   - Returns tunnel daemon health, isolated tenant user `@<tenant>`, systemd unit `barepod-tunnel@<tenant>.service` state (`connected` | `configuring` | `disconnected`), `daemonPid`, RSS `memoryUsage`, `uptime`, `hasToken`, `tokenMasked`, `hasApiToken`, `autoSync` boolean, and `accounts[]` list for admin persona switching.
   - Returns `routes[]`: active ingress rules (`id`, `hostname`, `service`, `appName`, `status`, `createdAt`).
   - Returns `availableApps[]`: list of tenant's installed applications with auto-mapped Edge Ingress `targetUrl: "http://127.0.0.1:80"` (ensures public tunnel traffic enters via Primary Edge Ingress reverse proxy rather than raw internal backend ports).
