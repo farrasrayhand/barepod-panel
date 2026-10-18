@@ -599,7 +599,7 @@ export const CronJobsManager: React.FC<CronJobsManagerProps> = ({
                         </span>
                         {!job.implemented && (
                           <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.2 rounded">
-                            Belum aktif
+                            Not implemented
                           </span>
                         )}
                         {job.implemented && !job.enabled && (
