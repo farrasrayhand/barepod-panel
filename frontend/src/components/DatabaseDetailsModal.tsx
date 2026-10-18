@@ -519,7 +519,7 @@ DB_DATABASE=${database.path || `/home/${database.tenantUser ?? 'user'}/web/${dat
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className={`bg-white rounded-2xl border border-slate-200 shadow-2xl ${dataTabActive === 'data' || dataTabActive === 'security' ? 'max-w-4xl' : 'max-w-3xl'} w-full overflow-hidden flex flex-col max-h-[92vh] transition-all duration-200`}>
+      <div className={`bg-white rounded-2xl border border-slate-200 shadow-2xl ${dataTabActive === 'data' || dataTabActive === 'security' ? 'max-w-4xl' : 'max-w-3xl'} w-full overflow-hidden flex flex-col max-h-[92dvh] transition-all duration-200`}>
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
           <div className="flex items-center gap-3">
@@ -716,9 +716,9 @@ DB_DATABASE=${database.path || `/home/${database.tenantUser ?? 'user'}/web/${dat
                   </span>
                 </div>
 
-                <div className="max-h-56 overflow-y-auto">
+                <div className="max-h-56 overflow-y-auto overflow-x-auto">
                   {logs?.audit && logs.audit.length > 0 ? (
-                    <table className="w-full text-left text-xs">
+                    <table className="min-w-[560px] w-full text-left text-xs">
                       <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-400 border-b border-slate-100 sticky top-0">
                         <tr>
                           <th className="py-2 px-3">Timestamp</th>

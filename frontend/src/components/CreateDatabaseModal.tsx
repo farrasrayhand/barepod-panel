@@ -140,7 +140,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-lg w-full overflow-hidden max-h-[92vh] flex flex-col">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-lg w-full overflow-hidden max-h-[92dvh] flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
@@ -167,7 +167,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">
               Select Database Engine Family
             </label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {[
                 { id: 'postgres' as DatabaseEngine, label: 'PostgreSQL' },
                 { id: 'mariadb' as DatabaseEngine, label: 'MySQL / MariaDB' },

@@ -180,7 +180,7 @@ export const ApiMcpView: React.FC<ApiMcpViewProps> = ({ onShowToast }) => {
 }`;
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {/* Header */}
       <div>
         <div className="flex items-center gap-2">
@@ -291,7 +291,8 @@ export const ApiMcpView: React.FC<ApiMcpViewProps> = ({ onShowToast }) => {
 
           {/* Token list */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-            <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto">
+            <table className="min-w-[560px] w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
                 <tr>
                   <th className="py-3 px-4">Name</th>
@@ -335,6 +336,7 @@ export const ApiMcpView: React.FC<ApiMcpViewProps> = ({ onShowToast }) => {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           {/* Audit log */}
@@ -414,7 +416,8 @@ export const ApiMcpView: React.FC<ApiMcpViewProps> = ({ onShowToast }) => {
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-            <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto">
+            <table className="min-w-[560px] w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
                 <tr>
                   <th className="py-3 px-4">Endpoint</th>
@@ -457,6 +460,7 @@ export const ApiMcpView: React.FC<ApiMcpViewProps> = ({ onShowToast }) => {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}
@@ -489,7 +493,8 @@ export const ApiMcpView: React.FC<ApiMcpViewProps> = ({ onShowToast }) => {
               <h2 className="text-sm font-bold text-slate-900">Available Tools ({MCP_TOOLS.length})</h2>
               <span className="text-[11px] text-slate-400 font-mono">read-only unless the token has :write</span>
             </div>
-            <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto">
+            <table className="min-w-[560px] w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
                 <tr>
                   <th className="py-3 px-5">Tool</th>
@@ -509,6 +514,7 @@ export const ApiMcpView: React.FC<ApiMcpViewProps> = ({ onShowToast }) => {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50 flex items-start gap-2.5 text-xs text-slate-600">

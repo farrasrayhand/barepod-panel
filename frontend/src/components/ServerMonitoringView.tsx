@@ -590,7 +590,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   });
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       
       {/* Header & Server Hardware Specs Banner */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -742,7 +742,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
               Aggregate from <span className="font-mono">/proc/stat</span>; per-core detail arrives with the per-core sampler.
             </p>
           ) : (
-            <div className="pt-2 border-t border-slate-100 grid grid-cols-4 gap-1.5 text-[9px] text-slate-400 font-mono text-center">
+            <div className="pt-2 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[9px] text-slate-400 font-mono text-center">
               {perCore.map((c, i) => (
                 <div key={i} className="bg-slate-50 p-1 rounded">
                   <span>c{i}</span>
@@ -833,7 +833,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           </div>
 
           {/* Rx / Tx representation */}
-          <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
             <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100 flex items-center justify-between">
               <span className="text-[10px] text-slate-400 flex items-center gap-0.5"><ArrowDown className="w-3 h-3 text-emerald-500" /> Inbound</span>
               <strong className="text-xs font-mono text-slate-800">{kpi.netInMbps.toFixed(1)} M</strong>
@@ -997,7 +997,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-1 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs">
                     <div className="bg-white p-2.5 rounded-lg border border-slate-200">
                       <span className="text-[10px] text-slate-400 block font-semibold uppercase">Capacity Utilization</span>
                       <span className="font-mono font-bold text-slate-800">
@@ -1013,7 +1013,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-200 grid grid-cols-3 gap-2 text-[11px] text-slate-500 text-center font-mono">
+                <div className="pt-2 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-slate-500 text-center font-mono">
                   <div className="bg-white p-2 rounded border border-slate-200">
                     <span className="block text-slate-400 text-[10px]">LOAD 1M</span>
                     <strong className="text-slate-800">{live ? live.load1.toFixed(2) : '0.34'}</strong>
@@ -1125,7 +1125,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                     placeholder="Search by PID, command, or user..."
                     value={processSearch}
                     onChange={(e) => setProcessSearch(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 w-64"
+                    className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 w-full sm:w-64"
                   />
                 </div>
 
@@ -1640,7 +1640,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                         <div>MTU: <strong className="text-slate-800">{iface.mtu}</strong></div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-100">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] font-mono text-slate-500 pt-1 border-t border-slate-100">
                         <div>
                           <span className="block text-slate-400">Rx Total:</span>
                           <strong className="text-slate-800">{formatBytes(iface.rxBytes)}</strong>

@@ -193,7 +193,7 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -274,7 +274,7 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
         </div>
 
         {/* Search Input */}
-        <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+        <div className="relative min-w-0 sm:min-w-[220px] flex-1 sm:max-w-xs">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
@@ -403,7 +403,7 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
                 )}
 
                 {/* Specs / Port & RAM */}
-                <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs text-slate-500">
+                <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-500">
                   <div>
                     <span className="text-[10px] text-slate-400 block">Port Mapping</span>
                     <span className="font-mono text-slate-700 font-medium truncate block">{pod.ports || 'None'}</span>

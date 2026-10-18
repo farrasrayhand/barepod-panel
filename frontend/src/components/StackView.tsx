@@ -515,7 +515,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
   );
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -740,7 +740,8 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 </p>
               </div>
             </div>
-            <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto">
+            <table className="min-w-[760px] w-full text-left text-xs">
               <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
                 <tr>
                   <th className="py-3 px-4">Engine</th>
@@ -868,6 +869,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 })}
               </tbody>
             </table>
+            </div>
             <div className="px-5 py-3 text-[11px] text-slate-500 border-t border-slate-100 flex items-center justify-between">
               <span>
                 Public ingress traffic on port 80/443 is managed via the <strong className="text-slate-700 font-medium">Edge Ingress Switcher</strong> above.
@@ -1062,7 +1064,8 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
         <div className="space-y-4">
           {repositoriesCard('database', 'database')}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <table className="w-full text-left text-xs">
+            <div className="overflow-x-auto">
+            <table className="min-w-[640px] w-full text-left text-xs">
               <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
                 <tr>
                   <th className="py-3 px-4">Engine</th>
@@ -1312,6 +1315,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 })}
               </tbody>
             </table>
+            </div>
             <div className="px-5 py-3 text-[11px] text-slate-500 border-t border-slate-100 flex items-center justify-between">
               <div>
                 <span className="font-semibold text-slate-700">Database Engine Architecture:</span> Single active version runs on the standard port at a time.
@@ -1501,7 +1505,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 </div>
               </div>
 
-              <div className="p-5 space-y-4 text-xs max-h-[60vh] overflow-y-auto">
+              <div className="p-5 space-y-4 text-xs max-h-[60dvh] overflow-y-auto">
                 {items.length === 0 ? (
                   <div className="py-6 text-center text-slate-500">
                     <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-2" />
@@ -1621,7 +1625,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       {bundleRun && !bundleOpen && (
         <div
           onClick={() => setBundleOpen(true)}
-          className="fixed bottom-6 right-6 z-50 bg-white border border-blue-200 rounded-2xl shadow-2xl p-4 w-80 cursor-pointer hover:border-blue-400 hover:shadow-blue-500/15 transition-all animate-in slide-in-from-bottom-5"
+          className="fixed bottom-6 right-6 z-50 bg-white border border-blue-200 rounded-2xl shadow-2xl p-4 w-[min(20rem,calc(100vw-3rem))] cursor-pointer hover:border-blue-400 hover:shadow-blue-500/15 transition-all animate-in slide-in-from-bottom-5"
         >
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">

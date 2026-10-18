@@ -353,7 +353,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full flex flex-col max-h-[92vh] overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full flex flex-col max-h-[92dvh] overflow-hidden">
         
         {/* Hidden File Inputs */}
         <input 
@@ -512,7 +512,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                 <label className="block text-xs font-bold text-slate-800 mb-2">
                   Deployment Method
                 </label>
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <button
                     type="button"
                     onClick={() => {
@@ -871,7 +871,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                   </div>
 
                   {/* Internal Container Port */}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-800 mb-1">
                         Internal Container Port
@@ -1119,7 +1119,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
           {/* TAB 5: RESOURCE LIMITS & RESTART */}
           {configTab === 'resources' && (
             <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-800 mb-1">
                     Memory Limit (RAM)

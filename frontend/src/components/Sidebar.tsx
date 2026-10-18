@@ -18,16 +18,22 @@ import {
   Copy,
   Check,
   Archive,
-  Webhook
+  Webhook,
+  X
 } from 'lucide-react';
 import { FolderTree } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { NavItem, UpdateInfo } from '../types';
+import { useIsDesktop } from '../hooks/useIsDesktop';
 
 interface SidebarProps {
   currentTab: NavItem;
   onSelectTab: (tab: NavItem) => void;
   collapsed: boolean;
+  /** Below `lg` the sidebar is an overlay drawer; this is its open state. */
+  mobileOpen?: boolean;
+  /** Close the drawer (a nav tap, the X, Escape, or a tap on the backdrop). */
+  onClose?: () => void;
   /** The host file browser and settings are administrator tools. */
   isAdmin?: boolean;
   can?: (capability: string) => boolean;
@@ -40,9 +46,14 @@ interface NavGroupItem {
   icon: LucideIcon;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed, isAdmin = false, can, updateInfo }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed, mobileOpen = false, onClose, isAdmin = false, can, updateInfo }) => {
   const [copiedIp, setCopiedIp] = useState(false);
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusResponse | null>(null);
+
+  // The collapse is a desktop idea: in the drawer the labels must always be there, whatever the
+  // column was set to before the window shrank.
+  const isDesktop = useIsDesktop();
+  const compact = collapsed && isDesktop;
 
   // The address this panel is being used on — the only one the panel can honestly name. Behind NAT
   // the public address is not discoverable from inside, and the sidebar used to hardcode one.
@@ -105,7 +116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
     if (items.length === 0) return null;
     return (
       <div className="mb-6">
-        {!collapsed && title && (
+        {!compact && title && (
           <div className="px-4 mb-2 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
             {title}
           </div>
@@ -118,8 +129,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
           return (
             <button
               key={item.id}
-              onClick={() => onSelectTab(item.id)}
-              title={collapsed ? (hasItemUpdate ? `${item.label} (Update available)` : item.label) : undefined}
+              onClick={() => {
+                onSelectTab(item.id);
+                // On a phone the sidebar is covering the page being chosen, so it leaves with the tap.
+                onClose?.();
+              }}
+              title={compact ? (hasItemUpdate ? `${item.label} (Update available)` : item.label) : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150 ${
                 isActive
                   ? 'bg-blue-50 text-blue-600 font-semibold shadow-xs'
@@ -128,11 +143,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
             >
               <div className="relative shrink-0 flex items-center justify-center">
                 <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
-                {collapsed && hasItemUpdate && (
+                {compact && hasItemUpdate && (
                   <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-blue-600 ring-2 ring-white animate-pulse" />
                 )}
               </div>
-              {!collapsed && (
+              {!compact && (
                 <div className="flex items-center justify-between flex-1 truncate">
                   <span className="truncate">{item.label}</span>
                   {hasItemUpdate && (
@@ -152,21 +167,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
 
   return (
     <aside
-      className={`h-screen border-r border-slate-200 bg-white flex flex-col transition-all duration-300 z-20 shrink-0 ${
-        collapsed ? 'w-18' : 'w-64'
-      }`}
+      className={`fixed inset-y-0 left-0 z-40 h-dvh w-64 shrink-0 border-r border-slate-200 bg-white flex flex-col transition-all duration-300 lg:static lg:z-20 lg:translate-x-0 ${
+        mobileOpen ? 'translate-x-0' : '-translate-x-full'
+      } ${collapsed ? 'lg:w-18' : 'lg:w-64'}`}
     >
       {/* Brand Header */}
       <div className="h-16 flex items-center px-4 border-b border-slate-100 gap-3">
         <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-sm shadow-blue-500/20 shrink-0">
           <Server className="w-5 h-5" />
         </div>
-        {!collapsed && (
+        {!compact && (
           <div className="flex flex-col">
             <span className="font-bold text-lg text-slate-900 tracking-tight">BarePod</span>
             <span className="text-[11px] text-slate-400">Web & Pod Management</span>
           </div>
         )}
+        <button
+          onClick={onClose}
+          className="ml-auto p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 lg:hidden"
+          title="Close navigation"
+        >
+          <X className="w-5 h-5" />
+        </button>
       </div>
 
       {/* Nav List */}
@@ -178,7 +200,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
       </div>
 
       {/* Bottom Network & Cloudflare Status */}
-      {!collapsed && (
+      {!compact && (
         <div className="p-3 bg-slate-50/80 m-2 rounded-xl border border-slate-200/70 shadow-2xs space-y-2">
           {/* Public IP */}
           <div className="flex items-center justify-between text-xs">

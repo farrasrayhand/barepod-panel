@@ -440,7 +440,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
   const isConfiguring = tunnelData?.status === 'configuring';
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {/* Top Header & Account Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -798,22 +798,22 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                           Name your token (e.g. <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">BarePod-{activeUser}</code>). Under the <strong>Permissions</strong> section, add these 3 permission rows:
                         </p>
                         <div className="mt-2 rounded-lg border border-slate-200 overflow-hidden text-[11px]">
-                          <div className="grid grid-cols-3 bg-slate-100 p-2 font-bold text-slate-700 border-b border-slate-200">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 bg-slate-100 p-2 font-bold text-slate-700 border-b border-slate-200">
                             <span>Category</span>
                             <span>Feature</span>
                             <span>Access Level</span>
                           </div>
-                          <div className="grid grid-cols-3 p-2 border-b border-slate-100 bg-white items-center">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 p-2 border-b border-slate-100 bg-white items-center">
                             <span className="font-semibold text-blue-700">Zone</span>
                             <span>DNS</span>
                             <span className="font-bold text-emerald-600">Edit</span>
                           </div>
-                          <div className="grid grid-cols-3 p-2 border-b border-slate-100 bg-slate-50/50 items-center">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 p-2 border-b border-slate-100 bg-slate-50/50 items-center">
                             <span className="font-semibold text-blue-700">Zone</span>
                             <span>Zone</span>
                             <span className="font-bold text-slate-700">Read</span>
                           </div>
-                          <div className="grid grid-cols-3 p-2 bg-white items-center">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 p-2 bg-white items-center">
                             <span className="font-semibold text-purple-700">Account</span>
                             <span>Cloudflare Tunnel</span>
                             <span className="font-bold text-emerald-600">Edit</span>
@@ -1084,7 +1084,8 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
             </p>
           </div>
         ) : (
-          <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto">
+          <table className="min-w-[560px] w-full text-left text-xs">
             <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
               <tr>
                 <th className="py-3 px-4">Public Hostname (Cloudflare)</th>
@@ -1147,6 +1148,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

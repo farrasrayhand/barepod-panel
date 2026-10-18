@@ -216,7 +216,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {/* Top Header Row */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -323,7 +323,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
           </div>
 
           {/* Search Input */}
-          <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+          <div className="relative min-w-0 sm:min-w-[220px] flex-1 sm:max-w-xs">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"

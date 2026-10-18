@@ -2019,7 +2019,7 @@ QUEUE_CONNECTION=redis`;
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-200">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-200">
       
       {/* Top Breadcrumb & Back Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -2774,7 +2774,7 @@ QUEUE_CONNECTION=redis`;
                 <span className="text-[11px] text-slate-400 font-mono">Edge Ingress Telemetry</span>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="bg-white p-3 rounded-lg border border-slate-200">
                   <div className="flex justify-between items-center">
                     <span className="text-xs text-slate-500 font-medium">2xx Success</span>
@@ -3038,7 +3038,7 @@ QUEUE_CONNECTION=redis`;
             </div>
 
             {/* Terminal Window (Styled in Clean Light Mode by Default or Dark Mode) */}
-            <div className={`font-mono text-xs rounded-xl p-3 sm:p-4 min-h-[380px] max-h-[580px] overflow-y-auto overflow-x-hidden border transition-colors shadow-2xs ${
+            <div className={`font-mono text-xs rounded-xl p-3 sm:p-4 min-h-[380px] max-h-[580px] overflow-y-auto overflow-x-auto border transition-colors shadow-2xs ${
               logTheme === 'light'
                 ? 'bg-white text-slate-800 border-slate-200'
                 : 'bg-slate-950 text-slate-100 border-slate-800 shadow-inner'
@@ -4369,7 +4369,7 @@ QUEUE_CONNECTION=redis`}
                 <p className="text-xs text-slate-500 leading-relaxed">
                   Select the high-performance HTTP web server daemon that handles traffic routing, TLS termination, and reverse proxying for this website.
                 </p>
-                <div className="grid grid-cols-2 gap-2 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                   {(['caddy', 'nginx', 'openlitespeed', 'apache'] as WebServerType[]).map((ws) => {
                     const isActive = (app.webServer || 'caddy').toLowerCase() === ws.toLowerCase();
                     return (
@@ -5642,7 +5642,7 @@ QUEUE_CONNECTION=redis`}
                       <label className="block text-xs font-bold text-slate-700 mb-1.5">
                         Restriction Mode
                       </label>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                         <button
                           type="button"
                           onClick={() => setIpRestrictionMode('none')}
@@ -6597,7 +6597,7 @@ QUEUE_CONNECTION=redis`}
                     <label className="block text-xs font-bold text-slate-700">
                       DNS Routing Method
                     </label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <button
                         type="button"
                         onClick={() => setEditDnsMode('cloudflare')}
@@ -6995,7 +6995,7 @@ QUEUE_CONNECTION=redis`}
 
             <div className="space-y-2">
               <label className="block text-xs font-semibold text-slate-700">Select Framework</label>
-              <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 {[
                   'Laravel',
                   'WordPress',

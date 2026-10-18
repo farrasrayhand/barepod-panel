@@ -104,7 +104,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full overflow-hidden max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-md w-full overflow-hidden max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
@@ -174,7 +174,7 @@ export const AddUserModal: React.FC<AddUserModalProps> = ({
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Account Role</label>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {roleButton('user', 'Regular User', 'Limited by its package', 'border-blue-600 bg-blue-50 font-bold text-blue-900 ring-2 ring-blue-500/10')}
               {roleButton('admin', 'Administrator', 'Unlimited, full access', 'border-purple-600 bg-purple-50 font-bold text-purple-900 ring-2 ring-purple-500/10')}
             </div>

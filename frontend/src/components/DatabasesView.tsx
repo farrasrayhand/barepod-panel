@@ -560,7 +560,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -797,7 +797,8 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
 
       {/* Database Cards Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-        <table className="w-full text-left text-xs table-fixed">
+        <div className="overflow-x-auto">
+        <table className="min-w-[760px] w-full text-left text-xs table-fixed">
           <colgroup>
             <col className="w-[28%]" />
             <col className="w-[22%]" />
@@ -1093,6 +1094,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
             }))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* Database Details, Credentials & Direct URL Modal */}

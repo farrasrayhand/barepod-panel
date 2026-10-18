@@ -25,6 +25,7 @@ import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { LoginView } from './components/LoginView';
 import { useSession } from './hooks/useSession';
+import { useIsDesktop } from './hooks/useIsDesktop';
 import { api } from './api/client';
 import { toWebApp, formatBytes } from './api/adapters';
 import { siteSupportsShell, siteShellNote } from './utils/siteRuntime';
@@ -248,6 +249,10 @@ export function App() {
   const [route, setRoute] = useState<AppRoute>(() => parseRoute(window.location.pathname));
   const currentTab = route.tab;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Below `lg` the sidebar is an overlay drawer rather than a column. This is its open state,
+  // and `isDesktop` is the breakpoint that decides which job the header's menu button has.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const isDesktop = useIsDesktop();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   // The deploy whose log is on screen: POST /websites answers 202, so the only honest
   // progress is the daemon's own stream (see DeployLogPanel).
@@ -269,8 +274,26 @@ export function App() {
     mainRef.current?.scrollTo({ top: 0 });
   }, [route.tab, route.appSlug, route.appSubTab]);
 
+  // An open drawer covers the page, so it needs a way out that is not a mis-tap: Escape, and
+  // the page behind it must stop scrolling.
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileNavOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileNavOpen]);
+
   // Navigate to an explicit path (menu endpoint or app detail deep-link)
   const navigatePath = (path: string) => {
+    // Any navigation closes the drawer: picking a destination is how a phone leaves it.
+    setMobileNavOpen(false);
     if (window.location.pathname !== path) {
       window.history.pushState(null, '', path);
     }
@@ -698,7 +721,7 @@ export function App() {
 
   if (session.mode === 'checking') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+      <div className="min-h-dvh flex items-center justify-center bg-slate-100">
         <div className="flex items-center gap-3 text-sm text-slate-500">
           <Server className="w-5 h-5 animate-pulse text-blue-600" />
           <span>Looking for the BarePod daemon…</span>
@@ -723,7 +746,7 @@ export function App() {
 
   if (loggedOut) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-100 p-4">
+      <div className="min-h-dvh flex items-center justify-center bg-slate-100 p-4">
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-8 w-full max-w-sm text-center space-y-4">
           <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto shadow-sm shadow-blue-500/25">
             <Server className="w-6 h-6" />
@@ -745,12 +768,23 @@ export function App() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900 overflow-hidden font-sans">
+    <div className="flex h-dvh bg-slate-50 text-slate-900 overflow-hidden font-sans">
+      {/* On a phone the sidebar overlays the page, so a backdrop gives it a way out by tapping
+          away. Hidden at `lg`, where the sidebar is a column again. */}
+      {mobileNavOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-slate-900/40 lg:hidden"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
       {/* Sidebar Navigation */}
       <Sidebar
         currentTab={currentTab}
         onSelectTab={navigate}
         collapsed={sidebarCollapsed}
+        mobileOpen={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
         isAdmin={isAdmin}
         can={session.can}
         updateInfo={updateInfo}
@@ -760,7 +794,11 @@ export function App() {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
         <Header
-          onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onToggleSidebar={() => {
+            // One button, two jobs: collapse the column on a desktop, open the drawer below it.
+            if (isDesktop) setSidebarCollapsed(!sidebarCollapsed);
+            else setMobileNavOpen(true);
+          }}
           onOpenTerminal={() => navigate('terminal')}
           activeTab={currentTab}
           onNavigatePath={navigatePath}

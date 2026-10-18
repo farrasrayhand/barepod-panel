@@ -836,7 +836,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-200">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-200">
       
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -889,7 +889,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
         </div>
 
         {/* Tab Content Form */}
-        <div className="p-6 md:p-8">
+        <div className="p-4 sm:p-6 lg:p-8">
           
           {/* 1. GENERAL SETTINGS */}
           {activeTab === 'general' && (
@@ -1792,7 +1792,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Automatic Backup Schedule
@@ -1828,7 +1828,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Target Storage (Destination)
                 </label>
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   {(['local', 's3', 'r2'] as const).map(dest => (
                     <button
                       key={dest}
@@ -1934,7 +1934,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                       />
                     </div>
                     {alerts.telegramEnabled && (
-                      <div className="grid grid-cols-2 gap-3 pt-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                         <div>
                           <label className="block text-[10px] font-bold text-slate-600 mb-1">
                             Bot Token {alerts.telegramHasToken && <span className="text-emerald-600">· saved</span>}
@@ -2002,7 +2002,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     </div>
                     {alerts.smtpEnabled && (
                       <div className="space-y-3 pt-1">
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div className="col-span-2">
                             <label className="block text-[10px] font-bold text-slate-600 mb-1">SMTP Host</label>
                             <input
@@ -2022,7 +2022,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                             />
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="block text-[10px] font-bold text-slate-600 mb-1">Username</label>
                             <input
@@ -2045,7 +2045,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                             />
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="block text-[10px] font-bold text-slate-600 mb-1">From</label>
                             <input

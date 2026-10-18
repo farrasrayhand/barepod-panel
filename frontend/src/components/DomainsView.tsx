@@ -357,7 +357,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const totalAutoRenew = domains.filter(d => d.autoRenew).length;
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-200">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-200">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -445,7 +445,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 placeholder="Search domain or website..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 w-64 font-mono text-slate-800 placeholder-slate-400"
+                className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 w-full sm:w-64 font-mono text-slate-800 placeholder-slate-400"
               />
             </div>
 
@@ -902,7 +902,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                     <label className="block text-xs font-bold text-slate-700 mb-1.5">
                       Issuance Provider
                     </label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <button
                         type="button"
                         onClick={() => setSslProvider('auto')}

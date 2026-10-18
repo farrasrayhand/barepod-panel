@@ -527,6 +527,10 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - In-Panel Over-The-Air (OTA) self-updater with atomic binary swap (`ETXTBSY` avoidance), pre-flight checksum/smoke test, automated DB snapshot & watchdog auto-rollback.
   - 1-line installation script for Ubuntu/Debian VPS (`curl -fsSL https://get.barepod.com | bash`).
 
+* **Deferred — known, deliberate, not scheduled**:
+  - 📋 **Modal overlays are still vertically centred** (`fixed inset-0 … flex items-center justify-center`, 44 call sites). Now that every modal caps itself at `max-h-[92dvh]` (92% + the 32px overlay padding still fits a 375×667 phone), nothing is clipped, so the sweep was skipped as not worth the churn. If a short **landscape** screen ever shows a modal's header or footer cut off, change the overlays to `items-start sm:items-center` and add `overflow-y-auto` — the conventions live in `frontend/README.md`.
+  - 📋 **`PodConfigModal` breaks rules-of-hooks**: a `if (!isOpen || !pod) return null;` sits *before* its ~26 `useState` calls, which is what makes `npm run lint` exit non-zero (26 errors). The parent mounts the modal conditionally, so it does not bite today. The fix is to move the guard below the hooks — the initial state reads `pod.name` and friends, so it is a small refactor (optional chaining or a non-null default), not a one-line move.
+
 ---
 
 ## 5. Installation Support (AMD64 / ARM64 / LXC)

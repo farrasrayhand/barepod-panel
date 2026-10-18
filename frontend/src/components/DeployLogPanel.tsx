@@ -148,7 +148,7 @@ export const DeployLogPanel: React.FC<DeployLogPanelProps> = ({ slug, deployId, 
     <div
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
-      className="fixed bottom-4 right-4 z-50 w-[min(46rem,94vw)] bg-slate-900 text-slate-100 rounded-2xl shadow-2xl border border-slate-700/80 flex flex-col max-h-[75vh] backdrop-blur-md animate-in slide-in-from-bottom-3 duration-200"
+      className="fixed bottom-4 right-4 z-50 w-[min(46rem,94vw)] bg-slate-900 text-slate-100 rounded-2xl shadow-2xl border border-slate-700/80 flex flex-col max-h-[75dvh] backdrop-blur-md animate-in slide-in-from-bottom-3 duration-200"
     >
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-700/80 bg-slate-950/50 rounded-t-2xl">
         <div className="flex items-center gap-2 min-w-0">

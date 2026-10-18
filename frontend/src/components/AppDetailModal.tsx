@@ -201,7 +201,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-5xl w-full h-[92vh] flex flex-col overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-5xl w-full h-[92dvh] flex flex-col overflow-hidden">
         
         {/* Top Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-slate-50/70">
@@ -408,7 +408,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                   <span className="text-xs text-slate-400">Live 24h rolling window</span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
                   <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl">
                     <span className="text-xl font-bold text-emerald-700 block">{liveMetrics.http2xx}%</span>
                     <span className="text-[11px] font-semibold text-emerald-800">2xx Success Rate</span>
@@ -481,7 +481,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
               </div>
 
               {/* Log Console Terminal View */}
-              <div className="bg-slate-950 rounded-2xl border border-slate-800 p-4 font-mono text-xs text-slate-200 shadow-xl overflow-hidden flex flex-col h-[52vh]">
+              <div className="bg-slate-950 rounded-2xl border border-slate-800 p-4 font-mono text-xs text-slate-200 shadow-xl overflow-hidden flex flex-col h-[52dvh]">
                 <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-[11px] text-slate-400">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -560,7 +560,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 </div>
 
                 <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <table className="w-full text-left text-xs">
+                  <div className="overflow-x-auto">
+                  <table className="min-w-[520px] w-full text-left text-xs">
                     <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-600 uppercase text-[10px] font-bold">
                       <tr>
                         <th className="py-2.5 px-3">URL Path Pattern</th>
@@ -596,6 +597,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                       </tr>
                     </tbody>
                   </table>
+                  </div>
                 </div>
               </div>
             </div>

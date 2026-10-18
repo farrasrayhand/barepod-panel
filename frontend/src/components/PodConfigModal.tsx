@@ -199,7 +199,7 @@ ${isWebApp ? `    labels:
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full flex flex-col max-h-[92vh] overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full flex flex-col max-h-[92dvh] overflow-hidden">
         
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
@@ -411,7 +411,7 @@ ${isWebApp ? `    labels:
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                   Basic Pod Properties
                 </h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
                       Pod Name
@@ -496,7 +496,7 @@ ${isWebApp ? `    labels:
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-slate-800 mb-1">
                         Container Internal Port
@@ -667,7 +667,7 @@ ${isWebApp ? `    labels:
 
                       {basicAuthEnabled && (
                         <div className="space-y-2.5 pt-2 border-t border-slate-100 animate-in fade-in duration-150">
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <div>
                               <label className="block text-[11px] font-bold text-slate-700 mb-1">
                                 Username

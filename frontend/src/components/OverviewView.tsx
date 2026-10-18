@@ -188,7 +188,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
   const uptimeStr = metrics ? formatUptime(metrics.uptimeSeconds) : '—';
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {/* Title & Quick Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

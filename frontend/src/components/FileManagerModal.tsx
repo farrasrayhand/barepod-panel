@@ -1222,7 +1222,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         className={
           inline
             ? 'bg-white rounded-2xl border border-slate-200 shadow-xl w-full flex flex-col overflow-hidden relative'
-            : 'bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-7xl w-full h-[92vh] flex flex-col overflow-hidden relative'
+            : 'bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-7xl w-full h-[92dvh] flex flex-col overflow-hidden relative'
         }
         style={inline ? { height: panelHeight } : undefined}
         onDragOver={handleDragOver}
@@ -1559,7 +1559,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         <div className="flex-1 flex min-h-0 bg-white overflow-hidden relative">
           {/* File Table Column */}
           <div
-            className={`flex-1 flex flex-col min-w-0 bg-white overflow-y-auto select-none ${
+            className={`flex-1 flex flex-col min-w-0 bg-white overflow-y-auto overflow-x-auto select-none ${
               editingFile && !editorMaximized ? 'hidden md:flex md:w-1/2 md:border-r md:border-slate-200' : 'w-full'
             }`}
             onContextMenu={(e) => {
@@ -1567,7 +1567,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
               setContextMenu({ x: e.clientX, y: e.clientY, file: null });
             }}
           >
-            <table className="w-full text-left text-xs">
+            <table className="min-w-[560px] w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 sticky top-0 z-10 backdrop-blur-xs">
                 <tr>
                   <th className="py-2.5 px-3 w-10 text-center">
@@ -1808,7 +1808,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
           {/* Inspector Slide-over (When toggled on) */}
           {showInspector && !editingFile && (
-            <div className="w-72 bg-slate-50/80 border-l border-slate-200 flex flex-col shrink-0 animate-in slide-in-from-right-4 duration-150">
+            <div className="absolute inset-y-0 right-0 z-20 w-full bg-slate-50/80 border-l border-slate-200 flex flex-col shrink-0 animate-in slide-in-from-right-4 duration-150 sm:w-80 lg:static lg:z-auto lg:w-72">
               <div className="p-3.5 border-b border-slate-200 flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Info className="w-3.5 h-3.5 text-blue-600" /> Item Details
@@ -1937,7 +1937,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Floating Upload Queue Drawer */}
         {uploadDrawerOpen && uploadQueue.length > 0 && (
-          <div className="absolute bottom-4 right-4 z-40 w-96 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-200">
+          <div className="absolute bottom-4 right-4 z-40 w-[min(24rem,calc(100vw-2rem))] bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-4 duration-200">
             {/* Drawer Header */}
             <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -2555,7 +2555,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         {/* Modal: Media & Document Preview (Image & PDF) */}
         {previewModal.isOpen && previewModal.file && (
           <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full h-[85vh] flex flex-col overflow-hidden text-slate-800">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full h-[85dvh] flex flex-col overflow-hidden text-slate-800">
               {/* Preview Bar */}
               <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                 <div className="flex items-center gap-2.5 font-mono text-xs">

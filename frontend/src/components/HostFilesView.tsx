@@ -63,7 +63,7 @@ export const HostFilesView: React.FC<HostFilesViewProps> = ({
   const selected = tenants.find((item) => item.username === tenant);
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
