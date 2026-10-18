@@ -3,68 +3,18 @@ package api
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 
-	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/enginedb"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
-
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// engineDB opens a connection to a daemon engine **as the database's own user** —
-// the account the panel created and scoped, never an administrator.
-//
-// Pure-Go drivers (pgx, go-sql-driver, the SQLite driver we already link) mean the
-// host needs no psql/mysql client, there is no text output to parse back, and a
-// value comes out as the type it is instead of something to un-quote by hand.
+// engineDB opens a connection to a daemon engine **as the database's own user** — the account the
+// panel created and scoped, never an administrator. The connection logic lives in internal/enginedb
+// so the Data Browser and the maintenance jobs reach an engine through the same code.
 func (s *Server) engineDB(record *store.Database) (*sql.DB, error) {
-	password, err := secrets.Decrypt(s.key, record.PasswordCipher)
-	if err != nil {
-		return nil, errors.New("the credential could not be decrypted")
-	}
-	host := record.Host
-	if host == "" {
-		host = "127.0.0.1"
-	}
-	port := record.Port
-	if port == 0 {
-		port = defaultEnginePort(record.Engine)
-	}
-	if record.User == "" || record.Name == "" {
-		return nil, errors.New("this database has no user recorded yet")
-	}
-
-	switch record.Engine {
-	case "postgresql":
-		dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable&connect_timeout=5",
-			url.QueryEscape(record.User), url.QueryEscape(password), host, port, url.PathEscape(record.Name))
-		return sql.Open("pgx", dsn)
-	case "mysql", "mariadb":
-		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?timeout=5s&parseTime=false",
-			record.User, password, host, port, record.Name)
-		return sql.Open("mysql", dsn)
-	case "sqlite":
-		return nil, errors.New("SQLite is a file: the daemon reads it directly")
-	}
-	return nil, fmt.Errorf("no driver for %q yet", record.Engine)
-}
-
-func defaultEnginePort(engine string) int {
-	switch engine {
-	case "postgresql":
-		return 5432
-	case "mysql", "mariadb":
-		return 3306
-	case "mongodb":
-		return 27017
-	case "redis":
-		return 6379
-	}
-	return 0
+	return enginedb.Open(record, s.key)
 }
 
 // engineTables lists the tables of a daemon engine.

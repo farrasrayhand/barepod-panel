@@ -2,13 +2,16 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/enginedb"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/notify"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/stack"
@@ -39,9 +42,20 @@ type Job struct {
 	// this scheduler) never begins deleting on its own before an operator has seen it.
 	DefaultEnabled bool
 	// Implemented is false for a job the panel lists but the daemon cannot run yet; the UI shows it
-	// as "belum aktif" rather than pretending.
+	// as "Not implemented" rather than pretending.
 	Implemented bool
-	Run         func(ctx context.Context, env *Env) (string, error)
+	// Timeout overrides the scheduler's default. Zero means the default; a package upgrade or a
+	// database vacuum is given room so it cannot be killed halfway through.
+	Timeout time.Duration
+	Run     func(ctx context.Context, env *Env) (string, error)
+}
+
+// TimeoutFor is the wall-clock budget a job is given.
+func TimeoutFor(job Job) time.Duration {
+	if job.Timeout > 0 {
+		return job.Timeout
+	}
+	return jobTimeout
 }
 
 var registry = []Job{
@@ -180,13 +194,36 @@ var registry = []Job{
 	},
 	{
 		ID: "security_updates", Label: "Security OS updates", Category: "security",
-		Desc: "Unattended security upgrades (apt unattended-upgrades).",
-		DefaultSchedule: "0 5 * * *", DefaultEnabled: false, Implemented: false,
+		Desc: "Install pending security upgrades (apt unattended-upgrades).",
+		DefaultSchedule: "0 5 * * *", DefaultEnabled: false, Implemented: true,
+		// A package upgrade is not a five-minute job: give it room so a slow mirror or a local
+		// rebuild cannot be killed halfway and leave dpkg wanting repair.
+		Timeout: 60 * time.Minute,
+		Run: func(ctx context.Context, env *Env) (string, error) {
+			if !hasBinary("apt-get") {
+				return "apt-get is not available on this host; nothing to update", nil
+			}
+			// unattended-upgrade is the security-only path when the host has it configured.
+			if hasBinary("unattended-upgrade") {
+				out, err := env.Host.Run(ctx, []string{"unattended-upgrade", "-v"})
+				return strings.TrimSpace(out), err
+			}
+			out, err := env.Host.Run(ctx, []string{
+				"apt-get", "-y",
+				"-o", "DPkg::Lock::Timeout=600",
+				"-o", "Dpkg::Options::=--force-confold",
+				"-o", "Dpkg::Options::=--force-confdef",
+				"upgrade",
+			})
+			return strings.TrimSpace(out), err
+		},
 	},
 	{
 		ID: "db_maintenance", Label: "Database maintenance", Category: "database",
-		Desc: "PostgreSQL VACUUM ANALYZE & MariaDB table optimize.",
-		DefaultSchedule: "0 3 * * 0", DefaultEnabled: false, Implemented: false,
+		Desc: "PostgreSQL VACUUM ANALYZE & MariaDB/MySQL table optimize on every managed database.",
+		DefaultSchedule: "0 3 * * 0", DefaultEnabled: false, Implemented: true,
+		Timeout: 30 * time.Minute,
+		Run:     runDatabaseMaintenance,
 	},
 }
 
@@ -291,6 +328,114 @@ func runSmartShortTests(ctx context.Context, env *Env) (string, error) {
 		fmt.Fprintf(&report, "%s: %s\n", dev, line)
 	}
 	return strings.TrimSpace(report.String()), nil
+}
+
+// runDatabaseMaintenance vacuums/optimizes every database the panel manages. It connects with the
+// panel's pure-Go drivers as the database's own user, so the host needs no psql/mysql client.
+func runDatabaseMaintenance(ctx context.Context, env *Env) (string, error) {
+	records, err := env.Store.DatabasesForTenant(store.KindDatabase, "", false)
+	if err != nil {
+		return "", err
+	}
+
+	var report strings.Builder
+	handled, failures := 0, 0
+	for i := range records {
+		record := &records[i]
+		if record.Status != "ready" {
+			continue
+		}
+		switch record.Engine {
+		case "postgresql", "mysql", "mariadb":
+		default:
+			continue
+		}
+		handled++
+		result, err := maintainDatabase(ctx, env, record)
+		if err != nil {
+			failures++
+			fmt.Fprintf(&report, "%s (%s): failed — %v\n", record.Alias, record.Engine, err)
+			continue
+		}
+		fmt.Fprintf(&report, "%s (%s): %s\n", record.Alias, record.Engine, result)
+	}
+
+	if handled == 0 {
+		return "no PostgreSQL/MySQL/MariaDB databases to maintain", nil
+	}
+	out := strings.TrimSpace(report.String())
+	if failures > 0 {
+		return out, fmt.Errorf("%d of %d database(s) failed maintenance", failures, handled)
+	}
+	return out, nil
+}
+
+func maintainDatabase(ctx context.Context, env *Env, record *store.Database) (string, error) {
+	db, err := enginedb.Open(record, env.Key)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = db.Close() }()
+
+	if err := db.PingContext(ctx); err != nil {
+		return "", err
+	}
+
+	switch record.Engine {
+	case "postgresql":
+		// VACUUM cannot run inside a transaction; ExecContext here is autocommit, which is what it
+		// needs.
+		if _, err := db.ExecContext(ctx, "VACUUM ANALYZE"); err != nil {
+			return "", err
+		}
+		return "VACUUM ANALYZE done", nil
+	case "mysql", "mariadb":
+		tables, err := mysqlBaseTables(ctx, db)
+		if err != nil {
+			return "", err
+		}
+		if len(tables) == 0 {
+			return "no tables to optimize", nil
+		}
+		optimized, firstErr := 0, error(nil)
+		for _, table := range tables {
+			if _, err := db.ExecContext(ctx, "OPTIMIZE TABLE "+quoteMySQLIdent(table)); err != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("%s: %w", table, err)
+				}
+				continue
+			}
+			optimized++
+		}
+		if firstErr != nil {
+			return fmt.Sprintf("optimized %d of %d table(s)", optimized, len(tables)), firstErr
+		}
+		return fmt.Sprintf("optimized %d table(s)", optimized), nil
+	}
+	return "nothing to do for this engine", nil
+}
+
+func mysqlBaseTables(ctx context.Context, db *sql.DB) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT table_name FROM information_schema.tables
+		WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+
+func quoteMySQLIdent(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }
 
 func diskUsagePercent(path string) (float64, error) {

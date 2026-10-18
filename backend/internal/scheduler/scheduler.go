@@ -97,7 +97,8 @@ func (s *Scheduler) claim(id, slot string) bool {
 }
 
 func (s *Scheduler) runOne(ctx context.Context, id string) {
-	runCtx, cancel := context.WithTimeout(ctx, jobTimeout)
+	meta, _ := Lookup(id)
+	runCtx, cancel := context.WithTimeout(ctx, TimeoutFor(meta))
 	defer cancel()
 
 	start := time.Now()

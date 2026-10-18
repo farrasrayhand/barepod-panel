@@ -159,7 +159,7 @@ func (s *Server) handleRunSystemCronJob(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), scheduler.TimeoutFor(meta))
 	defer cancel()
 
 	start := time.Now()

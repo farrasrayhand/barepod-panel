@@ -413,7 +413,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [panelPublishing, setPanelPublishing] = useState(false);
   const [timezone, setTimezone] = useState('Asia/Jakarta');
   const [language, setLanguage] = useState('id');
-  const [autoUpdate, setAutoUpdate] = useState(true);
 
   // Detection for the panel's own domain. Admin only: the panel may only ever be published through
   // the administrator's Cloudflare account, so the zone picker is filled from that account.
@@ -941,24 +940,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     <option value="en">English (US)</option>
                   </select>
                     <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this yet.</p>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-slate-100 flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  id="autoUpdateCheck"
-                  checked={autoUpdate}
-                  onChange={(e) => setAutoUpdate(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 text-blue-600 rounded border-slate-300"
-                />
-                <div>
-                  <label htmlFor="autoUpdateCheck" className="text-xs font-bold text-slate-900 cursor-pointer block">
-                    Automatic Core & Security Patches
-                  </label>
-                  <p className="text-[11px] text-slate-500">
-                    Not applied: the panel schedules no patches yet.
-                  </p>
                 </div>
               </div>
 
