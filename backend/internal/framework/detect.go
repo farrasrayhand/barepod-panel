@@ -120,18 +120,65 @@ func Detect(dir string) *DetectedFramework {
 		}
 	}
 
-	// 6. Check Static HTML
+	// 6. Check Native PHP
+	hasIndexPHP := false
+	docRoot := "."
+	if _, err := os.Stat(filepath.Join(dir, "index.php")); err == nil {
+		hasIndexPHP = true
+	} else if _, err := os.Stat(filepath.Join(dir, "public", "index.php")); err == nil {
+		hasIndexPHP = true
+		docRoot = "public"
+	}
+
+	// 7. Check Static HTML
 	if _, err := os.Stat(filepath.Join(dir, "index.html")); err == nil {
+		isPlaceholder := false
+		if data, rErr := os.ReadFile(filepath.Join(dir, "index.html")); rErr == nil {
+			if strings.Contains(string(data), "BarePod Panel") {
+				isPlaceholder = true
+			}
+		}
+		if !isPlaceholder || !hasIndexPHP {
+			return &DetectedFramework{
+				Name:    "static",
+				Title:   "Static HTML",
+				Runtime: "static",
+				DocRoot: ".",
+				Port:    80,
+			}
+		}
+	}
+
+	if hasIndexPHP {
 		return &DetectedFramework{
-			Name:    "static",
-			Title:   "Static HTML",
-			Runtime: "static",
-			DocRoot: ".",
-			Port:    80,
+			Name:           "php",
+			Title:          "Native PHP",
+			Runtime:        "php",
+			Version:        "8.4",
+			PackageManager: "composer",
+			DocRoot:        docRoot,
+			Port:           8001,
 		}
 	}
 
 	return nil
+}
+
+// ShouldUpdateFramework returns true if the newly detected framework should replace the current framework.
+func ShouldUpdateFramework(current, detected string) bool {
+	detected = strings.TrimSpace(detected)
+	if detected == "" || strings.EqualFold(detected, "generic") {
+		return false
+	}
+	curr := strings.ToLower(strings.TrimSpace(current))
+	if curr == "" || strings.HasPrefix(curr, "generic") {
+		return true
+	}
+	// If previously tagged as Static HTML / static, but now has real code or framework (like Native PHP, Laravel, etc.)
+	if (curr == "static html" || curr == "static") && !strings.EqualFold(detected, "static html") && !strings.EqualFold(detected, "static") {
+		return true
+	}
+	return false
 }
 
 // DetectArchive inspects a ZIP archive in-memory without fully unpacking to disk.
@@ -145,6 +192,7 @@ func DetectArchive(r io.ReaderAt, size int64) *DetectedFramework {
 	var reqStr string
 	hasWP := false
 	hasIndexHTML := false
+	hasIndexPHP := false
 	hasGoMod := false
 	hasPnpmLock := false
 	hasYarnLock := false
@@ -173,6 +221,8 @@ func DetectArchive(r io.ReaderAt, size int64) *DetectedFramework {
 			hasWP = true
 		case "go.mod":
 			hasGoMod = true
+		case "index.php":
+			hasIndexPHP = true
 		case "index.html":
 			hasIndexHTML = true
 		case "pnpm-lock.yaml":
@@ -229,6 +279,17 @@ func DetectArchive(r io.ReaderAt, size int64) *DetectedFramework {
 			DocRoot:        ".",
 			IsProxy:        true,
 			DatabaseEngine: "postgres",
+		}
+	}
+	if hasIndexPHP {
+		return &DetectedFramework{
+			Name:           "php",
+			Title:          "Native PHP",
+			Runtime:        "php",
+			Version:        "8.4",
+			PackageManager: "composer",
+			DocRoot:        ".",
+			Port:           8001,
 		}
 	}
 	if hasIndexHTML {

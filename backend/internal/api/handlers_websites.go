@@ -48,8 +48,8 @@ func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request, user
 
 	// Auto-detect framework for generic or unassigned sites
 	for i := range items {
-		if items[i].Runtime != "proxy" && (items[i].Framework == "" || strings.HasPrefix(strings.ToLower(items[i].Framework), "generic")) {
-			if fw := s.host.DetectFramework(items[i].TenantUser, items[i].Slug); fw != nil && fw.Name != "" && fw.Name != "generic" {
+		if items[i].Runtime != "proxy" {
+			if fw := s.host.DetectFramework(items[i].TenantUser, items[i].Slug); fw != nil && framework.ShouldUpdateFramework(items[i].Framework, fw.Title) {
 				items[i].Framework = fw.Title
 				_ = s.store.UpdateWebsiteFramework(items[i].Slug, fw.Title)
 			}
@@ -75,8 +75,8 @@ func (s *Server) handleGetWebsite(w http.ResponseWriter, r *http.Request, user *
 		writeError(w, http.StatusNotFound, "not_found", "Website not found")
 		return
 	}
-	if site.Runtime != "proxy" && (site.Framework == "" || strings.HasPrefix(strings.ToLower(site.Framework), "generic")) {
-		if fw := s.host.DetectFramework(site.TenantUser, site.Slug); fw != nil && fw.Name != "" && fw.Name != "generic" {
+	if site.Runtime != "proxy" {
+		if fw := s.host.DetectFramework(site.TenantUser, site.Slug); fw != nil && framework.ShouldUpdateFramework(site.Framework, fw.Title) {
 			site.Framework = fw.Title
 			_ = s.store.UpdateWebsiteFramework(site.Slug, fw.Title)
 		}
@@ -94,10 +94,9 @@ func (s *Server) handleDetectWebsiteFramework(w http.ResponseWriter, r *http.Req
 	}
 
 	fw := s.host.DetectFramework(site.TenantUser, site.Slug)
-	if fw != nil && fw.Name != "" && fw.Name != "generic" {
-		if site.Framework == "" || strings.HasPrefix(strings.ToLower(site.Framework), "generic") {
-			_ = s.store.UpdateWebsiteFramework(site.Slug, fw.Title)
-		}
+	if fw != nil && framework.ShouldUpdateFramework(site.Framework, fw.Title) {
+		site.Framework = fw.Title
+		_ = s.store.UpdateWebsiteFramework(site.Slug, fw.Title)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":        true,

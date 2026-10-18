@@ -305,7 +305,8 @@ func stepPrepareDirs(ctx context.Context, s *state) error {
 
 	// Prepare initial placeholder page so the domain immediately answers with HTTP 200
 	// while longer tasks (git clone, composer/npm install, database provisioning) run in background.
-	if s.req.Domain != "" {
+	// Only run on fresh deploy, never on redeploy.
+	if !s.req.Redeploy && s.req.Domain != "" {
 		_ = s.writeDefaultPage(ctx)
 	}
 	return nil
@@ -334,6 +335,7 @@ func stepFetchSource(ctx context.Context, s *state) error {
 	if err := s.m.host.ChownSite(ctx, s.req.Tenant, s.req.Slug); err != nil {
 		return err
 	}
+	s.cleanupPlaceholderIndex()
 	if s.req.Source.Kind != "scaffold" {
 		return nil
 	}
@@ -424,6 +426,31 @@ func (s *state) writeDefaultPage(ctx context.Context) error {
 	}
 	s.log("stdout", "wrote the default page index.html")
 	return nil
+}
+
+// cleanupPlaceholderIndex removes the temporary BarePod default page if the project
+// has its own application entrypoint (e.g. index.php, composer.json, package.json).
+func (s *state) cleanupPlaceholderIndex() {
+	target := filepath.Join(s.siteDir, "index.html")
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return
+	}
+	if !strings.Contains(string(data), "BarePod Panel") {
+		return
+	}
+	hasAppEntry := false
+	for _, marker := range []string{"index.php", "public/index.php", "composer.json", "package.json", "artisan", "wp-config.php", "requirements.txt", "pyproject.toml", "go.mod"} {
+		if _, err := os.Stat(filepath.Join(s.siteDir, marker)); err == nil {
+			hasAppEntry = true
+			break
+		}
+	}
+	if hasAppEntry {
+		if err := os.Remove(target); err == nil {
+			s.log("stdout", "cleaned up BarePod default placeholder index.html in favor of application entrypoint")
+		}
+	}
 }
 
 // writeStarterFiles places the framework's entrypoint inside the site.
@@ -1019,17 +1046,17 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 			script = strings.TrimSpace(fw.BuildCommand)
 			s.log("stdout", fmt.Sprintf("auto-detected framework: %s (running recommended build pipeline)", fw.Title))
 			if site, err := s.m.store.WebsiteBySlug(s.req.Slug); err == nil && site != nil {
-				if site.Framework == "" || strings.HasPrefix(strings.ToLower(site.Framework), "generic") {
+				if framework.ShouldUpdateFramework(site.Framework, fw.Title) {
 					_ = s.m.store.UpdateWebsiteFramework(site.Slug, fw.Title)
 				}
 			}
 		}
 	}
 
-	// Always sync detected framework if site profile is still generic
+	// Always sync detected framework if site profile is still generic or static placeholder
 	if fw := framework.Detect(s.siteDir); fw != nil && fw.Name != "" && fw.Name != "generic" {
 		if site, err := s.m.store.WebsiteBySlug(s.req.Slug); err == nil && site != nil {
-			if site.Framework == "" || strings.HasPrefix(strings.ToLower(site.Framework), "generic") {
+			if framework.ShouldUpdateFramework(site.Framework, fw.Title) {
 				_ = s.m.store.UpdateWebsiteFramework(site.Slug, fw.Title)
 			}
 		}

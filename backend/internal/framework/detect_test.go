@@ -131,3 +131,70 @@ func TestDetectArchive(t *testing.T) {
 		t.Errorf("got %q, want 8.3", fw.Version)
 	}
 }
+
+func TestDetectNativePHP(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.php"), []byte("<?php echo 'hello';"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fw := Detect(dir)
+	if fw == nil {
+		t.Fatal("expected detected framework, got nil")
+	}
+	if fw.Name != "php" {
+		t.Errorf("got name %q, want php", fw.Name)
+	}
+	if fw.Title != "Native PHP" {
+		t.Errorf("got title %q, want Native PHP", fw.Title)
+	}
+	if fw.Runtime != "php" {
+		t.Errorf("got runtime %q, want php", fw.Runtime)
+	}
+	if fw.DocRoot != "." {
+		t.Errorf("got docRoot %q, want .", fw.DocRoot)
+	}
+}
+
+func TestDetectNativePHPWithBarePodPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	placeholder := "<!doctype html><html><head><title>test — BarePod Panel</title></head><body>Welcome to BarePod</body></html>"
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(placeholder), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.php"), []byte("<?php echo 'app';"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fw := Detect(dir)
+	if fw == nil {
+		t.Fatal("expected detected framework, got nil")
+	}
+	if fw.Title != "Native PHP" {
+		t.Errorf("got title %q, want Native PHP (should not be static placeholder)", fw.Title)
+	}
+}
+
+func TestShouldUpdateFramework(t *testing.T) {
+	tests := []struct {
+		current  string
+		detected string
+		want     bool
+	}{
+		{"", "Native PHP", true},
+		{"generic", "Native PHP", true},
+		{"Generic PHP", "Native PHP", true},
+		{"Static HTML", "Native PHP", true},
+		{"static", "Laravel 11", true},
+		{"Static HTML", "Static HTML", false},
+		{"Laravel 11", "Native PHP", false},
+		{"WordPress", "generic", false},
+	}
+
+	for _, tt := range tests {
+		got := ShouldUpdateFramework(tt.current, tt.detected)
+		if got != tt.want {
+			t.Errorf("ShouldUpdateFramework(%q, %q) = %v; want %v", tt.current, tt.detected, got, tt.want)
+		}
+	}
+}
