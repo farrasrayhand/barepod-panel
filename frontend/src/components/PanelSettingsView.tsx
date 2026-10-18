@@ -41,6 +41,7 @@ import { describeError } from '../utils/format';
 import { PhpExtensionsPanel } from './PhpExtensionsPanel';
 import { CronJobsManager } from './CronJobsManager';
 import { isNewerVersion } from '../version';
+import QRCode from 'qrcode';
 
 interface PanelSettingsViewProps {
   /** False hides controls a signed-in user may look at but not change — the daemon refuses them
@@ -377,8 +378,22 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const startTotpSetup = async () => {
     setTotpBusy(true);
     try {
-      setTotpSetup(await api.totpSetup());
+      const setup = await api.totpSetup();
+      setTotpSetup(setup);
       setTotpCode('');
+      try {
+        const dataUrl = await QRCode.toDataURL(setup.otpauthUrl, {
+          width: 200,
+          margin: 2,
+          color: {
+            dark: '#0f172a',
+            light: '#ffffff',
+          },
+        });
+        setQrCodeDataUrl(dataUrl);
+      } catch {
+        setQrCodeDataUrl('');
+      }
     } catch (err) {
       onShowToast?.('Could not start 2FA setup', describeError(err), 'error');
     } finally {
@@ -393,6 +408,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       const res = await api.totpEnable(totpCode);
       setTotpEnabled(res.enabled);
       setTotpSetup(null);
+      setQrCodeDataUrl('');
       setTotpCode('');
       onShowToast?.('2FA enabled', 'Signing in now also needs a code from your authenticator.', 'success');
     } catch (err) {
@@ -682,6 +698,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   // Two-factor authentication for this account (TOTP).
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [totpSetup, setTotpSetup] = useState<{ secret: string; otpauthUrl: string } | null>(null);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
   const [totpCode, setTotpCode] = useState('');
   const [totpBusy, setTotpBusy] = useState(false);
   const [copiedTotp, setCopiedTotp] = useState(false);
@@ -1460,51 +1477,80 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </div>
 
                 {totpSetup ? (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <p className="text-[11px] text-slate-600">
-                      Add this secret to your authenticator (or open the link), then enter the current code
-                      to confirm. It is not required until you confirm.
+                      Scan this QR code with your authenticator app (Google Authenticator, Authy, 1Password, etc.), or manually copy the secret key below.
                     </p>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 px-2.5 py-2 rounded-lg bg-slate-900 text-slate-100 font-mono text-[11px] break-all">
-                        {totpSetup.secret}
-                      </code>
-                      <button
-                        type="button"
-                        onClick={() => void copyTotpSecret()}
-                        className="px-2.5 py-2 text-[11px] font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg shrink-0 cursor-pointer"
-                      >
-                        {copiedTotp ? 'Copied' : 'Copy'}
-                      </button>
+
+                    {/* QR Code and Secret Display */}
+                    <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+                      {qrCodeDataUrl ? (
+                        <div className="p-2 bg-white rounded-xl border border-slate-200 shadow-xs shrink-0">
+                          <img
+                            src={qrCodeDataUrl}
+                            alt="2FA TOTP QR Code"
+                            className="w-36 h-36 rounded-lg block"
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-36 h-36 bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-center text-slate-400 text-xs shrink-0">
+                          Generating QR…
+                        </div>
+                      )}
+
+                      <div className="space-y-2 flex-1 w-full min-w-0">
+                        <div className="text-[11px] font-semibold text-slate-800">
+                          Manual Entry Secret:
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <code className="flex-1 px-2.5 py-2 rounded-lg bg-slate-900 text-slate-100 font-mono text-[11px] break-all select-all">
+                            {totpSetup.secret}
+                          </code>
+                          <button
+                            type="button"
+                            onClick={() => void copyTotpSecret()}
+                            className="px-2.5 py-2 text-[11px] font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg shrink-0 cursor-pointer transition"
+                          >
+                            {copiedTotp ? 'Copied' : 'Copy'}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-mono break-all">{totpSetup.otpauthUrl}</p>
+                      </div>
                     </div>
-                    <p className="text-[10px] text-slate-400 font-mono break-all">{totpSetup.otpauthUrl}</p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <input
-                        value={totpCode}
-                        onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        inputMode="numeric"
-                        maxLength={6}
-                        placeholder="123456"
-                        className="w-28 px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg font-mono tracking-[0.2em]"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void confirmTotp()}
-                        disabled={totpCode.length !== 6 || totpBusy}
-                        className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg cursor-pointer"
-                      >
-                        {totpBusy ? 'Confirming…' : 'Confirm & enable'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTotpSetup(null);
-                          setTotpCode('');
-                        }}
-                        className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer"
-                      >
-                        Cancel
-                      </button>
+
+                    <div className="space-y-1.5 pt-1">
+                      <label className="text-[11px] font-semibold text-slate-700 block">
+                        Enter 6-digit confirmation code from your app:
+                      </label>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          value={totpCode}
+                          onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          inputMode="numeric"
+                          maxLength={6}
+                          placeholder="123456"
+                          className="w-32 px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg font-mono tracking-[0.25em] text-center font-bold text-slate-900"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void confirmTotp()}
+                          disabled={totpCode.length !== 6 || totpBusy}
+                          className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg cursor-pointer transition shadow-xs"
+                        >
+                          {totpBusy ? 'Confirming…' : 'Confirm & Enable 2FA'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTotpSetup(null);
+                            setQrCodeDataUrl('');
+                            setTotpCode('');
+                          }}
+                          className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer transition"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ) : totpEnabled ? (

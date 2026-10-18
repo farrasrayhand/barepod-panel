@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Server, Lock, AlertCircle, FlaskConical, KeyRound, Copy, Check, X } from 'lucide-react';
+import { Server, Lock, AlertCircle, FlaskConical, KeyRound, Copy, Check, X, User, Terminal } from 'lucide-react';
 
 interface LoginViewProps {
   onSignIn: (username: string, password: string, totpCode?: string) => Promise<boolean>;
@@ -184,8 +184,26 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
             </div>
 
             <div className="p-5 space-y-4">
-              <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 text-xs text-blue-900 leading-relaxed">
-                For security reasons, panel passwords can only be reset via the server terminal by the server owner or root operator.
+              {/* Notice for Regular Users */}
+              <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200 text-xs text-amber-900 leading-relaxed flex items-start gap-2.5">
+                <div className="w-5 h-5 rounded-md bg-amber-200/60 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+                  <User className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <strong className="font-semibold block text-amber-950">Regular Users / Tenants</strong>
+                  Please contact your server administrator to reset your account password.
+                </div>
+              </div>
+
+              {/* Notice for Admin SSH Terminal */}
+              <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 text-xs text-blue-900 leading-relaxed flex items-start gap-2.5">
+                <div className="w-5 h-5 rounded-md bg-blue-200/60 text-blue-800 flex items-center justify-center shrink-0 mt-0.5">
+                  <Terminal className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <strong className="font-semibold block text-blue-950">Server Administrators</strong>
+                  Root operators can reset any account password directly via the server terminal using the CLI instructions below:
+                </div>
               </div>
 
               <div className="space-y-3.5 text-xs text-slate-700">
