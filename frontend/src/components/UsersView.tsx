@@ -95,6 +95,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
   // Whether the panel shares CPU (overcommit). It decides which CPU field a package
   // editor shows — the hard quota, or the share.
   const [cpuShared, setCpuShared] = useState(false);
+  // Whether this host can enforce a filesystem quota at all. When it cannot (an
+  // unprivileged LXC), the editor hides the inode quota rather than offer a control
+  // that would never be applied.
+  const [inodeSupported, setInodeSupported] = useState(true);
 
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<ApiUser | null>(null);
@@ -131,6 +135,12 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
           if (!cancelled) setCpuShared(Boolean(settings.overcommit?.cpu));
         } catch {
           // leave the hardcap default in place
+        }
+        try {
+          const capacity = await api.capacity();
+          if (!cancelled) setInodeSupported(capacity.quotaEnforced);
+        } catch {
+          // keep the field visible; better a control that may not apply than a hidden one
         }
       } catch (err) {
         if (cancelled) return;
@@ -272,7 +282,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
 
   if (accessDenied) {
     return (
-      <div className="p-8 max-w-4xl mx-auto space-y-6">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto space-y-6">
         <div className="bg-white rounded-2xl border border-slate-200 p-8 shadow-xs text-center space-y-4">
           <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto border border-amber-200">
             <ShieldAlert className="w-6 h-6" />
@@ -297,7 +307,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -371,7 +381,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
       {/* TAB 1: USER ACCOUNTS TABLE */}
       {activeTab === 'accounts' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-          <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto">
+            <table className="min-w-[680px] w-full text-left text-xs">
             <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
               <tr>
                 <th className="py-3.5 px-4">Username & Home</th>
@@ -514,13 +525,15 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
       {/* TAB 2: GROUPS & RESOURCE LIMITS TABLE */}
       {activeTab === 'groups' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
-          <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto">
+            <table className="min-w-[680px] w-full text-left text-xs">
             <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
               <tr>
                 <th className="py-3.5 px-4">Package Name</th>
@@ -602,6 +615,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -624,6 +638,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
         onSubmit={submitGroup}
         editGroup={editingGroup}
         cpuShared={cpuShared}
+        inodeSupported={inodeSupported}
         busy={busy}
       />
 

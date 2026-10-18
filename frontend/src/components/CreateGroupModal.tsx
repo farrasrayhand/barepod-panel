@@ -11,6 +11,8 @@ interface CreateGroupModalProps {
   busy?: boolean;
   /** True when the panel shares CPU: the editor then shows the share, not the hard quota. */
   cpuShared?: boolean;
+  /** True when this host can enforce a filesystem quota; false hides the inode quota. */
+  inodeSupported?: boolean;
 }
 
 type PermMap = Record<string, boolean>;
@@ -40,6 +42,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   editGroup,
   busy,
   cpuShared = false,
+  inodeSupported = true,
 }) => {
   const isEditing = Boolean(editGroup);
   const [name, setName] = useState('');
@@ -95,10 +98,11 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   };
 
   const field = 'w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500';
+  const desc = 'mt-1 block text-[10px] leading-snug text-slate-400';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-lg w-full overflow-hidden max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-lg w-full overflow-hidden max-h-[90dvh] overflow-y-auto">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -149,50 +153,58 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
               <span className="text-xs font-bold text-slate-800">Resource Limits</span>
               <span className="text-[10px] text-slate-400 font-mono">0 = unlimited</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block">
                 <span className="text-[11px] text-slate-500">Max Sites</span>
                 <input type="number" min="0" value={maxSites} onChange={(e) => setMaxSites(e.target.value)} className={`${field} mt-1`} />
+                <span className={desc}>How many websites this account may create.</span>
               </label>
               <label className="block">
                 <span className="text-[11px] text-slate-500">Max Databases</span>
                 <input type="number" min="0" value={maxDatabases} onChange={(e) => setMaxDatabases(e.target.value)} className={`${field} mt-1`} />
+                <span className={desc}>How many databases and caches it may create.</span>
               </label>
               <label className="block">
                 <span className="text-[11px] text-slate-500">Disk Quota (GB)</span>
                 <input type="number" min="0" value={diskQuotaGb} onChange={(e) => setDiskQuotaGb(e.target.value)} className={`${field} mt-1`} />
+                <span className={desc}>Cap on the size of its home. Without kernel quota support the panel still refuses its own writes past the limit.</span>
               </label>
               <label className="block">
                 <span className="text-[11px] text-slate-500">RAM (MB)</span>
                 <input type="number" min="0" value={memoryMb} onChange={(e) => setMemoryMb(e.target.value)} className={`${field} mt-1`} />
+                <span className={desc}>Hard memory cap per site (MemoryMax). Past it, the site's process is OOM-killed.</span>
               </label>
               {cpuShared ? (
                 <label className="block">
                   <span className="text-[11px] text-slate-500">CPU Share (weight)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={cpuWeight}
-                    onChange={(e) => setCpuWeight(e.target.value)}
-                    title="Relative share of a contended CPU. 100 is the default; 200 gets twice the CPU of 100. Idle cores are shared automatically."
-                    className={`${field} mt-1`}
-                  />
+                  <input type="number" min="0" value={cpuWeight} onChange={(e) => setCpuWeight(e.target.value)} className={`${field} mt-1`} />
+                  <span className={desc}>Relative CPU share under contention. 100 is the default; 200 gets twice the CPU of 100. Idle cores are shared automatically.</span>
                 </label>
               ) : (
                 <label className="block">
                   <span className="text-[11px] text-slate-500">CPU Quota (%)</span>
                   <input type="number" min="0" value={cpuQuotaPercent} onChange={(e) => setCpuQuotaPercent(e.target.value)} className={`${field} mt-1`} />
+                  <span className={desc}>Hard CPU cap; 100 = one full core. It cannot burst, even when the server is idle.</span>
                 </label>
               )}
               <label className="block">
                 <span className="text-[11px] text-slate-500">Tasks Max</span>
                 <input type="number" min="0" value={tasksMax} onChange={(e) => setTasksMax(e.target.value)} className={`${field} mt-1`} />
+                <span className={desc}>Ceiling on a site's processes and threads (pids.max) — stops a fork bomb.</span>
               </label>
-              <label className="block">
-                <span className="text-[11px] text-slate-500">Inode Quota</span>
-                <input type="number" min="0" value={inodeQuota} onChange={(e) => setInodeQuota(e.target.value)} className={`${field} mt-1`} />
-              </label>
+              {inodeSupported && (
+                <label className="block">
+                  <span className="text-[11px] text-slate-500">Inode Quota</span>
+                  <input type="number" min="0" value={inodeQuota} onChange={(e) => setInodeQuota(e.target.value)} className={`${field} mt-1`} />
+                  <span className={desc}>Cap on the number of files and folders. A tenant that fills the filesystem's inode table takes every other tenant down with it.</span>
+                </label>
+              )}
             </div>
+            {!inodeSupported && (
+              <p className="text-[10px] text-slate-400 mt-2">
+                Inode quota is hidden: this host cannot enforce a filesystem quota (no <span className="font-mono">usrquota</span> support), so the limit would never be applied.
+              </p>
+            )}
           </div>
 
           <div className="pt-1 border-t border-slate-100">

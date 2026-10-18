@@ -14,6 +14,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/supervisor"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/sysinfo"
 )
 
 // capacityWarnings memoises the last verdict so a resize is logged/audited once
@@ -191,7 +192,13 @@ func (s *Server) handleCapacity(w http.ResponseWriter, r *http.Request, _ *store
 		"suggested":  capacity.Suggest(),
 		"packages":   claims,
 		"mode":       s.host.Mode(),
-		"checkedAt":  time.Now().UTC().Format(time.RFC3339),
+		// Whether this host can enforce a filesystem quota at all. The package editor reads
+		// it to hide the inode quota on a host that would never apply it (an unprivileged
+		// LXC, typically), instead of offering a control that silently does nothing. It is
+		// here rather than in /system/capabilities because the editor lives behind the
+		// `users` capability, not `monitoring`.
+		"quotaEnforced": sysinfo.QuotaEnforced(),
+		"checkedAt":     time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
