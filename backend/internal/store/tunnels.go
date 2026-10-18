@@ -198,6 +198,61 @@ func (s *Store) DeleteCloudflareTunnelRoute(tenantUser, idOrHostname string) err
 	return err
 }
 
+// ListTunnelRoutesByHostname returns every recorded route for a hostname, whoever recorded it. The
+// hostname is what the operator sees and what has to come out of Cloudflare when the website behind
+// it is deleted; the row's owner is not the website's tenant user — the tunnel and the routes are
+// keyed by the panel account — so matching on the owner alone missed them.
+func (s *Store) ListTunnelRoutesByHostname(hostname string) ([]CloudflareTunnelRoute, error) {
+	hostname = strings.ToLower(strings.TrimSpace(hostname))
+	rows, err := s.DB.Query(
+		`SELECT id, tenant_user, hostname, service, app_name, status, created_at
+		 FROM cloudflare_tunnel_routes WHERE lower(hostname) = ?`, hostname)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var routes []CloudflareTunnelRoute
+	for rows.Next() {
+		var r CloudflareTunnelRoute
+		if err := rows.Scan(&r.ID, &r.TenantUser, &r.Hostname, &r.Service, &r.AppName, &r.Status, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		routes = append(routes, r)
+	}
+	return routes, rows.Err()
+}
+
+// ListTunnelRoutesByAppName returns every recorded route pointing at an app, whoever recorded it.
+func (s *Store) ListTunnelRoutesByAppName(appName string) ([]CloudflareTunnelRoute, error) {
+	rows, err := s.DB.Query(
+		`SELECT id, tenant_user, hostname, service, app_name, status, created_at
+		 FROM cloudflare_tunnel_routes WHERE app_name = ?`, strings.TrimSpace(appName))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var routes []CloudflareTunnelRoute
+	for rows.Next() {
+		var r CloudflareTunnelRoute
+		if err := rows.Scan(&r.ID, &r.TenantUser, &r.Hostname, &r.Service, &r.AppName, &r.Status, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		routes = append(routes, r)
+	}
+	return routes, rows.Err()
+}
+
+// DeleteTunnelRoutesByHostname removes every recorded route for a hostname, whoever owns it.
+func (s *Store) DeleteTunnelRoutesByHostname(hostname string) error {
+	_, err := s.DB.Exec(
+		`DELETE FROM cloudflare_tunnel_routes WHERE lower(hostname) = ?`,
+		strings.ToLower(strings.TrimSpace(hostname)),
+	)
+	return err
+}
+
 // UpdateCloudflareTunnelRoute updates an existing route by its ID.
 func (s *Store) UpdateCloudflareTunnelRoute(tenantUser, id, hostname, service, appName string) (*CloudflareTunnelRoute, error) {
 	hostname = strings.ToLower(strings.TrimSpace(hostname))

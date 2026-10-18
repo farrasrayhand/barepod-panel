@@ -121,7 +121,7 @@ func TestPurgeCloudflareRoutesRemovesOnlyTheDeletedSite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s.purgeCloudflareRoutes(context.Background(), "admin", "my-site")
+	s.purgeCloudflareRoutes(context.Background(), "admin", "admin", "my-site", []string{"site.example.com"})
 
 	routes, err := s.store.ListCloudflareTunnelRoutes("admin")
 	if err != nil {

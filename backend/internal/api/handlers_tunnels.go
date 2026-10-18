@@ -658,28 +658,66 @@ func (s *Server) handleDeleteTunnelRoute(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// purgeCloudflareRoutes removes every ingress route a website owns, in Cloudflare and locally. It runs
-// on teardown so deleting a site does not leave public hostnames (and DNS records) pointing at a
-// tunnel for a site that no longer exists. Best-effort: a Cloudflare outage must not block the delete.
-func (s *Server) purgeCloudflareRoutes(ctx context.Context, tenantUser, slug string) {
-	routes, err := s.store.ListCloudflareTunnelRoutes(tenantUser)
-	if err != nil {
-		return
+// purgeCloudflareRoutes removes every ingress route a website owns — in Cloudflare and locally. It is
+// keyed on the website's hostnames, not on an account: the tunnel and the route rows live under
+// whichever panel account configured them (the panel's own, or the tenant's), and that is not the
+// website's tenant user. Matching on tenant_user is why deleting a site used to leave its ingress
+// rule (and DNS record) behind in Cloudflare. Best-effort: a Cloudflare outage must not block the
+// delete.
+func (s *Server) purgeCloudflareRoutes(ctx context.Context, actor, siteTenant, slug string, hostnames []string) {
+	targets := append([]string(nil), hostnames...)
+	// Routes recorded for this app under any account, in case one of their hostnames is not in the
+	// list the caller passed.
+	if routes, err := s.store.ListTunnelRoutesByAppName(slug); err == nil {
+		for _, r := range routes {
+			targets = append(targets, r.Hostname)
+		}
 	}
-	tunnel, _ := s.store.GetCloudflareTunnel(tenantUser)
-	ready := tunnel != nil && tunnel.ApiToken != "" && tunnel.AccountID != "" && tunnel.TunnelID != ""
-	for _, route := range routes {
-		if route.AppName != slug {
+	s.purgeHostnames(ctx, actor, siteTenant, targets...)
+}
+
+// purgeHostnames takes exactly the hostnames it is given out of Cloudflare and out of the routes
+// table — used both by a website teardown and by removing a single domain.
+func (s *Server) purgeHostnames(ctx context.Context, actor, siteTenant string, hostnames ...string) {
+	seen := map[string]bool{}
+	for _, hostname := range hostnames {
+		hostname = strings.ToLower(strings.TrimSpace(hostname))
+		if hostname == "" || seen[hostname] {
 			continue
 		}
-		if ready {
-			cf := cloudflare.NewClient(tunnel.ApiToken, tunnel.AccountID, tunnel.TunnelID)
-			if err := cf.DeleteHostname(ctx, route.Hostname); err != nil {
-				log.Printf("cloudflare: purge route %s on teardown: %v", route.Hostname, err)
+		seen[hostname] = true
+
+		owners := []string{actor, siteTenant}
+		if routes, err := s.store.ListTunnelRoutesByHostname(hostname); err == nil {
+			for _, r := range routes {
+				owners = append(owners, r.TenantUser)
 			}
 		}
-		_ = s.store.DeleteCloudflareTunnelRoute(tenantUser, route.ID)
+		if cf := s.cloudflareClientFor(owners...); cf != nil {
+			if err := cf.DeleteHostname(ctx, hostname); err != nil {
+				log.Printf("cloudflare: purge %s: %v", hostname, err)
+			}
+		}
+		_ = s.store.DeleteTunnelRoutesByHostname(hostname)
 	}
+}
+
+// cloudflareClientFor returns a Cloudflare client built from the first candidate account that has a
+// usable tunnel (API token, account id and tunnel id), so a purge does not depend on guessing which
+// account published a hostname.
+func (s *Server) cloudflareClientFor(candidates ...string) *cloudflare.Client {
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		tunnel, err := s.store.GetCloudflareTunnel(candidate)
+		if err == nil && tunnel != nil && tunnel.ApiToken != "" && tunnel.AccountID != "" && tunnel.TunnelID != "" {
+			return cloudflare.NewClient(tunnel.ApiToken, tunnel.AccountID, tunnel.TunnelID)
+		}
+	}
+	return nil
 }
 
 // handleUpdateTunnelRoute updates an ingress route for this tenant and syncs with Cloudflare if API token is present.

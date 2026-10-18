@@ -638,7 +638,15 @@ func (s *Server) handleDeleteWebsite(w http.ResponseWriter, r *http.Request, use
 	}
 
 	// The website's Cloudflare Tunnel routes go with it — removed in Cloudflare too, not just locally.
-	s.purgeCloudflareRoutes(r.Context(), site.TenantUser, slug)
+	// Every hostname the site answers on is purged, so an alias or a renamed domain cannot leave a
+	// public ingress (and DNS record) behind.
+	hostnames := []string{site.Domain}
+	if domains, err := s.store.ListDomainsForSite(slug); err == nil {
+		for _, d := range domains {
+			hostnames = append(hostnames, d.Domain)
+		}
+	}
+	s.purgeCloudflareRoutes(r.Context(), user.Username, site.TenantUser, slug, hostnames)
 
 	steps, err := s.deploy.Teardown(r.Context(), slug)
 	if err != nil {

@@ -258,6 +258,10 @@ func (s *Server) handleDeleteDomain(w http.ResponseWriter, r *http.Request, user
 	// Reapply vhost without the removed alias
 	_ = s.applyVhost(r, site)
 
+	// Removing a domain takes its public hostname out of Cloudflare as well: the route row (when one
+	// exists) and, if it is not tracked, the ingress rule it left behind.
+	s.purgeHostnames(r.Context(), user.Username, site.TenantUser, d.Domain)
+
 	_ = s.store.Audit(user.ID, "domain.delete", d.Domain, clientIP(r), "site="+site.Slug)
 	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted", "id": id, "domain": d.Domain})
 }
