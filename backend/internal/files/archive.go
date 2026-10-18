@@ -116,6 +116,11 @@ func (m *Manager) addToTar(tw *tar.Writer, abs, relative string) error {
 		cleanRel = filepath.Base(abs)
 	}
 
+	// Never archive unix sockets (e.g. fpm.sock), pipes, or device files
+	if info.Mode()&os.ModeSocket != 0 || info.Mode()&os.ModeNamedPipe != 0 || info.Mode()&os.ModeDevice != 0 {
+		return nil
+	}
+
 	if !info.IsDir() {
 		data, err := m.ops.ReadFile(abs)
 		if err != nil {
@@ -149,7 +154,7 @@ func (m *Manager) addToTar(tw *tar.Writer, abs, relative string) error {
 		return err
 	}
 	for _, entry := range entries {
-		if entry.Type == "symlink" {
+		if entry.Type == "symlink" || entry.Type == "socket" || entry.Type == "fifo" || strings.HasSuffix(entry.Name, ".sock") {
 			continue
 		}
 		if err := m.addToTar(tw, filepath.Join(abs, entry.Name), filepath.Join(cleanRel, entry.Name)); err != nil {

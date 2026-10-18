@@ -40,6 +40,11 @@ func (m *Manager) addToZip(writer *zip.Writer, abs, relative string) error {
 	}
 	relative = strings.TrimPrefix(filepath.ToSlash(relative), "/")
 
+	// Never archive unix sockets (e.g. fpm.sock), pipes, or device files
+	if info.Mode()&os.ModeSocket != 0 || info.Mode()&os.ModeNamedPipe != 0 || info.Mode()&os.ModeDevice != 0 {
+		return nil
+	}
+
 	if !info.IsDir() {
 		data, err := m.ops.ReadFile(abs)
 		if err != nil {
@@ -58,8 +63,8 @@ func (m *Manager) addToZip(writer *zip.Writer, abs, relative string) error {
 		return err
 	}
 	for _, entry := range entries {
-		// Never follow a symlink out of the site while archiving.
-		if entry.Type == "symlink" {
+		// Never follow a symlink, socket, or pipe while archiving.
+		if entry.Type == "symlink" || entry.Type == "socket" || entry.Type == "fifo" || strings.HasSuffix(entry.Name, ".sock") {
 			continue
 		}
 		if err := m.addToZip(writer, filepath.Join(abs, entry.Name), filepath.Join(relative, entry.Name)); err != nil {

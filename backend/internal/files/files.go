@@ -440,6 +440,10 @@ func entryFromInfo(dir, name string, info os.FileInfo) Entry {
 		if target, err := os.Readlink(full); err == nil {
 			entry.SymlinkTarget = target
 		}
+	case info.Mode()&os.ModeSocket != 0:
+		entry.Type = "socket"
+	case info.Mode()&os.ModeNamedPipe != 0:
+		entry.Type = "fifo"
 	default:
 		entry.Type = "file"
 	}

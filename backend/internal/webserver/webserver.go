@@ -480,7 +480,7 @@ func nginxLocations(b *strings.Builder, s Spec) {
 
 	b.WriteString("\n    # Block hidden files, dotfiles, and sensitive extensions (.env, .git, etc.)\n")
 	b.WriteString("    location ~ /\\.(?!well-known) {\n        return 404;\n    }\n")
-	b.WriteString("    location ~* \\.(env|git|sh|sql|bak)$ {\n        return 404;\n    }\n")
+	b.WriteString("    location ~* \\.(env|git|sh|sql|bak|log|sock|conf|pid)$ {\n        return 404;\n    }\n")
 	b.WriteString("\n    # Prevent direct PHP execution in uploads and user media directories (Anti-Webshell)\n")
 	b.WriteString("    location ~* /(?:uploads|files|media)/.*\\.php$ {\n        deny all;\n        return 404;\n    }\n")
 }
@@ -609,7 +609,7 @@ func caddyVhost(s Spec) string {
 	// Block hidden files, dotfiles, and sensitive extensions
 	b.WriteString("\t# Block hidden files, dotfiles, and sensitive extensions (.env, .git, etc.)\n")
 	b.WriteString("\t@dotfiles {\n")
-	b.WriteString("\t\tpath /.* */.* *.env* *.git* *.sh *.sql *.bak\n")
+	b.WriteString("\t\tpath /.* */.* *.env* *.git* *.sh *.sql *.bak *.log *.sock *.conf *.pid\n")
 	b.WriteString("\t\tnot path /.well-known/*\n")
 	b.WriteString("\t}\n")
 	b.WriteString("\trespond @dotfiles 404\n\n")
@@ -798,7 +798,7 @@ func apacheVhost(s Spec) string {
 	}
 
 	b.WriteString("    # Block hidden files, dotfiles, and sensitive extensions\n")
-	b.WriteString("    <FilesMatch \"(^\\.|\\.env|\\.git|\\.sh|\\.sql|\\.bak)\">\n")
+	b.WriteString("    <FilesMatch \"(^\\.|\\.env|\\.git|\\.sh|\\.sql|\\.bak|\\.log|\\.sock|\\.conf|\\.pid)\">\n")
 	b.WriteString("        Require all denied\n")
 	b.WriteString("    </FilesMatch>\n\n")
 	b.WriteString("    # Prevent direct PHP execution in uploads and user media directories (Anti-Webshell)\n")
