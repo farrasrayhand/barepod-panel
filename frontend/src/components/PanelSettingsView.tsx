@@ -58,7 +58,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   onOpenTerminal,
 }) => {
   const [activeTab, setActiveTab] = useSubRoute<'general' | 'updates' | 'cron' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults'>('general');
-  const [isSaving, setIsSaving] = useState(false);
   // The address an external client should use. Unlike most of this screen it is real: the daemon
   // stores it and every connection snippet prefers it. It cannot be detected — behind NAT there is
   // no public address to find, and a domain is knowledge only the operator has.
@@ -271,6 +270,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           setExternalAddress(settings.externalAddress || '');
           setPanelFqdn(settings.panelFqdn || '');
           setUseCloudflare(Boolean(settings.useCloudflare));
+          setLetsEncryptEmail(settings.letsencryptEmail || '');
           setTrustedDraft((settings.trustedAddresses || []).join('\n'));
         }
       } catch {
@@ -304,6 +304,26 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       onShowToast?.('Could not save', err instanceof Error ? err.message : 'unknown error', 'error');
     } finally {
       setExternalSaving(false);
+    }
+  };
+
+  const saveLetsEncryptEmail = async () => {
+    if (letsEncryptSaving) return;
+    setLetsEncryptSaving(true);
+    try {
+      const saved = await api.savePanelSettings({ letsencryptEmail: letsEncryptEmail.trim() });
+      setLetsEncryptEmail(saved.letsencryptEmail || '');
+      onShowToast?.(
+        saved.letsencryptEmail ? 'Contact email saved' : 'Contact email cleared',
+        saved.letsencryptEmail
+          ? 'New certificates will use it as the default contact.'
+          : 'Cleared; certbot falls back to its own default.',
+        'success',
+      );
+    } catch (err) {
+      onShowToast?.('Could not save', describeError(err), 'error');
+    } finally {
+      setLetsEncryptSaving(false);
     }
   };
 
@@ -394,13 +414,11 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }
   };
 
-  // Monitoring & Telemetry Retention Settings
-  const [serverMetricsRetentionDays, setServerMetricsRetentionDays] = useState(90);
-  const [metricsSampleIntervalSecs, setMetricsSampleIntervalSecs] = useState(15);
-  const [enableSmartHourlySnapshot, setEnableSmartHourlySnapshot] = useState(true);
-  const [appDefaultRetentionDays, setAppDefaultRetentionDays] = useState(30); // Max 30 days
-  const [autoPruneSchedule, setAutoPruneSchedule] = useState('0 3 * * *');
-  const [isPruning, setIsPruning] = useState(false);
+  // Monitoring: the only retention the daemon really has is the job/deploy ledger (the metrics
+  // sampler is an in-memory ring buffer, not a time-series database), so this tab runs that prune
+  // instead of pretending to configure storage that does not exist.
+  const [pruneBusy, setPruneBusy] = useState(false);
+  const [pruneResult, setPruneResult] = useState<{ ok: boolean; output: string } | null>(null);
 
   // 1. General Settings
   const [panelPort, setPanelPort] = useState(8443);
@@ -412,7 +430,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [panelSubdomain, setPanelSubdomain] = useState('panel');
   const [panelPublishing, setPanelPublishing] = useState(false);
   const [timezone, setTimezone] = useState('Asia/Jakarta');
-  const [language, setLanguage] = useState('id');
 
   // Detection for the panel's own domain. Admin only: the panel may only ever be published through
   // the administrator's Cloudflare account, so the zone picker is filled from that account.
@@ -520,13 +537,10 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [ipWhitelist, setIpWhitelist] = useState('');
   const [jwtSecretMasked, setJwtSecretMasked] = useState(true);
 
-  // 3. Proxy & SSL
-  const [httpPort, setHttpPort] = useState(80);
-  const [httpsPort, setHttpsPort] = useState(443);
-  const [enableHttp3, setEnableHttp3] = useState(true);
-  const [enableBrotli, setEnableBrotli] = useState(true);
-  const [letsEncryptEmail, setLetsEncryptEmail] = useState('admin@barepod.cloud');
-  const [restoreCloudflareIp, setRestoreCloudflareIp] = useState(true);
+  // 3. Proxy & SSL — only the Let's Encrypt contact is stored here; the ingress engine, host ports
+  // and per-site certificates are owned by the Stack and Domains screens.
+  const [letsEncryptEmail, setLetsEncryptEmail] = useState('');
+  const [letsEncryptSaving, setLetsEncryptSaving] = useState(false);
 
   // 4. Backups
   const [backupSchedule, setBackupSchedule] = useState<'daily' | 'weekly' | 'disabled'>('daily');
@@ -544,15 +558,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [alertsSaving, setAlertsSaving] = useState(false);
   const [alertSecrets, setAlertSecrets] = useState({ telegramBotToken: '', discordWebhookUrl: '', smtpPassword: '' });
 
-
-  const handleSaveAll = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
-      onShowToast?.('Settings Saved', 'Panel configuration updated successfully. Daemon reloaded.', 'success');
-    }, 700);
-  };
 
   const handleTestBackup = () => {
     setIsBackingUp(true);
@@ -625,17 +630,23 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }
   };
 
-  const handleRestartDaemon = () => {
-    onShowToast?.('Daemon Restarting', 'systemctl restart barepod-daemon executed.', 'info');
-  };
-
-  const handlePruneOldMetrics = () => {
-    setIsPruning(true);
-    onShowToast?.('Pruning Metrics Started', `Cleaning time-series metrics older than ${serverMetricsRetentionDays} days...`, 'info');
-    setTimeout(() => {
-      setIsPruning(false);
-      onShowToast?.('Pruning Complete', `1.42 million old data points removed. 420 MB of disk space freed.`, 'success');
-    }, 1100);
+  const handlePruneRetained = async () => {
+    setPruneBusy(true);
+    setPruneResult(null);
+    try {
+      const res = await api.runSystemCronJob('metrics_prune');
+      setPruneResult({ ok: res.ok, output: res.output || 'The prune finished without output.' });
+      onShowToast?.(
+        res.ok ? 'Prune complete' : 'Prune failed',
+        res.ok ? 'Retained job records were trimmed.' : 'See the output below.',
+        res.ok ? 'success' : 'error'
+      );
+    } catch (err) {
+      setPruneResult({ ok: false, output: describeError(err) });
+      onShowToast?.('Prune failed', describeError(err), 'error');
+    } finally {
+      setPruneBusy(false);
+    }
   };
 
   return (
@@ -653,27 +664,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           <p className="text-sm text-slate-500 mt-0.5">
             Global panel daemon port, security policies, backup destinations, reverse proxy, and system alerts
           </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleRestartDaemon}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors shadow-2xs"
-          >
-            <RotateCw className="w-3.5 h-3.5 text-slate-500" />
-            <span>Restart Daemon</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleSaveAll}
-            disabled={isSaving}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-500/25 transition-all"
-          >
-            {isSaving ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-            <span>{isSaving ? 'Saving...' : 'Save All'}</span>
-          </button>
         </div>
       </div>
 
@@ -908,7 +898,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Server Timezone
@@ -925,21 +915,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     <option value="Asia/Singapore">Asia/Singapore (SGT - UTC+8)</option>
                   </select>
                     <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this yet — this host runs WITA (UTC+8), not WIB.</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Interface Language
-                  </label>
-                  <select
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
-                  >
-                    <option value="id">Indonesian</option>
-                    <option value="en">English (US)</option>
-                  </select>
-                    <p className="text-[10px] text-slate-400 mt-1">Not applied: nothing reads this yet.</p>
                 </div>
               </div>
 
@@ -1173,189 +1148,73 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             </div>
           )}
 
-          {/* MONITORING & TELEMETRY RETENTION SETTINGS */}
-
+          {/* MONITORING & RETENTION */}
           {activeTab === 'monitoring' && (
             <div className="space-y-6 w-full">
               <div>
-                <h2 className="text-base font-bold text-slate-900">
-                  Monitoring & Telemetry Retention Policy
-                </h2>
+                <h2 className="text-base font-bold text-slate-900">Monitoring & Retention</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  How long historical CPU, RAM, network, disk I/O, and S.M.A.R.T. metrics are kept in the time-series database.
+                  What the daemon actually keeps, and the one retention pass it can run.
                 </p>
               </div>
 
-              {/* CARD 1: SERVER METRICS RETENTION (LONG-TERM) */}
-              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                      <Server className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900">
-                        Server Metrics Retention (Global Host)
-                      </h3>
-                      <p className="text-xs text-slate-500">
-                        Bare-metal / VPS hardware metrics (per-core CPU, RAM, S.M.A.R.T. disk, NIC bandwidth)
-                      </p>
-                    </div>
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Server className="w-5 h-5" />
                   </div>
-                  <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-100 text-blue-800 font-mono">
-                    {serverMetricsRetentionDays} Days
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Server Metrics Retention Duration
-                    </label>
-                    <select
-                      value={serverMetricsRetentionDays}
-                      onChange={(e) => setServerMetricsRetentionDays(Number(e.target.value))}
-                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-blue-500"
-                    >
-                      <option value={7}>7 Days (1 week - minimal storage)</option>
-                      <option value={14}>14 Days (2 weeks)</option>
-                      <option value={30}>30 Days (1 month)</option>
-                      <option value={60}>60 Days (2 months)</option>
-                      <option value={90}>90 Days (3 months - recommended)</option>
-                      <option value={180}>180 Days (6 months - semi-annual audit)</option>
-                      <option value={365}>365 Days (1 year - long-term capacity)</option>
-                    </select>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      Server metrics older than this limit are pruned automatically by the daemon.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Sampling Interval (Probe Frequency)
-                    </label>
-                    <select
-                      value={metricsSampleIntervalSecs}
-                      onChange={(e) => setMetricsSampleIntervalSecs(Number(e.target.value))}
-                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl font-medium focus:bg-white focus:border-blue-500"
-                    >
-                      <option value={5}>Every 5 Seconds (high resolution / realtime)</option>
-                      <option value={15}>Every 15 Seconds (recommended)</option>
-                      <option value={60}>Every 60 Seconds (low disk I/O)</option>
-                    </select>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      How often metrics are written to the time-series disk buffer.
-                    </p>
+                    <h3 className="text-sm font-bold text-slate-900">Live metrics are held in memory</h3>
+                    <p className="text-xs text-slate-500">Host and per-site samples behind the charts.</p>
                   </div>
                 </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  The sampler keeps a bounded ring buffer in memory and never writes time-series data to
+                  disk, so there is no retention window to configure here: the history starts empty again
+                  when the daemon restarts. The retention below applies to what the daemon does persist.
+                </p>
+              </div>
 
-                {/* Storage estimation banner */}
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                  <div className="space-y-0.5">
-                    <span className="text-[11px] font-bold text-slate-700">Estimated TSDB Disk Usage:</span>
-                    <p className="text-[11px] text-slate-500 font-mono">
-                      ~{(serverMetricsRetentionDays * (metricsSampleIntervalSecs === 5 ? 14 : metricsSampleIntervalSecs === 15 ? 5.2 : 1.4)).toFixed(0)} MB 
-                      (Engine: SQLite-WAL compressed TSDB in /var/lib/barepod/metrics)
-                    </p>
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <Trash2 className="w-5 h-5" />
                   </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Retained job records</h3>
+                    <p className="text-xs text-slate-500">Deploy and job history kept per website.</p>
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  The daemon keeps the newest deploy/job records for each website (and a smaller set for
+                  stack installs). The <code className="font-mono">metrics_prune</code> job trims older
+                  ones and vacuums the system journal. Its schedule lives on the Cron tab.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={handlePruneOldMetrics}
-                    disabled={isPruning}
-                    className="px-3 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors flex items-center gap-1.5 shrink-0"
+                    onClick={() => void handlePruneRetained()}
+                    disabled={pruneBusy}
+                    className="px-3.5 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
-                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                    <span>{isPruning ? 'Cleaning...' : 'Prune Old Metrics Now'}</span>
+                    <RotateCw className={`w-3.5 h-3.5 ${pruneBusy ? 'animate-spin' : ''}`} />
+                    <span>{pruneBusy ? 'Pruning…' : 'Run prune now'}</span>
                   </button>
-                </div>
-              </div>
-
-              {/* CARD 2: APP MONITORING POLICY ENFORCEMENT (MAX 30 DAYS) */}
-              <div className="p-5 rounded-2xl border border-purple-200/90 bg-purple-50/20 shadow-2xs space-y-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
-                      <Activity className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-slate-900">
-                        App Metrics Retention Limit (Tenant Web Apps)
-                      </h3>
-                      <p className="text-xs text-slate-500">
-                        Per-app storage isolation policy (Laravel, Node.js, Python, reverse proxy)
-                      </p>
-                    </div>
-                  </div>
-                  <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-100 text-purple-800 font-mono">
-                    Max 30 Days
+                  <span className="text-[11px] text-slate-400">
+                    Same job as Cron &rarr; "Metrics &amp; log retention prune".
                   </span>
                 </div>
-
-                <div className="p-3 bg-white rounded-xl border border-purple-200 text-xs space-y-2 text-slate-700">
-                  <div className="flex items-start gap-2">
-                    <ShieldCheck className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-purple-900">Panel Policy: Maximum App Retention = 30 Days</strong>
-                      <p className="text-[11px] text-slate-600 mt-0.5">
-                        Website-level monitoring is capped at <strong>30 days</strong> to avoid disk exhaustion in tenant home partitions (<code className="font-mono text-purple-800">/home/[user]/web/</code>).
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Default Retention for New Website Metrics
-                    </label>
-                    <select
-                      value={appDefaultRetentionDays}
-                      onChange={(e) => setAppDefaultRetentionDays(Number(e.target.value))}
-                      className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl font-medium focus:border-purple-500"
-                    >
-                      <option value={7}>7 Days (1 week)</option>
-                      <option value={14}>14 Days (2 weeks)</option>
-                      <option value={30}>30 Days (panel maximum)</option>
-                    </select>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      Website owners can adjust this up to 30 days on the App Detail page.
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Cron Auto-Cleanup Schedule
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={autoPruneSchedule}
-                        onChange={(e) => setAutoPruneSchedule(e.target.value)}
-                        className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl font-mono text-slate-800"
-                        placeholder="0 3 * * *"
-                      />
-                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-1.5 rounded-lg whitespace-nowrap">
-                        03:00 AM Daily
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-1">
-                      An automatic cron job prunes expired metrics without interrupting web traffic.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* SAVE BUTTON */}
-              <div className="pt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={handleSaveAll}
-                  disabled={isSaving}
-                  className="px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-500/25 transition-all flex items-center gap-1.5"
-                >
-                  <Save className="w-3.5 h-3.5" />
-                  <span>Save Retention Policy</span>
-                </button>
+                {pruneResult && (
+                  <pre
+                    className={`p-3 rounded-lg text-[11px] font-mono whitespace-pre-wrap max-h-48 overflow-y-auto ${
+                      pruneResult.ok
+                        ? 'bg-slate-950 text-slate-200'
+                        : 'bg-rose-50 text-rose-800 border border-rose-200'
+                    }`}
+                  >
+                    {pruneResult.output}
+                  </pre>
+                )}
               </div>
             </div>
           )}
@@ -1503,106 +1362,70 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             </div>
           )}
 
-          {/* 3. REVERSE PROXY & SSL */}
+          {/* REVERSE PROXY & SSL */}
           {activeTab === 'proxy' && (
             <div className="space-y-6 w-full">
               <div>
-                <h2 className="text-base font-bold text-slate-900">Reverse Proxy & SSL Protocols</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Public ingress ports, HTTP/3, Let's Encrypt email, and Cloudflare IP restore.</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    HTTP Public Port
-                  </label>
-                  <input
-                    type="number"
-                    value={httpPort}
-                    onChange={(e) => setHttpPort(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Default: 80</p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    HTTPS Public Port
-                  </label>
-                  <input
-                    type="number"
-                    value={httpsPort}
-                    onChange={(e) => setHttpsPort(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Default: 443</p>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Let's Encrypt Admin Contact Email
-                </label>
-                <input
-                  type="email"
-                  value={letsEncryptEmail}
-                  onChange={(e) => setLetsEncryptEmail(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Used for automatic SSL/TLS certificate renewal notices.
+                <h2 className="text-base font-bold text-slate-900">Reverse Proxy & SSL</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  These are host-level choices; the panel does not keep a second copy of them.
                 </p>
               </div>
 
-              <div className="space-y-3 pt-2 border-t border-slate-100">
-                <div className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    id="http3Check"
-                    checked={enableHttp3}
-                    onChange={(e) => setEnableHttp3(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 text-blue-600 rounded border-slate-300"
-                  />
-                  <div>
-                    <label htmlFor="http3Check" className="text-xs font-bold text-slate-900 cursor-pointer block">
-                      HTTP/3 (QUIC Protocol via UDP)
-                    </label>
-                    <p className="text-[11px] text-slate-500">Speeds up mobile connections with 0-RTT handshakes.</p>
-                  </div>
-                </div>
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3">
+                <h3 className="text-sm font-bold text-slate-900">Where each control really lives</h3>
+                <ul className="text-xs text-slate-600 space-y-2">
+                  <li className="flex items-start gap-2">
+                    <Globe className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+                    <span>
+                      <strong>Ingress engine, installs and switches</strong> &mdash; the
+                      <strong> Stack</strong> page (nginx or Caddy). It is the only place that rewrites
+                      the host's vhosts.
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <ShieldCheck className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+                    <span>
+                      <strong>Certificates, aliases and renewals</strong> &mdash; <strong>Domains</strong>.
+                      Each site's certificate is issued and toggled there, and the
+                      <code className="font-mono"> ssl_renew</code> job renews what is due.
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <Server className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
+                    <span>
+                      <strong>Host ports 80/443</strong> &mdash; owned by the web server's own
+                      configuration, not by this panel.
+                    </span>
+                  </li>
+                </ul>
+              </div>
 
-                <div className="flex items-start gap-3">
+              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-800">Let's Encrypt admin contact email</span>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Used as the default contact when a certificate is issued without one in the Domains
+                    dialog.
+                  </p>
+                </label>
+                <div className="flex gap-2">
                   <input
-                    type="checkbox"
-                    id="brotliCheck"
-                    checked={enableBrotli}
-                    onChange={(e) => setEnableBrotli(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 text-blue-600 rounded border-slate-300"
+                    type="email"
+                    value={letsEncryptEmail}
+                    onChange={(e) => setLetsEncryptEmail(e.target.value)}
+                    disabled={!isAdmin}
+                    placeholder="admin@example.com"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500 disabled:opacity-60"
                   />
-                  <div>
-                    <label htmlFor="brotliCheck" className="text-xs font-bold text-slate-900 cursor-pointer block">
-                      Brotli & Gzip Compression
-                    </label>
-                    <p className="text-[11px] text-slate-500">Automatic dynamic compression for CSS, JS, HTML, and SVG files.</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <input
-                    type="checkbox"
-                    id="cfRealIpCheck"
-                    checked={restoreCloudflareIp}
-                    onChange={(e) => setRestoreCloudflareIp(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 text-blue-600 rounded border-slate-300"
-                  />
-                  <div>
-                    <label htmlFor="cfRealIpCheck" className="text-xs font-bold text-slate-900 cursor-pointer block">
-                      Restore Cloudflare Real IP (CF-Connecting-IP)
-                    </label>
-                    <p className="text-[11px] text-slate-500">
-                      Restores real visitor IPs in Nginx/OLS logs when the Cloudflare CDN proxy is used.
-                    </p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void saveLetsEncryptEmail()}
+                    disabled={!isAdmin || letsEncryptSaving}
+                    className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors shrink-0"
+                  >
+                    {letsEncryptSaving ? 'Saving…' : 'Save'}
+                  </button>
                 </div>
               </div>
             </div>

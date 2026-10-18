@@ -273,6 +273,16 @@ type issueSSLRequest struct {
 	Provider   string `json:"provider"` // "letsencrypt" | "self_signed" | "auto"
 }
 
+// letsEncryptContact is the address certbot should use: the one the request named, or the panel-wide
+// default set on the settings screen.
+func (s *Server) letsEncryptContact(requested string) string {
+	if contact := strings.TrimSpace(requested); contact != "" {
+		return contact
+	}
+	contact, _ := s.store.PanelSetting(letsEncryptEmailKey)
+	return contact
+}
+
 // handleIssueSSL provisions an SSL certificate via Let's Encrypt (with preflight check) or self-signed.
 func (s *Server) handleIssueSSL(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	id := r.PathValue("id")
@@ -328,7 +338,7 @@ func (s *Server) handleIssueSSL(w http.ResponseWriter, r *http.Request, user *st
 			warning = fmt.Sprintf("Domain '%s' does not resolve to this host in public DNS. BarePod issued a local self-signed SSL certificate so HTTPS is operational immediately.", d.Domain)
 		} else {
 			_ = ip
-			info, err = ssl.IssueLetsEncrypt(r.Context(), d.Domain, nil, req.Email)
+			info, err = ssl.IssueLetsEncrypt(r.Context(), d.Domain, nil, s.letsEncryptContact(req.Email))
 			if err != nil {
 				if req.Provider == "letsencrypt" {
 					writeError(w, http.StatusBadRequest, "letsencrypt_error", "Let's Encrypt issuance failed: "+err.Error())

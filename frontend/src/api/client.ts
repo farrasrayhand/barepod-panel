@@ -751,10 +751,10 @@ export const api = {
     }),
 
   panelSettings: () =>
-    request<{ externalAddress: string; panelFqdn: string; useCloudflare: boolean; trustedAddresses: string[] }>('/system/settings'),
+    request<{ externalAddress: string; panelFqdn: string; useCloudflare: boolean; letsencryptEmail: string; trustedAddresses: string[] }>('/system/settings'),
 
-  savePanelSettings: (settings: { externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; trustedAddresses?: string[] }) =>
-    request<{ externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; trustedAddresses?: string[] }>('/system/settings', {
+  savePanelSettings: (settings: { externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; trustedAddresses?: string[] }) =>
+    request<{ externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; trustedAddresses?: string[] }>('/system/settings', {
       method: 'PATCH',
       body: JSON.stringify(settings),
     }),

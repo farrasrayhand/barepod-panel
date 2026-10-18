@@ -30,6 +30,10 @@ const panelFQDNKey = "panel_fqdn"
 // measurement — the panel cannot tell from the host which of the two the operator wants to use.
 const panelUseCloudflareKey = "panel_use_cloudflare"
 
+// letsEncryptEmailKey is the default contact address for certificate issuance. Certbot sends expiry
+// notices there, and the Domains dialog can still override it per certificate.
+const letsEncryptEmailKey = "letsencrypt_email"
+
 // handlePanelSettings reads the panel-wide settings. Any signed-in user may look: these values end
 // up in the snippets an operator hands out, and they are not secrets.
 func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
@@ -48,6 +52,11 @@ func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *
 		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
+	letsEncrypt, err := s.store.PanelSetting(letsEncryptEmailKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+		return
+	}
 	trusted, err := s.store.TrustedAddresses()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
@@ -57,6 +66,7 @@ func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *
 		"externalAddress": address,
 		"panelFqdn":       fqdn,
 		"useCloudflare":   useCloudflare == "true",
+		"letsencryptEmail": letsEncrypt,
 		// The addresses the lockout must never ban, and the reason it matters that they are visible:
 		// this list can be empty without anything saying so, which is exactly the foot-gun it exists to
 		// remove. The operator's own address is added by any successful sign-in.
@@ -71,13 +81,14 @@ func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request,
 		ExternalAddress  *string   `json:"externalAddress"`
 		PanelFQDN        *string   `json:"panelFqdn"`
 		UseCloudflare    *bool     `json:"useCloudflare"`
+		LetsEncryptEmail *string   `json:"letsencryptEmail"`
 		TrustedAddresses *[]string `json:"trustedAddresses"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "could not read the settings")
 		return
 	}
-	if body.ExternalAddress == nil && body.PanelFQDN == nil && body.UseCloudflare == nil && body.TrustedAddresses == nil {
+	if body.ExternalAddress == nil && body.PanelFQDN == nil && body.UseCloudflare == nil && body.LetsEncryptEmail == nil && body.TrustedAddresses == nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "nothing to change")
 		return
 	}
@@ -132,12 +143,27 @@ func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request,
 		}
 		_ = s.store.Audit(user.ID, "panel.settings", "panel_use_cloudflare", clientIP(r), "set to "+value)
 	}
+	if body.LetsEncryptEmail != nil {
+		email := strings.TrimSpace(*body.LetsEncryptEmail)
+		// Empty clears it, which is how a contact is removed rather than left saying something stale.
+		if email != "" && (!strings.Contains(email, "@") || strings.ContainsAny(email, " \t\n")) {
+			writeError(w, http.StatusBadRequest, "invalid_email", "that does not look like an email address")
+			return
+		}
+		if err := s.store.SavePanelSetting(letsEncryptEmailKey, email); err != nil {
+			writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+			return
+		}
+		_ = s.store.Audit(user.ID, "panel.settings", "letsencrypt_email", clientIP(r), "set to "+email)
+	}
 	if body.ExternalAddress == nil {
 		fqdn, _ := s.store.PanelSetting(panelFQDNKey)
 		useCloudflare, _ := s.store.PanelSetting(panelUseCloudflareKey)
+		letsEncrypt, _ := s.store.PanelSetting(letsEncryptEmailKey)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"panelFqdn":        fqdn,
 			"useCloudflare":    useCloudflare == "true",
+			"letsencryptEmail": letsEncrypt,
 			"trustedAddresses": clean,
 		})
 		return
