@@ -153,20 +153,26 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const reloadWhenDaemonIsBack = async (targetVersion: string, fromVersion: string) => {
     const target = (targetVersion || '').replace(/^v/, '');
     const from = (fromVersion || '').replace(/^v/, '');
-    // A force-reinstall keeps the same version, so its only signal is the restart itself.
     const versionChanges = target !== '' && target !== from;
     const deadline = Date.now() + 90_000;
+    // The daemon sends "done", sleeps 1s and then restarts. Reloading before that lands on the old
+    // process; waiting for a *failed* health check is unreliable when the restart is quick — which is
+    // why a same-version reinstall could spin for the full 90 seconds. So: never reload before this
+    // moment, then reload on the first successful health, and — when the version must change — only
+    // once the new version answers.
+    const notBefore = Date.now() + 2500;
     let sawRestart = false;
     for (;;) {
       try {
         const health = await api.health();
         const running = health.version.replace(/^v/, '');
-        if (versionChanges ? !isNewerVersion(target, running) : sawRestart) break;
+        const versionReady = !versionChanges || !isNewerVersion(target, running);
+        if (versionReady && (sawRestart || Date.now() >= notBefore)) break;
       } catch {
         sawRestart = true;
       }
       if (Date.now() >= deadline) break;
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 1200));
     }
     window.location.reload();
   };
@@ -198,6 +204,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             setUpdateError(payload.error || payload.message || 'Update failed');
             setIsUpdating(false);
           } else {
+            setIsUpdating(false);
             setUpdateSuccess(true);
             setUpdateLogs((prev) => [...prev, { step: 'complete', message: 'Update applied. Waiting for the daemon to come back…', pct: 100 }]);
             void reloadWhenDaemonIsBack(payload.newVersion || updateInfo.latestVersion, updateInfo.currentVersion);
