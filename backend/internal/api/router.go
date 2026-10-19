@@ -94,6 +94,18 @@ type Server struct {
 	// made a page crawl.
 	engineMu    sync.Mutex
 	engineCache map[string]cachedEngine
+	// engineStateMu guards engineStates: the last verdict about a database record — whether the
+	// engine has it and whether it accepts the stored credential. Kept so a listing does not ping
+	// every engine each time the page is opened.
+	engineStateMu sync.Mutex
+	engineStates  map[string]engineStateEntry
+}
+
+type engineStateEntry struct {
+	missing   bool
+	suggested string
+	rejected  bool
+	at        time.Time
 }
 
 // engineCacheTTL is how long a detection is trusted. Short enough that an engine

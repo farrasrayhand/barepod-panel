@@ -1006,10 +1006,10 @@ export const api = {
       method: 'DELETE',
     }),
 
-  updateDomain: (id: string, domain: string) =>
+  updateDomain: (id: string, domain: string, websiteSlug?: string) =>
     request<ApiDomain>(`/domains/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify({ domain }),
+      body: JSON.stringify(websiteSlug ? { domain, websiteSlug } : { domain }),
     }),
 
   updateWebsiteDomain: (slug: string, domain: string) =>

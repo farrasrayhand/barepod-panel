@@ -56,6 +56,11 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const [showDeleteModal, setShowDeleteModal] = useState<ApiDomain | null>(null);
   const [editingDomain, setEditingDomain] = useState<ApiDomain | null>(null);
   const [newDomainInput, setNewDomainInput] = useState('');
+  // The edit form: which website owns the domain, and — only for a domain the tunnel publishes —
+  // the subdomain and zone it is composed from.
+  const [editWebsiteSlug, setEditWebsiteSlug] = useState('');
+  const [editSubdomain, setEditSubdomain] = useState('');
+  const [editZone, setEditZone] = useState('');
   const [isUpdatingDomain, setIsUpdatingDomain] = useState(false);
 
   // Add Domain Form
@@ -83,6 +88,12 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const effectiveAddDomain = isTunnelConnected && addRoutingMode === 'cloudflare'
     ? (addSubdomain.trim() ? `${addSubdomain.trim().toLowerCase()}.${addCfZone}` : addCfZone)
     : addDomainName.trim().toLowerCase();
+
+  // A domain the panel can place in a Cloudflare zone is edited as subdomain + zone; a direct
+  // (IP) domain is edited as one hostname, with no zone offered at all.
+  const effectiveEditDomain = editZone
+    ? (editSubdomain.trim() ? `${editSubdomain.trim().toLowerCase()}.${editZone}` : editZone)
+    : newDomainInput.trim().toLowerCase();
 
   const isDomainCloudflare = (domName: string) => {
     if (tunnelStatus?.routes?.some(r => r.hostname.toLowerCase() === domName.toLowerCase())) return true;
@@ -150,20 +161,45 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const openEditModal = (dom: ApiDomain) => {
     setEditingDomain(dom);
     setNewDomainInput(dom.domain);
+    setEditWebsiteSlug(dom.websiteSlug);
+    // Only a domain the tunnel actually publishes gets zone fields; a direct domain keeps the
+    // single hostname box.
+    const name = dom.domain.toLowerCase();
+    const zone = isTunnelConnected
+      ? cfZones.find((z) => {
+          const zoneName = z.name.toLowerCase();
+          return name === zoneName || name.endsWith('.' + zoneName);
+        })
+      : undefined;
+    if (zone) {
+      const suffix = '.' + zone.name.toLowerCase();
+      setEditZone(zone.name);
+      setEditSubdomain(name.endsWith(suffix) ? dom.domain.slice(0, dom.domain.length - suffix.length) : '');
+    } else {
+      setEditZone('');
+      setEditSubdomain('');
+    }
   };
 
   const handleSaveEditDomain = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingDomain || !newDomainInput.trim() || isValidatingDomain) return;
-    const cleaned = newDomainInput.trim().toLowerCase();
-    if (cleaned === editingDomain.domain.toLowerCase()) {
+    if (!editingDomain || !effectiveEditDomain || isValidatingDomain) return;
+    const cleaned = effectiveEditDomain;
+    const websiteChanged = Boolean(editWebsiteSlug) && editWebsiteSlug !== editingDomain.websiteSlug;
+    if (!websiteChanged && cleaned === editingDomain.domain.toLowerCase()) {
       setEditingDomain(null);
       return;
     }
     setIsUpdatingDomain(true);
     try {
-      await api.updateDomain(editingDomain.id, cleaned);
-      onShowToast?.('Domain Updated', `Domain successfully changed from ${editingDomain.domain} to ${cleaned}`, 'success');
+      await api.updateDomain(editingDomain.id, cleaned, websiteChanged ? editWebsiteSlug : undefined);
+      onShowToast?.(
+        'Domain Updated',
+        websiteChanged
+          ? `${editingDomain.domain} now belongs to ${editWebsiteSlug} as ${cleaned}`
+          : `Domain successfully changed from ${editingDomain.domain} to ${cleaned}`,
+        'success',
+      );
       setEditingDomain(null);
       await fetchData();
     } catch (err: any) {
@@ -1133,21 +1169,70 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
             <form onSubmit={handleSaveEditDomain}>
               <div className="p-5 space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Domain / Hostname
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newDomainInput}
-                    onChange={(e) => setNewDomainInput(e.target.value)}
-                    placeholder="example.com or sub.example.com"
-                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500 font-mono"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Web server virtual host and linked Cloudflare tunnel routes will be updated automatically with zero downtime.
-                  </p>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Target Website</label>
+                  <select
+                    value={editWebsiteSlug}
+                    onChange={(e) => setEditWebsiteSlug(e.target.value)}
+                    disabled={editingDomain.isPrimary}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium text-slate-800 focus:outline-hidden focus:border-blue-500 disabled:text-slate-400"
+                  >
+                    {websites.map((w) => (
+                      <option key={w.slug} value={w.slug}>
+                        {w.slug} ({w.domain})
+                      </option>
+                    ))}
+                  </select>
+                  {editingDomain.isPrimary && (
+                    <p className="text-[10px] text-amber-700 mt-1">
+                      This is the website's primary domain, so it belongs to that website. Rename it here, or add it to another website as an alias.
+                    </p>
+                  )}
                 </div>
+
+                {editZone ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Subdomain</label>
+                      <input
+                        type="text"
+                        value={editSubdomain}
+                        onChange={(e) => setEditSubdomain(e.target.value)}
+                        placeholder="onada (leave empty for the zone itself)"
+                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Cloudflare Zone</label>
+                      <select
+                        value={editZone}
+                        onChange={(e) => setEditZone(e.target.value)}
+                        className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium text-slate-800 focus:outline-hidden focus:border-blue-500"
+                      >
+                        {cfZones.map((z) => (
+                          <option key={z.name} value={z.name}>{z.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <p className="sm:col-span-2 text-[10px] text-slate-400 font-mono">
+                      {effectiveEditDomain || '—'} · Cloudflare tunnel routes follow this hostname.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Domain / Hostname</label>
+                    <input
+                      type="text"
+                      required
+                      value={newDomainInput}
+                      onChange={(e) => setNewDomainInput(e.target.value)}
+                      placeholder="example.com or sub.example.com"
+                      className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-hidden focus:border-blue-500 font-mono"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Web server virtual host and linked Cloudflare tunnel routes will be updated automatically with zero downtime.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">

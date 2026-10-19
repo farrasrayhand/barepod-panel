@@ -101,6 +101,8 @@ func (s *Server) handleAddDomain(w http.ResponseWriter, r *http.Request, user *s
 
 type updateDomainRequest struct {
 	Domain string `json:"domain"`
+	// WebsiteSlug moves the domain to another website; empty keeps it where it is.
+	WebsiteSlug string `json:"websiteSlug,omitempty"`
 }
 
 // handleUpdateDomain edits the domain name of an existing domain (primary or alias) and reapplies the vhost.
@@ -130,7 +132,29 @@ func (s *Server) handleUpdateDomain(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
-	if newDomain == strings.ToLower(d.Domain) {
+	// A domain may also move to another website. Only an alias can: the primary domain *is* the
+	// website's identity, so moving it would leave that website without one.
+	targetSlug := strings.TrimSpace(req.WebsiteSlug)
+	if targetSlug == "" {
+		targetSlug = d.WebsiteSlug
+	}
+	websiteChanged := targetSlug != d.WebsiteSlug
+	var target *store.Website
+	if websiteChanged {
+		if d.IsPrimary {
+			writeError(w, http.StatusConflict, "primary_domain",
+				"This is the website's primary domain, so it belongs to that website. Rename it here, or add it to the other website as an alias.")
+			return
+		}
+		t, err := s.store.WebsiteBySlug(targetSlug)
+		if err != nil || !canManageSite(user, t) {
+			writeError(w, http.StatusNotFound, "not_found", "Target website not found")
+			return
+		}
+		target = t
+	}
+
+	if newDomain == strings.ToLower(d.Domain) && !websiteChanged {
 		writeJSON(w, http.StatusOK, d)
 		return
 	}
@@ -142,30 +166,51 @@ func (s *Server) handleUpdateDomain(w http.ResponseWriter, r *http.Request, user
 	}
 
 	oldDomain := d.Domain
+	renamed := newDomain != oldDomain
 
-	if d.IsPrimary {
-		if err := s.store.UpdateWebsiteDomain(site.Slug, newDomain); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Failed to update website domain: "+err.Error())
-			return
+	if renamed {
+		if d.IsPrimary {
+			if err := s.store.UpdateWebsiteDomain(site.Slug, newDomain); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal", "Failed to update website domain: "+err.Error())
+				return
+			}
+			site.Domain = newDomain
+		} else {
+			if err := s.store.UpdateDomainName(d.ID, newDomain); err != nil {
+				writeError(w, http.StatusInternalServerError, "internal", "Failed to update alias domain: "+err.Error())
+				return
+			}
 		}
-		site.Domain = newDomain
-	} else {
-		if err := s.store.UpdateDomainName(d.ID, newDomain); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Failed to update alias domain: "+err.Error())
+	}
+
+	if websiteChanged {
+		if err := s.store.SetDomainWebsite(d.ID, target.Slug); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Failed to move the domain: "+err.Error())
 			return
 		}
 	}
 
-	// Reapply web server vhost (Caddy/Nginx/Apache/OLS)
+	// Both websites' vhosts change when a domain moves: the one losing it and the one gaining it.
 	if err := s.applyVhost(r, site); err != nil {
 		writeError(w, http.StatusInternalServerError, "webserver_error", "Failed to apply updated domain to web server: "+err.Error())
 		return
 	}
+	if websiteChanged {
+		if err := s.applyVhost(r, target); err != nil {
+			writeError(w, http.StatusInternalServerError, "webserver_error", "Failed to apply the domain to the target website: "+err.Error())
+			return
+		}
+	}
 
-	// If a Cloudflare tunnel route exists for the old domain, automatically update it to the new domain
-	go s.migrateTunnelRouteForDomain(site.TenantUser, oldDomain, newDomain)
+	// The tunnel route follows the domain, whether it was renamed or handed to another tenant.
+	if websiteChanged {
+		_ = s.store.MoveCloudflareTunnelRoute(site.TenantUser, target.TenantUser, oldDomain, newDomain)
+	} else if renamed {
+		// If a Cloudflare tunnel route exists for the old domain, automatically update it.
+		go s.migrateTunnelRouteForDomain(site.TenantUser, oldDomain, newDomain)
+	}
 
-	_ = s.store.Audit(user.ID, "domain.update", newDomain, clientIP(r), fmt.Sprintf("site=%s old=%s isPrimary=%v", site.Slug, oldDomain, d.IsPrimary))
+	_ = s.store.Audit(user.ID, "domain.update", newDomain, clientIP(r), fmt.Sprintf("site=%s old=%s isPrimary=%v movedTo=%s", site.Slug, oldDomain, d.IsPrimary, targetSlug))
 
 	updated, _ := s.store.GetDomain(id)
 	writeJSON(w, http.StatusOK, updated)
@@ -340,8 +385,11 @@ func (s *Server) handleIssueSSL(w http.ResponseWriter, r *http.Request, user *st
 			_ = ip
 			info, err = ssl.IssueLetsEncrypt(r.Context(), d.Domain, nil, s.letsEncryptContact(req.Email))
 			if err != nil {
+				// Held before the fallback overwrites err: the reason is the point of the
+				// warning, and a generic "challenge was not completed" gave nothing to act on.
+				issueErr := err
 				if req.Provider == "letsencrypt" {
-					writeError(w, http.StatusBadRequest, "letsencrypt_error", "Let's Encrypt issuance failed: "+err.Error())
+					writeError(w, http.StatusBadRequest, "letsencrypt_error", "Let's Encrypt issuance failed: "+issueErr.Error())
 					return
 				}
 				// Auto fallback
@@ -353,7 +401,7 @@ func (s *Server) handleIssueSSL(w http.ResponseWriter, r *http.Request, user *st
 					return
 				}
 				provider = "self_signed"
-				warning = "Let's Encrypt ACME challenge was not completed. Issued self-signed fallback certificate."
+				warning = fmt.Sprintf("Let's Encrypt ACME challenge was not completed (%v). Issued self-signed fallback certificate.", issueErr)
 			} else {
 				provider = "letsencrypt"
 			}
@@ -623,4 +671,3 @@ func (s *Server) handleValidateDomain(w http.ResponseWriter, r *http.Request, us
 		"tunnelRoute":      tunnelRouteUsage,
 	})
 }
-

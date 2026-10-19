@@ -299,4 +299,20 @@ func (s *Store) UpdateCloudflareTunnelRouteHostname(tenantUser, oldHostname, new
 	return err
 }
 
-
+// MoveCloudflareTunnelRoute hands a route to another tenant, renaming its hostname in the same
+// statement. A domain that moves to another website belongs to that tenant's tunnel now, so the
+// route has to follow or the hostname would keep resolving to the website that lost it.
+func (s *Store) MoveCloudflareTunnelRoute(oldTenant, newTenant, oldHostname, newHostname string) error {
+	oldTenant = strings.TrimSpace(oldTenant)
+	newTenant = strings.TrimSpace(newTenant)
+	oldHostname = strings.ToLower(strings.TrimSpace(oldHostname))
+	newHostname = strings.ToLower(strings.TrimSpace(newHostname))
+	if oldTenant == "" || newTenant == "" || oldHostname == "" || newHostname == "" {
+		return nil
+	}
+	_, err := s.DB.Exec(
+		`UPDATE cloudflare_tunnel_routes SET tenant_user = ?, hostname = ? WHERE tenant_user = ? AND hostname = ?`,
+		newTenant, newHostname, oldTenant, oldHostname,
+	)
+	return err
+}

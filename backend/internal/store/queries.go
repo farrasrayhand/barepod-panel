@@ -932,6 +932,18 @@ func (s *Store) UpdateWebsiteDomain(slug, newDomain string) error {
 	return tx.Commit()
 }
 
+// SetDomainWebsite moves a domain record to another website. The primary flag is left alone:
+// a primary domain is never moved (the API refuses that), an alias stays an alias.
+func (s *Store) SetDomainWebsite(domainID, websiteSlug string) error {
+	domainID = strings.TrimSpace(domainID)
+	websiteSlug = strings.TrimSpace(websiteSlug)
+	if domainID == "" || websiteSlug == "" {
+		return errors.New("domainID and websiteSlug cannot be empty")
+	}
+	_, err := s.DB.Exec(`UPDATE website_domains SET website_slug = ? WHERE id = ?`, websiteSlug, domainID)
+	return err
+}
+
 // UpdateDomainName updates the domain name string of a domain record.
 func (s *Store) UpdateDomainName(domainID, newDomain string) error {
 	domainID = strings.TrimSpace(domainID)

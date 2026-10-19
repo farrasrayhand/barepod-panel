@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
@@ -329,13 +330,12 @@ func (s *Server) resourceFor(record *store.Database, secret string) dbengine.Res
 // repeating a stored string. A credential the engine refuses is reported for the same reason:
 // that is exactly what a rotate which could not be applied leaves behind.
 func (s *Server) markEngineState(items []store.Database) {
-	// Each check opens a connection, so the pass is bounded twice: by a count high enough for any
-	// real panel, and by one shared deadline, because a listing must never wait on an engine that
-	// is slow or gone. Whatever is checked before the budget runs out is what gets reported.
+	// A verdict is trusted for a while: a database does not appear or vanish every few seconds,
+	// and pinging every engine each time the screen is opened is what left the page sitting on
+	// "Loading databases…".
 	const maxChecks = 25
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-	checked := 0
+
+	var pending []*store.Database
 	for i := range items {
 		item := &items[i]
 		if item.Detected || item.Kind != store.KindDatabase || item.FileBased || item.DeletedAt != "" {
@@ -346,12 +346,59 @@ func (s *Server) markEngineState(items []store.Database) {
 		default:
 			continue
 		}
-		if item.User == "" || item.PasswordCipher == "" || checked >= maxChecks || ctx.Err() != nil {
+		if item.User == "" || item.PasswordCipher == "" {
 			continue
 		}
-		checked++
-		s.checkEngineRecord(ctx, item)
+		s.engineStateMu.Lock()
+		cached, seen := s.engineStates[item.ID]
+		s.engineStateMu.Unlock()
+		if seen && time.Since(cached.at) < engineStateTTL {
+			applyEngineState(item, cached)
+			continue
+		}
+		if len(pending) < maxChecks {
+			pending = append(pending, item)
+		}
 	}
+	if len(pending) == 0 {
+		return
+	}
+
+	// The checks run together under one short deadline. A local engine answers in milliseconds,
+	// so the only thing the budget protects against is an engine that is present but not
+	// answering — and that must delay the listing by a second and a half, not four.
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	for _, item := range pending {
+		wg.Add(1)
+		go func(item *store.Database) {
+			defer wg.Done()
+			state, ok := s.probeEngineState(ctx, item)
+			if !ok {
+				return
+			}
+			applyEngineState(item, state)
+			s.engineStateMu.Lock()
+			if s.engineStates == nil {
+				s.engineStates = map[string]engineStateEntry{}
+			}
+			s.engineStates[item.ID] = state
+			s.engineStateMu.Unlock()
+		}(item)
+	}
+	wg.Wait()
+}
+
+// engineStateTTL is how long a verdict is trusted. Short enough that a repaired credential or a
+// renamed database shows up, long enough that opening the screen twice does not re-probe.
+const engineStateTTL = 30 * time.Second
+
+func applyEngineState(item *store.Database, state engineStateEntry) {
+	item.MissingOnEngine = state.missing
+	item.SuggestedName = state.suggested
+	item.CredentialRejected = state.rejected
 }
 
 type engineFailure int
@@ -362,24 +409,30 @@ const (
 	failureRejectedCredential
 )
 
-func (s *Server) checkEngineRecord(ctx context.Context, record *store.Database) {
+// probeEngineState asks the engine one question with the record's own credential. ok is false
+// when the engine could not answer at all — nothing is cached then, so a later listing retries.
+func (s *Server) probeEngineState(ctx context.Context, record *store.Database) (engineStateEntry, bool) {
+	state := engineStateEntry{at: time.Now()}
 	db, err := enginedb.Open(record, s.key)
 	if err != nil {
-		return
+		return state, false
 	}
 	err = db.PingContext(ctx)
 	_ = db.Close()
 	if err == nil {
 		// The recorded database exists and the stored credential opens it.
-		return
+		return state, true
 	}
 	switch engineConnectFailure(err) {
 	case failureMissingDatabase:
-		record.MissingOnEngine = true
-		record.SuggestedName = s.suggestEngineName(ctx, record)
+		state.missing = true
+		state.suggested = s.suggestEngineName(ctx, record)
 	case failureRejectedCredential:
-		record.CredentialRejected = true
+		state.rejected = true
+	default:
+		return state, false
 	}
+	return state, true
 }
 
 // engineConnectFailure reads the engine's own answer out of the error: 1049/1045 from MySQL and
