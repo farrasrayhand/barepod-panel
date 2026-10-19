@@ -1,4 +1,5 @@
 import type { DatabaseEngine } from '../types';
+import type { DbEngineRow } from '../api/client';
 
 export interface EngineOption {
   version: string;
@@ -8,35 +9,66 @@ export interface EngineOption {
 }
 
 /**
- * Canonical shared-daemon version + port catalog. Used by both the Databases
- * view (Create Database) and the Add Website flow so version choices stay
- * consistent across the panel.
+ * The engine row this host really has for a family.
+ *
+ * MySQL and MariaDB are one server under two names, so the row worth showing is whichever of the
+ * two the host runs — a panel on MariaDB has to answer for a request made in MySQL's name.
  */
-export const AVAILABLE_ENGINE_VERSIONS: Record<DatabaseEngine, EngineOption[]> = {
-  postgres: [
-    { version: 'PostgreSQL 16.4', port: 5432, label: 'PostgreSQL 16.4 (Port 5432)', statusText: 'Shared Daemon Active' },
-    { version: 'PostgreSQL 15.8', port: 5433, label: 'PostgreSQL 15.8 (Port 5433)', statusText: 'Shared Daemon On-Demand' },
-    { version: 'PostgreSQL 14.12', port: 5434, label: 'PostgreSQL 14.12 (Port 5434)', statusText: 'Shared Daemon On-Demand' },
-  ],
-  mysql: [
-    { version: 'MySQL 8.4 LTS', port: 3306, label: 'MySQL 8.4 LTS (Port 3306)', statusText: 'Shared Daemon Active' },
-    { version: 'MySQL 8.0.36', port: 3307, label: 'MySQL 8.0.36 (Port 3307)', statusText: 'Shared Daemon Active' },
-    { version: 'MariaDB 11.2', port: 3308, label: 'MariaDB 11.2 (Port 3308)', statusText: 'Shared Daemon Active' },
-  ],
-  mariadb: [
-    { version: 'MariaDB 11.2', port: 3308, label: 'MariaDB 11.2 (Port 3308)', statusText: 'Shared Daemon Active' },
-    { version: 'MySQL 8.4 LTS', port: 3306, label: 'MySQL 8.4 LTS (Port 3306)', statusText: 'Shared Daemon Active' },
-  ],
-  mongodb: [
-    { version: 'MongoDB 7.0.8', port: 27017, label: 'MongoDB 7.0.8 (Port 27017)', statusText: 'Shared Daemon Active' },
-    { version: 'MongoDB 6.0.14', port: 27018, label: 'MongoDB 6.0.14 (Port 27018)', statusText: 'Shared Daemon On-Demand' },
-  ],
-  redis: [
-    { version: 'Redis 7.2.4', port: 6379, label: 'Redis 7.2.4 Isolated (Port 6379)', statusText: 'Isolated Per-App Loopback' },
-  ],
-  sqlite: [
-    { version: 'SQLite 3.46', port: 0, label: 'SQLite 3.46 (file-based, no daemon)', statusText: 'Embedded — no shared daemon' },
-  ],
+export const hostEngineRow = (rows: DbEngineRow[] | undefined, engine: DatabaseEngine): DbEngineRow | undefined => {
+  const wanted = engine === 'postgres' ? 'postgresql' : engine;
+  const kind = engine === 'redis' ? 'cache' : 'database';
+  const candidates = (rows ?? []).filter((row) => row.kind === kind);
+  const direct = candidates.find((row) => row.engine === wanted);
+  if (direct && (direct.available || direct.installedVersion)) return direct;
+  if (wanted === 'mysql' || wanted === 'mariadb') {
+    const sibling = wanted === 'mysql' ? 'mariadb' : 'mysql';
+    const other = candidates.find((row) => row.engine === sibling && (row.available || row.installedVersion));
+    if (other) return other;
+  }
+  return direct;
+};
+
+/**
+ * What this host runs, as a list the screens can show.
+ *
+ * Nothing is invented. An engine that is not installed says so instead of borrowing a version
+ * from a catalog, and a file-based engine has no daemon to version. A version and a port that
+ * were written down in the code became wrong the moment the host was set up differently — a
+ * MariaDB listening on 3306 was described as "MariaDB 11.2 (Port 3308)", and that port reached
+ * the generated .env.
+ */
+export const hostEngineOptions = (row: DbEngineRow | undefined, fallbackLabel = ''): EngineOption[] => {
+  if (!row) {
+    return [
+      {
+        version: '',
+        port: 0,
+        label: `${fallbackLabel || 'This engine'} — not installed`,
+        statusText: 'Not installed on this host',
+      },
+    ];
+  }
+  const name = row.label;
+  if (row.fileBased) {
+    return [
+      { version: '', port: 0, label: `${name} (file, no daemon)`, statusText: 'Embedded — no shared daemon' },
+    ];
+  }
+  const port = row.port ?? 0;
+  const version = row.installedVersion ?? '';
+  if (!version) {
+    return [
+      { version: '', port, label: `${name} — not installed`, statusText: 'Not installed on this host' },
+    ];
+  }
+  return [
+    {
+      version: `${name} ${version}`,
+      port,
+      label: `${name} ${version} (Port ${port})`,
+      statusText: row.running ? 'Running on this host' : 'Installed, not running',
+    },
+  ];
 };
 
 export const ENGINE_LABELS: Record<DatabaseEngine, string> = {

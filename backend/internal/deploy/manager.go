@@ -26,6 +26,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/provision"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/stack"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/supervisor"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/webserver"
@@ -181,9 +182,17 @@ func (m *Manager) run(job *store.DeployJob, req Request, steps []step) {
 	_ = m.store.UpdateDeployJob(job)
 
 	s := &state{m: m, job: job, req: req}
+	// The vhost is written for the host's active engine, not for the one the form asked for: a
+	// site cannot be served by a web server this host is not running. Naming both keeps the plan
+	// from contradicting step 2 ("requested openlitespeed" followed by "caddy reloaded").
+	servedBy := m.ActiveEngine()
+	webNote := servedBy
+	if req.WebServer != "" && !strings.EqualFold(req.WebServer, servedBy) {
+		webNote = fmt.Sprintf("%s (requested %s)", servedBy, req.WebServer)
+	}
 	s.log("stdout", fmt.Sprintf(
 		"plan: runtime=%s %s framework=%s web=%s domain=%s port=%d ssl=%t tunnel=%t source=%s mode=%s",
-		req.Runtime, req.Version, orDash(req.Framework), req.WebServer, req.Domain,
+		req.Runtime, req.Version, orDash(req.Framework), webNote, req.Domain,
 		req.Port, req.SSL, req.TunnelEnabled, req.Source.Kind, job.Mode))
 	for _, a := range req.Automation {
 		s.log("stdout", "automation step queued: "+a)
@@ -1153,6 +1162,17 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 			trimmed = "if [ -f artisan ]; then " + trimmed + "; else echo 'skipped: artisan not found in site root'; fi"
 		}
 		cleanedLines = append(cleanedLines, trimmed)
+	}
+
+	// Every PHP framework installs its dependencies with Composer, and the build runs as the
+	// tenant, so the tool has to exist before the script starts: a host provisioned before the
+	// PHP install carried it failed at `composer install` with "not found" (exit 127).
+	if s.m.host.Materialises() && strings.Contains(script, "composer ") {
+		if out, err := s.m.host.Run(ctx, []string{"bash", "-c", stack.ComposerInstallScript}); err != nil {
+			s.log("stdout", "note: Composer could not be installed: "+err.Error())
+		} else {
+			s.logOutput(out)
+		}
 	}
 
 	s.log("stdout", "running build script as tenant "+s.req.Tenant+":")

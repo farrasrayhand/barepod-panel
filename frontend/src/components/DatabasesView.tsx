@@ -172,113 +172,11 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
   const [dbToDelete, setDbToDelete] = useState<DatabaseItem | null>(null);
   const [binToPurge, setBinToPurge] = useState<DatabaseItem | null>(null);
 
-  const [databases, setDatabases] = useState<DatabaseItem[]>([
-    {
-      id: 'db-1',
-      name: 'larastore_production',
-      type: 'postgres',
-      version: 'PostgreSQL 16.4',
-      port: 5432,
-      host: '127.0.0.1',
-      username: 'larastore_user',
-      size: '142 MB',
-      charset: 'UTF8',
-      status: 'active',
-      connections: 8,
-      maxConnections: 25,
-      isolationMode: 'shared_daemon',
-    },
-    {
-      id: 'db-2',
-      name: 'analytics_warehouse',
-      type: 'postgres',
-      version: 'PostgreSQL 16.4',
-      port: 5432,
-      host: '127.0.0.1',
-      username: 'analytics_admin',
-      size: '1.2 GB',
-      charset: 'UTF8',
-      status: 'active',
-      connections: 14,
-      maxConnections: 50,
-      isolationMode: 'shared_daemon',
-    },
-    {
-      id: 'db-3',
-      name: 'app_user_documents',
-      type: 'mongodb',
-      version: 'MongoDB 7.0.8',
-      port: 27017,
-      host: '127.0.0.1',
-      username: 'mongo_admin',
-      size: '420 MB',
-      charset: 'BSON',
-      status: 'active',
-      connections: 22,
-      maxConnections: 50,
-      isolationMode: 'shared_daemon',
-    },
-    {
-      id: 'db-4',
-      name: 'session_cache_store',
-      type: 'redis',
-      version: 'Redis 7.2.4',
-      port: 6379,
-      host: 'redis-session-cache',
-      username: 'session_cache_store',
-      size: '18 MB (RAM)',
-      charset: 'Key-Value (db 0)',
-      status: 'active',
-      connections: 45,
-      maxConnections: 100,
-      isolationMode: 'dedicated_pod',
-    },
-    {
-      id: 'db-5',
-      name: 'wordpress_blog',
-      type: 'mysql',
-      version: 'MariaDB 11.2',
-      port: 3308,
-      host: '127.0.0.1',
-      username: 'wp_farras',
-      size: '64 MB',
-      charset: 'utf8mb4',
-      status: 'active',
-      connections: 3,
-      maxConnections: 25,
-      isolationMode: 'shared_daemon',
-    },
-    {
-      id: 'db-6',
-      name: 'legacy_pos_system',
-      type: 'mysql',
-      version: 'MySQL 8.0.36',
-      port: 3307,
-      host: '127.0.0.1',
-      username: 'pos_svc',
-      size: '310 MB',
-      charset: 'utf8mb4',
-      status: 'active',
-      connections: 6,
-      maxConnections: 25,
-      isolationMode: 'shared_daemon',
-    },
-    {
-      id: 'db-7',
-      name: 'blog_content.sqlite',
-      type: 'sqlite',
-      version: 'SQLite 3.46',
-      port: 0,
-      username: '(file-based)',
-      tenantUser: 'tenant_alex',
-      size: '2.4 MB',
-      charset: 'SQLite 3',
-      status: 'active',
-      connections: 0,
-    },
-  ]);
-
-  // Live when the daemon answers; the sample rows above are only a fallback.
+  // Empty until the daemon answers: a list of invented databases (larastore_production, a
+  // PostgreSQL 16.4 nobody installed) is worse than a list that has not loaded yet.
+  const [databases, setDatabases] = useState<DatabaseItem[]>([]);
+  // Live when the daemon answers. There is no sample data: every row on this screen is one the
+  // panel can act on.
   const [live, setLive] = useState<boolean | null>(null);
   const [engines, setEngines] = useState<DbEngineRow[]>([]);
   const [websites, setWebsites] = useState<{ slug: string; name: string }[]>([]);

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, Database, Key, ShieldCheck, Sparkles, Check, Server, Lock, Cpu, Folder } from 'lucide-react';
 import type { DatabaseEngine, DatabaseItem } from '../types';
 import { dbIcon } from '../utils/brandIcons';
-import { AVAILABLE_ENGINE_VERSIONS as availableVersions } from '../data/databaseEngines';
+import { ENGINE_LABELS, hostEngineOptions, hostEngineRow } from '../data/databaseEngines';
 import type { CreateDatabasePayload, DbEngineRow } from '../api/client';
 
 interface CreateDatabaseModalProps {
@@ -62,7 +62,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
         label: `${engineRow.label} ${version}`,
         statusText: engineRow.running ? 'running on this host' : 'installed, not running',
       }))
-    : availableVersions[type] || availableVersions.postgres;
+    : hostEngineOptions(hostEngineRow(engines, type), ENGINE_LABELS[type]);
   const activeVersion = currentVersionList[selectedVersionIndex] || currentVersionList[0];
   // A host runs one version per engine, and the list begins at the newest the catalog offers.
   // Opening the form on the version that is actually installed keeps the two in step — the

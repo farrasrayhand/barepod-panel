@@ -271,7 +271,10 @@ echo "=========================================================="
 			"  echo \"Reloading php" + version + "-fpm service...\"\n" +
 			"  systemctl reload php" + version + "-fpm || true\n" +
 			"fi\n" +
-			"echo \"PHP " + version + " installation completed successfully!\""
+			"echo \"PHP " + version + " installation completed successfully!\"\n" +
+			// A PHP install that leaves Composer out is incomplete: every framework the panel
+			// deploys (Laravel, Symfony, WordPress) needs it before the first build.
+			ComposerInstallScript + "\n"
 		return [][]string{{"bash", "-c", suryRepoScript}, {"bash", "-c", script}}, nil
 	case "node":
 		// NodeSource replaces the system node, so it cannot hold two majors at once; the
@@ -599,6 +602,37 @@ fi`
 	}
 	return nil, fmt.Errorf("stack: %s has no install recipe", c.Name)
 }
+
+// ComposerInstallScript installs Composer when it is missing.
+//
+// Every PHP framework resolves its dependencies through it, and the deploy build runs
+// `composer install` as the tenant — so the tool has to be on the host rather than assumed. The
+// official installer's signature is verified when it can be fetched; a failure is a notice, not
+// a reason to undo the PHP install that just succeeded.
+const ComposerInstallScript = `if ! command -v composer >/dev/null 2>&1; then
+  echo "Installing Composer..."
+  EXPECTED=$(curl -fsSL https://composer.github.io/installer.sig 2>/dev/null || true)
+  if curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php && [ -s /tmp/composer-setup.php ]; then
+    if [ -n "$EXPECTED" ]; then
+      ACTUAL=$(php -r "echo hash_file('sha384', '/tmp/composer-setup.php');" 2>/dev/null || true)
+      if [ "$EXPECTED" != "$ACTUAL" ]; then
+        echo "Notice: the Composer installer did not match its signature — refusing to run it"
+        rm -f /tmp/composer-setup.php
+        exit 0
+      fi
+    fi
+    if php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer --quiet; then
+      echo "Composer installed: $(composer --version 2>/dev/null | head -1)"
+    else
+      echo "Notice: Composer could not be installed; PHP projects will fail at composer install"
+    fi
+    rm -f /tmp/composer-setup.php
+  else
+    echo "Notice: Composer could not be downloaded; PHP projects will fail at composer install"
+  fi
+else
+  echo "Composer is already installed: $(composer --version 2>/dev/null | head -1)"
+fi`
 
 // suryRepoScript adds packages.sury.org/php, which is where the PHP versions Ubuntu
 // does not ship come from. The key is installed with a signed-by entry so apt does

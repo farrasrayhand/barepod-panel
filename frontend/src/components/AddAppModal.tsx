@@ -35,9 +35,9 @@ import {
 } from 'lucide-react';
 import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../types';
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
-import { AVAILABLE_ENGINE_VERSIONS, ENGINE_LABELS } from '../data/databaseEngines';
+import { ENGINE_LABELS, hostEngineOptions, hostEngineRow } from '../data/databaseEngines';
 import { getProvisionPlan } from '../data/frameworkProvision';
-import { api, apiReachable, ApiError, type StackStatus, type DetectedFramework, type CloudflareZone, type DatabaseRow, type ApiDomain, type DomainValidationResult, type TunnelStatusResponse } from '../api/client';
+import { api, apiReachable, ApiError, type StackStatus, type DetectedFramework, type CloudflareZone, type DatabaseRow, type ApiDomain, type DomainValidationResult, type TunnelStatusResponse, type DbEngineRow } from '../api/client';
 
 interface AddAppModalProps {
   isOpen: boolean;
@@ -1042,11 +1042,31 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
     return list.length ? list : ['Generic (bring your own code)'];
   }, [runtime, runtimeConfigs]);
 
-  const dbVersions = AVAILABLE_ENGINE_VERSIONS[dbType] ?? [];
+  // The version and port shown here, and written into the generated .env, are the host's — read
+  // from /db-engines rather than a catalog in the code. "MariaDB 11.2 (Port 3308)" was a version
+  // this host never ran, on a port nothing listened on.
+  const [hostEngines, setHostEngines] = useState<DbEngineRow[]>([]);
+  useEffect(() => {
+    if (!isOpen) return;
+    let alive = true;
+    api
+      .dbEngines()
+      .then((res) => {
+        if (alive) setHostEngines(res.items);
+      })
+      .catch(() => {
+        // The wizard still names the engine; it just cannot state a version it did not read.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isOpen]);
+
+  const dbVersions = hostEngineOptions(hostEngineRow(hostEngines, dbType), ENGINE_LABELS[dbType]);
   const activeDbVersion = dbVersions[Math.min(dbVersionIndex, dbVersions.length - 1)];
   const isSqlite = dbType === 'sqlite';
 
-  const cacheVersions = AVAILABLE_ENGINE_VERSIONS.redis;
+  const cacheVersions = hostEngineOptions(hostEngineRow(hostEngines, 'redis'), 'Redis');
   const activeCacheVersion = cacheVersions[Math.min(cacheVersionIndex, cacheVersions.length - 1)];
   const resolvedDbName = dbName || `${name || 'website'}_db`;
   const resolvedDbUser = dbUser || `${tenantUser}_user`;
@@ -2624,8 +2644,8 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                     : ([['Upstream', upstreamUrl]] as [string, string][])),
                   ...(!isStaticSite && appMode === 'standard'
                     ? ([
-                        ['Database', createDb ? `${ENGINE_LABELS[dbType]}${isSqlite ? '' : ` :${activeDbVersion?.port}`} → ${resolvedDbName}` : 'None'],
-                        ...(hasCacheSupport ? [['Cache', effectiveCreateCache ? `Redis 7.2 :${activeCacheVersion?.port ?? 6379}` : 'None']] : []),
+                        ['Database', createDb ? `${ENGINE_LABELS[dbType]}${isSqlite ? '' : ` :${activeDbVersion?.port || 'host default'}`} → ${resolvedDbName}` : 'None'],
+                        ...(hasCacheSupport ? [['Cache', effectiveCreateCache ? `${activeCacheVersion?.version || 'Redis'} :${activeCacheVersion?.port || 'host default'}` : 'None']] : []),
                       ] as [string, string][])
                     : []),
                   ['Cloudflare Tunnel', tunnelEnabled ? (isAutoSyncReady && selectedCfZone !== 'custom' ? `Enabled (Auto-DNS via ${selectedCfZone})` : 'Enabled (Manual DNS)') : 'Disabled (Direct Web Server)'],
