@@ -55,6 +55,7 @@ func EnsureACMEDir() (string, error) {
 // EnsureCertsDir creates the BarePod custom certificate storage directory.
 func EnsureCertsDir() (string, error) {
 	parent := filepath.Dir(CertsDir)
+	_ = os.MkdirAll(parent, 0o755)
 	_ = os.Chmod(parent, 0o755)
 	if err := os.MkdirAll(CertsDir, 0o755); err != nil {
 		return "", fmt.Errorf("ssl: ensure certs dir: %w", err)
@@ -117,12 +118,18 @@ func ValidateKeyPair(certPEM, keyPEM []byte) error {
 
 // GenerateSelfSigned generates a modern ECDSA P-256 self-signed certificate on disk.
 func GenerateSelfSigned(domain string, aliases []string, outCertPath, outKeyPath string) (*CertInfo, error) {
-	if err := os.MkdirAll(filepath.Dir(outCertPath), 0o755); err != nil {
+	_, _ = EnsureCertsDir()
+	certDir := filepath.Dir(outCertPath)
+	if err := os.MkdirAll(certDir, 0o755); err != nil {
 		return nil, fmt.Errorf("ssl: mkdir cert: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(outKeyPath), 0o750); err != nil {
+	_ = os.Chmod(certDir, 0o755)
+
+	keyDir := filepath.Dir(outKeyPath)
+	if err := os.MkdirAll(keyDir, 0o755); err != nil {
 		return nil, fmt.Errorf("ssl: mkdir key: %w", err)
 	}
+	_ = os.Chmod(keyDir, 0o755)
 
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -221,12 +228,15 @@ func InstallCustomCert(domain string, certPEM, keyPEM []byte, baseDir ...string)
 	targetBase := CertsDir
 	if len(baseDir) > 0 && baseDir[0] != "" {
 		targetBase = baseDir[0]
+	} else {
+		_, _ = EnsureCertsDir()
 	}
 
 	dir := filepath.Join(targetBase, domain)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("ssl: mkdir custom cert dir: %w", err)
 	}
+	_ = os.Chmod(dir, 0o755)
 
 	certPath := filepath.Join(dir, "fullchain.pem")
 	keyPath := filepath.Join(dir, "privkey.pem")

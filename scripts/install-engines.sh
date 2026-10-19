@@ -183,7 +183,7 @@ if have redis-cli; then
     REDIS_ADMIN_PASS="$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 28)"
     REDIS_URL="redis://barepod_admin:${REDIS_ADMIN_PASS}@127.0.0.1:6379"
     if redis-cli -h 127.0.0.1 --no-auth-warning ACL SETUSER barepod_admin reset on ">${REDIS_ADMIN_PASS}" '~*' '+@all' >/dev/null 2>&1; then
-      mkdir -p /etc/barepod && chmod 0700 /etc/barepod
+      mkdir -p /etc/barepod && chmod 0755 /etc/barepod
       printf '%s\n' "$REDIS_URL" > "$REDIS_ADMIN_FILE"
       chmod 0600 "$REDIS_ADMIN_FILE"
       # The users live in an ACL file, not in redis.conf: runtime ACL users are lost on a restart

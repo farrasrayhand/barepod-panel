@@ -136,7 +136,7 @@ func AutoHeal(ctx context.Context, runner host.Runner, activeEngine string) []st
 	}
 
 	if caddyInstalled {
-		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy 2>/dev/null && chmod 755 /var/log/caddy && chmod 664 /var/log/caddy/*.log 2>/dev/null || true")
+		_, _ = runner.Run(ctx, "", "bash", "-c", "chmod 755 /etc/barepod 2>/dev/null; chmod 755 /etc/barepod/ssl 2>/dev/null; chmod -R a+rX /etc/barepod/ssl 2>/dev/null; mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy 2>/dev/null && chmod 755 /var/log/caddy && chmod 664 /var/log/caddy/*.log 2>/dev/null || true")
 		_ = os.MkdirAll("/etc/caddy/sites", 0755)
 
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "caddy")

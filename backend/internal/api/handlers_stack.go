@@ -270,6 +270,8 @@ for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/co
     content = re.sub(r'listen\s+(?:0\.0\.0\.0:443|127\.0\.0\.1:443|443)\s+ssl;', r'listen 127.0.0.1:8444 ssl;', content)
     with open(f, 'w') as fp: fp.write(content)" 2>/dev/null || true`
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", reconfigNginx})
+		// Ensure SSL certificates and /etc/barepod are accessible to caddy user
+		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", "chmod 755 /etc/barepod 2>/dev/null; chmod 755 /etc/barepod/ssl 2>/dev/null; chmod -R a+rX /etc/barepod/ssl 2>/dev/null || true"})
 		// Caddy runs as active ingress on public ports 80/443
 		_ = webserver.WriteCaddyConfig("/etc/caddy/Caddyfile", "/etc/caddy/sites", false)
 	} else if engine == "nginx" {
