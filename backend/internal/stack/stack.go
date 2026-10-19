@@ -440,7 +440,11 @@ echo "=========================================================="
 			"  fi\n" +
 			"  systemctl stop mariadb 2>/dev/null || true\n" +
 			"  if [ -d /var/lib/mysql ]; then mv /var/lib/mysql \"/var/lib/mysql.mariadb-$TS\"; fi\n" +
-			"  DEBIAN_FRONTEND=noninteractive apt-get " + apt + " purge -y 'mariadb-server*' >/dev/null\n" +
+			// The whole family goes, not just mariadb-server: mariadb-client and
+			// mariadb-client-core provide virtual-mysql-client(-core), and while they are
+			// installed apt refuses to resolve the MySQL install — that is what made the first
+			// switch fail after the purge had already run (and rolled back).
+			"  DEBIAN_FRONTEND=noninteractive apt-get " + apt + " purge -y 'mariadb-*' >/dev/null\n" +
 			"fi\n" +
 			// 3. Install; a failure restores MariaDB instead of leaving the host without one.
 			"if ! DEBIAN_FRONTEND=noninteractive apt-get " + apt + " -o Dpkg::Options::=--force-confdef install -y \"$PKG\"; then\n" +
