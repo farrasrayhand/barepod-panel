@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Database, Key, ShieldCheck, Sparkles, Check, Server, Lock, Cpu, Folder } from 'lucide-react';
 import type { DatabaseEngine, DatabaseItem } from '../types';
 import { dbIcon } from '../utils/brandIcons';
@@ -43,8 +43,6 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
   const [maxConnections, setMaxConnections] = useState<number>(25);
   const [websiteSlug, setWebsiteSlug] = useState('');
 
-  if (!isOpen) return null;
-
   const API_ENGINE: Record<string, string> = {
     postgres: 'postgresql',
     mysql: 'mariadb',
@@ -66,6 +64,34 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
       }))
     : availableVersions[type] || availableVersions.postgres;
   const activeVersion = currentVersionList[selectedVersionIndex] || currentVersionList[0];
+  // A host runs one version per engine, and the list begins at the newest the catalog offers.
+  // Opening the form on the version that is actually installed keeps the two in step — the
+  // dropdown should not advertise 13.0 while the engine serving :3306 is 11.8. Only an engine
+  // that has not been installed yet falls back to the newest.
+  // An engine reports its full version (16.15) while the list holds majors (16), so the entry
+  // the installed version belongs to is the match.
+  const installedIndex = (() => {
+    const installed = engineRow?.installedVersion;
+    if (!installed) return -1;
+    const exact = currentVersionList.findIndex((entry) => entry.version === installed);
+    if (exact >= 0) return exact;
+    return currentVersionList.findIndex(
+      (entry) => installed.startsWith(`${entry.version}.`) || entry.version.startsWith(`${installed}.`),
+    );
+  })();
+  useEffect(() => {
+    if (isOpen && installedIndex >= 0) setSelectedVersionIndex(installedIndex);
+  }, [isOpen, installedIndex]);
+  const versionLabel =
+    type === 'sqlite'
+      ? 'SQLite (file, no daemon)'
+      : `${engineRow?.label ?? type} ${
+          installedIndex >= 0
+            ? activeVersion?.version
+            : engineRow?.installedVersion || activeVersion?.version || '—'
+        }`;
+
+  if (!isOpen) return null;
 
   const handleEngineChange = (engine: DatabaseEngine) => {
     setType(engine);
@@ -231,9 +257,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">Engine Version</label>
             <div className="w-full px-3 py-2 text-xs bg-slate-100 border border-slate-200 rounded-lg font-mono text-slate-600">
-              {type === 'sqlite'
-                ? 'SQLite (file, no daemon)'
-                : `${engineRow?.label ?? type} ${activeVersion?.version ?? engineRow?.installedVersion ?? '—'}`}
+              {versionLabel}
             </div>
             <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1 font-mono">
               {type === 'sqlite' ? (
