@@ -79,9 +79,12 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
       (entry) => installed.startsWith(`${entry.version}.`) || entry.version.startsWith(`${installed}.`),
     );
   })();
+  // The engine is part of the dependency, not only the index: PostgreSQL's installed major and
+  // MariaDB's both land on index 2, so switching family would leave the index untouched and the
+  // effect would not run — the form would fall back to the newest entry of the new family.
   useEffect(() => {
     if (isOpen && installedIndex >= 0) setSelectedVersionIndex(installedIndex);
-  }, [isOpen, installedIndex]);
+  }, [isOpen, engineRow?.engine, installedIndex]);
   const versionLabel =
     type === 'sqlite'
       ? 'SQLite (file, no daemon)'
