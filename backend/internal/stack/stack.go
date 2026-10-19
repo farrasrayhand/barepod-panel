@@ -153,6 +153,7 @@ func Commands(component, version string) ([][]string, error) {
 			{"bash", "-c", rustupRepoScript},
 			{"bash", "-c", pgdgRepoScript},
 			{"bash", "-c", mariadbRepoScript},
+			{"bash", "-c", mysqlRepoScript},
 			{"bash", "-c", mongodbRepoScript},
 			{"bash", "-c", redisRepoScript},
 			{"bash", "-c", nginxRepoScript},
@@ -633,6 +634,33 @@ EOF
 sed -i "s/CODENAME/$CODENAME/g" /etc/apt/sources.list.d/mariadb.list
 echo "Updating apt package index..."
 apt-get -o DPkg::Lock::Timeout=600 update`
+
+// mysqlRepoScript adds Oracle's APT source with whichever of its published signing keys apt
+// accepts. Oracle renews the key and retires the old file, and an expired one is rejected
+// (EXPKEYSIG) along with the whole repository — so the repository's own index is read instead
+// of pinning a key file name, and the newest is tried first.
+const mysqlRepoScript = `set -e
+echo "Configuring MySQL (Oracle) repository..."
+apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-release 2>/dev/null || true
+. /etc/os-release
+DISTRO=ubuntu; [ "${ID:-}" = debian ] && DISTRO=debian
+CODENAME=${VERSION_CODENAME:-$(lsb_release -cs 2>/dev/null || echo noble)}
+install -d /usr/share/keyrings
+KEYS=$(curl -fsSL https://repo.mysql.com/ | grep -oE 'RPM-GPG-KEY-mysql(-[0-9]{4})?' | sort -ru || true)
+if [ -z "$KEYS" ]; then KEYS='RPM-GPG-KEY-mysql-2025 RPM-GPG-KEY-mysql-2023 RPM-GPG-KEY-mysql-2022'; fi
+for KEYFILE in $KEYS; do
+  rm -f /usr/share/keyrings/mysql.gpg /tmp/mysql-key.asc
+  if curl -fsSL "https://repo.mysql.com/$KEYFILE" -o /tmp/mysql-key.asc && [ -s /tmp/mysql-key.asc ]; then
+    gpg --dearmor -o /usr/share/keyrings/mysql.gpg < /tmp/mysql-key.asc 2>/dev/null || true
+    echo "deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/${DISTRO}/ ${CODENAME} mysql-8.4-lts mysql-8.0" > /etc/apt/sources.list.d/mysql.list
+    if apt-get -o DPkg::Lock::Timeout=600 update; then
+      echo "MySQL repository accepted with $KEYFILE."
+      exit 0
+    fi
+  fi
+done
+echo 'no published MySQL signing key was accepted; the Oracle repository was not added (the MySQL install falls back to the distribution package)' >&2
+exit 0`
 
 const mongodbRepoScript = `set -e
 echo "Configuring MongoDB repository..."
@@ -1764,6 +1792,7 @@ func Repositories() []RepositoryStatus {
 	rustup := "/usr/local/bin/rustup"
 	pgdg := "/etc/apt/sources.list.d/pgdg.list"
 	mariadb := "/etc/apt/sources.list.d/mariadb.list"
+	mysqlList := "/etc/apt/sources.list.d/mysql.list"
 	mongodb, _ := filepath.Glob("/etc/apt/sources.list.d/mongodb-org-*.list")
 	redis := "/etc/apt/sources.list.d/redis.list"
 	nginx := "/etc/apt/sources.list.d/nginx.list"
@@ -1792,6 +1821,7 @@ func Repositories() []RepositoryStatus {
 		{Name: "rustup", Label: "rustup (Rust toolchains)", Present: isExecutable(rustup), Group: "runtime", Path: rustup},
 		{Name: "pgdg", Label: "PGDG (PostgreSQL versions)", Present: exists(pgdg), Group: "database", Path: pgdg},
 		{Name: "mariadb", Label: "MariaDB (version lines)", Present: exists(mariadb), Group: "database", Path: mariadb},
+		{Name: "mysql", Label: "MySQL / Oracle (version lines)", Present: exists(mysqlList), Group: "database", Path: mysqlList},
 		{Name: "mongodb", Label: "MongoDB (version lines)", Present: mongoPath != "", Group: "database", Path: mongoPath},
 		{Name: "redis", Label: "Redis (version lines)", Present: exists(redis), Group: "database", Path: redis},
 		{Name: "nginx", Label: "nginx.org (nginx versions)", Present: exists(nginx), Group: "web", Path: nginx},
