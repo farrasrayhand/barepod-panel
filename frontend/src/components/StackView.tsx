@@ -288,6 +288,10 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     (status?.databaseInstalled?.['mariadb']?.length ?? 0) > 0 ||
     Boolean(status?.databases?.find((d) => d.engine === 'mariadb')?.installedVersion);
 
+  const mysqlInstalled = () =>
+    (status?.databaseInstalled?.['mysql']?.length ?? 0) > 0 ||
+    Boolean(status?.databases?.find((d) => d.engine === 'mysql')?.installedVersion);
+
   // A plain install unless MySQL would replace MariaDB, which is a migration and is confirmed.
   const startInstall = (engine: string, version: string) => {
     if (engine === 'mysql' && mariadbInstalled()) {
@@ -1143,6 +1147,11 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   };
 
                   const currentActiveOption = dropdownVersions.find(isVersionActive);
+                  // MySQL and MariaDB are one slot — only one version runs at a time — so
+                  // installing the other is a switch, not a fresh install.
+                  const replacesOther =
+                    (component.name === 'mysql' && mariadbInstalled()) ||
+                    (component.name === 'mariadb' && mysqlInstalled());
                   const picked = pickedVersion[component.name] ?? (currentActiveOption || dropdownVersions[0] || '');
                   const isCurrent = isVersionActive(picked);
 
@@ -1320,14 +1329,22 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                                 if (picked && !isCurrent) void planAndSwitchDatabase(component.name, picked);
                               }}
                               disabled={busy || live !== true || !picked}
-                              title={`Plan & switch database version to ${picked} — checks data safety before proceeding`}
+                              title={
+                                replacesOther
+                                  ? `Switch to ${component.label}: the other MySQL-family engine is dumped and migrated (asks for confirmation)`
+                                  : `Plan & switch database version to ${picked} — checks data safety before proceeding`
+                              }
                               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white whitespace-nowrap shadow-sm transition ${
-                                installedList.includes(picked) ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
+                                installedList.includes(picked) || replacesOther ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'
                               } disabled:opacity-50`}
                             >
                               {installedList.includes(picked) ? (
                                 <>
                                   <RefreshCw className="w-3.5 h-3.5" /> Switch to {picked}
+                                </>
+                              ) : replacesOther ? (
+                                <>
+                                  <RefreshCw className="w-3.5 h-3.5" /> Switch to {component.label} {picked}
                                 </>
                               ) : (
                                 <>
@@ -1483,7 +1500,14 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                 onClick={() => {
                   const m = planModal;
                   setPlanModal(null);
-                  if (m) void install(m.component, m.version);
+                  if (!m) return;
+                  // MySQL replacing MariaDB is a migration, not an install: confirm it.
+                  // (Only this direction migrates; MariaDB over MySQL is left to the plan.)
+                  if (m.component === 'mysql' && mariadbInstalled()) {
+                    setMysqlSwitch({ version: m.version });
+                    return;
+                  }
+                  void install(m.component, m.version);
                 }}
                 disabled={busy || live !== true || !planModal?.plan}
                 className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 shadow-xs cursor-pointer"

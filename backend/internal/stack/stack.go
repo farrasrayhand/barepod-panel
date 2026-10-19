@@ -1638,6 +1638,17 @@ func databaseVersions(ctx context.Context, h *host.Host, engine string) []string
 			}
 		}
 	}
+	// MySQL and MariaDB install from a vendor repository that the install itself adds, so a
+	// host that has not added one yet knows only the distribution's single version. The
+	// catalog is what the panel can install; offering it as well is what makes 8.4 (MySQL) or
+	// 11.8 (MariaDB) selectable at all on a fresh host.
+	if engine == "mysql" || engine == "mariadb" {
+		if component, ok := Lookup(engine); ok {
+			for _, version := range component.Versions {
+				set[strings.TrimPrefix(version, "v")] = true
+			}
+		}
+	}
 	return sortedDescending(set)
 }
 
