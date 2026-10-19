@@ -249,10 +249,31 @@ func (s *Server) engineFor(ctx context.Context, name string) (dbengine.Engine, b
 
 	found := dbengine.Engine{}
 	known := false
-	for _, candidate := range dbengine.Detect(ctx, s.host.Runner) {
+	engines := dbengine.Detect(ctx, s.host.Runner)
+	for _, candidate := range engines {
 		if strings.EqualFold(candidate.Name, name) {
 			found, known = candidate, true
 			break
+		}
+	}
+	// MySQL and MariaDB are two names for one server: Detect reports the name that is actually
+	// installed, so a record created under the other name looks unavailable — and its rotation
+	// would silently store a password the server never received. Administration borrows the
+	// family's client instead (the SQL is the same).
+	if known && !found.Available && (strings.EqualFold(name, "mysql") || strings.EqualFold(name, "mariadb")) {
+		sibling := "mariadb"
+		if strings.EqualFold(name, "mariadb") {
+			sibling = "mysql"
+		}
+		for _, candidate := range engines {
+			if strings.EqualFold(candidate.Name, sibling) && candidate.Available {
+				found.Available = true
+				found.ClientPath = candidate.ClientPath
+				found.Mode = candidate.Mode
+				found.Running = candidate.Running
+				found.Installed = candidate.Installed
+				break
+			}
 		}
 	}
 	s.engineMu.Lock()
@@ -954,6 +975,13 @@ func (s *Server) handleRotateDatabasePassword(kind string) authedHandler {
 			if finishing {
 				_ = s.store.SetDatabaseStatus(record.ID, "ready", "")
 			}
+		} else if s.host.Materialises() && !engine.FileBased && !engine.Available {
+			// Storing a password the server never received is how a record becomes permanently
+			// out of sync: the manager keeps sending it and the engine keeps refusing. Refuse
+			// instead of writing a credential that was not applied.
+			writeError(w, http.StatusConflict, "engine_unavailable",
+				fmt.Sprintf("%s is not installed on this host, so its password was not changed", engine.Label))
+			return
 		}
 
 		ciphertext, err := secrets.Encrypt(s.key, password)
