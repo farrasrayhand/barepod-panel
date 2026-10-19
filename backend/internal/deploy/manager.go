@@ -378,6 +378,16 @@ func stepFetchSource(ctx context.Context, s *state) error {
 			s.log("stdout", "no automated download for this template — use a GitHub repository or upload the code instead")
 			return nil
 		}
+		// The Laravel/Symfony/Drupal scaffolds *are* Composer commands, and this step runs before
+		// the build step that installs Composer — so a fresh framework download on a host without
+		// it failed at "composer: not found" before anything could be built.
+		if argv[0] == "composer" && s.m.host.Materialises() {
+			if out, err := s.m.host.Run(ctx, []string{"bash", "-c", stack.ComposerInstallScript}); err != nil {
+				s.log("stdout", "note: Composer could not be installed: "+err.Error())
+			} else {
+				s.logOutput(out)
+			}
+		}
 		if err := s.runInSite(ctx, argv); err != nil {
 			return err
 		}
