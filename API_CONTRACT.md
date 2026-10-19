@@ -469,23 +469,31 @@ Normative: a client must not offer a control the site type cannot use, and the s
   Automatically reconnects in browser via standard `EventSource`.
 
 ### 4.8.3 Universal Multi-Tenant Git Providers & Deploy Keys
-> **Implementation status:** Contract and database schema designed; planned for Phase 3.
+> **Implementation status:** Planned for v0.3.9.
 - **Multi-Tenant Git Isolation:** All provider tokens are scoped to the authenticated tenant (`user_id`) in `user_git_providers` and encrypted with **AES-256-GCM**. Non-admin tenants cannot view, use, or mutate another tenant's Git connections.
 - **`GET /me/git/providers`** → `{ items: ApiGitProvider[] }`.
   Returns the authenticated user's configured Git providers:
   `{ id, name, provider: "github" | "gitlab" | "gitea" | "bitbucket" | "custom", baseUrl?, username?, createdAt, lastSyncedAt? }` (tokens are never returned).
-- **`POST /me/git/providers`** → Body `{ name: string, provider: string, baseUrl?: string, token?: string, username?: string }` → `201 ApiGitProvider`.
-  Connects a new provider account for the current user. Validates credentials against provider API where applicable.
+- **`POST /me/git/providers/test`** → Body `{ provider: string, baseUrl?: string, token: string }` → `200 { valid: bool, username: string, avatarUrl?: string, scopes: string[] }`.
+  Tests and verifies a personal access token (e.g. GitHub PAT) with upstream API before saving.
+- **`POST /me/git/providers`** → Body `{ name: string, provider: string, baseUrl?: string, token: string, username?: string }` → `201 ApiGitProvider`.
+  Connects a new provider account for the current user. Validates credentials against provider API and stores token encrypted with AES-256-GCM.
 - **`DELETE /me/git/providers/:id`** → `200 { status: "deleted", id }`.
   Removes a provider integration for the current user. Refuses deletion with `409 in_use` if active websites rely on automatic branch syncing through this provider.
 - **`GET /me/git/providers/:id/repos?page=1&per_page=30`** → `{ repos: ApiGitRepo[], page, perPage, total }`.
   Fetches available repositories the user has access to from the Git provider API:
   `{ fullName, defaultBranch, isPrivate, cloneUrl, sshUrl, description? }`.
+- **`GET /me/git/providers/:id/branches?repo=<owner/repo>`** → `{ branches: string[], defaultBranch: string }`.
+  Auto-discovers branches for the selected repository, allowing the Add Website wizard to populate the branch dropdown automatically without manual input.
 - **`GET /websites/:slug/git`** → `200 WebsiteGitStatus`.
   Auto-detects live repository status from server disk (`/home/<tenant>/web/<slug>/.git`):
-  `{ repo, branch, commit, commitMessage, detected: bool, autoDeploy: bool, deployHookToken, webhookUrl, deployKey?: ApiDeployKey, deployScript?: string, framework?: DetectedFramework }`.
+  `{ repo, branch, commit, commitMessage, detected: bool, autoDeploy: bool, autoDeployMode: "webhook" | "poll" | "none", deployHookToken, webhookUrl, deployKey?: ApiDeployKey, deployScript?: string, framework?: DetectedFramework }`.
 - **`PUT /websites/:slug/git`** → Body `{ repoUrl?: string, branch?: string, deployScript?: string, autoDeploy?: bool }` → `200 { status: "updated", ... }`.
   Updates Git configuration, deployment build script, or toggles auto-deploy on push.
+- **`POST /websites/:slug/git/auto-deploy`** → Body `{ enabled: bool, mode?: "auto" | "webhook" | "poll", pollIntervalSec?: int }` → `200 { status: "ok", mode: "webhook" | "poll", webhookUrl?: string, webhookRegistered: bool, pollIntervalSec?: int }`.
+  Configures Zero-Config Auto-Deploy:
+  - If public domain or active Cloudflare tunnel exists: auto-registers inbound webhook on GitHub via stored PAT.
+  - If server is on a private network or unreachable from the internet: falls back to background commit polling (`git_commit_watcher`) checking remote ref every N minutes (default 300s) to deploy new commits without any webhook requirement.
 - **`GET /websites/:slug/detect-framework`** → `200 DetectedFramework`.
   Inspects existing site directory on disk (`composer.json`, `package.json`, `requirements.txt`, `go.mod`, etc.) and returns auto-detected runtime, framework, docRoot, and recommended CI/CD build script.
 - **`POST /websites/detect-framework`** → `200 DetectedFramework`.
@@ -584,7 +592,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 | `/websites/<name>/logs` & `/map` | `GET .../logs`, `GET .../telemetry`, `GET .../telemetry/stream` (SSE) |
 | `/websites/<name>/routing` | `GET|POST .../routes`, `GET .../vhost/preview` |
 | `/websites/<name>/files` | file manager endpoints |
-| `/websites/<name>/deploy` & Git | `GET /me/git/providers`, `GET|POST .../git/deploy-key`, `POST /webhooks/deploy/:slug`, `POST .../redeploy` (+ `deploy/stream` SSE) |
+| `/websites/<name>/deploy` & Git | `GET /me/git/providers`, `GET .../repos`, `GET .../branches`, `GET|PUT /websites/:slug/git`, `POST .../git/auto-deploy`, `GET|POST .../git/deploy-key`, `POST /webhooks/deploy/:slug`, `POST .../redeploy` (+ `deploy/stream` SSE) |
 | `/websites/<name>/security` | maintenance / basic-auth / anti-bruteforce |
 | `/terminal` (tenant) | `GET /websites`, `WS /websites/:slug/pty` |
 | `/monitoring/*` | system monitoring endpoints (+ `WS`) |
@@ -592,7 +600,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 | `/databases/caches` | `GET /caches` |
 | `/databases/trash` | `GET /databases/recycle-bin`, `POST /databases/:id/restore`, `POST /databases/:id/purge` |
 | `/api` | `GET|POST|DELETE /api-tokens`, `GET|POST|DELETE /webhooks` |
-| `/profile` | `GET /profile`, `POST /profile/password`, `GET|DELETE /sessions` |
+| `/profile` | `GET /profile`, `POST /profile/password`, `GET|DELETE /sessions`, `GET|POST|DELETE /me/git/providers`, `POST /me/git/providers/test` |
 | `/backup/*` | backup & migration endpoints |
 | `/users/*` | users & groups endpoints |
 | `/settings/*` | settings, PHP defaults, alerts (`GET\|PUT /system/notifications`, `POST /system/notifications/test`), and cron (`GET\|POST\|PUT\|DELETE /cron/jobs`, `POST /cron/jobs/:id/run`, `PUT /cron/jobs/system/:id`, `POST /cron/jobs/system/:id/run`) |
