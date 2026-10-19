@@ -606,32 +606,43 @@ fi`
 // ComposerInstallScript installs Composer when it is missing.
 //
 // Every PHP framework resolves its dependencies through it, and the deploy build runs
-// `composer install` as the tenant — so the tool has to be on the host rather than assumed. The
-// official installer's signature is verified when it can be fetched; a failure is a notice, not
-// a reason to undo the PHP install that just succeeded.
-const ComposerInstallScript = `if ! command -v composer >/dev/null 2>&1; then
+// `composer install` as the tenant — so the tool has to be on the host rather than assumed.
+// The phar is downloaded beside its destination rather than into /tmp: a host whose /tmp is
+// full or a small tmpfs answers "curl: (23) Failure writing output to destination", and that
+// must not be the reason a deploy cannot build. Its published checksum is verified when it can
+// be fetched; any failure is a notice, not a reason to undo the PHP install that succeeded.
+const ComposerInstallScript = `if command -v composer >/dev/null 2>&1; then
+  echo "Composer is already installed: $(composer --version 2>/dev/null | head -1)"
+else
   echo "Installing Composer..."
-  EXPECTED=$(curl -fsSL https://composer.github.io/installer.sig 2>/dev/null || true)
-  if curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php && [ -s /tmp/composer-setup.php ]; then
-    if [ -n "$EXPECTED" ]; then
-      ACTUAL=$(php -r "echo hash_file('sha384', '/tmp/composer-setup.php');" 2>/dev/null || true)
-      if [ "$EXPECTED" != "$ACTUAL" ]; then
-        echo "Notice: the Composer installer did not match its signature — refusing to run it"
-        rm -f /tmp/composer-setup.php
+  PHAR=""
+  for candidate in /usr/local/bin/.composer.phar.download /var/tmp/composer.phar /tmp/composer.phar; do
+    if curl -fsSL https://getcomposer.org/composer-stable.phar -o "$candidate" 2>/dev/null && [ -s "$candidate" ]; then
+      PHAR="$candidate"
+      break
+    fi
+    rm -f "$candidate" 2>/dev/null || true
+  done
+  if [ -z "$PHAR" ]; then
+    echo "Notice: Composer could not be downloaded — no writable directory among /usr/local/bin, /var/tmp and /tmp"
+    df -h /usr/local/bin /var/tmp /tmp 2>/dev/null | sed 's/^/  /'
+  else
+    SUM=$(curl -fsSL https://getcomposer.org/download/latest-stable/composer.phar.sha256sum 2>/dev/null | awk '{print $1}')
+    if [ -n "$SUM" ]; then
+      ACTUAL=$(sha256sum "$PHAR" | awk '{print $1}')
+      if [ "$SUM" != "$ACTUAL" ]; then
+        echo "Notice: the Composer phar did not match its published checksum — not installing it"
+        rm -f "$PHAR"
         exit 0
       fi
     fi
-    if php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer --quiet; then
+    if mv "$PHAR" /usr/local/bin/composer && chmod 0755 /usr/local/bin/composer; then
       echo "Composer installed: $(composer --version 2>/dev/null | head -1)"
     else
-      echo "Notice: Composer could not be installed; PHP projects will fail at composer install"
+      echo "Notice: Composer was downloaded but /usr/local/bin is not writable; PHP projects will fail at composer install"
+      rm -f "$PHAR" 2>/dev/null || true
     fi
-    rm -f /tmp/composer-setup.php
-  else
-    echo "Notice: Composer could not be downloaded; PHP projects will fail at composer install"
   fi
-else
-  echo "Composer is already installed: $(composer --version 2>/dev/null | head -1)"
 fi`
 
 // suryRepoScript adds packages.sury.org/php, which is where the PHP versions Ubuntu
