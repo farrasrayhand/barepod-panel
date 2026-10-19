@@ -14,12 +14,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
+  GitBranch,
+  ExternalLink,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import { PERMISSION_MATRIX } from '../data/permissions';
 import { api, apiReachable } from '../api/client';
 import { describeDevice, describeError, timeAgo } from '../utils/format';
 
-import type { PanelUser } from '../api/client';
+import type { PanelUser, UserGitProvider } from '../api/client';
 
 interface ProfileViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
@@ -52,6 +56,65 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
   const [sessions, setSessions] = useState<SessionItem[]>(MOCK_SESSIONS);
   const [sessionsLive, setSessionsLive] = useState<boolean | null>(null);
   const [sessionsBusy, setSessionsBusy] = useState(false);
+
+  // Git Providers (GitHub PAT & Auto-Discovery)
+  const [gitProviders, setGitProviders] = useState<UserGitProvider[]>([]);
+  const [gitLoading, setGitLoading] = useState(false);
+  const [githubPat, setGithubPat] = useState('');
+  const [gitConnecting, setGitConnecting] = useState(false);
+
+  const loadGitProviders = useCallback(async () => {
+    try {
+      setGitLoading(true);
+      const res = await api.userGitProviders();
+      setGitProviders(res.items || []);
+    } catch {
+      // gracefully ignore if offline
+    } finally {
+      setGitLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadGitProviders();
+  }, [loadGitProviders]);
+
+  const handleConnectGitHub = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const token = githubPat.trim();
+    if (!token) return;
+    try {
+      setGitConnecting(true);
+      const testRes = await api.testUserGitProvider({ provider: 'github', token });
+      if (!testRes.valid) {
+        onShowToast?.('Invalid GitHub Token', testRes.message || 'Authentication failed', 'error');
+        return;
+      }
+      await api.createUserGitProvider({
+        provider: 'github',
+        name: `GitHub (@${testRes.username || 'user'})`,
+        username: testRes.username,
+        token,
+      });
+      setGithubPat('');
+      onShowToast?.('GitHub Connected', `Connected as @${testRes.username}. Repositories are now auto-discovered!`, 'success');
+      await loadGitProviders();
+    } catch (err) {
+      onShowToast?.('Connection failed', describeError(err), 'error');
+    } finally {
+      setGitConnecting(false);
+    }
+  };
+
+  const handleDisconnectGit = async (id: string, name: string) => {
+    try {
+      await api.deleteUserGitProvider(id);
+      onShowToast?.('Disconnected', `Removed ${name} connection.`, 'info');
+      await loadGitProviders();
+    } catch (err) {
+      onShowToast?.('Disconnect failed', describeError(err), 'error');
+    }
+  };
 
   // Real sessions when the daemon answers, the prototype's list otherwise.
   const loadSessions = useCallback(async () => {
@@ -286,6 +349,97 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
             <span className="text-[10px] font-mono text-slate-400">2 active</span>
           </button>
         </div>
+      </div>
+
+      {/* Connected Git Accounts (GitHub PAT) */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <GitBranch className="w-4 h-4 text-slate-700" />
+            <h2 className="text-sm font-bold text-slate-900">Connected Git Accounts</h2>
+            <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
+              CI/CD &amp; Auto-Deploy
+            </span>
+          </div>
+          {gitLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}
+        </div>
+
+        <p className="text-xs text-slate-500">
+          Connect your GitHub Personal Access Token (PAT) once. BarePod will auto-discover your repositories and branches in the Add Website wizard and enable zero-config auto-deploy.
+        </p>
+
+        {gitProviders.length > 0 ? (
+          <div className="space-y-3">
+            {gitProviders.map((gp) => (
+              <div
+                key={gp.id}
+                className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/70"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+                    GH
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-800">{gp.name}</span>
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
+                        <CheckCircle2 className="w-2.5 h-2.5" /> Connected
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-slate-500">
+                      Auto-discovery enabled · Added {timeAgo(gp.createdAt)}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleDisconnectGit(gp.id, gp.name)}
+                  className="px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer"
+                >
+                  Disconnect
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <form onSubmit={handleConnectGitHub} className="space-y-3">
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-700">GitHub Personal Access Token (classic or fine-grained)</label>
+                <a
+                  href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=BarePod+Panel"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] text-blue-600 hover:text-blue-700 flex items-center gap-1 font-medium"
+                >
+                  Generate Token <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx or github_pat_..."
+                  value={githubPat}
+                  onChange={(e) => setGithubPat(e.target.value)}
+                  className="flex-1 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
+                  required
+                />
+                <button
+                  type="submit"
+                  disabled={gitConnecting || !githubPat.trim()}
+                  className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                >
+                  {gitConnecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <GitBranch className="w-3.5 h-3.5" />}
+                  <span>Connect GitHub</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1.5">
+                Token is securely stored in BarePod Vault using AES-256-GCM encryption and is never returned in plaintext.
+              </p>
+            </div>
+          </form>
+        )}
       </div>
 
       {/* Active sessions */}

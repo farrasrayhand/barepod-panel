@@ -32,12 +32,13 @@ import {
   Sparkles,
   Loader2,
   CheckCircle2,
+  ExternalLink,
 } from 'lucide-react';
 import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../types';
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
 import { ENGINE_LABELS, hostEngineOptions, hostEngineRow } from '../data/databaseEngines';
 import { getProvisionPlan } from '../data/frameworkProvision';
-import { api, apiReachable, ApiError, type StackStatus, type DetectedFramework, type CloudflareZone, type DatabaseRow, type ApiDomain, type DomainValidationResult, type TunnelStatusResponse, type DbEngineRow } from '../api/client';
+import { api, apiReachable, ApiError, type StackStatus, type DetectedFramework, type CloudflareZone, type DatabaseRow, type ApiDomain, type DomainValidationResult, type TunnelStatusResponse, type DbEngineRow, type GitRepoItem, type UserGitProvider } from '../api/client';
 
 interface AddAppModalProps {
   isOpen: boolean;
@@ -761,6 +762,67 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   const [gitRepo, setGitRepo] = useState('');
   const [gitBranch, setGitBranch] = useState('main');
   const [autoDeploy, setAutoDeploy] = useState(true);
+
+  // GitHub Auto-Discovery
+  const [gitProviders, setGitProviders] = useState<UserGitProvider[]>([]);
+  const [gitRepos, setGitRepos] = useState<GitRepoItem[]>([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
+  const [gitBranches, setGitBranches] = useState<string[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
+  const [selectedRepoFullName, setSelectedRepoFullName] = useState('');
+  const [manualGitInput, setManualGitInput] = useState(false);
+  const [repoSearchQuery, setRepoSearchQuery] = useState('');
+
+  // Load connected Git providers
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    api.userGitProviders()
+      .then((res) => {
+        if (active && res?.items) {
+          setGitProviders(res.items);
+          if (res.items.length > 0) {
+            setLoadingRepos(true);
+            api.listGitProviderRepos(res.items[0].id)
+              .then((repoRes) => {
+                if (active && repoRes?.items) {
+                  setGitRepos(repoRes.items);
+                }
+              })
+              .catch((err) => console.warn('Failed to load git repos', err))
+              .finally(() => { if (active) setLoadingRepos(false); });
+          }
+        }
+      })
+      .catch((err) => console.warn('Failed to load git providers', err));
+    return () => { active = false; };
+  }, [isOpen]);
+
+  const handleSelectDiscoveredRepo = async (repo: GitRepoItem) => {
+    setSelectedRepoFullName(repo.fullName);
+    setGitRepo(repo.cloneUrl || `https://github.com/${repo.fullName}`);
+    setGitBranch(repo.defaultBranch || 'main');
+    if (!name.trim()) {
+      setName(repo.name);
+    }
+    if (gitProviders.length > 0) {
+      try {
+        setLoadingBranches(true);
+        const bRes = await api.listGitProviderBranches(gitProviders[0].id, repo.fullName);
+        if (bRes?.branches && bRes.branches.length > 0) {
+          setGitBranches(bRes.branches);
+        } else {
+          setGitBranches([repo.defaultBranch || 'main']);
+        }
+      } catch (err) {
+        console.warn('Failed to load branches', err);
+        setGitBranches([repo.defaultBranch || 'main']);
+      } finally {
+        setLoadingBranches(false);
+      }
+    }
+  };
+
   const [uploadFile, setUploadFile] = useState<string | null>(null);
   // The archive itself, not only its name: the deploy has to send these bytes (the name
   // used to be a validity gate and a Review label, and nothing was ever uploaded).
@@ -1955,21 +2017,181 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
               )}
 
               {effectiveSource === 'github' && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">Repository URL</label>
-                    <input type="text" value={gitRepo} onChange={(e) => setGitRepo(e.target.value)} placeholder="https://github.com/user/repo" className={inputClass} />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">Branch</label>
-                      <input type="text" value={gitBranch} onChange={(e) => setGitBranch(e.target.value)} className={inputClass} />
+                <div className="space-y-3.5">
+                  {gitProviders.length > 0 && !manualGitInput ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Connected to <strong>{gitProviders[0].name}</strong></span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setManualGitInput(true)}
+                          className="text-[11px] text-blue-600 hover:text-blue-700 font-medium"
+                        >
+                          Enter custom URL
+                        </button>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">
+                          Select Repository
+                        </label>
+                        {loadingRepos ? (
+                          <div className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-500">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                            <span>Loading your GitHub repositories...</span>
+                          </div>
+                        ) : gitRepos.length > 0 ? (
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={repoSearchQuery}
+                              onChange={(e) => setRepoSearchQuery(e.target.value)}
+                              placeholder="Search repositories..."
+                              className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
+                            />
+                            <div className="max-h-36 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100 bg-white shadow-2xs">
+                              {gitRepos
+                                .filter((r) => !repoSearchQuery || r.fullName.toLowerCase().includes(repoSearchQuery.toLowerCase()))
+                                .map((r) => {
+                                  const isSelected = selectedRepoFullName === r.fullName;
+                                  return (
+                                    <button
+                                      key={r.fullName}
+                                      type="button"
+                                      onClick={() => handleSelectDiscoveredRepo(r)}
+                                      className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors ${
+                                        isSelected ? 'bg-blue-50 text-blue-900 font-semibold' : 'hover:bg-slate-50 text-slate-700'
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2 truncate">
+                                        <GitBranch className="w-3 h-3 text-slate-400 shrink-0" />
+                                        <span className="truncate">{r.fullName}</span>
+                                        {r.isPrivate && (
+                                          <span className="text-[9px] font-medium bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded shrink-0">
+                                            Private
+                                          </span>
+                                        )}
+                                      </div>
+                                      {isSelected && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                                    </button>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-500 text-center">
+                            No repositories found for this account.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Branch
+                          </label>
+                          {loadingBranches ? (
+                            <div className="flex items-center gap-1.5 p-2 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-400">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Loading branches...</span>
+                            </div>
+                          ) : gitBranches.length > 0 ? (
+                            <select
+                              value={gitBranch}
+                              onChange={(e) => setGitBranch(e.target.value)}
+                              className={inputClass}
+                            >
+                              {gitBranches.map((b) => (
+                                <option key={b} value={b}>
+                                  {b}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={gitBranch}
+                              onChange={(e) => setGitBranch(e.target.value)}
+                              className={inputClass}
+                              placeholder="main"
+                            />
+                          )}
+                        </div>
+
+                        <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer text-xs self-end">
+                          <input
+                            type="checkbox"
+                            checked={autoDeploy}
+                            onChange={(e) => setAutoDeploy(e.target.checked)}
+                            className="rounded border-slate-300 text-blue-600"
+                          />
+                          <span className="font-semibold text-slate-700">Auto-deploy on push</span>
+                        </label>
+                      </div>
                     </div>
-                    <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer text-xs">
-                      <input type="checkbox" checked={autoDeploy} onChange={(e) => setAutoDeploy(e.target.checked)} className="rounded border-slate-300 text-blue-600" />
-                      <span className="font-semibold text-slate-700">Auto-deploy on push (webhook)</span>
-                    </label>
-                  </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {gitProviders.length > 0 && (
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setManualGitInput(false)}
+                            className="text-[11px] text-blue-600 hover:text-blue-700 font-medium"
+                          >
+                            ← Use auto-discovery from {gitProviders[0].name}
+                          </button>
+                        </div>
+                      )}
+
+                      {gitProviders.length === 0 && (
+                        <div className="p-3 rounded-xl border border-blue-200 bg-blue-50/50 flex items-start gap-2.5 text-xs text-blue-900">
+                          <Sparkles className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <span className="font-semibold">Connect GitHub in Profile for auto-complete</span>
+                            <p className="text-[11px] text-blue-700">
+                              Link your GitHub Personal Access Token in Profile to auto-discover your repositories and branches automatically!
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">Repository URL</label>
+                        <input
+                          type="text"
+                          value={gitRepo}
+                          onChange={(e) => setGitRepo(e.target.value)}
+                          placeholder="https://github.com/user/repo"
+                          className={inputClass}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">Branch</label>
+                          <input
+                            type="text"
+                            value={gitBranch}
+                            onChange={(e) => setGitBranch(e.target.value)}
+                            className={inputClass}
+                            placeholder="main"
+                          />
+                        </div>
+                        <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer text-xs self-end">
+                          <input
+                            type="checkbox"
+                            checked={autoDeploy}
+                            onChange={(e) => setAutoDeploy(e.target.checked)}
+                            className="rounded border-slate-300 text-blue-600"
+                          />
+                          <span className="font-semibold text-slate-700">Auto-deploy on push (webhook)</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
