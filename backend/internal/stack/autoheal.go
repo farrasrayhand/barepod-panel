@@ -19,6 +19,24 @@ import (
 // AutoHeal inspects core host database and web engine services. It repairs common
 // post-reboot failures (stale pid lockfiles, incompatible configs from upgrades,
 // network bind race conditions) and ensures auto-start (systemctl enable) is active.
+//
+// needsStart reports whether systemd is asking for the unit to be started rather than already
+// dealing with it.
+//
+// "activating" is startup and crash recovery; "deactivating" is a stop already in flight.
+// Restarting either piles a second transition on top: MariaDB ignored SIGTERM through its
+// InnoDB recovery, systemd timed out, and the unit sat in "deactivating" — which the panel read
+// as down and restarted again, so it never returned to "active".
+func needsStart(state string) bool {
+	switch state {
+	case "active", "activating", "reloading", "deactivating":
+		return false
+	}
+	return true
+}
+
+// AutoHeal repairs services that are actually down, without disturbing ones systemd is already
+// starting, stopping or recovering.
 func AutoHeal(ctx context.Context, runner host.Runner) []string {
 	var actions []string
 
@@ -41,15 +59,16 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 			}
 		}
 
-		// Check status
+		// Check status. A service systemd is already starting (crash recovery) or stopping is
+		// left alone; only a unit that is genuinely down is started.
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "mariadb")
-		if strings.TrimSpace(activeOut) != "active" {
+		if needsStart(strings.TrimSpace(activeOut)) {
 			// Clean stale pid if process is dead
 			_ = os.Remove("/var/run/mysqld/mysqld.pid")
 			_ = os.Remove("/run/mysqld/mysqld.pid")
 			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "mariadb")
-			_, _ = runner.Run(ctx, "", "systemctl", "restart", "mariadb")
-			actions = append(actions, "mariadb: repaired & restarted service")
+			_, _ = runner.Run(ctx, "", "systemctl", "start", "mariadb")
+			actions = append(actions, "mariadb: repaired & started service")
 		}
 	}
 
@@ -71,10 +90,10 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 		}
 
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "redis-server")
-		if strings.TrimSpace(activeOut) != "active" {
+		if needsStart(strings.TrimSpace(activeOut)) {
 			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "redis-server")
-			_, _ = runner.Run(ctx, "", "systemctl", "restart", "redis-server")
-			actions = append(actions, "redis: restarted service")
+			_, _ = runner.Run(ctx, "", "systemctl", "start", "redis-server")
+			actions = append(actions, "redis: started service")
 		}
 	}
 
@@ -82,10 +101,10 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 	if isBinaryInstalled("psql") || isDir("/etc/postgresql") {
 		_, _ = runner.Run(ctx, "", "systemctl", "enable", "postgresql")
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "postgresql")
-		if strings.TrimSpace(activeOut) != "active" {
+		if needsStart(strings.TrimSpace(activeOut)) {
 			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "postgresql")
-			_, _ = runner.Run(ctx, "", "systemctl", "restart", "postgresql")
-			actions = append(actions, "postgresql: restarted service")
+			_, _ = runner.Run(ctx, "", "systemctl", "start", "postgresql")
+			actions = append(actions, "postgresql: started service")
 		}
 		if healed, _ := EnsurePostgresHba(ctx, runner); healed {
 			actions = append(actions, "postgresql: healed pg_hba.conf socket rules for password authentication")
@@ -113,9 +132,11 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "caddy")
 		testOut, testErr := runner.Run(ctx, "", "caddy", "validate", "--config", "/etc/caddy/Caddyfile")
-		caddyRunning := strings.TrimSpace(activeOut) == "active"
+		state := strings.TrimSpace(activeOut)
 
-		if testErr != nil || strings.Contains(testOut, "error") || !caddyRunning {
+		// An invalid config always needs a rewrite; otherwise only a unit that is down is
+		// touched — a reload or a start already in flight is left to finish.
+		if testErr != nil || strings.Contains(testOut, "error") || needsStart(state) {
 			_ = webserver.WriteCaddyConfig("/etc/caddy/Caddyfile", "/etc/caddy/sites", caddyIsBackend)
 			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "caddy")
 			_, _ = runner.Run(ctx, "", "systemctl", "restart", "caddy")
@@ -136,10 +157,10 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 		}
 
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "nginx")
-		if strings.TrimSpace(activeOut) != "active" {
+		if needsStart(strings.TrimSpace(activeOut)) {
 			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "nginx")
-			_, _ = runner.Run(ctx, "", "systemctl", "restart", "nginx")
-			actions = append(actions, "nginx: repaired log permissions & restarted service")
+			_, _ = runner.Run(ctx, "", "systemctl", "start", "nginx")
+			actions = append(actions, "nginx: repaired log permissions & started service")
 		}
 	}
 	if isBinaryInstalled("apache2") || isServiceInstalled(ctx, runner, "apache2") {
@@ -148,10 +169,10 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 			_, _ = runner.Run(ctx, "", "bash", "-c", "sed -i 's/Listen 80$/Listen 127.0.0.1:8080/' /etc/apache2/ports.conf 2>/dev/null || true; sed -i 's/Listen 443$/Listen 127.0.0.1:8443/' /etc/apache2/ports.conf 2>/dev/null || true")
 		}
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "apache2")
-		if strings.TrimSpace(activeOut) != "active" {
+		if needsStart(strings.TrimSpace(activeOut)) {
 			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "apache2")
-			_, _ = runner.Run(ctx, "", "systemctl", "restart", "apache2")
-			actions = append(actions, "apache2: ensured internal port 8080 & restarted service")
+			_, _ = runner.Run(ctx, "", "systemctl", "start", "apache2")
+			actions = append(actions, "apache2: ensured internal port 8080 & started service")
 		}
 	}
 	if isBinaryInstalled("openlitespeed") || isServiceInstalled(ctx, runner, "lshttpd") {
@@ -305,4 +326,3 @@ func EnsurePostgresHba(ctx context.Context, runner host.Runner) (bool, error) {
 	}
 	return false, nil
 }
-
