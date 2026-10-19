@@ -155,11 +155,37 @@ func Lookup(name string) (Engine, bool) {
 	return Engine{}, false
 }
 
+// detectMySQLFlavour says which server the MySQL-compatible client on this host belongs to.
+//
+// MariaDB ships `mysql` and `mysqld` as well, so the presence of those binaries says nothing
+// about which server is here — on a MariaDB host the panel used to list MySQL as installed and
+// running, reporting MariaDB's own version (10.11) under it. The version banner does tell them
+// apart: MariaDB prints "...-MariaDB", Oracle's build does not. "" means the host has neither.
+func detectMySQLFlavour(ctx context.Context, runner host.Runner) string {
+	if runner == nil || runner.Mode() != "real" {
+		return ""
+	}
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	out, err := runner.Run(cctx, "", "mysql", "--version")
+	if err != nil {
+		return ""
+	}
+	if strings.Contains(out, "MariaDB") || strings.Contains(out, "mariadb") {
+		return "mariadb"
+	}
+	if strings.Contains(out, "MySQL") || strings.Contains(out, "mysql") {
+		return "mysql"
+	}
+	return ""
+}
+
 // Detect reports every engine with what this host can really do, so the UI can
 // disable what is not installed instead of failing later.
 func Detect(ctx context.Context, runner host.Runner) []Engine {
 	engines := catalog()
 	real := runner != nil && runner.Mode() == "real"
+	mysqlFlavour := detectMySQLFlavour(ctx, runner)
 	// A container per engine is the tidier model — one authentication path, no
 	// packaging differences — but an unprivileged LXC simply cannot, so the host's
 	// answer decides the mode instead of a preference.
@@ -212,6 +238,17 @@ func Detect(ctx context.Context, runner host.Runner) []Engine {
 		engine.Mode = ModeHost
 		engine.Running, engine.Note = probeServer(ctx, runner, *engine)
 		engine.Installed = probeVersion(ctx, runner, *engine)
+		// The MySQL family is one server: whichever banner this host answers with is the one
+		// that is actually installed.
+		if (engine.Name == "mysql" || engine.Name == "mariadb") && mysqlFlavour != "" && mysqlFlavour != engine.Name {
+			engine.Available = false
+			engine.Running = false
+			engine.Installed = ""
+			engine.Mode = ModeNone
+			engine.Note = fmt.Sprintf("%s is not installed on this host — the MySQL-compatible client here belongs to %s.",
+				engine.Label, map[string]string{"mysql": "MySQL", "mariadb": "MariaDB"}[mysqlFlavour])
+			continue
+		}
 		if containers && containerised && (!engine.Running || engine.Installed == "") {
 			if containerEngineRunning(ctx, runner, engine.Name) {
 				engine.Mode = ModeDocker
