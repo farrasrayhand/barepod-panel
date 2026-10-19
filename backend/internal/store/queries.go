@@ -469,6 +469,20 @@ func (s *Store) ListUserGitProviders(userID string) ([]UserGitProvider, error) {
 	return out, rows.Err()
 }
 
+// GetUserGitProvider returns a single git provider configuration by ID for a user.
+func (s *Store) GetUserGitProvider(userID, id string) (*UserGitProvider, error) {
+	var p UserGitProvider
+	err := s.DB.QueryRow(
+		`SELECT id, user_id, provider, name, api_url, token_cipher, username, created_at, updated_at
+		 FROM user_git_providers WHERE id = ? AND user_id = ?`, id, userID,
+	).Scan(&p.ID, &p.UserID, &p.Provider, &p.Name, &p.APIURL,
+		&p.TokenCipher, &p.Username, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 // CreateUserGitProvider records a new git provider credential.
 func (s *Store) CreateUserGitProvider(p *UserGitProvider) error {
 	if p.ID == "" {

@@ -193,6 +193,25 @@ export interface UserGitProvider {
   updatedAt?: string;
 }
 
+export interface GitRepoItem {
+  name: string;
+  fullName: string;
+  defaultBranch: string;
+  isPrivate: boolean;
+  cloneUrl: string;
+  sshUrl: string;
+  htmlUrl: string;
+  description?: string;
+}
+
+export interface TestGitProviderResponse {
+  valid: boolean;
+  username?: string;
+  avatarUrl?: string;
+  scopes?: string[];
+  message?: string;
+}
+
 export interface ApiDomain {
   id: string;
   websiteSlug: string;
@@ -972,6 +991,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  testUserGitProvider: (payload: { provider: string; apiUrl?: string; token: string }) =>
+    request<TestGitProviderResponse>('/git/providers/test', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  listGitProviderRepos: (id: string) =>
+    request<{ items: GitRepoItem[]; total: number }>(`/git/providers/${id}/repos`),
+  listGitProviderBranches: (id: string, repo: string) =>
+    request<{ repo: string; branches: string[] }>(`/git/providers/${id}/branches?repo=${encodeURIComponent(repo)}`),
   deleteUserGitProvider: (id: string) =>
     request<{ ok: boolean }>(`/git/providers/${id}`, { method: 'DELETE' }),
 

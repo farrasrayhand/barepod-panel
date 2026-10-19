@@ -321,7 +321,18 @@ func New(d Deps) http.Handler {
 	// User Git Providers
 	mux.HandleFunc("GET /api/v1/git/providers", s.requireAuth(s.handleListUserGitProviders))
 	mux.HandleFunc("POST /api/v1/git/providers", s.requireAuth(s.handleCreateUserGitProvider))
+	mux.HandleFunc("POST /api/v1/git/providers/test", s.requireAuth(s.handleTestUserGitProvider))
+	mux.HandleFunc("GET /api/v1/git/providers/{id}/repos", s.requireAuth(s.handleListGitProviderRepos))
+	mux.HandleFunc("GET /api/v1/git/providers/{id}/branches", s.requireAuth(s.handleListGitProviderBranches))
 	mux.HandleFunc("DELETE /api/v1/git/providers/{id}", s.requireAuth(s.handleDeleteUserGitProvider))
+
+	// Me Git Providers Aliases (per API Contract)
+	mux.HandleFunc("GET /api/v1/me/git/providers", s.requireAuth(s.handleListUserGitProviders))
+	mux.HandleFunc("POST /api/v1/me/git/providers", s.requireAuth(s.handleCreateUserGitProvider))
+	mux.HandleFunc("POST /api/v1/me/git/providers/test", s.requireAuth(s.handleTestUserGitProvider))
+	mux.HandleFunc("GET /api/v1/me/git/providers/{id}/repos", s.requireAuth(s.handleListGitProviderRepos))
+	mux.HandleFunc("GET /api/v1/me/git/providers/{id}/branches", s.requireAuth(s.handleListGitProviderBranches))
+	mux.HandleFunc("DELETE /api/v1/me/git/providers/{id}", s.requireAuth(s.handleDeleteUserGitProvider))
 
 	// Unified Cron Jobs (Settings & per-website)
 	mux.HandleFunc("GET /api/v1/cron/jobs", s.requireAuth(s.handleListCronJobs))
