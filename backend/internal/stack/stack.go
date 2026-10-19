@@ -397,15 +397,25 @@ echo "=========================================================="
 			// 1. Repository + package availability, before MariaDB is touched.
 			"PKG=mysql-community-server\n" +
 			"install -d /usr/share/keyrings\n" +
-			"if curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | gpg --dearmor -o /usr/share/keyrings/mysql.gpg 2>/dev/null; then\n" +
-			"  echo \"deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/${DISTRO}/ ${CODENAME} " + component + "\" > /etc/apt/sources.list.d/mysql.list\n" +
-			"  if ! DEBIAN_FRONTEND=noninteractive apt-get " + apt + " update; then\n" +
-			"    echo 'Oracle MySQL repository is not usable here (its signing key is rejected) — using the distribution package instead.'\n" +
-			"    rm -f /etc/apt/sources.list.d/mysql.list\n" +
-			"    DEBIAN_FRONTEND=noninteractive apt-get " + apt + " update\n" +
-			"    PKG=mysql-server\n" +
+			// Oracle renews its signing key and retires the old files; a stale one is rejected
+			// with EXPKEYSIG and takes the whole repository with it. The repository publishes
+			// the key files, so the newest is discovered instead of hardcoded (2025, 2023,
+			// 2022…), and the repository is only kept if apt actually accepts it.
+			"REPO_OK=0\n" +
+			"KEYS=$(curl -fsSL https://repo.mysql.com/ | grep -oE 'RPM-GPG-KEY-mysql(-[0-9]{4})?' | sort -ru || true)\n" +
+			"if [ -z \"$KEYS\" ]; then KEYS='RPM-GPG-KEY-mysql-2025 RPM-GPG-KEY-mysql-2023 RPM-GPG-KEY-mysql-2022'; fi\n" +
+			"for KEYFILE in $KEYS; do\n" +
+			"  rm -f /usr/share/keyrings/mysql.gpg /tmp/mysql-key.asc\n" +
+			"  if curl -fsSL \"https://repo.mysql.com/$KEYFILE\" -o /tmp/mysql-key.asc && [ -s /tmp/mysql-key.asc ]; then\n" +
+			"    gpg --dearmor -o /usr/share/keyrings/mysql.gpg < /tmp/mysql-key.asc 2>/dev/null || true\n" +
+			"    echo \"deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/${DISTRO}/ ${CODENAME} " + component + "\" > /etc/apt/sources.list.d/mysql.list\n" +
+			"    if DEBIAN_FRONTEND=noninteractive apt-get " + apt + " update; then REPO_OK=1; echo \"MySQL repository accepted with $KEYFILE.\"; break; fi\n" +
 			"  fi\n" +
-			"else\n" +
+			"done\n" +
+			"if [ \"$REPO_OK\" != 1 ]; then\n" +
+			"  echo 'Oracle MySQL repository is not usable here (no published signing key is accepted) — using the distribution package instead.'\n" +
+			"  rm -f /etc/apt/sources.list.d/mysql.list\n" +
+			"  DEBIAN_FRONTEND=noninteractive apt-get " + apt + " update\n" +
 			"  PKG=mysql-server\n" +
 			"fi\n" +
 			"if ! DEBIAN_FRONTEND=noninteractive apt-get " + apt + " install --download-only -y \"$PKG\"; then\n" +
