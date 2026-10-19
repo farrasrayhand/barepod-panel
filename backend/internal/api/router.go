@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -483,7 +484,25 @@ func New(d Deps) http.Handler {
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)
 
-	return withLogging(s.panelAccessGuard(s.hostGuard(mux)))
+	return withRecovery(withLogging(s.panelAccessGuard(s.hostGuard(mux))))
+}
+
+// withRecovery keeps one bad request from taking the daemon down.
+//
+// A panic in a handler used to end the process: systemd restarted it, the frontend retried the
+// same request, and after five rapid restarts systemd gave up — the panel stayed down. The
+// control plane serves every site, so a crash here is an outage for all of them. This turns it
+// into a logged 500 and leaves the rest of the daemon serving.
+func withRecovery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("api: panic serving %s %s: %v\n%s", r.Method, r.URL.Path, rec, debug.Stack())
+				writeError(w, http.StatusInternalServerError, "internal", "The panel hit an internal error while handling this request")
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ---- helpers ----

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -123,7 +124,20 @@ func (m *Manager) Start(req Request) (*store.DeployJob, error) {
 	}
 	// The pipeline mutates the job while it runs, so hand the caller a snapshot.
 	snapshot := *job
-	go m.run(job, req, steps)
+	// The pipeline runs in its own goroutine, and a panic there used to end the process — one
+	// failed deploy could stop the panel for every site. It now records the failure on the job
+	// and leaves the daemon serving.
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("deploy: panic in job %s (%s): %v\n%s", job.ID, job.Slug, rec, debug.Stack())
+				job.Status = "failed"
+				job.Error = fmt.Sprintf("the deploy crashed: %v", rec)
+				_ = m.store.UpdateDeployJob(job)
+			}
+		}()
+		m.run(job, req, steps)
+	}()
 	return &snapshot, nil
 }
 

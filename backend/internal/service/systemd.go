@@ -58,7 +58,10 @@ func (s Spec) Unit() string {
 	fmt.Fprintf(&b, "Description=BarePod Panel daemon (%s)\n", s.name())
 	b.WriteString("Documentation=https://github.com/farrasrayhand/barepod-panel\n")
 	b.WriteString("After=network-online.target\n")
-	b.WriteString("Wants=network-online.target\n\n")
+	b.WriteString("Wants=network-online.target\n")
+	// systemd stops retrying after five rapid restarts by default, which turned a transient
+	// crash into a panel that stayed down. Restart=always is only real if the limit is removed.
+	b.WriteString("StartLimitIntervalSec=0\n\n")
 
 	b.WriteString("[Service]\n")
 	b.WriteString("Type=simple\n")
