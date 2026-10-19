@@ -155,14 +155,24 @@ func AutoHeal(ctx context.Context, runner host.Runner, activeEngine string) []st
 	if nginxInstalled {
 		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/nginx && chown -R www-data:adm /var/log/nginx 2>/dev/null && chmod 755 /var/log/nginx && chmod 664 /var/log/nginx/*.log 2>/dev/null || true")
 
-		// If Nginx is Edge Ingress, ensure all sites listen on 80/443 (not leftover 8082)
+		// If Nginx is Edge Ingress, ensure all sites listen on standard public 80/443 (not leftover 8082, 127.0.0.1:80, or [::1]:80)
 		if !nginxIsBackend {
-			grepLeftover, _ := runner.Run(ctx, "", "grep", "-rn", "8082", "/etc/nginx/sites-enabled/")
-			if strings.TrimSpace(grepLeftover) != "" {
-				_, _ = runner.Run(ctx, "", "bash", "-c", "sed -i 's/8082/80/g' /etc/nginx/sites-enabled/* /etc/nginx/conf.d/* 2>/dev/null || true")
-				_, _ = runner.Run(ctx, "", "systemctl", "reload", "nginx")
-				actions = append(actions, "nginx: restored public ingress port 80/443")
-			}
+			restoreScript := `python3 -c "import glob, re, os
+changed = False
+for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/conf.d/*.conf') + ['/etc/nginx/sites-enabled/default']:
+    if not os.path.exists(f): continue
+    with open(f, 'r') as fp: content = fp.read()
+    orig = content
+    content = re.sub(r'listen\s+(?:127\.0\.0\.1:8082|127\.0\.0\.1:80|8082)(\s+default_server)?;', r'listen 80\1;', content)
+    content = re.sub(r'listen\s+(?:\[::1\]:8082|\[::1\]:80|\[::\]:8082)(\s+default_server)?;', r'listen [::]:80\1;', content)
+    content = re.sub(r'listen\s+(?:127\.0\.0\.1:8444|127\.0\.0\.1:443|8444)\s+ssl;', r'listen 443 ssl;', content)
+    content = re.sub(r'listen\s+(?:\[::1\]:8444|\[::1\]:443|\[::\]:8444)\s+ssl;', r'listen [::]:443 ssl;', content)
+    if content != orig:
+        with open(f, 'w') as fp: fp.write(content)
+        changed = True
+if changed:
+    os.system('systemctl restart nginx 2>/dev/null || true')"`
+			_, _ = runner.Run(ctx, "", "bash", "-c", restoreScript)
 		}
 
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "nginx")

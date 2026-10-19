@@ -1055,6 +1055,24 @@ func Reload(ctx context.Context, engine string, h *host.Host) error {
 	return nil
 }
 
+// Restart restarts the engine service, ensuring newly added or modified port listeners are bound.
+func Restart(ctx context.Context, engine string, h *host.Host) error {
+	service := "nginx"
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case Caddy:
+		service = "caddy"
+	case Apache:
+		service = "apache2"
+	case OpenLiteSpeed:
+		service = "lshttpd"
+	}
+	out, err := h.Run(ctx, []string{"systemctl", "restart", service})
+	if err != nil {
+		return fmt.Errorf("systemctl restart %s failed: %s", service, strings.TrimSpace(out))
+	}
+	return nil
+}
+
 // Apply writes a site's vhost, validates the whole configuration, and rolls the file
 // back if validation fails — a panel-written config must never leave the engine
 // unable to start. On success it reloads.

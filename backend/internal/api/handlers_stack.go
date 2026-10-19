@@ -264,12 +264,10 @@ if os.path.exists('/etc/nginx/conf.d/default.conf'):
 for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/conf.d/*.conf') + ['/etc/nginx/sites-enabled/default']:
     if not os.path.exists(f): continue
     with open(f, 'r') as fp: content = fp.read()
-    content = re.sub(r'listen\s+\[::\]:80(\s+default_server)?;', r'listen [::1]:8082\1;', content)
-    content = re.sub(r'listen\s+([0-9.]+:)80(\s+default_server)?;', r'listen 127.0.0.1:8082\2;', content)
-    content = re.sub(r'listen\s+80(\s+default_server)?;', r'listen 127.0.0.1:8082\1;', content)
-    content = re.sub(r'listen\s+\[::\]:443\s+ssl;', r'listen [::1]:8444 ssl;', content)
-    content = re.sub(r'listen\s+([0-9.]+:)443\s+ssl;', r'listen 127.0.0.1:8444 ssl;', content)
-    content = re.sub(r'listen\s+443\s+ssl;', r'listen 127.0.0.1:8444 ssl;', content)
+    content = re.sub(r'listen\s+(?:\[::\]:80|\[::1\]:80)(\s+default_server)?;', r'listen [::1]:8082\1;', content)
+    content = re.sub(r'listen\s+(?:0\.0\.0\.0:80|127\.0\.0\.1:80|80)(\s+default_server)?;', r'listen 127.0.0.1:8082\1;', content)
+    content = re.sub(r'listen\s+(?:\[::\]:443|\[::1\]:443)\s+ssl;', r'listen [::1]:8444 ssl;', content)
+    content = re.sub(r'listen\s+(?:0\.0\.0\.0:443|127\.0\.0\.1:443|443)\s+ssl;', r'listen 127.0.0.1:8444 ssl;', content)
     with open(f, 'w') as fp: fp.write(content)" 2>/dev/null || true`
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", reconfigNginx})
 		// Caddy runs as active ingress on public ports 80/443
@@ -287,18 +285,18 @@ if os.path.exists('/etc/nginx/conf.d/default.conf'):
 for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/conf.d/*.conf') + ['/etc/nginx/sites-enabled/default']:
     if not os.path.exists(f): continue
     with open(f, 'r') as fp: content = fp.read()
-    content = re.sub(r'listen\s+127\.0\.0\.1:8082(\s+default_server)?;', r'listen 80\1;', content)
-    content = re.sub(r'listen\s+\[::1\]:8082(\s+default_server)?;', r'listen [::]:80\1;', content)
-    content = re.sub(r'listen\s+127\.0\.0\.1:8444\s+ssl;', r'listen 443 ssl;', content)
-    content = re.sub(r'listen\s+\[::1\]:8444\s+ssl;', r'listen [::]:443 ssl;', content)
+    content = re.sub(r'listen\s+(?:127\.0\.0\.1:8082|127\.0\.0\.1:80|8082)(\s+default_server)?;', r'listen 80\1;', content)
+    content = re.sub(r'listen\s+(?:\[::1\]:8082|\[::1\]:80|\[::\]:8082)(\s+default_server)?;', r'listen [::]:80\1;', content)
+    content = re.sub(r'listen\s+(?:127\.0\.0\.1:8444|127\.0\.0\.1:443|8444)\s+ssl;', r'listen 443 ssl;', content)
+    content = re.sub(r'listen\s+(?:\[::1\]:8444|\[::1\]:443|\[::\]:8444)\s+ssl;', r'listen [::]:443 ssl;', content)
     with open(f, 'w') as fp: fp.write(content)" 2>/dev/null || true`
 		_, _ = s.host.Run(r.Context(), []string{"bash", "-c", reconfigNginx})
 		// Caddy moves to internal backend ports 8081 and 8445 (port 8443 is reserved for panel daemon)
 		_ = webserver.WriteCaddyConfig("/etc/caddy/Caddyfile", "/etc/caddy/sites", true)
 	}
 
-	// Start the new edge ingress engine
-	if out, err := s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", engine}); err != nil && s.host.Materialises() {
+	// Start or restart the new edge ingress engine
+	if out, err := s.host.Run(r.Context(), []string{"systemctl", "restart", engine}); err != nil && s.host.Materialises() {
 		_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", previous})
 		regrantFor(r.Context(), s, sites, previous)
 		rollback()
@@ -308,18 +306,16 @@ for f in glob.glob('/etc/nginx/sites-enabled/*.conf') + glob.glob('/etc/nginx/co
 
 	// Bring the standby engine (nginx or caddy) back up on its internal port
 	if engine == "caddy" {
-		_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "nginx"})
+		_, _ = s.host.Run(r.Context(), []string{"systemctl", "restart", "nginx"})
 	} else if engine == "nginx" {
-		_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "caddy"})
+		_, _ = s.host.Run(r.Context(), []string{"systemctl", "restart", "caddy"})
 	}
 
 	// Ensure all backend engines remain active and enabled
 	_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "apache2"})
 	_, _ = s.host.Run(r.Context(), []string{"systemctl", "enable", "--now", "lshttpd"})
-	if err := webserver.Reload(r.Context(), engine, s.host); err != nil && s.host.Materialises() {
-		// The engine started, so the config it read is the one we wrote; a reload failing
-		// here is not fatal, and saying so beats pretending.
-		_ = s.store.Audit(user.ID, "stack.web_server_reload_failed", engine, clientIP(r), err.Error())
+	if err := webserver.Restart(r.Context(), engine, s.host); err != nil && s.host.Materialises() {
+		_ = s.store.Audit(user.ID, "stack.web_server_restart_failed", engine, clientIP(r), err.Error())
 	}
 
 	if err := s.store.SavePanelSetting("active_web_server", engine); err != nil {
