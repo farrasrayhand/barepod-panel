@@ -1,6 +1,6 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Document Version:** 0.3.4 (Prototype) — domains, automated ACME SSL/TLS, web shell defense, real-time stack streaming, and Cloudflare Zero Trust ingress live end-to-end
-> **Last Updated:** October 18, 2026  
+> **Document Version:** 0.3.8 (Prototype) — 4-web-server ingress switching, automated ACME SSL/TLS, database auto-healing, and multi-tenant Git CI/CD architecture
+> **Last Updated:** October 19, 2026  
 > **Status:** Active & Maintained
 
 ## Versioning policy
@@ -8,7 +8,7 @@
 The number describes **completed milestones, not effort** — and nothing may
 invent its own version.
 
-- **0.x = prototype line.** The line is at **0.3** (patch `v0.3.4`: domains, automated SSL, security hardening, and real-time stack streaming) and stays
+- **0.x = prototype line.** The line is at **0.3** (patch `v0.3.8`: domains, automated SSL, 4-web-server ingress switching, auto-healing credentials, and multi-tenant Git CI/CD architecture) and stays
   in 0.x while the panel is a prototype (some views still mock, dry-run provisioning,
   no release artefact).
 - **0.1 → 0.2 (reached):** the milestone was *"a website really runs end-to-end on
@@ -372,19 +372,46 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - **Gitea / Forgejo**: Self-hosted lightweight Git servers via custom `baseUrl`.
   - **Bitbucket**: Bitbucket Cloud workspaces.
   - **Custom Git / Generic SSH**: Any private Git server or VPS accessed via standard SSH repository URLs (`git@host:user/repo.git`).
+
+- **Architecture: Where Git Settings & PAT Live (Separation of Concerns & Anti-Clutter UI)**:
+  - **Global Account-Level Connection (`/profile` or `/settings/git`)**:
+    - Users connect their Git account (e.g. GitHub PAT) **once at the user profile level**, not inside every app.
+    - Token requires standard scopes: `repo` (for private repos, branches, commit discovery) and optional `admin:repo_hook` (for zero-config auto-webhook creation).
+    - Status badge confirms live connectivity: `✅ GitHub Connected: @username (38 repositories available)`.
+  - **Add-Website Wizard (Zero-Friction Creation)**:
+    - Source selection offers **GitHub**: dropdown auto-populates all user repositories via `GET /api/v1/me/git/repos` with real-time fuzzy search.
+    - Selecting a repository automatically loads branches (`GET /api/v1/me/git/repos/:owner/:repo/branches`) and pre-selects default branch (`main` / `master`).
+    - Single toggle: `[x] Auto-deploy on Git push`.
+  - **App Detail Layout ("Anti-Ruwet" Clean Vercel-Style Git & Deploy Tab)**:
+    - To eliminate clutter ("ruwet") from the project detail page, the `Deploy` tab is streamlined into two primary sections:
+      1. **Source & Deployment Card (Top)**:
+         - Repository & Branch badge: `github.com/user/project [Branch: main ▾]`.
+         - Auto-Deploy Switch: `Auto-Deploy: [ON / OFF]` with real-time status (`Webhook Active` or `Polling every 2m`).
+         - Primary Action: Clean, prominent **`[ Redeploy Now ]`** button.
+      2. **Deployment History (Bottom)**:
+         - Clean timeline table of past deploys: commit hash, commit message, author, deployment date/time, duration, status (success/failed), and `[ View Log ]` modal trigger.
+      3. **Advanced Collapsible Accordion (`Advanced Build & Shell Settings`)**:
+         - Build script editor (`composer install`, `npm run build`), environment variable injection overrides, and raw SSH Deploy Keys are tucked inside a closed-by-default accordion, so 95% of users never see unnecessary complexity.
+
+- **Auto-Deploy on Push Without Manual Webhook Setup**:
+  - **Mode 1: Zero-Configuration Auto-Webhook Registration (For Public/Tunnel Hosts)**:
+    - If the user provided a GitHub PAT with `admin:repo_hook` and the panel has a reachable public URL (direct domain or active Cloudflare Tunnel):
+    - When the operator enables "Auto-Deploy", the BarePod daemon **automatically calls the GitHub API (`POST /repos/:owner/:repo/hooks`)** to register the panel's deployment webhook.
+    - The operator never has to copy-paste URLs, configure secrets, or open GitHub settings manually.
+  - **Mode 2: Smart Commit Polling Fallback (For Local Network, Staging & Private IP Hosts)**:
+    - If the server has no public IP, no active tunnel, or if the PAT lacks webhook administration permissions:
+    - The built-in maintenance scheduler runs a lightweight background watcher (`git_commit_watcher`) that checks remote branch HEAD via GitHub API (`GET /repos/:owner/:repo/commits/:branch`) or lightweight `git ls-remote` every 2–5 minutes.
+    - If the latest commit SHA differs from the locally deployed commit SHA, BarePod automatically triggers the deployment pipeline (`git pull` + build + service reload).
+    - **Outcome**: Auto-deploy works 100% seamlessly on local lab servers, LAN environments, and private VPS without requiring any webhook or open inbound ports!
+
 - **Private Repository Authentication Architecture**:
-  - **Per-Website ED25519 SSH Deploy Key (Standard & Recommended)**:
-    - Every website generates a dedicated, isolated ED25519 keypair on creation: public key and private key stored at `/home/<tenant>/.ssh/id_ed25519_<slug>` with strict `0600` permissions owned by the tenant.
-    - The public key is cleanly exposed in the website's Git Settings UI, allowing developers to paste it into their repository's **Deploy Keys** (read-only access).
-    - Deploy keys require zero provider API tokens and work universally across GitHub, GitLab, Gitea, Bitbucket, and custom SSH servers.
+  - **Per-Website ED25519 SSH Deploy Key (Standard & Universal Fallback)**:
+    - Every website generates a dedicated, isolated ED25519 keypair on creation: public and private keys stored at `/home/<tenant>/.ssh/id_ed25519_<slug>` with strict `0600` permissions owned by the tenant.
+    - Supported for custom/generic Git servers or users who prefer not to generate personal tokens.
     - One-click key rotation supported (`POST /api/v1/websites/:slug/git/deploy-key/rotate`).
-  - **Per-User Personal Access Token (PAT) / API Key**:
-    - Optional integration allowing the panel to auto-discover user repositories (`GET /api/v1/me/git/providers/:id/repos`), list available branches, and automatically register webhook hooks.
-- **Push-to-Deploy & Webhook Security**:
-  - Universal push webhook endpoint: `POST /api/v1/webhooks/deploy/:slug?token=<deployHookToken>`.
-  - Authenticates via the website's unique, vaulted `deployHookToken` (URL-safe string or HMAC token).
-  - Webhook triggers asynchronous deploy pipeline: executes `git fetch` and `git checkout <branch>` as the tenant user (`Runner.RunAs`), executes post-deploy build hooks (e.g. `composer install`, `npm run build`), and reloads the service with *zero-downtime*.
-  - Real-time build progress and stdout/stderr logs are streamed over SSE.
+  - **Universal Push Webhook Endpoint (When Triggered)**:
+    - `POST /api/v1/webhooks/deploy/:slug?token=<deployHookToken>`.
+    - Authenticates via unique vaulted `deployHookToken` and executes the deploy pipeline as the tenant user (`Runner.RunAs`) with real-time SSE build logging.
 
 ### 3.12. In-Panel Self-Update & Over-The-Air (OTA) Engine
 
