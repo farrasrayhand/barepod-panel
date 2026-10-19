@@ -63,6 +63,16 @@ type Database struct {
 	// database left behind by an earlier deploy. The screen shows it with a badge rather
 	// than hiding it, because a managed row must stay visible and manageable.
 	Unreferenced bool `json:"unreferenced,omitempty"`
+	// MissingOnEngine marks a record whose database the engine does not actually have: a name
+	// stored under an older rule, or one renamed outside the panel. Read from the engine on
+	// every listing, never assumed.
+	MissingOnEngine bool `json:"missingOnEngine,omitempty"`
+	// SuggestedName is a database the engine does have that matches this record's tenant-prefixed
+	// name, offered when the recorded one is missing.
+	SuggestedName string `json:"suggestedName,omitempty"`
+	// CredentialRejected marks a record the engine refuses to authenticate with the stored
+	// password — a rotate that could not be applied, or a password changed outside the panel.
+	CredentialRejected bool `json:"credentialRejected,omitempty"`
 	// SizeBytes is measured when it can be (a file-based database is one stat
 	// call); it stays 0 rather than carrying an invented number.
 	SizeBytes int64 `json:"sizeBytes,omitempty"`

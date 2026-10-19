@@ -50,6 +50,42 @@ func Open(record *store.Database, key []byte) (*sql.DB, error) {
 	return nil, fmt.Errorf("no driver for %q yet", record.Engine)
 }
 
+// OpenServer connects to the engine without selecting a database.
+//
+// A name check needs this: the database a record names may not exist, and a DSN that selects it
+// would fail before any query could explain why.
+func OpenServer(record *store.Database, key []byte) (*sql.DB, error) {
+	password, err := secrets.Decrypt(key, record.PasswordCipher)
+	if err != nil {
+		return nil, errors.New("the credential could not be decrypted")
+	}
+	host := record.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port := record.Port
+	if port == 0 {
+		port = DefaultPort(record.Engine)
+	}
+	if record.User == "" {
+		return nil, errors.New("this database has no user recorded yet")
+	}
+
+	switch record.Engine {
+	case "postgresql":
+		// `postgres` always exists and is readable by a role with CONNECT; the recorded database
+		// may be the very thing that is missing.
+		dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/postgres?sslmode=disable&connect_timeout=5",
+			url.QueryEscape(record.User), url.QueryEscape(password), host, port)
+		return sql.Open("pgx", dsn)
+	case "mysql", "mariadb":
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?timeout=5s&parseTime=false",
+			record.User, password, host, port)
+		return sql.Open("mysql", dsn)
+	}
+	return nil, fmt.Errorf("no driver for %q yet", record.Engine)
+}
+
 // DefaultPort is an engine's standard port, used when a record does not carry one.
 func DefaultPort(engine string) int {
 	switch engine {

@@ -119,6 +119,13 @@ export interface DatabaseItem {
   unusedByApp?: boolean;
   /** Ledger row the owning site's .env does not name: left behind by an earlier deploy. */
   unreferenced?: boolean;
+  /** The engine does not have the database this row names — a name written under an older
+   *  rule, or one renamed outside the panel. Read from the engine with every listing. */
+  missingOnEngine?: boolean;
+  /** A database the engine does have that matches this row's tenant-prefixed name. */
+  suggestedName?: string;
+  /** The engine refuses the stored password: a rotate that could not be applied. */
+  credentialRejected?: boolean;
   /**
    * "" or "private" until an operator opens the port, then "public". The note is what the panel
    * actually did about it — an engine whose listener is engine-wide says so there rather than

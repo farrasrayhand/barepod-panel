@@ -471,6 +471,12 @@ export interface DatabaseRow {
   unusedByApp?: boolean;
   /** Ledger row the owning site's .env does not name: left behind by an earlier deploy. */
   unreferenced?: boolean;
+  /** The engine does not have the database this row names. Read from the engine, not stored. */
+  missingOnEngine?: boolean;
+  /** A database the engine does have that matches this row's tenant-prefixed name. */
+  suggestedName?: string;
+  /** The engine refuses the stored password: a rotate that could not be applied. */
+  credentialRejected?: boolean;
   createdAt: string;
   fileBased: boolean;
   detected?: boolean;

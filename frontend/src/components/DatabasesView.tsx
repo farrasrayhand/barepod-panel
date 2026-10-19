@@ -108,6 +108,9 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
   detachedAt: row.detachedAt,
   unusedByApp: row.unusedByApp,
   unreferenced: row.unreferenced,
+  missingOnEngine: row.missingOnEngine,
+  suggestedName: row.suggestedName,
+  credentialRejected: row.credentialRejected,
   connections: 0,
   host: row.host,
   port: row.port,
@@ -946,6 +949,26 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
                               title="The site's .env names a different database engine, so the application is not connected to this file"
                             >
                               Not used by app
+                            </span>
+                          )}
+                          {db.missingOnEngine && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200/80 shrink-0"
+                              title={
+                                db.suggestedName
+                                  ? `The engine has no database called ${db.name}. It does have ${db.suggestedName}`
+                                  : `The engine has no database called ${db.name}`
+                              }
+                            >
+                              Not on engine{db.suggestedName ? ` · ${db.suggestedName}` : ''}
+                            </span>
+                          )}
+                          {db.credentialRejected && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-200/80 shrink-0"
+                              title="The engine rejected the stored password — rotate it to set a credential it accepts"
+                            >
+                              Password rejected
                             </span>
                           )}
                         </div>

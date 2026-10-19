@@ -13,7 +13,10 @@ import (
 	"strings"
 	"time"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
+
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/enginedb"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/files"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/id"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
@@ -318,6 +321,118 @@ func (s *Server) resourceFor(record *store.Database, secret string) dbengine.Res
 	return resource
 }
 
+// markEngineState checks each ledger row against the engine itself.
+//
+// The name a row carries was written when the row was created, so it can stop matching the
+// server — a database made under an older naming rule, or one renamed outside the panel.
+// Reading the engine every time the list is built is what keeps the screen honest instead of
+// repeating a stored string. A credential the engine refuses is reported for the same reason:
+// that is exactly what a rotate which could not be applied leaves behind.
+func (s *Server) markEngineState(items []store.Database) {
+	// Each check opens a connection, so the pass is bounded twice: by a count high enough for any
+	// real panel, and by one shared deadline, because a listing must never wait on an engine that
+	// is slow or gone. Whatever is checked before the budget runs out is what gets reported.
+	const maxChecks = 25
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	checked := 0
+	for i := range items {
+		item := &items[i]
+		if item.Detected || item.Kind != store.KindDatabase || item.FileBased || item.DeletedAt != "" {
+			continue
+		}
+		switch strings.ToLower(item.Engine) {
+		case "mysql", "mariadb", "postgresql", "postgres":
+		default:
+			continue
+		}
+		if item.User == "" || item.PasswordCipher == "" || checked >= maxChecks || ctx.Err() != nil {
+			continue
+		}
+		checked++
+		s.checkEngineRecord(ctx, item)
+	}
+}
+
+type engineFailure int
+
+const (
+	failureOther engineFailure = iota
+	failureMissingDatabase
+	failureRejectedCredential
+)
+
+func (s *Server) checkEngineRecord(ctx context.Context, record *store.Database) {
+	db, err := enginedb.Open(record, s.key)
+	if err != nil {
+		return
+	}
+	err = db.PingContext(ctx)
+	_ = db.Close()
+	if err == nil {
+		// The recorded database exists and the stored credential opens it.
+		return
+	}
+	switch engineConnectFailure(err) {
+	case failureMissingDatabase:
+		record.MissingOnEngine = true
+		record.SuggestedName = s.suggestEngineName(ctx, record)
+	case failureRejectedCredential:
+		record.CredentialRejected = true
+	}
+}
+
+// engineConnectFailure reads the engine's own answer out of the error: 1049/1045 from MySQL and
+// MariaDB, and the SQLSTATE that PostgreSQL uses for the same two situations.
+func engineConnectFailure(err error) engineFailure {
+	var mysqlErr *mysqldriver.MySQLError
+	if errors.As(err, &mysqlErr) {
+		switch mysqlErr.Number {
+		case 1049:
+			return failureMissingDatabase
+		case 1045, 1044:
+			return failureRejectedCredential
+		}
+		return failureOther
+	}
+	message := err.Error()
+	if strings.Contains(message, "3D000") || strings.Contains(message, "does not exist") {
+		return failureMissingDatabase
+	}
+	if strings.Contains(message, "28P01") || strings.Contains(message, "password authentication failed") {
+		return failureRejectedCredential
+	}
+	return failureOther
+}
+
+// suggestEngineName looks for the name this record would carry under the current rule — the
+// tenant prefix a deploy adds — and offers it when the engine has it. It stays a suggestion:
+// the panel does not rename a row behind the operator's back.
+func (s *Server) suggestEngineName(ctx context.Context, record *store.Database) string {
+	if record.TenantUser == "" || strings.HasPrefix(record.Name, record.TenantUser+"_") {
+		return ""
+	}
+	want := record.TenantUser + "_" + record.Name
+	db, err := enginedb.OpenServer(record, s.key)
+	if err != nil {
+		return ""
+	}
+	defer db.Close()
+	query := "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?"
+	if isPostgres(record.Engine) {
+		query = "SELECT datname FROM pg_database WHERE datname = $1"
+	}
+	var found string
+	if err := db.QueryRowContext(ctx, query, want).Scan(&found); err != nil {
+		return ""
+	}
+	return found
+}
+
+func isPostgres(engine string) bool {
+	return strings.EqualFold(engine, "postgresql") || strings.EqualFold(engine, "postgres")
+}
+
 // markUnreferenced flags ledger rows the owning site's .env does not name, so a database
 // left behind by an earlier deploy cannot pose as the one the application uses. A record
 // whose site has no .env, or whose .env names no database, is left unmarked: the panel
@@ -406,6 +521,7 @@ func (s *Server) handleListDatabases(kind string) authedHandler {
 		}
 		if !binned {
 			s.markUnreferenced(items)
+			s.markEngineState(items)
 		}
 		sort.SliceStable(items, func(i, j int) bool { return items[i].Alias < items[j].Alias })
 		response := map[string]any{
