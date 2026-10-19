@@ -369,10 +369,11 @@ echo "=========================================================="
 		return [][]string{{"bash", "-c", script}}, nil
 	case "mysql":
 		// MySQL and MariaDB cannot coexist: both own /etc/mysql and :3306. When MariaDB is
-		// installed the switch migrates it instead of refusing: every application database is
-		// dumped while MariaDB still runs, its data directory is moved aside (never deleted),
-		// MariaDB is purged, MySQL is installed and the dump is imported. If the import fails
-		// the dump and the old data directory stay where the log says they are.
+		// installed the switch migrates it — but never at the cost of leaving the host without
+		// a database server. The repository is configured and proved *first* (the previous
+		// order purged MariaDB, then found Oracle's signing key rejected, and the host had
+		// neither engine); the packages are downloaded before anything is stopped; and a failed
+		// install puts MariaDB back from the data directory the job moved aside.
 		line := strings.TrimPrefix(version, "v")
 		if parts := strings.Split(line, "."); len(parts) >= 2 {
 			line = parts[0] + "." + parts[1]
@@ -385,10 +386,33 @@ echo "=========================================================="
 		if line == "8.4" {
 			component = "mysql-8.4-lts"
 		}
+		apt := strings.Join(aptWait, " ")
 		script := "set -e\n" +
 			"TS=$(date +%s)\n" +
 			"install -d /var/backups/barepod\n" +
 			"DUMP=\"/var/backups/barepod/mariadb-before-mysql-$TS.sql\"\n" +
+			". /etc/os-release\n" +
+			"DISTRO=ubuntu; [ \"${ID:-}\" = debian ] && DISTRO=debian\n" +
+			"CODENAME=${VERSION_CODENAME:-jammy}\n" +
+			// 1. Repository + package availability, before MariaDB is touched.
+			"PKG=mysql-community-server\n" +
+			"install -d /usr/share/keyrings\n" +
+			"if curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | gpg --dearmor -o /usr/share/keyrings/mysql.gpg 2>/dev/null; then\n" +
+			"  echo \"deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/${DISTRO}/ ${CODENAME} " + component + "\" > /etc/apt/sources.list.d/mysql.list\n" +
+			"  if ! DEBIAN_FRONTEND=noninteractive apt-get " + apt + " update; then\n" +
+			"    echo 'Oracle MySQL repository is not usable here (its signing key is rejected) — using the distribution package instead.'\n" +
+			"    rm -f /etc/apt/sources.list.d/mysql.list\n" +
+			"    DEBIAN_FRONTEND=noninteractive apt-get " + apt + " update\n" +
+			"    PKG=mysql-server\n" +
+			"  fi\n" +
+			"else\n" +
+			"  PKG=mysql-server\n" +
+			"fi\n" +
+			"if ! DEBIAN_FRONTEND=noninteractive apt-get " + apt + " install --download-only -y \"$PKG\"; then\n" +
+			"  echo 'MySQL packages are not installable on this host. MariaDB was left untouched and running.' >&2\n" +
+			"  exit 1\n" +
+			"fi\n" +
+			// 2. Only now touch MariaDB: dump, stop, move the data dir aside, purge.
 			"if dpkg -l 2>/dev/null | grep -qE '^ii\\s+mariadb-server'; then\n" +
 			"  echo 'MariaDB is installed: dumping every application database before the switch.'\n" +
 			"  DBS=$(mariadb -N -e 'SHOW DATABASES' 2>/dev/null | grep -vE '^(information_schema|performance_schema|mysql|sys)$' | tr '\\n' ' ' || true)\n" +
@@ -398,16 +422,21 @@ echo "=========================================================="
 			"  fi\n" +
 			"  systemctl stop mariadb 2>/dev/null || true\n" +
 			"  if [ -d /var/lib/mysql ]; then mv /var/lib/mysql \"/var/lib/mysql.mariadb-$TS\"; fi\n" +
-			"  DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " purge -y 'mariadb-server*' >/dev/null\n" +
+			"  DEBIAN_FRONTEND=noninteractive apt-get " + apt + " purge -y 'mariadb-server*' >/dev/null\n" +
 			"fi\n" +
-			". /etc/os-release\n" +
-			"DISTRO=ubuntu; [ \"${ID:-}\" = debian ] && DISTRO=debian\n" +
-			"CODENAME=${VERSION_CODENAME:-jammy}\n" +
-			"install -d /usr/share/keyrings\n" +
-			"curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | gpg --dearmor -o /usr/share/keyrings/mysql.gpg\n" +
-			"echo \"deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/${DISTRO}/ ${CODENAME} " + component + "\" > /etc/apt/sources.list.d/mysql.list\n" +
-			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " update\n" +
-			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " -o Dpkg::Options::=--force-confdef install -y mysql-community-server\n" +
+			// 3. Install; a failure restores MariaDB instead of leaving the host without one.
+			"if ! DEBIAN_FRONTEND=noninteractive apt-get " + apt + " -o Dpkg::Options::=--force-confdef install -y \"$PKG\"; then\n" +
+			"  echo 'MySQL could not be installed — restoring MariaDB.' >&2\n" +
+			"  DEBIAN_FRONTEND=noninteractive apt-get " + apt + " install -y mariadb-server || true\n" +
+			"  if [ -d \"/var/lib/mysql.mariadb-$TS\" ]; then\n" +
+			"    systemctl stop mariadb 2>/dev/null || true\n" +
+			"    [ -d /var/lib/mysql ] && mv /var/lib/mysql \"/var/lib/mysql.fresh-$TS\"\n" +
+			"    mv \"/var/lib/mysql.mariadb-$TS\" /var/lib/mysql\n" +
+			"    chown -R mysql:mysql /var/lib/mysql 2>/dev/null || true\n" +
+			"  fi\n" +
+			"  systemctl start mariadb 2>/dev/null || true\n" +
+			"  exit 1\n" +
+			"fi\n" +
 			"systemctl enable --now mysql 2>/dev/null || systemctl restart mysql 2>/dev/null || true\n" +
 			"if [ -s \"$DUMP\" ]; then\n" +
 			"  if ! mysql < \"$DUMP\"; then\n" +
