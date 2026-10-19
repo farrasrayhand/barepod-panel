@@ -368,10 +368,11 @@ echo "=========================================================="
 			"mariadb-upgrade -u root 2>&1 || mysql_upgrade -u root 2>&1 || echo 'mariadb-upgrade did not run — check the server log'\n"
 		return [][]string{{"bash", "-c", script}}, nil
 	case "mysql":
-		// MySQL and MariaDB are mutually exclusive: both own /etc/mysql and :3306, and on
-		// Debian the distribution's `mysql-server` is MariaDB. Installing Oracle's build over
-		// a running MariaDB would replace the server under every site on it, so the install
-		// refuses and says what to do instead.
+		// MySQL and MariaDB cannot coexist: both own /etc/mysql and :3306. When MariaDB is
+		// installed the switch migrates it instead of refusing: every application database is
+		// dumped while MariaDB still runs, its data directory is moved aside (never deleted),
+		// MariaDB is purged, MySQL is installed and the dump is imported. If the import fails
+		// the dump and the old data directory stay where the log says they are.
 		line := strings.TrimPrefix(version, "v")
 		if parts := strings.Split(line, "."); len(parts) >= 2 {
 			line = parts[0] + "." + parts[1]
@@ -385,9 +386,19 @@ echo "=========================================================="
 			component = "mysql-8.4-lts"
 		}
 		script := "set -e\n" +
+			"TS=$(date +%s)\n" +
+			"install -d /var/backups/barepod\n" +
+			"DUMP=\"/var/backups/barepod/mariadb-before-mysql-$TS.sql\"\n" +
 			"if dpkg -l 2>/dev/null | grep -qE '^ii\\s+mariadb-server'; then\n" +
-			"  echo 'MariaDB is installed. MySQL and MariaDB cannot share :3306 — uninstall MariaDB on this tab first, then install MySQL.' >&2\n" +
-			"  exit 1\n" +
+			"  echo 'MariaDB is installed: dumping every application database before the switch.'\n" +
+			"  DBS=$(mariadb -N -e 'SHOW DATABASES' 2>/dev/null | grep -vE '^(information_schema|performance_schema|mysql|sys)$' | tr '\\n' ' ' || true)\n" +
+			"  if [ -n \"$DBS\" ]; then\n" +
+			"    mariadb-dump --single-transaction --quick --routines --triggers --events --databases $DBS > \"$DUMP\"\n" +
+			"    sed -i -E 's/utf8mb4_uca1400_[a-z0-9_]+/utf8mb4_0900_ai_ci/g' \"$DUMP\" 2>/dev/null || true\n" +
+			"  fi\n" +
+			"  systemctl stop mariadb 2>/dev/null || true\n" +
+			"  if [ -d /var/lib/mysql ]; then mv /var/lib/mysql \"/var/lib/mysql.mariadb-$TS\"; fi\n" +
+			"  DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " purge -y 'mariadb-server*' >/dev/null\n" +
 			"fi\n" +
 			". /etc/os-release\n" +
 			"DISTRO=ubuntu; [ \"${ID:-}\" = debian ] && DISTRO=debian\n" +
@@ -398,6 +409,13 @@ echo "=========================================================="
 			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " update\n" +
 			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " -o Dpkg::Options::=--force-confdef install -y mysql-community-server\n" +
 			"systemctl enable --now mysql 2>/dev/null || systemctl restart mysql 2>/dev/null || true\n" +
+			"if [ -s \"$DUMP\" ]; then\n" +
+			"  if ! mysql < \"$DUMP\"; then\n" +
+			"    echo \"the import failed. Nothing was deleted: the dump is at $DUMP and MariaDB's data directory at /var/lib/mysql.mariadb-$TS\" >&2\n" +
+			"    exit 1\n" +
+			"  fi\n" +
+			"  echo \"databases imported from $DUMP. MariaDB user accounts are not carried over — rotate each database in the panel to recreate its account and grant.\"\n" +
+			"fi\n" +
 			"mysql --version\n"
 		return [][]string{{"bash", "-c", script}}, nil
 	case "redis":

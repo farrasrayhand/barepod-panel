@@ -59,6 +59,8 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
   // MariaDB and MySQL own the same port and cannot coexist, so the all-in-one install picks
   // exactly one of them — never both.
   const [mysqlFamily, setMysqlFamily] = useState<'mariadb' | 'mysql'>('mariadb');
+  // Installing MySQL over MariaDB migrates it (dump → purge → import), so it is confirmed.
+  const [mysqlSwitch, setMysqlSwitch] = useState<{ version: string } | null>(null);
   const [bundleRun, setBundleRun] = useState<{ total: number; index: number; current: string } | null>(null);
   const [activeTab, setActiveTab] = useSubRoute<'web' | 'runtime' | 'database'>('web');
   const [status, setStatus] = useState<StackStatus | null>(() => {
@@ -281,6 +283,19 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     (status?.databaseInstalled?.['mariadb']?.length ?? 0) > 0 ||
     (status?.databaseInstalled?.['mysql']?.length ?? 0) > 0 ||
     Boolean(status?.databases?.find((d) => d.engine === 'mariadb' || d.engine === 'mysql')?.installedVersion);
+
+  const mariadbInstalled = () =>
+    (status?.databaseInstalled?.['mariadb']?.length ?? 0) > 0 ||
+    Boolean(status?.databases?.find((d) => d.engine === 'mariadb')?.installedVersion);
+
+  // A plain install unless MySQL would replace MariaDB, which is a migration and is confirmed.
+  const startInstall = (engine: string, version: string) => {
+    if (engine === 'mysql' && mariadbInstalled()) {
+      setMysqlSwitch({ version });
+      return;
+    }
+    void install(engine, version);
+  };
 
   const buildBundle = (family: 'mariadb' | 'mysql' = mysqlFamily): BundleItem[] => {
     if (!status) return [];
@@ -847,7 +862,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                           {/* Install / Update actions only */}
                           {!state?.installed ? (
                             <button
-                              onClick={() => void install(engine, latest || 'latest')}
+                              onClick={() => startInstall(engine, latest || 'latest')}
                               disabled={busy || live !== true}
                               title={`Install official upstream latest ${engine}`}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 shadow-xs"
@@ -856,7 +871,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                             </button>
                           ) : !isUpToDate && latest ? (
                             <button
-                              onClick={() => void install(engine, latest || 'latest')}
+                              onClick={() => startInstall(engine, latest || 'latest')}
                               disabled={busy || live !== true}
                               title={`Update ${engine} to latest upstream version (${latest})`}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 shadow-xs"
@@ -1692,6 +1707,62 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           <div className="flex items-center justify-between mt-2.5 text-[10px] text-slate-400">
             <span className="text-blue-600 font-medium">Click to maximize</span>
             <span>Running in background</span>
+          </div>
+        </div>
+      )}
+
+      {/* MySQL replaces MariaDB: confirm the migration before anything is stopped */}
+      {mysqlSwitch && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start sm:items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <h3 className="font-bold text-sm text-slate-900">
+                  Migrate MariaDB to MySQL {mysqlSwitch.version}?
+                </h3>
+              </div>
+              <button
+                onClick={() => setMysqlSwitch(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3 text-xs text-slate-600">
+              <p>MySQL and MariaDB both own port 3306, so one replaces the other. This job will:</p>
+              <ol className="list-decimal list-inside space-y-1 bg-slate-50 border border-slate-200 rounded-xl p-3 font-mono text-[11px]">
+                <li>dump every application database to /var/backups/barepod</li>
+                <li>stop MariaDB and move /var/lib/mysql aside (nothing is deleted)</li>
+                <li>purge MariaDB and install MySQL {mysqlSwitch.version}</li>
+                <li>import the dump into MySQL</li>
+              </ol>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900 space-y-1">
+                <p className="font-semibold">Before you continue</p>
+                <p>MariaDB user accounts are not carried over: rotate each database in the panel afterwards to recreate its account and grant.</p>
+                <p>Schemas using MariaDB-only syntax (some collations, sequences) can fail to import; if they do, the job log names the dump and the old data directory.</p>
+              </div>
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setMysqlSwitch(null)}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  void install('mysql', mysqlSwitch.version);
+                  setMysqlSwitch(null);
+                }}
+                disabled={busy || live !== true}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 shadow-xs"
+              >
+                Migrate and install
+              </button>
+            </div>
           </div>
         </div>
       )}
