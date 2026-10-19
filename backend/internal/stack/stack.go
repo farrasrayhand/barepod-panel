@@ -419,10 +419,17 @@ echo "=========================================================="
 			"  DEBIAN_FRONTEND=noninteractive apt-get " + apt + " update\n" +
 			"  PKG=mysql-server\n" +
 			"fi\n" +
-			"if ! DEBIAN_FRONTEND=noninteractive apt-get " + apt + " install --download-only -y \"$PKG\"; then\n" +
-			"  echo 'MySQL packages are not installable on this host. MariaDB was left untouched and running.' >&2\n" +
+			// apt refuses to *plan* this install while MariaDB's packages are here — they
+			// declare Conflicts: virtual-mysql-server-core — which is expected, because MariaDB
+			// is purged a few steps later. Fetching the package itself is the honest check: it
+			// proves a repository serves it, without asking apt to resolve a transaction that
+			// cannot exist yet.
+			"rm -rf /tmp/barepod-mysql-pkg && mkdir -p /tmp/barepod-mysql-pkg\n" +
+			"if ! (cd /tmp/barepod-mysql-pkg && DEBIAN_FRONTEND=noninteractive apt-get " + apt + " download \"$PKG\"); then\n" +
+			"  echo 'the MySQL package could not be fetched from any repository. MariaDB was left untouched and running.' >&2\n" +
 			"  exit 1\n" +
 			"fi\n" +
+			"rm -rf /tmp/barepod-mysql-pkg\n" +
 			// 2. Only now touch MariaDB: dump, stop, move the data dir aside, purge.
 			"if dpkg -l 2>/dev/null | grep -qE '^ii\\s+mariadb-server'; then\n" +
 			"  echo 'MariaDB is installed: dumping every application database before the switch.'\n" +
