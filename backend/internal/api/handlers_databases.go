@@ -428,6 +428,25 @@ func (s *Server) probeEngineState(ctx context.Context, record *store.Database) (
 		state.missing = true
 		state.suggested = s.suggestEngineName(ctx, record)
 	case failureRejectedCredential:
+		// Attempt self-healing: if the user account or grant is missing on the database engine
+		// (e.g. after a database version switch/migration from MariaDB to MySQL or clean engine reinit),
+		// re-apply the user and grants using the stored encrypted password.
+		if s.host.Materialises() && record.DeletedAt == "" && (record.Engine == "mariadb" || record.Engine == "mysql" || record.Engine == "postgres") {
+			if plain, err := secrets.Decrypt(s.key, record.PasswordCipher); err == nil && plain != "" {
+				plan, planErr := dbengine.PlanFor(dbengine.StepRotate, s.resourceFor(record, plain))
+				if planErr == nil && len(plan.Commands) > 0 {
+					if runErr := s.runDatabasePlan(ctx, plan); runErr == nil {
+						if db2, err2 := enginedb.Open(record, s.key); err2 == nil {
+							if errPing := db2.PingContext(ctx); errPing == nil {
+								_ = db2.Close()
+								return state, true
+							}
+							_ = db2.Close()
+						}
+					}
+				}
+			}
+		}
 		state.rejected = true
 	default:
 		return state, false
