@@ -121,7 +121,7 @@ func catalog() []Engine {
 		},
 		{
 			Name: "mysql", Label: "MySQL", Kind: "database",
-			Versions: []string{"8.4", "8.0"}, DefaultPort: 3306,
+			Versions: []string{"9.7", "8.4", "8.0"}, DefaultPort: 3306,
 			Client: "mysql", Daemon: "mysql", Automated: true,
 		},
 		{

@@ -60,7 +60,7 @@ func Catalog() []Component {
 		{Name: "rust", Label: "Rust", Kind: "runtime", Description: "Rust toolchain (cargo)"},
 		{Name: "postgresql", Label: "PostgreSQL", Kind: "database", Versions: []string{"18", "17", "16", "15", "14"}, Description: "Relational database"},
 		{Name: "mariadb", Label: "MariaDB", Kind: "database", Versions: []string{"13.0", "12.3", "11.8", "11.4", "10.11"}, Description: "MySQL-compatible relational database"},
-		{Name: "mysql", Label: "MySQL", Kind: "database", Versions: []string{"8.4", "8.0"}, Description: "Oracle MySQL — mutually exclusive with MariaDB (both own :3306)"},
+		{Name: "mysql", Label: "MySQL", Kind: "database", Versions: []string{"9.7", "8.4", "8.0"}, Description: "Oracle MySQL — mutually exclusive with MariaDB (both own :3306)"},
 		{Name: "mongodb", Label: "MongoDB", Kind: "database", Versions: []string{"9.0", "8.0", "7.0", "6.0"}, Description: "Document database"},
 		{Name: "redis", Label: "Redis", Kind: "database", Versions: []string{"8.10", "8.0", "7.4", "7.2", "7.0", "6.2"}, Description: "In-memory cache and store"},
 	}
@@ -382,10 +382,12 @@ echo "=========================================================="
 		if line == "" {
 			line = "8.4"
 		}
-		// 8.4 LTS is published under `mysql-8.4-lts`; earlier lines use their own number.
+		// Oracle's repository names an LTS line after the line itself: 9.7 and 8.4 are the
+		// current LTS components, 8.0 its own.
 		component := "mysql-" + line
-		if line == "8.4" {
-			component = "mysql-8.4-lts"
+		switch line {
+		case "9.7", "8.4":
+			component = "mysql-" + line + "-lts"
 		}
 		apt := strings.Join(aptWait, " ")
 		script := "set -e\n" +
@@ -663,7 +665,7 @@ for KEYFILE in $KEYS; do
   rm -f /usr/share/keyrings/mysql.gpg /tmp/mysql-key.asc
   if curl -fsSL "https://repo.mysql.com/$KEYFILE" -o /tmp/mysql-key.asc && [ -s /tmp/mysql-key.asc ]; then
     gpg --dearmor -o /usr/share/keyrings/mysql.gpg < /tmp/mysql-key.asc 2>/dev/null || true
-    echo "deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/${DISTRO}/ ${CODENAME} mysql-8.4-lts mysql-8.0" > /etc/apt/sources.list.d/mysql.list
+    echo "deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/${DISTRO}/ ${CODENAME} mysql-9.7-lts mysql-8.4-lts mysql-8.0" > /etc/apt/sources.list.d/mysql.list
     if apt-get -o DPkg::Lock::Timeout=600 update; then
       echo "MySQL repository accepted with $KEYFILE."
       exit 0
@@ -1650,84 +1652,20 @@ func webServerVersions(ctx context.Context, h *host.Host, engine string) []strin
 	return sortedDescending(set)
 }
 
-// databaseVersions lists the versions an engine's repositories offer. PostgreSQL ships
-// one package per major (postgresql-16), so its list is real; the others carry a single
-// version in the distribution, and asking apt is how the screen learns that instead of
-// showing an empty column.
-func databaseVersions(ctx context.Context, h *host.Host, engine string) []string {
-	if !h.Materialises() {
+// databaseVersions lists what the panel offers to install for an engine.
+//
+// Deliberately curated instead of discovered. A database is stateful and its provisioning is
+// version-sensitive — the client binary, the upgrade path and the panel's own SQL have to
+// agree — so a major that a repository publishes overnight must not appear in the UI before
+// the panel has been tested against it. The catalog is the allow-list: a new database version
+// arrives with a panel release, not with an upstream push. Runtimes and web servers work the
+// other way round, because replacing them is stateless.
+func databaseVersions(_ context.Context, _ *host.Host, engine string) []string {
+	component, ok := Lookup(engine)
+	if !ok || len(component.Versions) == 0 {
 		return nil
 	}
-	set := map[string]bool{}
-	switch engine {
-	case "mongodb":
-		// This host runs MongoDB in a container, so its versions are image tags: asking the
-		// registry is the honest answer, and the packages are only the fallback.
-		if tags := dockerImageTags(ctx, h, mongodbImage); len(tags) > 0 {
-			return tags
-		}
-	case "postgresql":
-		out, err := h.Run(ctx, []string{"bash", "-c", "apt-cache search --names-only '^postgresql-[0-9]+$' | awk '{print $1}'"})
-		if err != nil {
-			return nil
-		}
-		for _, line := range strings.Split(out, "\n") {
-			if m := regexp.MustCompile(`^postgresql-(\d+)$`).FindStringSubmatch(strings.TrimSpace(line)); m != nil {
-				set[m[1]] = true
-			}
-		}
-	default:
-		// One candidate: the version apt would install for the engine's package.
-		pkg := map[string]string{
-			"mariadb": "mariadb-server",
-			"redis":   "redis-server",
-			"mongodb": "mongodb-org",
-			"mysql":   "mysql-server",
-		}[engine]
-		if pkg == "" {
-			return nil
-		}
-		// madison lists every version the repositories can install, which is what makes a
-		// second line (Redis 8 beside 7, MariaDB 11.4 beside 10.11) visible at all.
-		out, err := h.Run(ctx, []string{"bash", "-c", "apt-cache madison " + pkg + " 2>/dev/null | awk '{print $3}'"})
-		if err != nil {
-			return nil
-		}
-		for _, line := range strings.Split(out, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			// A Debian version reads 1:10.11.14-0ubuntu0.24.04.1: the epoch is not part of
-			// the version a person chooses.
-			if _, after, found := strings.Cut(line, ":"); found && runtimesVersionPattern.MatchString(after) {
-				line = after
-			}
-			if m := runtimesVersionPattern.FindStringSubmatch(line); m != nil {
-				set[m[1]+"."+m[2]] = true
-			}
-		}
-		if len(set) == 0 {
-			// No repository beyond the distribution's: fall back to its single candidate.
-			if candidate, ok := aptCandidate(ctx, h, pkg); ok {
-				if m := runtimesVersionPattern.FindStringSubmatch(candidate); m != nil {
-					set[m[1]+"."+m[2]] = true
-				}
-			}
-		}
-	}
-	// MySQL and MariaDB install from a vendor repository that the install itself adds, so a
-	// host that has not added one yet knows only the distribution's single version. The
-	// catalog is what the panel can install; offering it as well is what makes 8.4 (MySQL) or
-	// 11.8 (MariaDB) selectable at all on a fresh host.
-	if engine == "mysql" || engine == "mariadb" {
-		if component, ok := Lookup(engine); ok {
-			for _, version := range component.Versions {
-				set[strings.TrimPrefix(version, "v")] = true
-			}
-		}
-	}
-	return sortedDescending(set)
+	return component.Versions
 }
 
 // databaseInstalledVersions lists all versions of an engine that are actually installed

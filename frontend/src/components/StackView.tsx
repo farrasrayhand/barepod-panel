@@ -527,7 +527,11 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           >
             <Download className="w-3.5 h-3.5" /> Prepare repositories
           </button>
-          <span className="ml-2 text-[11px] text-amber-800">The {where} version lists fill from these.</span>
+          <span className="ml-2 text-[11px] text-amber-800">
+            {where === 'database'
+              ? 'The panel installs the database versions it lists; these repositories supply their packages.'
+              : `The ${where} version lists fill from these.`}
+          </span>
         </div>
       </div>
     );
