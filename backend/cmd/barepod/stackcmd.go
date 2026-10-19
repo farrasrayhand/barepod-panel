@@ -22,7 +22,7 @@ func runStack(args []string) error {
 	switch args[0] {
 	case "autoheal", "repair":
 		runner := host.Runner(host.RealRunner{})
-		actions := stack.AutoHeal(context.Background(), runner)
+		actions := stack.AutoHeal(context.Background(), runner, "")
 		for _, act := range actions {
 			fmt.Printf("[barepod autoheal] %s\n", act)
 		}

@@ -640,10 +640,18 @@ func runServe(args []string) error {
 	// The order is preserved from before: the guard's firewall table is adopted before the exposure
 	// reconciliation, which needs it to exist.
 	if !dryRun {
-		for _, act := range stack.AutoHeal(context.Background(), runner) {
+		// The active ingress comes from the panel's setting, so auto-heal never demotes the
+		// engine that is actually serving :80.
+		activeWebServer := func() string {
+			if v, err := st.PanelSetting("active_web_server"); err == nil {
+				return v
+			}
+			return ""
+		}
+		for _, act := range stack.AutoHeal(context.Background(), runner, activeWebServer()) {
 			log.Printf("[auto-repair] %s", act)
 		}
-		stack.StartAutoHealWatchdog(context.Background(), runner, 60*time.Second)
+		stack.StartAutoHealWatchdog(context.Background(), runner, 60*time.Second, activeWebServer)
 		if _, err := os.Stat("/var/spool/postfix/maildrop"); err == nil {
 			_ = os.Chmod("/var/spool/postfix/maildrop", 0o1777)
 		}
@@ -770,4 +778,3 @@ echo ""
 		_ = os.WriteFile(motdPath, []byte(content), 0o755)
 	}
 }
-

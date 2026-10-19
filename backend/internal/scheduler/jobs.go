@@ -61,10 +61,14 @@ func TimeoutFor(job Job) time.Duration {
 var registry = []Job{
 	{
 		ID: "service_watchdog", Label: "Service watchdog", Category: "watchdog",
-		Desc: "Restart nginx/caddy/php-fpm/docker/cloudflared and the database engines if they are down.",
+		Desc:            "Restart nginx/caddy/php-fpm/docker/cloudflared and the database engines if they are down.",
 		DefaultSchedule: "*/5 * * * *", DefaultEnabled: true, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
-			actions := stack.AutoHeal(ctx, env.Host.Runner)
+			active := ""
+			if v, err := env.Store.PanelSetting("active_web_server"); err == nil {
+				active = v
+			}
+			actions := stack.AutoHeal(ctx, env.Host.Runner, active)
 			if len(actions) == 0 {
 				return "all monitored services healthy; nothing to repair", nil
 			}
@@ -73,7 +77,7 @@ var registry = []Job{
 	},
 	{
 		ID: "metrics_prune", Label: "Metrics & log retention prune", Category: "maintenance",
-		Desc: "Trim retained deploy/job records and vacuum the system journal past retention.",
+		Desc:            "Trim retained deploy/job records and vacuum the system journal past retention.",
 		DefaultSchedule: "0 3 * * *", DefaultEnabled: true, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			pruned, err := pruneRetainedJobs(ctx, env)
@@ -86,7 +90,7 @@ var registry = []Job{
 	},
 	{
 		ID: "logrotate", Label: "Log rotation", Category: "system",
-		Desc: "Rotate and compress service logs.",
+		Desc:            "Rotate and compress service logs.",
 		DefaultSchedule: "0 2 * * *", DefaultEnabled: true, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			if _, err := os.Stat("/etc/logrotate.conf"); err != nil {
@@ -106,7 +110,7 @@ var registry = []Job{
 	},
 	{
 		ID: "ssl_renew", Label: "SSL certificate renewal", Category: "security",
-		Desc: "Renew Let's Encrypt certificates that are due, then reload the web server.",
+		Desc:            "Renew Let's Encrypt certificates that are due, then reload the web server.",
 		DefaultSchedule: "0 0,12 * * *", DefaultEnabled: true, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			if !hasBinary("certbot") {
@@ -128,7 +132,7 @@ var registry = []Job{
 	},
 	{
 		ID: "disk_alert", Label: "Disk & resource alerts", Category: "alert",
-		Desc: "Notify when the root filesystem's usage crosses the alert threshold.",
+		Desc:            "Notify when the root filesystem's usage crosses the alert threshold.",
 		DefaultSchedule: "*/15 * * * *", DefaultEnabled: true, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			pct, err := diskUsagePercent("/")
@@ -160,7 +164,7 @@ var registry = []Job{
 	},
 	{
 		ID: "smart_test", Label: "S.M.A.R.T. short self-test", Category: "system",
-		Desc: "Weekly disk health self-test on each physical drive.",
+		Desc:            "Weekly disk health self-test on each physical drive.",
 		DefaultSchedule: "0 1 * * 0", DefaultEnabled: true, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			if !env.Caps.Smart {
@@ -171,7 +175,7 @@ var registry = []Job{
 	},
 	{
 		ID: "fstrim", Label: "SSD TRIM (fstrim)", Category: "system",
-		Desc: "Discard unused blocks to keep NVMe/SSD performance.",
+		Desc:            "Discard unused blocks to keep NVMe/SSD performance.",
 		DefaultSchedule: "0 2 * * 0", DefaultEnabled: true, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			if !env.Caps.Fstrim {
@@ -183,7 +187,7 @@ var registry = []Job{
 	},
 	{
 		ID: "docker_prune", Label: "Docker system prune", Category: "docker",
-		Desc: "Dangling images, stopped containers, and build cache.",
+		Desc:            "Dangling images, stopped containers, and build cache.",
 		DefaultSchedule: "30 4 * * *", DefaultEnabled: false, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			if !env.Caps.Docker {
@@ -195,7 +199,7 @@ var registry = []Job{
 	},
 	{
 		ID: "system_junk", Label: "System junk cleanup", Category: "maintenance",
-		Desc: "Clear /tmp files and journal entries older than the retention window.",
+		Desc:            "Clear /tmp files and journal entries older than the retention window.",
 		DefaultSchedule: "0 4 * * *", DefaultEnabled: false, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			out, err := env.Host.Run(ctx, []string{
@@ -211,7 +215,7 @@ var registry = []Job{
 	},
 	{
 		ID: "security_updates", Label: "Security OS updates", Category: "security",
-		Desc: "Install pending security upgrades (apt unattended-upgrades).",
+		Desc:            "Install pending security upgrades (apt unattended-upgrades).",
 		DefaultSchedule: "0 5 * * *", DefaultEnabled: false, Implemented: true,
 		// A package upgrade is not a five-minute job: give it room so a slow mirror or a local
 		// rebuild cannot be killed halfway and leave dpkg wanting repair.
@@ -237,7 +241,7 @@ var registry = []Job{
 	},
 	{
 		ID: "db_maintenance", Label: "Database maintenance", Category: "database",
-		Desc: "PostgreSQL VACUUM ANALYZE & MariaDB/MySQL table optimize on every managed database.",
+		Desc:            "PostgreSQL VACUUM ANALYZE & MariaDB/MySQL table optimize on every managed database.",
 		DefaultSchedule: "0 3 * * 0", DefaultEnabled: false, Implemented: true,
 		Timeout: 30 * time.Minute,
 		Run:     runDatabaseMaintenance,

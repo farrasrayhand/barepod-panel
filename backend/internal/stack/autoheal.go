@@ -36,8 +36,8 @@ func needsStart(state string) bool {
 }
 
 // AutoHeal repairs services that are actually down, without disturbing ones systemd is already
-// starting, stopping or recovering.
-func AutoHeal(ctx context.Context, runner host.Runner) []string {
+// starting, stopping or recovering. activeEngine is the host's chosen edge ingress.
+func AutoHeal(ctx context.Context, runner host.Runner, activeEngine string) []string {
 	var actions []string
 
 	// 1. MariaDB / MySQL Auto-Heal
@@ -124,7 +124,16 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 			nginxIsBackend = true
 		}
 	}
-	caddyIsBackend := !nginxIsBackend && nginxInstalled
+	caddyIsBackend := false
+	if activeEngine != "" {
+		caddyIsBackend = !strings.EqualFold(activeEngine, string(webserver.Caddy))
+	} else if nginxInstalled {
+		// No setting available (the CLI runs without the store): nginx is the edge only if it
+		// listens on :80 itself. Being installed proves nothing — that assumption is what wrote
+		// http_port 8081 into Caddy's config and moved every site off :80.
+		listens80, _ := runner.Run(ctx, "", "grep", "-rn", "listen .*80", "/etc/nginx/sites-enabled/")
+		caddyIsBackend = strings.TrimSpace(listens80) != ""
+	}
 
 	if caddyInstalled {
 		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy 2>/dev/null && chmod 755 /var/log/caddy && chmod 664 /var/log/caddy/*.log 2>/dev/null || true")
@@ -220,17 +229,23 @@ func AutoHeal(ctx context.Context, runner host.Runner) []string {
 
 // StartAutoHealWatchdog launches a background watchdog goroutine that periodically
 // checks and heals crashed database engines and services.
-func StartAutoHealWatchdog(ctx context.Context, runner host.Runner, interval time.Duration) {
+func StartAutoHealWatchdog(ctx context.Context, runner host.Runner, interval time.Duration, activeEngine func() string) {
+	heal := func(label string) {
+		active := ""
+		if activeEngine != nil {
+			active = activeEngine()
+		}
+		for _, act := range AutoHeal(ctx, runner, active) {
+			log.Printf("[%s] %s", label, act)
+		}
+	}
 	go func() {
 		// Run initial auto-heal after daemon boot
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(3 * time.Second):
-			actions := AutoHeal(ctx, runner)
-			for _, act := range actions {
-				log.Printf("[auto-heal] %s", act)
-			}
+			heal("auto-heal")
 		}
 
 		ticker := time.NewTicker(interval)
@@ -241,10 +256,7 @@ func StartAutoHealWatchdog(ctx context.Context, runner host.Runner, interval tim
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				actions := AutoHeal(ctx, runner)
-				for _, act := range actions {
-					log.Printf("[watchdog auto-heal] %s", act)
-				}
+				heal("watchdog auto-heal")
 			}
 		}
 	}()
