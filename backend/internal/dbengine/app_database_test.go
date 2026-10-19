@@ -82,6 +82,26 @@ func TestUnusedLaravelPlaceholder(t *testing.T) {
 	}
 }
 
+// TestPostgresRotateRepairsAMissingRole is the same defect on the other engine: ALTER ROLE
+// on a role that no longer exists failed the whole rotate.
+func TestPostgresRotateRepairsAMissingRole(t *testing.T) {
+	plan, err := PlanFor(StepRotate, Resource{
+		Engine: "postgresql", Name: "app_siaarta24", User: "suprion7", Secret: "a-long-enough-secret",
+	})
+	if err != nil {
+		t.Fatalf("PlanFor: %v", err)
+	}
+	sql := ""
+	for _, command := range plan.Commands {
+		sql += strings.Join(command, " ") + "\n"
+	}
+	for _, want := range []string{"pg_catalog.pg_roles", "CREATE ROLE", "ALTER ROLE", "PASSWORD"} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("postgres rotate is missing %q\n---\n%s", want, sql)
+		}
+	}
+}
+
 // TestMySQLRotateRepairsAMissingAccount is the 502 from the panel: a ledger row whose
 // MySQL user no longer exists (or only exists for @localhost) made a plain ALTER fail.
 func TestMySQLRotateRepairsAMissingAccount(t *testing.T) {
@@ -98,6 +118,7 @@ func TestMySQLRotateRepairsAMissingAccount(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
+		"CREATE DATABASE IF NOT EXISTS `siarta24`",
 		"CREATE USER IF NOT EXISTS 'siarta24'@'localhost'",
 		"CREATE USER IF NOT EXISTS 'siarta24'@'127.0.0.1'",
 		"ALTER USER 'siarta24'@'localhost'",

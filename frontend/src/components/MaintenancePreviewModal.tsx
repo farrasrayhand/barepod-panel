@@ -27,7 +27,7 @@ export const MaintenancePreviewModal: React.FC<MaintenancePreviewModalProps> = (
     'We are performing scheduled infrastructure maintenance and system updates. Service will be back online shortly.';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90dvh] flex flex-col overflow-hidden">
         
         {/* Modal Window Top Bar */}

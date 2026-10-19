@@ -333,7 +333,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
           <button
             onClick={reload}
             disabled={live !== true}
-            className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 disabled:opacity-40"
+            className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-50 disabled:opacity-40 transition-colors cursor-pointer"
             title="Reload from the daemon"
           >
             <RefreshCw className="w-4 h-4" />

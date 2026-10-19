@@ -226,10 +226,10 @@ export const AppsView: React.FC<AppsViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <button
             onClick={handleRefresh}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs whitespace-nowrap"
           >
             <RefreshCw className={`w-4 h-4 text-slate-500 ${isRefreshing ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
@@ -237,7 +237,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
 
           <button
             onClick={onOpenAddModal}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25 whitespace-nowrap"
           >
             <Plus className="w-4 h-4" />
             <span>Add Website</span>
@@ -548,7 +548,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                           {/* Manage Website Detail Page Button */}
                           <button
                             onClick={() => onSelectApp?.(app.name)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer mr-1"
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer mr-1 whitespace-nowrap"
                             title="Open Website Detail & Monitoring Page"
                           >
                             <Sliders className="w-3.5 h-3.5" />

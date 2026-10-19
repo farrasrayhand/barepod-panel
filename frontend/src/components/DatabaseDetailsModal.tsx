@@ -518,7 +518,7 @@ DB_DATABASE=${database.path || `/home/${database.tenantUser ?? 'user'}/web/${dat
   const badge = getBadge();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
       <div className={`bg-white rounded-2xl border border-slate-200 shadow-2xl ${dataTabActive === 'data' || dataTabActive === 'security' ? 'max-w-4xl' : 'max-w-3xl'} w-full overflow-hidden flex flex-col max-h-[92dvh] transition-all duration-200`}>
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">

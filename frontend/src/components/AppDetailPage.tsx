@@ -185,8 +185,12 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   // The site's real .env, read from the daemon (secret values arrive masked). The tab
   // used to render a fabricated file, which is how the panel could claim an application
   // used PostgreSQL while it ran on SQLite.
-  const [envFile, setEnvFile] = useState<{ path: string; exists: boolean; content?: string; note?: string } | null>(null);
+  const [envFile, setEnvFile] = useState<{ path: string; exists: boolean; masked?: boolean; content?: string; note?: string } | null>(null);
   const [envLoading, setEnvLoading] = useState(false);
+  // Revealing the secrets needs elevated mode — the same gate the credential vault uses.
+  const [envRevealOpen, setEnvRevealOpen] = useState(false);
+  const [envPassword, setEnvPassword] = useState('');
+  const [envRevealBusy, setEnvRevealBusy] = useState(false);
   const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [telemetry, setTelemetry] = useState<ApiWebsiteTelemetry | null>(null);
   const [realLogs, setRealLogs] = useState<LogItem[] | null>(null);
@@ -2022,6 +2026,24 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
     navigator.clipboard.writeText(envFile.content);
     setCopiedEnv(true);
     setTimeout(() => setCopiedEnv(false), 2000);
+  };
+
+  // Confirm the panel password once, then the daemon stops masking this file for five
+  // minutes. Nothing is revealed without that check.
+  const revealEnv = async () => {
+    if (!envPassword.trim() || envRevealBusy) return;
+    setEnvRevealBusy(true);
+    try {
+      await api.verify(envPassword);
+      setEnvFile(await api.websiteEnv(app.name, true));
+      setEnvRevealOpen(false);
+      setEnvPassword('');
+      onShowToast?.('Secrets revealed', 'Elevated mode is active; the .env is unmasked for five minutes.', 'success');
+    } catch (err) {
+      onShowToast?.('Could not reveal the secrets', err instanceof Error ? err.message : 'unknown error', 'error');
+    } finally {
+      setEnvRevealBusy(false);
+    }
   };
 
   return (
@@ -4312,15 +4334,60 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                 </p>
               </div>
 
-              <button
-                onClick={handleCopyEnv}
-                disabled={!envFile?.exists}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg border border-blue-200 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {copiedEnv ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedEnv ? 'Copied!' : 'Copy to Clipboard'}</span>
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                {envFile?.exists && envFile?.masked !== false && (
+                  <button
+                    onClick={() => setEnvRevealOpen((v) => !v)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg border border-amber-200 whitespace-nowrap"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    Reveal secrets
+                  </button>
+                )}
+                <button
+                  onClick={handleCopyEnv}
+                  disabled={!envFile?.exists}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg border border-blue-200 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {copiedEnv ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedEnv ? 'Copied!' : 'Copy to Clipboard'}</span>
+                </button>
+              </div>
             </div>
+
+            {envRevealOpen && envFile?.masked !== false && (
+              <div className="flex items-center gap-2 flex-wrap p-2.5 rounded-xl border border-amber-200 bg-amber-50">
+                <span className="text-[11px] font-medium text-amber-900">
+                  Confirm your panel password to unmask secrets (five minutes):
+                </span>
+                <input
+                  type="password"
+                  value={envPassword}
+                  onChange={(e) => setEnvPassword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void revealEnv();
+                  }}
+                  placeholder="••••••••"
+                  className="px-2.5 py-1.5 text-xs bg-white border border-amber-300 rounded-lg focus:outline-hidden focus:border-amber-500"
+                />
+                <button
+                  onClick={() => void revealEnv()}
+                  disabled={envRevealBusy}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {envRevealBusy ? 'Revealing…' : 'Reveal'}
+                </button>
+                <button
+                  onClick={() => {
+                    setEnvRevealOpen(false);
+                    setEnvPassword('');
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:bg-white whitespace-nowrap"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
 
             {envLoading ? (
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500">
@@ -6341,7 +6408,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 
       {/* SSL Certificate Issuance & Provider Selection Modal */}
       {sslModalDomain && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
             {/* Header */}
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
@@ -6554,7 +6621,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 
       {/* Edit Domain Modal */}
       {editingDomain && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-2.5">
@@ -6770,7 +6837,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 
       {/* DNS Setup Instructions Modal */}
       {dnsModalDomain && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-2.5">
@@ -6950,7 +7017,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 
       {/* Framework Edit Modal */}
       {showEditFrameworkModal && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+        <div className="fixed inset-0 z-60 flex items-start sm:items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-5 space-y-4 text-xs text-slate-800">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2 text-sm font-bold text-slate-900">

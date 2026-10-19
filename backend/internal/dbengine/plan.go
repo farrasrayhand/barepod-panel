@@ -124,8 +124,22 @@ func postgresPlan(step Step, resource Resource) (Plan, error) {
 		if resource.Secret == "" {
 			return Plan{}, errors.New("dbengine: a password is required")
 		}
+		// A rotate must repair a record that outlived its role, not just change a password:
+		// ALTER ROLE on a role that no longer exists answers "role does not exist" and the
+		// panel surfaced a 502 — the same defect the MySQL plan had. The DO block creates the
+		// role when it is missing and is a no-op otherwise.
 		plan.Commands = [][]string{
-			psql(fmt.Sprintf(`ALTER ROLE %s PASSWORD %s`, role, quoteLiteral(resource.Secret))),
+			psql(fmt.Sprintf(`DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = %s) THEN
+    CREATE ROLE %s LOGIN PASSWORD %s;
+  ELSE
+    ALTER ROLE %s WITH LOGIN PASSWORD %s;
+  END IF;
+END
+$$;`,
+				quoteLiteral(resource.User), role, quoteLiteral(resource.Secret),
+				role, quoteLiteral(resource.Secret))),
 		}
 		return plan, nil
 	case StepSuspend:
@@ -192,13 +206,13 @@ func mysqlPlan(step Step, resource Resource) (Plan, error) {
 		if resource.Secret == "" {
 			return Plan{}, errors.New("dbengine: a password is required")
 		}
-		// A rotate has to leave a *working* account, not merely change an existing
-		// password: a ledger row can outlive its MySQL user — created by an older path,
-		// dropped by hand, or only ever made for @localhost while phpMyAdmin connects
-		// over TCP. CREATE USER IF NOT EXISTS repairs all three and is a no-op when the
-		// account is there, which is what the plain ALTER did not do (it answered
-		// "Operation ALTER USER failed" and the panel surfaced a 502).
+		// A rotate has to leave a *usable* record, not just a working account: a ledger row
+		// can outlive both its MySQL user and its database. CREATE ... IF NOT EXISTS repairs
+		// either and is a no-op when they exist — without it the account logged in to
+		// phpMyAdmin and saw "No databases", because the grant pointed at a database that
+		// was not there.
 		return Plan{Commands: [][]string{client(strings.Join([]string{
+			fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s CHARACTER SET utf8mb4", db),
 			fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", accountLocal, escapeSingleQuotes(resource.Secret)),
 			fmt.Sprintf("ALTER USER %s IDENTIFIED BY '%s'", accountLocal, escapeSingleQuotes(resource.Secret)),
 			fmt.Sprintf("GRANT ALL PRIVILEGES ON %s.* TO %s", db, accountLocal),

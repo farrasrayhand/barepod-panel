@@ -59,6 +59,10 @@ type Database struct {
 	// screen hides these by default, but they are *reported* rather than dropped so the
 	// list is never silently missing something.
 	UnusedByApp bool `json:"unusedByApp,omitempty"`
+	// Unreferenced marks a *ledger* row that the owning site's .env does not name: a
+	// database left behind by an earlier deploy. The screen shows it with a badge rather
+	// than hiding it, because a managed row must stay visible and manageable.
+	Unreferenced bool `json:"unreferenced,omitempty"`
 	// SizeBytes is measured when it can be (a file-based database is one stat
 	// call); it stays 0 rather than carrying an invented number.
 	SizeBytes int64 `json:"sizeBytes,omitempty"`

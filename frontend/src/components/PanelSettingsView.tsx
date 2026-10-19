@@ -40,7 +40,7 @@ import { useSubRoute } from '../hooks/useSubRoute';
 import { describeError } from '../utils/format';
 import { PhpExtensionsPanel } from './PhpExtensionsPanel';
 import { CronJobsManager } from './CronJobsManager';
-import { isNewerVersion } from '../version';
+import { isNewerVersion, PANEL_VERSION } from '../version';
 import QRCode from 'qrcode';
 
 interface PanelSettingsViewProps {
@@ -183,8 +183,9 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     window.location.reload();
   };
 
-  const startPanelUpdate = async () => {
-    if (!updateInfo?.latestVersion || isUpdating) return;
+  const startPanelUpdate = async (targetVersion?: string) => {
+    const version = targetVersion || updateInfo?.latestVersion;
+    if (!version || isUpdating) return;
     setIsUpdating(true);
     setUpdateModalOpen(true);
     setUpdateError(null);
@@ -192,7 +193,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     setUpdateLogs([{ step: 'init', message: 'Initiating in-panel update pipeline...', pct: 5 }]);
 
     try {
-      const { jobId, streamUrl } = await api.applyUpdate(updateInfo.latestVersion);
+      const { jobId, streamUrl } = await api.applyUpdate(version);
       const evSource = new EventSource(streamUrl || api.updatesStreamUrl(jobId), { withCredentials: true });
 
       evSource.addEventListener('step', (e) => {
@@ -213,7 +214,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             setIsUpdating(false);
             setUpdateSuccess(true);
             setUpdateLogs((prev) => [...prev, { step: 'complete', message: 'Update applied. Waiting for the daemon to come back…', pct: 100 }]);
-            void reloadWhenDaemonIsBack(payload.newVersion || updateInfo.latestVersion, updateInfo.currentVersion);
+            void reloadWhenDaemonIsBack(payload.newVersion || version, updateInfo?.currentVersion || '');
           }
         } catch {
           setIsUpdating(false);
@@ -225,7 +226,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
         // The restart drops the SSE stream — this usually means the swap succeeded and the daemon
         // is coming back. Wait for it to answer instead of reloading into a port that is still down.
         setUpdateLogs((prev) => [...prev, { step: 'restart', message: 'Daemon restarting. Waiting for the panel to answer…', pct: 95 }]);
-        void reloadWhenDaemonIsBack(updateInfo.latestVersion, updateInfo.currentVersion);
+        void reloadWhenDaemonIsBack(version, updateInfo?.currentVersion || '');
       };
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : 'Failed to trigger update');
@@ -1170,15 +1171,27 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     Upgrade BarePod Panel daemon and frontend assets directly from official releases with zero tenant website downtime.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void checkUpdates()}
-                  disabled={checkingUpdate || isUpdating}
-                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer shadow-xs"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${checkingUpdate ? 'animate-spin' : ''}`} />
-                  {checkingUpdate ? 'Checking for updates…' : 'Check for Updates'}
-                </button>
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => void startPanelUpdate(updateInfo?.currentVersion || PANEL_VERSION)}
+                    disabled={isUpdating || checkingUpdate}
+                    className="px-4 py-2 bg-white hover:bg-slate-50 disabled:bg-slate-100 text-slate-800 border border-slate-200 text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer shadow-xs whitespace-nowrap"
+                    title="Download and reinstall the current release. The updater always fetches the latest release asset, so this is how a re-tagged build is applied."
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Reinstall current
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void checkUpdates()}
+                    disabled={checkingUpdate || isUpdating}
+                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold rounded-xl transition flex items-center gap-2 cursor-pointer shadow-xs whitespace-nowrap border border-transparent"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${checkingUpdate ? 'animate-spin' : ''}`} />
+                    {checkingUpdate ? 'Checking for updates…' : 'Check for Updates'}
+                  </button>
+                </div>
               </div>
 
               {/* Version & Status Card */}
@@ -1317,7 +1330,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
               {/* Live Update Progress Console Modal */}
               {updateModalOpen && (
-                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+                <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-start sm:items-center justify-center p-4 overflow-y-auto">
                   <div className="bg-white w-full max-w-lg rounded-2xl border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                     <div className="px-5 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
                       <div className="flex items-center gap-2">

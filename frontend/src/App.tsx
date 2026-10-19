@@ -1021,7 +1021,7 @@ export function App() {
       )}
 
       {stackPrompt && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start sm:items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100">
               <h3 className="font-bold text-sm text-slate-900">Set up your server stack</h3>

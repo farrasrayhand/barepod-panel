@@ -297,6 +297,68 @@ func (s *Server) resourceFor(record *store.Database, secret string) dbengine.Res
 	return resource
 }
 
+// markUnreferenced flags ledger rows the owning site's .env does not name, so a database
+// left behind by an earlier deploy cannot pose as the one the application uses. A record
+// whose site has no .env, or whose .env names no database, is left unmarked: the panel
+// only says "not referenced" when it can actually read the file and compare.
+func (s *Server) markUnreferenced(items []store.Database) {
+	type envInfo struct {
+		app dbengine.AppDatabase
+		ok  bool
+	}
+	cache := map[string]envInfo{}
+	for i := range items {
+		item := &items[i]
+		if item.Detected || item.Kind != store.KindDatabase || item.WebsiteSlug == "" {
+			continue
+		}
+		info, cached := cache[item.WebsiteSlug]
+		if !cached {
+			if site, err := s.store.WebsiteBySlug(item.WebsiteSlug); err == nil {
+				root := s.host.SitePath(site.TenantUser, site.Slug)
+				app, ok := dbengine.EnvDatabase(filepath.Join(root, ".env"))
+				info = envInfo{app: app, ok: ok}
+			}
+			cache[item.WebsiteSlug] = info
+		}
+		if !info.ok {
+			continue
+		}
+		item.Unreferenced = !appDatabaseMatches(*item, info.app)
+	}
+}
+
+// appDatabaseMatches reports whether a site's .env names this ledger record. Only the
+// engine family and the database name can be compared — that is all a .env says — and a
+// .env that names the engine but no database is treated as a match rather than a verdict.
+func appDatabaseMatches(record store.Database, app dbengine.AppDatabase) bool {
+	connection := strings.ToLower(strings.TrimSpace(app.Connection))
+	engine := strings.ToLower(record.Engine)
+	sameFamily := false
+	switch connection {
+	case "mysql", "mariadb":
+		sameFamily = engine == "mysql" || engine == "mariadb"
+	case "pgsql", "postgres", "postgresql":
+		sameFamily = engine == "postgres" || engine == "postgresql"
+	case "sqlite":
+		sameFamily = engine == "sqlite"
+	default:
+		sameFamily = engine == connection
+	}
+	if !sameFamily {
+		return false
+	}
+	if strings.TrimSpace(app.Name) == "" {
+		return true
+	}
+	if record.FileBased {
+		base := filepath.Base(record.FilePath)
+		return app.Name == record.Name || app.Name == base ||
+			strings.HasSuffix(filepath.ToSlash(app.Name), "/"+base)
+	}
+	return app.Name == record.Name
+}
+
 // handleListDatabases: /databases and /caches, optionally the recycle bin.
 func (s *Server) handleListDatabases(kind string) authedHandler {
 	return func(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
@@ -320,6 +382,9 @@ func (s *Server) handleListDatabases(kind string) authedHandler {
 			// Files the application created belong in the answer: a page that says
 			// "no databases" while the app has one is worse than useless.
 			items = append(items, s.detectedFor(user, kind)...)
+		}
+		if !binned {
+			s.markUnreferenced(items)
 		}
 		sort.SliceStable(items, func(i, j int) bool { return items[i].Alias < items[j].Alias })
 		response := map[string]any{

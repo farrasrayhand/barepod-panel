@@ -334,6 +334,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
   const [editorNote, setEditorNote] = useState('');
   const [editorMaximized, setEditorMaximized] = useState(false);
   const [showInspector, setShowInspector] = useState(false);
+  // On a phone there is no double-click, so a folder has to open on a single tap — and the
+  // inspector must not cover the list while it does.
+  const [isTouch] = useState(() => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches);
   const [busy, setBusy] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -1215,7 +1218,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       className={
         inline
           ? 'block w-full font-sans antialiased text-slate-800'
-          : 'fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200 font-sans antialiased text-slate-800'
+          : 'fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-6 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200 font-sans antialiased text-slate-800 overflow-y-auto'
       }
     >
       <div
@@ -1643,6 +1646,12 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                       key={`${file.name}-${idx}`}
                       onClick={() => {
                         setSelectedFile(file);
+                        // A tap on a folder enters it; there is no double-click on a touch
+                        // screen, and opening the inspector first covered the list.
+                        if (isTouch && file.type === 'folder') {
+                          void handleOpenFile(file);
+                          return;
+                        }
                         setShowInspector(true);
                       }}
                       onDoubleClick={() => void handleOpenFile(file)}
@@ -1808,7 +1817,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
           {/* Inspector Slide-over (When toggled on) */}
           {showInspector && !editingFile && (
-            <div className="absolute inset-y-0 right-0 z-20 w-full bg-slate-50/80 border-l border-slate-200 flex flex-col shrink-0 animate-in slide-in-from-right-4 duration-150 sm:w-80 lg:static lg:z-auto lg:w-72">
+            <div className="absolute inset-x-0 bottom-0 z-20 max-h-[55dvh] w-full overflow-y-auto bg-slate-50/95 backdrop-blur-sm border-t border-slate-200 flex flex-col shrink-0 animate-in slide-in-from-bottom-4 duration-150 sm:inset-y-0 sm:left-auto sm:right-0 sm:max-h-none sm:w-80 sm:border-t-0 sm:border-l lg:static lg:z-auto lg:w-72">
               <div className="p-3.5 border-b border-slate-200 flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Info className="w-3.5 h-3.5 text-blue-600" /> Item Details
@@ -2263,7 +2272,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: Compress */}
         {compressModal.isOpen && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="fixed inset-0 z-60 flex items-start sm:items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-5 space-y-4 text-xs text-slate-800">
               <div className="flex items-center gap-2 text-sm font-bold text-slate-900 border-b border-slate-100 pb-3">
                 <Archive className="w-4 h-4 text-amber-500" />
@@ -2331,7 +2340,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: Extract */}
         {extractModal.isOpen && extractModal.file && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="fixed inset-0 z-60 flex items-start sm:items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-5 space-y-4 text-xs text-slate-800">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
@@ -2450,7 +2459,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: New File */}
         {newFileModal.isOpen && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="fixed inset-0 z-60 flex items-start sm:items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs text-slate-800">
               <h4 className="font-bold text-slate-900 text-sm">Create New File</h4>
               <form onSubmit={handleCreateFileSubmit} className="space-y-3">
@@ -2485,7 +2494,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: New Folder */}
         {newFolderModal.isOpen && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="fixed inset-0 z-60 flex items-start sm:items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs text-slate-800">
               <h4 className="font-bold text-slate-900 text-sm">Create New Folder</h4>
               <form onSubmit={handleCreateFolderSubmit} className="space-y-3">
@@ -2520,7 +2529,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: Rename */}
         {renameModal.isOpen && renameModal.file && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="fixed inset-0 z-60 flex items-start sm:items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-sm w-full p-4 space-y-3 text-xs text-slate-800">
               <h4 className="font-bold text-slate-900 text-sm">Rename Item</h4>
               <form onSubmit={handleRenameSubmit} className="space-y-3">
@@ -2554,7 +2563,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
 
         {/* Modal: Media & Document Preview (Image & PDF) */}
         {previewModal.isOpen && previewModal.file && (
-          <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="fixed inset-0 z-60 flex items-start sm:items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-4xl w-full h-[85dvh] flex flex-col overflow-hidden text-slate-800">
               {/* Preview Bar */}
               <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">

@@ -107,6 +107,7 @@ const toDatabaseItem = (row: DatabaseRow): DatabaseItem => ({
   status: row.deletedAt || row.status !== 'ready' ? 'inactive' : 'active',
   detachedAt: row.detachedAt,
   unusedByApp: row.unusedByApp,
+  unreferenced: row.unreferenced,
   connections: 0,
   host: row.host,
   port: row.port,
@@ -592,7 +593,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
           )}
           <button 
             onClick={() => onShowToast?.('Refreshed', 'Database connection pools synchronized.', 'info')}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
           >
             <RefreshCw className="w-4 h-4 text-slate-500" />
             <span>Refresh</span>
@@ -616,7 +617,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
           <button
             onClick={() => setIsCreateModalOpen(true)}
             disabled={!!quota && quota.usedDatabases >= quota.maxDatabases}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 transition-colors shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 whitespace-nowrap shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span>Add Database / Cache</span>
@@ -745,8 +746,9 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
           />
         </div>
 
-        {/* Filters and Sorters */}
-        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+        {/* Filters and Sorters. They wrap instead of overflowing: on a phone the row is
+            wider than the screen, which used to push the last control off the edge. */}
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:self-auto sm:shrink-0">
           {/* Unused detected files are hidden by default; this brings them back. */}
           <label
             className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-[11px] font-medium text-slate-600 cursor-pointer select-none"
@@ -930,6 +932,14 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
                               App-managed
                             </span>
                           )}
+                          {db.unreferenced && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/80 shrink-0"
+                              title="The owning site's .env names a different database, so the application is not using this one"
+                            >
+                              Not referenced by .env
+                            </span>
+                          )}
                           {db.unusedByApp && (
                             <span
                               className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/80 shrink-0"
@@ -1056,7 +1066,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
                         </button>
                         <button
                           onClick={() => setBinToPurge(db)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                          className="h-[30px] w-[30px] flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                           title="Delete permanently"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1068,7 +1078,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
                           <>
                             <button
                               onClick={() => setSelectedDbForRotate(db)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
+                              className="h-[30px] w-[30px] flex items-center justify-center rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors cursor-pointer"
                               title={db.status === 'active' ? 'Rotate password' : 'Finish setup (rotate the password)'}
                             >
                               <KeyRound className="w-3.5 h-3.5" />
@@ -1076,7 +1086,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
 
                             <button
                               onClick={() => setSelectedDbForCredentials(db)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                              className="h-[30px] w-[30px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
                               title="Open Password Vault (requires panel account password)"
                             >
                               <Lock className="w-3.5 h-3.5" />
@@ -1086,7 +1096,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
                           <button
                             onClick={() => void handleSqliteDownload(db)}
                             disabled={downloadingId === db.id}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer disabled:opacity-50"
+                            className="h-[30px] w-[30px] flex items-center justify-center rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer disabled:opacity-50"
                             title="Download .sqlite file"
                           >
                             {downloadingId === db.id ? (
@@ -1099,7 +1109,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
 
                         <button
                           onClick={() => setSelectedDbForDetails(db)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all text-xs font-semibold border border-blue-200/80 shadow-2xs group cursor-pointer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all text-xs font-semibold border border-blue-200/80 shadow-2xs group cursor-pointer whitespace-nowrap"
                           title="View host, port, credentials, connection URL & open visual manager"
                         >
                           <Zap className="w-3.5 h-3.5 text-blue-600 group-hover:text-white transition-colors" />
@@ -1109,13 +1119,13 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
                         {!db.detected ? (
                           <button
                             onClick={() => setDbToDelete(db)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            className="h-[30px] w-[30px] flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                             title="Drop database"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         ) : (
-                          <div className="w-[28px] h-[28px]" />
+                          <div className="w-[30px] h-[30px]" />
                         )}
                       </div>
                     )}

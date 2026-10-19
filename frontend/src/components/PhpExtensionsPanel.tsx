@@ -251,7 +251,7 @@ export const PhpExtensionsPanel: React.FC<PhpExtensionsPanelProps> = ({ version,
 
       {/* Live Stream Terminal Modal */}
       {showLogModal && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+        <div className="fixed inset-0 z-60 flex items-start sm:items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs overflow-y-auto">
           <div className="bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full p-5 space-y-3 text-xs text-slate-200 flex flex-col max-h-[85dvh]">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
               <div className="flex items-center gap-2 text-sm font-bold text-white">

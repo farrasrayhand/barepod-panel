@@ -60,6 +60,7 @@ func Catalog() []Component {
 		{Name: "rust", Label: "Rust", Kind: "runtime", Description: "Rust toolchain (cargo)"},
 		{Name: "postgresql", Label: "PostgreSQL", Kind: "database", Versions: []string{"18", "17", "16", "15", "14"}, Description: "Relational database"},
 		{Name: "mariadb", Label: "MariaDB", Kind: "database", Versions: []string{"13.0", "12.3", "11.8", "11.4", "10.11"}, Description: "MySQL-compatible relational database"},
+		{Name: "mysql", Label: "MySQL", Kind: "database", Versions: []string{"8.4", "8.0"}, Description: "Oracle MySQL — mutually exclusive with MariaDB (both own :3306)"},
 		{Name: "mongodb", Label: "MongoDB", Kind: "database", Versions: []string{"9.0", "8.0", "7.0", "6.0"}, Description: "Document database"},
 		{Name: "redis", Label: "Redis", Kind: "database", Versions: []string{"8.10", "8.0", "7.4", "7.2", "7.0", "6.2"}, Description: "In-memory cache and store"},
 	}
@@ -366,6 +367,39 @@ echo "=========================================================="
 			"systemctl restart mariadb 2>/dev/null || systemctl start mariadb 2>/dev/null || true\n" +
 			"mariadb-upgrade -u root 2>&1 || mysql_upgrade -u root 2>&1 || echo 'mariadb-upgrade did not run — check the server log'\n"
 		return [][]string{{"bash", "-c", script}}, nil
+	case "mysql":
+		// MySQL and MariaDB are mutually exclusive: both own /etc/mysql and :3306, and on
+		// Debian the distribution's `mysql-server` is MariaDB. Installing Oracle's build over
+		// a running MariaDB would replace the server under every site on it, so the install
+		// refuses and says what to do instead.
+		line := strings.TrimPrefix(version, "v")
+		if parts := strings.Split(line, "."); len(parts) >= 2 {
+			line = parts[0] + "." + parts[1]
+		}
+		if line == "" {
+			line = "8.4"
+		}
+		// 8.4 LTS is published under `mysql-8.4-lts`; earlier lines use their own number.
+		component := "mysql-" + line
+		if line == "8.4" {
+			component = "mysql-8.4-lts"
+		}
+		script := "set -e\n" +
+			"if dpkg -l 2>/dev/null | grep -qE '^ii\\s+mariadb-server'; then\n" +
+			"  echo 'MariaDB is installed. MySQL and MariaDB cannot share :3306 — uninstall MariaDB on this tab first, then install MySQL.' >&2\n" +
+			"  exit 1\n" +
+			"fi\n" +
+			". /etc/os-release\n" +
+			"DISTRO=ubuntu; [ \"${ID:-}\" = debian ] && DISTRO=debian\n" +
+			"CODENAME=${VERSION_CODENAME:-jammy}\n" +
+			"install -d /usr/share/keyrings\n" +
+			"curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | gpg --dearmor -o /usr/share/keyrings/mysql.gpg\n" +
+			"echo \"deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/${DISTRO}/ ${CODENAME} " + component + "\" > /etc/apt/sources.list.d/mysql.list\n" +
+			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " update\n" +
+			"DEBIAN_FRONTEND=noninteractive apt-get " + strings.Join(aptWait, " ") + " -o Dpkg::Options::=--force-confdef install -y mysql-community-server\n" +
+			"systemctl enable --now mysql 2>/dev/null || systemctl restart mysql 2>/dev/null || true\n" +
+			"mysql --version\n"
+		return [][]string{{"bash", "-c", script}}, nil
 	case "redis":
 		script := "set -e\n" +
 			"TARGET=\"" + version + "\"\n" +
@@ -649,7 +683,7 @@ func SiteRuntime(component string) string {
 // DatabaseEngine reports whether a component is a database engine.
 func DatabaseEngine(component string) bool {
 	switch component {
-	case "postgresql", "mariadb", "mongodb", "redis":
+	case "postgresql", "mariadb", "mysql", "mongodb", "redis":
 		return true
 	}
 	return false
@@ -661,7 +695,7 @@ func DatabaseEngine(component string) bool {
 func Removable(component string) error {
 	switch component {
 	case "php", "python", "node", "ruby", "go", "rust",
-		"nginx", "caddy", "postgresql", "mariadb", "mongodb", "redis":
+		"nginx", "caddy", "postgresql", "mariadb", "mysql", "mongodb", "redis":
 		return nil
 	}
 	return fmt.Errorf("stack: %q has no uninstall path", component)
@@ -728,8 +762,10 @@ func UninstallCommands(component, version string) ([][]string, error) {
 			major = parts[0]
 		}
 		return purged([]string{"postgresql-" + major}, "/var/lib/postgresql/"+major), nil
-	case "mariadb", "mysql":
+	case "mariadb":
 		return purged([]string{"mariadb-server*"}, "/var/lib/mysql"), nil
+	case "mysql":
+		return purged([]string{"mysql-community-server*", "mysql-community-client*", "mysql-client*", "mysql-server*"}, "/var/lib/mysql"), nil
 	case "mongodb":
 		// The container engine's versions are image tags, so removing one is untagging it.
 		return [][]string{{"bash", "-c", "set -e; docker rmi " + mongodbImage + ":" + version + " 2>/dev/null || echo 'that image was not here'; echo 'the volume barepod-mongo-data holds the data and was left alone'"}}, nil
@@ -1602,6 +1638,15 @@ func databaseInstalledVersions(ctx context.Context, h *host.Host, engine, active
 					}
 				}
 			}
+		case "mysql":
+			out, err := h.Run(ctx, []string{"bash", "-c", "dpkg -l 'mysql-community-server*' 'mysql-server*' 2>/dev/null | awk '/^ii/ {print $3}' | sed -E 's/.*:([0-9]+\\.[0-9]+).*/\\1/' | grep -E '^[0-9]+\\.[0-9]+$' | sort -V -u"})
+			if err == nil {
+				for _, line := range strings.Split(out, "\n") {
+					if v := strings.TrimSpace(line); v != "" {
+						installed = append(installed, v)
+					}
+				}
+			}
 		case "mongodb":
 			out, err := h.Run(ctx, []string{"bash", "-c", "docker images --format '{{.Tag}}' mongo 2>/dev/null | grep -E '^[0-9]+(\\.[0-9]+)*$' | sort -V -u"})
 			if err == nil {
@@ -1630,7 +1675,6 @@ func databaseInstalledVersions(ctx context.Context, h *host.Host, engine, active
 	slices.Sort(installed)
 	return installed
 }
-
 
 // RepositoryStatus is one source the panel adds for itself. The screen only offers to add
 // repositories when one is actually missing, so the card is not permanent furniture.
@@ -2064,7 +2108,6 @@ func httpGet(url string) ([]byte, error) {
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 }
-
 
 // goInstalled lists the Go toolchains on this host: the ones unpacked per version under
 // /usr/local (which is how several coexist) plus whatever `go` is on PATH.

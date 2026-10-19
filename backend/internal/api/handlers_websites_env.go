@@ -35,15 +35,23 @@ func MaskEnvSecrets(content string) string {
 	return strings.Join(lines, "\n")
 }
 
-// handleWebsiteEnv returns the website's real .env, with secret values masked.
+// handleWebsiteEnv returns the website's real .env. Secret values are masked unless the
+// caller asks to reveal them, which needs elevated (sudo) mode — the same gate every other
+// credential in the panel uses.
 //
 // It exists because the Environment tab used to *invent* the file: every value was
 // derived from the site name, and DB_CONNECTION was hardcoded to pgsql. That is how a
 // panel can claim an application uses PostgreSQL while it runs on SQLite — the one
 // authority on what the app connects to is this file.
-func (s *Server) handleWebsiteEnv(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+func (s *Server) handleWebsiteEnv(w http.ResponseWriter, r *http.Request, user *store.User, sess *store.Session) {
 	site, ok := s.siteOr404(w, r, user)
 	if !ok {
+		return
+	}
+	reveal := strings.EqualFold(r.URL.Query().Get("reveal"), "true") || r.URL.Query().Get("reveal") == "1"
+	if reveal && !sessionElevated(sess) {
+		writeError(w, http.StatusForbidden, "elevation_required",
+			"Revealing secrets needs elevated mode: confirm your panel password first")
 		return
 	}
 	envPath := filepath.Join(s.host.SitePath(site.TenantUser, site.Slug), ".env")
@@ -58,9 +66,14 @@ func (s *Server) handleWebsiteEnv(w http.ResponseWriter, r *http.Request, user *
 		})
 		return
 	}
+	content := string(raw)
+	if !reveal {
+		content = MaskEnvSecrets(content)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path":    envPath,
 		"exists":  true,
-		"content": MaskEnvSecrets(string(raw)),
+		"masked":  !reveal,
+		"content": content,
 	})
 }

@@ -41,7 +41,16 @@ interface PodConfigModalProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-export const PodConfigModal: React.FC<PodConfigModalProps> = ({
+// The guard sits in a component with no hooks. Returning before the hooks below was a
+// rules-of-hooks violation (every render must call them in the same order), which is what
+// oxlint reported; mounting the inner component only when there is a pod keeps both rules
+// and the original behaviour.
+export const PodConfigModal: React.FC<PodConfigModalProps> = (props) => {
+  if (!props.isOpen || !props.pod) return null;
+  return <PodConfigModalInner {...props} pod={props.pod} />;
+};
+
+const PodConfigModalInner: React.FC<PodConfigModalProps & { pod: PodItem }> = ({
   isOpen,
   onClose,
   pod,
@@ -50,7 +59,6 @@ export const PodConfigModal: React.FC<PodConfigModalProps> = ({
   onOpenTerminal,
   onShowToast,
 }) => {
-  if (!isOpen || !pod) return null;
 
   const [activeTab, setActiveTab] = useState<'overview' | 'web' | 'env' | 'storage' | 'yaml' | 'logs'>('overview');
   
@@ -198,7 +206,7 @@ ${isWebApp ? `    labels:
       - "traefik.http.routers.${name}.tls.certresolver=letsencrypt"` : ''}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full flex flex-col max-h-[92dvh] overflow-hidden">
         
         {/* Header */}

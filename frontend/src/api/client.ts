@@ -469,6 +469,8 @@ export interface DatabaseRow {
    *  database.sqlite on a site whose .env names another engine). The screen hides these
    *  unless "show unused" is on. */
   unusedByApp?: boolean;
+  /** Ledger row the owning site's .env does not name: left behind by an earlier deploy. */
+  unreferenced?: boolean;
   createdAt: string;
   fileBased: boolean;
   detected?: boolean;
@@ -837,10 +839,11 @@ export const api = {
     ),
 
   website: (slug: string) => request<ApiWebsite>(`/websites/${slug}`),
-  /** The site's real .env, read from the daemon. Secret values come masked. */
-  websiteEnv: (slug: string) =>
-    request<{ path: string; exists: boolean; content?: string; note?: string }>(
-      `/websites/${encodeURIComponent(slug)}/env`,
+  /** The site's real .env, read from the daemon. Secret values come masked unless the
+   *  session is elevated and `reveal` is asked for. */
+  websiteEnv: (slug: string, reveal = false) =>
+    request<{ path: string; exists: boolean; masked?: boolean; content?: string; note?: string }>(
+      `/websites/${encodeURIComponent(slug)}/env${reveal ? '?reveal=1' : ''}`,
     ),
 
   deleteWebsite: (slug: string, options?: { databases?: 'keep' | 'delete' }) =>

@@ -705,7 +705,7 @@ export const CronJobsManager: React.FC<CronJobsManagerProps> = ({
 
       {/* Create / Edit Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-xl w-full flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
@@ -911,7 +911,7 @@ export const CronJobsManager: React.FC<CronJobsManagerProps> = ({
 
       {/* Output / Log Modal */}
       {outputModal?.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
           <div className="bg-slate-950 rounded-2xl border border-slate-800 shadow-2xl max-w-2xl w-full flex flex-col overflow-hidden text-white animate-in zoom-in-95 duration-200">
             <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/70">
               <div className="flex items-center gap-2">

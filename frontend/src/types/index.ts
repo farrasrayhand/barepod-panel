@@ -117,6 +117,8 @@ export interface DatabaseItem {
   /** A detected file the application is not connected to (Laravel's starter
    *  database.sqlite on a site whose .env names another engine). */
   unusedByApp?: boolean;
+  /** Ledger row the owning site's .env does not name: left behind by an earlier deploy. */
+  unreferenced?: boolean;
   /**
    * "" or "private" until an operator opens the port, then "public". The note is what the panel
    * actually did about it — an engine whose listener is engine-wide says so there rather than

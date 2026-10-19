@@ -56,6 +56,9 @@ interface BundleItem {
 export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
   const [bundleOpen, setBundleOpen] = useState(false);
   const [bundleSel, setBundleSel] = useState<Record<string, boolean>>({});
+  // MariaDB and MySQL own the same port and cannot coexist, so the all-in-one install picks
+  // exactly one of them — never both.
+  const [mysqlFamily, setMysqlFamily] = useState<'mariadb' | 'mysql'>('mariadb');
   const [bundleRun, setBundleRun] = useState<{ total: number; index: number; current: string } | null>(null);
   const [activeTab, setActiveTab] = useSubRoute<'web' | 'runtime' | 'database'>('web');
   const [status, setStatus] = useState<StackStatus | null>(() => {
@@ -274,7 +277,12 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
   const webInstalled = (engine: string) =>
     Boolean((status?.webServer.managedInstalled ?? status?.webServer.installed ?? []).find((e) => e.engine === engine)?.installed);
 
-  const buildBundle = (): BundleItem[] => {
+  const mysqlFamilyInstalled = () =>
+    (status?.databaseInstalled?.['mariadb']?.length ?? 0) > 0 ||
+    (status?.databaseInstalled?.['mysql']?.length ?? 0) > 0 ||
+    Boolean(status?.databases?.find((d) => d.engine === 'mariadb' || d.engine === 'mysql')?.installedVersion);
+
+  const buildBundle = (family: 'mariadb' | 'mysql' = mysqlFamily): BundleItem[] => {
     if (!status) return [];
     const items: BundleItem[] = [];
     if ((status.repositories ?? []).some((r) => !r.present)) {
@@ -300,6 +308,11 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       items.push({ key: `runtime:${component.name}`, component: component.name, label: component.label, kind: 'runtime', version, note: version ? 'recommended' : 'stable channel' });
     }
     for (const component of componentsOf('database')) {
+      // The MySQL family is one slot: with either engine present neither is offered, and with
+      // neither present only the chosen one is — installing both would fight over :3306.
+      if (component.name === 'mariadb' || component.name === 'mysql') {
+        if (mysqlFamilyInstalled() || component.name !== family) continue;
+      }
       const detected = status.databases?.find((d) => d.engine === component.name);
       const installedList = status.databaseInstalled?.[component.name] ?? [];
       if (detected?.installedVersion || installedList.length > 0) continue;
@@ -538,11 +551,11 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={openBundle}
             disabled={live !== true || !status || Boolean(status?.installRunning)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 transition-colors shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 border border-transparent hover:bg-blue-700 disabled:opacity-40 transition-colors shadow-2xs whitespace-nowrap"
             title="Install everything that is missing, using recommended versions"
           >
             <Package className="w-3.5 h-3.5" />
@@ -551,7 +564,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           <button
             onClick={() => void runAutoRepair()}
             disabled={live !== true || refreshing || repairing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 disabled:opacity-40 transition-colors shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 disabled:opacity-40 transition-colors shadow-2xs whitespace-nowrap"
             title="Diagnose & automatically repair failed database and stack services"
           >
             <Zap className={`w-3.5 h-3.5 text-amber-600 ${repairing ? 'animate-bounce' : ''}`} />
@@ -560,7 +573,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           <button
             onClick={() => void load(true)}
             disabled={live !== true || refreshing || repairing}
-            className="p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100 disabled:opacity-40 transition-colors"
+            className="p-1.5 flex items-center justify-center rounded-lg border border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-100 disabled:opacity-40 transition-colors"
             title="Reload Stack Status"
           >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin text-blue-600' : ''}`} />
@@ -1086,7 +1099,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                   const dbMetas: Record<string, { code: string; color: string; defaultPort: number }> = {
                     postgresql: { code: 'PG', color: 'bg-sky-50 text-sky-700 border-sky-200', defaultPort: 5432 },
                     mariadb: { code: 'MD', color: 'bg-amber-50 text-amber-700 border-amber-200', defaultPort: 3306 },
-                    mysql: { code: 'MD', color: 'bg-amber-50 text-amber-700 border-amber-200', defaultPort: 3306 },
+                    mysql: { code: 'MY', color: 'bg-orange-50 text-orange-700 border-orange-200', defaultPort: 3306 },
                     mongodb: { code: 'MG', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', defaultPort: 27017 },
                     redis: { code: 'RD', color: 'bg-rose-50 text-rose-700 border-rose-200', defaultPort: 6379 },
                   };
@@ -1352,7 +1365,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
       )}
       {/* Database Migration & Switch Plan Modal */}
       {planModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start sm:items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -1478,7 +1491,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
           { kind: 'database', title: 'Databases' },
         ];
         return (
-          <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start sm:items-center justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden">
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
                 <div className="flex items-center gap-2">
@@ -1516,6 +1529,37 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                     <p className="text-slate-500">
                       Only what is missing is listed. Runtimes and databases use the recommended version, not the newest. Installs run one after another.
                     </p>
+                    {!mysqlFamilyInstalled() && (
+                      <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 space-y-1.5">
+                        <div className="font-semibold text-slate-700">MySQL-family engine</div>
+                        <p className="text-[11px] text-slate-500">
+                          MariaDB and MySQL both own port 3306, so exactly one can be installed. Pick which.
+                        </p>
+                        <div className="flex items-center gap-2">
+                          {(['mariadb', 'mysql'] as const).map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              disabled={Boolean(bundleRun)}
+                              onClick={() => {
+                                setMysqlFamily(option);
+                                // Re-select everything: the item list changes with the choice.
+                                setBundleSel(
+                                  Object.fromEntries(buildBundle(option).map((i) => [i.key, true])),
+                                );
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-50 whitespace-nowrap ${
+                                mysqlFamily === option
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {option === 'mariadb' ? 'MariaDB' : 'MySQL'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {groups.map((g) => {
                       const rows = items.filter((i) => i.kind === g.kind);
                       if (rows.length === 0) return null;
@@ -1654,7 +1698,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
 
       {/* Dedicated Uninstall Confirmation Modal */}
       {uninstallTarget && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start sm:items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <div className="flex items-center gap-2">
