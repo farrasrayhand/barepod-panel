@@ -793,13 +793,29 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
             {sortedDatabases.length === 0 ? (
               <tr>
                 <td colSpan={5} className="py-12 text-center text-slate-400">
-                  <Database className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p className="font-medium text-slate-600">No databases found</p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {searchQuery || ownerFilter !== 'all'
-                      ? 'Try clearing the search query or owner filter.'
-                      : 'No databases have been created yet.'}
-                  </p>
+                  {loading || live === null ? (
+                    <>
+                      <Loader2 className="w-6 h-6 mx-auto mb-2 animate-spin text-slate-300" />
+                      <p className="font-medium text-slate-600">Loading databases…</p>
+                      <p className="text-xs text-slate-400 mt-1">Asking the daemon what exists on this host.</p>
+                    </>
+                  ) : live === false ? (
+                    <>
+                      <Database className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      <p className="font-medium text-slate-600">The daemon is not reachable</p>
+                      <p className="text-xs text-slate-400 mt-1">Nothing is listed because nothing could be read.</p>
+                    </>
+                  ) : (
+                    <>
+                      <Database className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                      <p className="font-medium text-slate-600">No databases found</p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        {searchQuery || ownerFilter !== 'all'
+                          ? 'Try clearing the search query or owner filter.'
+                          : 'No databases have been created yet.'}
+                      </p>
+                    </>
+                  )}
                 </td>
               </tr>
             ) : (

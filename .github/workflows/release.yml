@@ -134,6 +134,15 @@ jobs:
           }
           EOF
 
+      # softprops/action-gh-release appends generated notes to an existing release body, so every
+      # run for the same tag (a re-pointed v0.3.8, a re-run) added another copy of
+      # "**Full Changelog**". The release for this tag is dropped first so the notes are generated
+      # once; the tag itself is untouched.
+      - name: Drop the previous release for this tag
+        run: gh release delete "${{ steps.vars.outputs.tag }}" --yes || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
