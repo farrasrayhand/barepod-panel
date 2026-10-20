@@ -526,7 +526,7 @@ npm run build`;
   const [copiedDeployWebhook, setCopiedDeployWebhook] = useState(false);
   const [deployLogs, setDeployLogs] = useState<string[]>([]);
   const [isLoadingDeployLogs, setIsLoadingDeployLogs] = useState(false);
-  const terminalEndRef = useRef<HTMLDivElement>(null);
+  const deployLogContainerRef = useRef<HTMLDivElement>(null);
 
   const loadDeployLogs = useCallback((force = false) => {
     if (!force && deployLogs.length > 0) return () => {};
@@ -617,10 +617,13 @@ npm run build`;
     }
   }, [activeTab, loadDeployLogs, loadDeployHistory]);
 
-  // Auto-scroll terminal when logs update
+  // Auto-scroll the log box itself, never the page. scrollIntoView on a child element scrolls
+  // every scrollable ancestor, which is why opening /web/<slug>/deploy directly used to land at
+  // the bottom of the whole page as soon as the replayed log arrived.
   useEffect(() => {
-    if (deployLogs.length > 0) {
-      terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const box = deployLogContainerRef.current;
+    if (box && deployLogs.length > 0) {
+      box.scrollTop = box.scrollHeight;
     }
   }, [deployLogs.length]);
 
@@ -6511,7 +6514,10 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                   </button>
                 </div>
               </div>
-              <div className="bg-slate-950 rounded-xl p-4 border border-slate-800 font-mono text-xs text-slate-200 min-h-[160px] max-h-[300px] overflow-y-auto space-y-1.5 shadow-inner">
+              <div
+                ref={deployLogContainerRef}
+                className="bg-slate-950 rounded-xl p-4 border border-slate-800 font-mono text-xs text-slate-200 min-h-[160px] max-h-[300px] overflow-y-auto space-y-1.5 shadow-inner"
+              >
                 {deployLogs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-8 text-center text-slate-500">
                     {isLoadingDeployLogs ? (
@@ -6551,7 +6557,6 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                     </div>
                   ))
                 )}
-                <div ref={terminalEndRef} />
               </div>
             </div>
 
