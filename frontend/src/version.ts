@@ -7,7 +7,7 @@
  * when one is running (`GET /health`), falling back to this constant in
  * simulation mode.
  */
-export const PANEL_VERSION = '0.3.8';
+export const PANEL_VERSION = '0.3.9';
 
 /** Short label for the UI: "v0.3.4". */
 export const PANEL_VERSION_LABEL = `v${PANEL_VERSION}`;

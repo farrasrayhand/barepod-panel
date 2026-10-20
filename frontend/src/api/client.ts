@@ -128,6 +128,10 @@ export interface ApiWebsiteGitStatus {
   commit?: string;
   commitMessage?: string;
   autoDeploy: boolean;
+  /** Which path is actually active: webhook registration or the commit watcher. */
+  autoDeployMode?: 'webhook' | 'poll' | 'none';
+  autoDeployPollSec?: number;
+  lastGitPollAt?: string;
   deployHookToken: string;
   webhookUrl: string;
   deployScript?: string;
@@ -294,6 +298,15 @@ export interface DeployJob {
   totalSteps: number;
   currentStep: string;
   error?: string;
+  /** What started the run: manual | redeploy | webhook | poll. */
+  trigger?: string;
+  /** The commit the pipeline built, when the site is a Git checkout. */
+  commit?: string;
+  commitMessage?: string;
+  commitAuthor?: string;
+  durationMs?: number;
+  createdAt?: string;
+  finishedAt?: string;
 }
 
 export interface PrepareDirectoryResult {
@@ -543,6 +556,8 @@ export interface CreateWebsitePayload {
   proxyTimeoutSecs?: number;
   tunnelEnabled?: boolean;
   source: { kind: string; repo?: string; branch?: string };
+  /** The wizard's Auto-Deploy toggle. Omitted means "on for a Git source". */
+  autoDeploy?: boolean;
   database?: { engine: string; version?: string; name?: string; user?: string };
   cache?: { engine: string };
   autoEnv?: boolean;
@@ -893,6 +908,14 @@ export const api = {
 
   /** Get latest deploy job status and error info. */
   latestDeploy: (slug: string) => request<DeployJob>(`/websites/${slug}/deploy`),
+  /** The Deploy tab's timeline. The daemon keeps the newest ten jobs per site. */
+  deployHistory: (slug: string, limit = 20) =>
+    request<{ items: DeployJob[]; total: number }>(`/websites/${slug}/deploy/history?limit=${limit}`),
+  /** One historical job with its persisted log, for the history row's "View Log". */
+  deployJob: (slug: string, id: string) =>
+    request<{ job: DeployJob; log: { id: number; ts: string; stream: string; line: string }[] }>(
+      `/websites/${slug}/deploy/${id}`,
+    ),
 
   /** Git Ingress & Deploy Keys */
   websiteGitStatus: (slug: string) => request<ApiWebsiteGitStatus>(`/websites/${slug}/git`),
@@ -902,6 +925,29 @@ export const api = {
   updateWebsiteGit: (slug: string, payload: { repo?: string; branch?: string; autoDeploy?: boolean; deployScript?: string }) =>
     request<ApiWebsite>(`/websites/${slug}/git`, {
       method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  /** Run the commit watcher's check for one site now (no waiting for the next tick). */
+  checkWebsiteGit: (slug: string) =>
+    request<{ status: 'up_to_date' | 'deployed'; local: string; remote: string; deployId?: string; stream?: string }>(
+      `/websites/${slug}/git/check`,
+      { method: 'POST' },
+    ),
+  /** Resolve how auto-deploy runs: "auto" tries a GitHub webhook and falls back to polling. */
+  setWebsiteAutoDeploy: (
+    slug: string,
+    payload: { enabled: boolean; mode?: 'auto' | 'webhook' | 'poll'; pollIntervalSec?: number },
+  ) =>
+    request<{
+      status: string;
+      enabled: boolean;
+      mode: 'webhook' | 'poll' | 'none';
+      webhookRegistered: boolean;
+      webhookUrl?: string;
+      pollIntervalSec: number;
+      message?: string;
+    }>(`/websites/${slug}/git/auto-deploy`, {
+      method: 'POST',
       body: JSON.stringify(payload),
     }),
 
@@ -996,10 +1042,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  listGitProviderRepos: (id: string) =>
-    request<{ items: GitRepoItem[]; total: number }>(`/git/providers/${id}/repos`),
+  listGitProviderRepos: (id: string, page = 1, perPage = 100) =>
+    request<{ repos: GitRepoItem[]; page: number; perPage: number; total: number }>(
+      `/git/providers/${id}/repos?page=${page}&per_page=${perPage}`,
+    ),
   listGitProviderBranches: (id: string, repo: string) =>
-    request<{ repo: string; branches: string[] }>(`/git/providers/${id}/branches?repo=${encodeURIComponent(repo)}`),
+    request<{ repo: string; branches: string[]; defaultBranch: string }>(
+      `/git/providers/${id}/branches?repo=${encodeURIComponent(repo)}`,
+    ),
   deleteUserGitProvider: (id: string) =>
     request<{ ok: boolean }>(`/git/providers/${id}`, { method: 'DELETE' }),
 

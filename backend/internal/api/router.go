@@ -31,7 +31,7 @@ import (
 
 // Version is the panel/daemon version matching GitHub release tag.
 // It can be injected at build time using -ldflags="-X 'github.com/farrasrayhand/barepod-panel/backend/internal/api.Version=...'".
-var Version = "0.3.8"
+var Version = "0.3.9"
 
 // Deps are the dependencies the HTTP layer needs.
 type Deps struct {
@@ -289,6 +289,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/websites/{slug}/redeploy", deploy(s.handleRedeployWebsite))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/exec", deploy(s.handleWebsiteExecCommand))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy", deploy(s.handleLatestDeploy))
+	// The literal path is more specific than the {id} pattern below; Go's ServeMux routes it first.
+	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/history", deploy(s.handleDeployHistory))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/stream", deploy(s.handleDeployStream))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/{id}", deploy(s.handleDeployJob))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/metrics", deploy(s.handleWebsiteMetrics))
@@ -313,6 +315,8 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/websites/{slug}/git", deploy(s.handleGetWebsiteGit))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/git/deploy-key", deploy(s.handleGetDeployKey))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/git/deploy-key/rotate", deploy(s.handleRotateDeployKey))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/git/auto-deploy", deploy(s.handleSetWebsiteAutoDeploy))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/git/check", deploy(s.handleCheckWebsiteGit))
 	mux.HandleFunc("PATCH /api/v1/websites/{slug}/git", deploy(s.handleUpdateWebsiteGit))
 	mux.HandleFunc("PUT /api/v1/websites/{slug}/git", deploy(s.handleUpdateWebsiteGit))
 	mux.HandleFunc("POST /api/v1/webhooks/deploy/{slug}", s.handlePublicDeployWebhook)

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/sysinfo"
@@ -24,9 +25,12 @@ const maxOutputBytes = 8 << 10
 type Scheduler struct {
 	Store *store.Store
 	Host  *host.Host
-	Key   []byte
-	Caps  sysinfo.Capabilities
-	Logf  func(string, ...any)
+	// Deploy is what the git_commit_watcher starts when a remote branch moved. Nil disables that
+	// one job (the others do not need it).
+	Deploy *deploy.Manager
+	Key    []byte
+	Caps   sysinfo.Capabilities
+	Logf   func(string, ...any)
 
 	mu       sync.Mutex
 	lastSlot map[string]string // job id -> the minute it last ran, so one slot runs once
@@ -127,11 +131,11 @@ func (s *Scheduler) runOne(ctx context.Context, id string) {
 }
 
 // NewEnv builds the environment a job runs in, for the scheduler and for a manual "run now".
-func NewEnv(st *store.Store, h *host.Host, key []byte, caps sysinfo.Capabilities, logf func(string, ...any)) *Env {
-	return &Env{Store: st, Host: h, Key: key, Caps: caps, Logf: logf}
+func NewEnv(st *store.Store, h *host.Host, dep *deploy.Manager, key []byte, caps sysinfo.Capabilities, logf func(string, ...any)) *Env {
+	return &Env{Store: st, Host: h, Deploy: dep, Key: key, Caps: caps, Logf: logf}
 }
 
-func (s *Scheduler) env() *Env { return NewEnv(s.Store, s.Host, s.Key, s.Caps, s.Logf) }
+func (s *Scheduler) env() *Env { return NewEnv(s.Store, s.Host, s.Deploy, s.Key, s.Caps, s.Logf) }
 
 func (s *Scheduler) logf(format string, args ...any) {
 	if s.Logf != nil {

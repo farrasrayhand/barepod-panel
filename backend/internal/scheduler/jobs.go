@@ -3,14 +3,17 @@ package scheduler
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/deploy"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/enginedb"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/notify"
@@ -21,8 +24,10 @@ import (
 
 // Env is what a job reads and acts through.
 type Env struct {
-	Store         *store.Store
-	Host          *host.Host
+	Store *store.Store
+	Host  *host.Host
+	// Deploy is required by git_commit_watcher; other jobs leave it nil.
+	Deploy        *deploy.Manager
 	Key           []byte
 	Caps          sysinfo.Capabilities
 	Notify        *notify.Dispatcher
@@ -50,6 +55,218 @@ type Job struct {
 	Run     func(ctx context.Context, env *Env) (string, error)
 }
 
+// watchGitCommits is the polling half of auto-deploy. It is deliberately quiet: a site that is
+// unreachable is reported in the job output but does not fail the run, because one bad repository
+// must not stop the watcher for every other tenant.
+func watchGitCommits(ctx context.Context, env *Env) (string, error) {
+	if env.Host == nil || env.Store == nil || env.Deploy == nil {
+		return "git watcher: deploy manager is not configured on this daemon", nil
+	}
+
+	sites, err := env.Store.ListWebsites()
+	if err != nil {
+		return "", err
+	}
+
+	now := time.Now()
+	var notes []string
+
+	// A candidate has already passed every cheap filter and its local commit has been read.
+	type candidate struct {
+		site  store.Website
+		local string
+	}
+	var candidates []candidate
+
+	for _, site := range sites {
+		if !site.AutoDeploy || strings.TrimSpace(site.SourceRepo) == "" {
+			continue
+		}
+		if !isGitKind(site.SourceKind) {
+			continue
+		}
+		// Webhook-mode sites are deployed by the hook itself; polling them too would run the
+		// pipeline twice for the same push.
+		// An empty mode is a site that predates the mode column: its auto_deploy flag only ever
+		// meant "a manually configured webhook may call me". Treating that as polling would start
+		// deploying upgraded sites without the operator asking for it.
+		mode := site.AutoDeployMode
+		if mode != "poll" {
+			continue
+		}
+		if site.Status == "suspended" {
+			continue
+		}
+
+		pollSec := site.AutoDeployPollSec
+		if pollSec <= 0 {
+			pollSec = 300
+		}
+		if site.LastGitPollAt != "" {
+			if last, err := time.Parse(time.RFC3339, site.LastGitPollAt); err == nil &&
+				now.Sub(last) < time.Duration(pollSec)*time.Second {
+				continue
+			}
+		}
+
+		// One deploy at a time per site: a redeploy started by hand must finish before the
+		// watcher decides the same commit is still missing.
+		if latest, err := env.Store.LatestDeployJob(site.Slug); err == nil &&
+			(latest.Status == "pending" || latest.Status == "running") {
+			_ = env.Store.TouchWebsiteGitPoll(site.Slug)
+			continue
+		}
+
+		// Local first: reading HEAD is a file read, while a remote check costs a process and a
+		// network round-trip. A site with no checkout must not spend either.
+		local, err := env.Host.LocalGitSHA(site.TenantUser, site.Slug)
+		if err != nil {
+			_ = env.Store.TouchWebsiteGitPoll(site.Slug)
+			notes = append(notes, site.Slug+": local checkout unavailable: "+err.Error())
+			continue
+		}
+		candidates = append(candidates, candidate{site: site, local: local})
+	}
+
+	// One remote check per (repo, branch). Two sites deploying the same repository (staging and
+	// production, or a tenant with several apps) share the answer instead of opening one SSH
+	// connection each.
+	type remoteGroup struct {
+		repo, branch string
+		members      []int
+	}
+	groups := make(map[string]*remoteGroup, len(candidates))
+	order := make([]string, 0, len(candidates))
+	for i, c := range candidates {
+		key := c.site.SourceRepo + "\x00" + c.site.SourceBranch
+		g, ok := groups[key]
+		if !ok {
+			g = &remoteGroup{repo: c.site.SourceRepo, branch: c.site.SourceBranch}
+			groups[key] = g
+			order = append(order, key)
+		}
+		g.members = append(g.members, i)
+	}
+
+	type remoteResult struct {
+		remote string
+		err    error
+	}
+	results := make(map[string]remoteResult, len(order))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	// Four concurrent remotes keeps a large host well inside the job timeout without turning a
+	// provider outage into a connection flood from one IP.
+	sem := make(chan struct{}, 4)
+
+	for _, key := range order {
+		g := groups[key]
+		key := key
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			// The remote tip is identical whichever site asks, but deploy keys are per site and
+			// only the ones added to the repository may read it. Try members until one succeeds.
+			var lastErr error
+			for _, idx := range g.members {
+				site := candidates[idx].site
+				checkCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+				remote, err := env.Host.RemoteGitHead(checkCtx, site.TenantUser, site.Slug, g.repo, g.branch)
+				cancel()
+				if err == nil {
+					mu.Lock()
+					results[key] = remoteResult{remote: remote}
+					mu.Unlock()
+					return
+				}
+				lastErr = err
+			}
+			mu.Lock()
+			results[key] = remoteResult{err: lastErr}
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	checked, started := 0, 0
+	groupNoted := map[string]bool{}
+	for _, c := range candidates {
+		key := c.site.SourceRepo + "\x00" + c.site.SourceBranch
+		res := results[key]
+		if res.err != nil {
+			// One note per remote, not one per site behind it.
+			if !groupNoted[key] {
+				notes = append(notes, c.site.SourceRepo+": remote check failed: "+res.err.Error())
+				groupNoted[key] = true
+			}
+			continue
+		}
+		checked++
+		if strings.EqualFold(strings.TrimSpace(res.remote), c.local) {
+			continue
+		}
+
+		job, err := env.Deploy.Start(deploy.Request{
+			Slug:          c.site.Slug,
+			Tenant:        c.site.TenantUser,
+			Domain:        c.site.Domain,
+			Runtime:       c.site.Runtime,
+			Version:       c.site.Version,
+			Framework:     c.site.Framework,
+			WebServer:     c.site.WebServer,
+			Port:          c.site.Port,
+			SSL:           c.site.SSL,
+			TunnelEnabled: c.site.TunnelEnable,
+			Source:        deploy.SourceSpec{Kind: c.site.SourceKind, Repo: c.site.SourceRepo, Branch: c.site.SourceBranch},
+			Redeploy:      true,
+			Trigger:       "poll",
+		})
+		if err != nil {
+			if errors.Is(err, deploy.ErrDeployInProgress) {
+				notes = append(notes, c.site.Slug+": a deploy was already running; skipped")
+				continue
+			}
+			notes = append(notes, c.site.Slug+": could not start deploy: "+err.Error())
+			continue
+		}
+		started++
+		notes = append(notes, fmt.Sprintf("%s: %s -> %s (job %s)",
+			c.site.Slug, shortHash(c.local), shortHash(res.remote), job.ID))
+	}
+
+	// Record the attempt for every candidate (success or failure) so a broken remote waits for
+	// its interval instead of being retried on every tick.
+	for _, c := range candidates {
+		_ = env.Store.TouchWebsiteGitPoll(c.site.Slug)
+	}
+
+	msg := fmt.Sprintf("checked %d of %d site(s) across %d remote(s), started %d deploy(s)",
+		checked, len(candidates), len(order), started)
+	if len(notes) > 0 {
+		msg += "\n" + strings.Join(notes, "\n")
+	}
+	return msg, nil
+}
+
+// isGitKind mirrors the deploy pipeline's list of source kinds that carry a repository.
+func isGitKind(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "github", "gitlab", "bitbucket", "gitea", "custom", "git":
+		return true
+	}
+	return false
+}
+
+func shortHash(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
+}
+
 // TimeoutFor is the wall-clock budget a job is given.
 func TimeoutFor(job Job) time.Duration {
 	if job.Timeout > 0 {
@@ -73,6 +290,14 @@ var registry = []Job{
 				return "all monitored services healthy; nothing to repair", nil
 			}
 			return fmt.Sprintf("repaired %d item(s):\n%s", len(actions), strings.Join(actions, "\n")), nil
+		},
+	},
+	{
+		ID: "git_commit_watcher", Label: "Git commit watcher", Category: "deploy",
+		Desc:            "Check the remote branch of auto-deploy sites in poll mode and redeploy when it moved.",
+		DefaultSchedule: "*/5 * * * *", DefaultEnabled: true, Implemented: true, Timeout: 5 * time.Minute,
+		Run: func(ctx context.Context, env *Env) (string, error) {
+			return watchGitCommits(ctx, env)
 		},
 	},
 	{

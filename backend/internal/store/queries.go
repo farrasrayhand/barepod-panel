@@ -180,7 +180,8 @@ func (s *Store) ListWebsites() ([]Website, error) {
 	rows, err := s.DB.Query(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
 		        status, deploy_status, ssl, tunnel_enabled, port, upstream_url, created_at,
-		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
+		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script,
+		        auto_deploy_mode, auto_deploy_poll_sec, last_git_poll_at
 		 FROM websites ORDER BY created_at DESC, slug ASC`)
 	if err != nil {
 		return nil, err
@@ -193,7 +194,8 @@ func (s *Store) ListWebsites() ([]Website, error) {
 		if err := rows.Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version,
 			&w.Framework, &w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable,
 			&w.Port, &w.UpstreamURL, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch,
-			&w.DeployHookToken, &w.AutoDeploy, &w.DeployScript); err != nil {
+			&w.DeployHookToken, &w.AutoDeploy, &w.DeployScript,
+			&w.AutoDeployMode, &w.AutoDeployPollSec, &w.LastGitPollAt); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -206,7 +208,8 @@ func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
 	rows, err := s.DB.Query(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
 		        status, deploy_status, ssl, tunnel_enabled, port, upstream_url, created_at,
-		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
+		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script,
+		        auto_deploy_mode, auto_deploy_poll_sec, last_git_poll_at
 		 FROM websites WHERE tenant_user = ? ORDER BY created_at DESC, slug ASC`, tenant)
 	if err != nil {
 		return nil, err
@@ -219,7 +222,8 @@ func (s *Store) ListWebsitesByTenant(tenant string) ([]Website, error) {
 		if err := rows.Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version,
 			&w.Framework, &w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable,
 			&w.Port, &w.UpstreamURL, &w.CreatedAt, &w.SourceKind, &w.SourceRepo, &w.SourceBranch,
-			&w.DeployHookToken, &w.AutoDeploy, &w.DeployScript); err != nil {
+			&w.DeployHookToken, &w.AutoDeploy, &w.DeployScript,
+			&w.AutoDeployMode, &w.AutoDeployPollSec, &w.LastGitPollAt); err != nil {
 			return nil, err
 		}
 		out = append(out, w)
@@ -240,11 +244,13 @@ func (s *Store) WebsiteBySlug(slug string) (*Website, error) {
 	err := s.DB.QueryRow(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
 		        status, deploy_status, ssl, tunnel_enabled, port, upstream_url, created_at,
-		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
+		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script,
+		        auto_deploy_mode, auto_deploy_poll_sec, last_git_poll_at
 		 FROM websites WHERE slug = ?`, slug,
 	).Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version, &w.Framework,
 		&w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable, &w.Port, &w.UpstreamURL, &w.CreatedAt,
-		&w.SourceKind, &w.SourceRepo, &w.SourceBranch, &w.DeployHookToken, &w.AutoDeploy, &w.DeployScript)
+		&w.SourceKind, &w.SourceRepo, &w.SourceBranch, &w.DeployHookToken, &w.AutoDeploy, &w.DeployScript,
+		&w.AutoDeployMode, &w.AutoDeployPollSec, &w.LastGitPollAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -260,11 +266,13 @@ func (s *Store) WebsiteByDomain(domain string) (*Website, error) {
 	err := s.DB.QueryRow(
 		`SELECT id, slug, domain, tenant_user, runtime, version, framework, web_server,
 		        status, deploy_status, ssl, tunnel_enabled, port, upstream_url, created_at,
-		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script
+		        source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script,
+		        auto_deploy_mode, auto_deploy_poll_sec, last_git_poll_at
 		 FROM websites WHERE lower(domain) = ?`, strings.ToLower(strings.TrimSpace(domain)),
 	).Scan(&w.ID, &w.Slug, &w.Domain, &w.TenantUser, &w.Runtime, &w.Version, &w.Framework,
 		&w.WebServer, &w.Status, &w.DeployStatus, &w.SSL, &w.TunnelEnable, &w.Port, &w.UpstreamURL, &w.CreatedAt,
-		&w.SourceKind, &w.SourceRepo, &w.SourceBranch, &w.DeployHookToken, &w.AutoDeploy, &w.DeployScript)
+		&w.SourceKind, &w.SourceRepo, &w.SourceBranch, &w.DeployHookToken, &w.AutoDeploy, &w.DeployScript,
+		&w.AutoDeployMode, &w.AutoDeployPollSec, &w.LastGitPollAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -288,11 +296,13 @@ func (s *Store) CreateWebsite(w *Website) error {
 	_, err := s.DB.Exec(
 		`INSERT INTO websites (id, slug, domain, tenant_user, runtime, version, framework,
 		                       web_server, status, deploy_status, ssl, tunnel_enabled, port, upstream_url, created_at,
-		                       source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                       source_kind, source_repo, source_branch, deploy_hook_token, auto_deploy, deploy_script,
+		                       auto_deploy_mode, auto_deploy_poll_sec, last_git_poll_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		w.ID, w.Slug, w.Domain, w.TenantUser, w.Runtime, w.Version, w.Framework,
 		w.WebServer, w.Status, w.DeployStatus, w.SSL, w.TunnelEnable, w.Port, strings.TrimSpace(w.UpstreamURL), w.CreatedAt,
 		w.SourceKind, w.SourceRepo, w.SourceBranch, w.DeployHookToken, w.AutoDeploy, w.DeployScript,
+		w.AutoDeployMode, w.AutoDeployPollSec, w.LastGitPollAt,
 	)
 	if err != nil {
 		return err
@@ -312,6 +322,23 @@ func (s *Store) UpdateWebsiteGit(slug, repo, branch string, autoDeploy bool) err
 		`UPDATE websites SET source_repo = ?, source_branch = ?, auto_deploy = ? WHERE slug = ?`,
 		repo, branch, autoDeploy, slug,
 	)
+	return err
+}
+
+// SetWebsiteAutoDeploy stores the resolved auto-deploy decision for a website. mode is
+// "webhook" | "poll" | "none"; pollSec is the per-site polling interval (0 = watcher default).
+func (s *Store) SetWebsiteAutoDeploy(slug string, enabled bool, mode string, pollSec int) error {
+	_, err := s.DB.Exec(
+		`UPDATE websites SET auto_deploy = ?, auto_deploy_mode = ?, auto_deploy_poll_sec = ? WHERE slug = ?`,
+		enabled, mode, pollSec, slug,
+	)
+	return err
+}
+
+// TouchWebsiteGitPoll records that the commit watcher has just checked this site's remote. It is
+// what keeps a per-site poll interval meaningful across daemon restarts.
+func (s *Store) TouchWebsiteGitPoll(slug string) error {
+	_, err := s.DB.Exec(`UPDATE websites SET last_git_poll_at = ? WHERE slug = ?`, now(), slug)
 	return err
 }
 

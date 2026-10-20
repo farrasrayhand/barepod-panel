@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import { PERMISSION_MATRIX } from '../data/permissions';
 import { api, apiReachable } from '../api/client';
 import { describeDevice, describeError, timeAgo } from '../utils/format';
@@ -113,6 +114,105 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
       await loadGitProviders();
     } catch (err) {
       onShowToast?.('Disconnect failed', describeError(err), 'error');
+    }
+  };
+
+  // --- Two-factor authentication (TOTP) ---
+  // The daemon's TOTP endpoints are per account (requireAuth, not an admin capability), so every
+  // user must be able to enrol from Profile. This card used to be a disabled placeholder, which is
+  // why a regular account could not switch 2FA on even though Settings → Security could.
+  const [totpLive, setTotpLive] = useState<boolean | null>(null);
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; otpauthUrl: string } | null>(null);
+  const [totpQr, setTotpQr] = useState('');
+  const [totpCode, setTotpCode] = useState('');
+  const [totpBusy, setTotpBusy] = useState(false);
+  const [copiedTotp, setCopiedTotp] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const reachable = await apiReachable();
+      if (!alive) return;
+      setTotpLive(reachable);
+      if (!reachable) return;
+      try {
+        const status = await api.totpStatus();
+        if (alive) setTotpEnabled(status.enabled);
+      } catch {
+        // A status read that failed must not claim 2FA is off; the card says it is unavailable.
+        if (alive) setTotpLive(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const startTotpSetup = async () => {
+    setTotpBusy(true);
+    try {
+      const setup = await api.totpSetup();
+      setTotpSetup(setup);
+      setTotpCode('');
+      try {
+        setTotpQr(
+          await QRCode.toDataURL(setup.otpauthUrl, {
+            width: 200,
+            margin: 2,
+            color: { dark: '#0f172a', light: '#ffffff' },
+          }),
+        );
+      } catch {
+        setTotpQr('');
+      }
+    } catch (err) {
+      onShowToast?.('Could not start 2FA setup', describeError(err), 'error');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const confirmTotp = async () => {
+    if (totpCode.length !== 6 || totpBusy) return;
+    setTotpBusy(true);
+    try {
+      const res = await api.totpEnable(totpCode);
+      setTotpEnabled(res.enabled);
+      setTotpSetup(null);
+      setTotpQr('');
+      setTotpCode('');
+      onShowToast?.('2FA enabled', 'Signing in now also needs a code from your authenticator.', 'success');
+    } catch (err) {
+      onShowToast?.('Could not enable 2FA', describeError(err), 'error');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const disableTotp = async () => {
+    if (totpCode.length !== 6 || totpBusy) return;
+    setTotpBusy(true);
+    try {
+      const res = await api.totpDisable(totpCode);
+      setTotpEnabled(res.enabled);
+      setTotpCode('');
+      onShowToast?.('2FA disabled', 'This account signs in with its password only.', 'info');
+    } catch (err) {
+      onShowToast?.('Could not disable 2FA', describeError(err), 'error');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const copyTotpSecret = async () => {
+    if (!totpSetup) return;
+    try {
+      await navigator.clipboard.writeText(totpSetup.secret);
+      setCopiedTotp(true);
+      setTimeout(() => setCopiedTotp(false), 1500);
+    } catch {
+      // Clipboard denied: the secret is on screen to type in.
     }
   };
 
@@ -321,23 +421,126 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
             <h2 className="text-sm font-bold text-slate-900">Security</h2>
           </div>
 
-          <label className="flex items-start justify-between gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/60 cursor-pointer">
-            <span className="text-xs">
-              <span className="font-semibold text-slate-800 flex items-center gap-1.5">
-                <Smartphone className="w-3.5 h-3.5 text-slate-500" /> Two-factor authentication (TOTP)
+          <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/60 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <span className="text-xs">
+                <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5 text-slate-500" /> Two-factor authentication (TOTP)
+                </span>
+                <span className="text-slate-500 block mt-0.5">
+                  {totpLive === false
+                    ? 'Requires a live daemon — this browser is not connected to one.'
+                    : totpEnabled
+                      ? 'Enabled — signing in also needs the current code from your authenticator.'
+                      : 'Add a second step to sign-in with Google Authenticator, Authy, 1Password, or any TOTP app.'}
+                </span>
               </span>
-              <span className="text-slate-500 block mt-0.5">
-                Not available yet — the daemon has no TOTP enrolment, so this cannot be switched on from here.
+              <span
+                className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                  totpEnabled
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}
+              >
+                {totpEnabled ? 'Enabled' : 'Off'}
               </span>
-            </span>
-            <input
-              type="checkbox"
-              checked={false}
-              disabled
-              title="Not available yet"
-              className="mt-0.5 w-4 h-4 rounded text-blue-600 border-slate-300 opacity-50 cursor-not-allowed"
-            />
-          </label>
+            </div>
+
+            {totpSetup ? (
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row items-center gap-3 p-3 rounded-lg bg-white border border-slate-200">
+                  {totpQr ? (
+                    <img
+                      src={totpQr}
+                      alt="2FA TOTP QR code"
+                      className="w-32 h-32 rounded-lg border border-slate-200 bg-white"
+                    />
+                  ) : (
+                    <div className="w-32 h-32 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center text-[10px] text-slate-400 text-center px-2">
+                      QR unavailable — use the secret
+                    </div>
+                  )}
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <p className="text-[11px] text-slate-600">
+                      Scan the QR code, or enter this secret manually:
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 px-2 py-1.5 rounded-lg bg-slate-900 text-slate-100 font-mono text-[11px] break-all select-all">
+                        {totpSetup.secret}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => void copyTotpSecret()}
+                        className="px-2.5 py-1.5 text-[11px] font-bold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg shrink-0 cursor-pointer transition"
+                      >
+                        {copiedTotp ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="123456"
+                    className="w-32 px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg font-mono tracking-[0.25em] text-center font-bold text-slate-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void confirmTotp()}
+                    disabled={totpCode.length !== 6 || totpBusy}
+                    className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg cursor-pointer transition shadow-xs flex items-center gap-1.5"
+                  >
+                    {totpBusy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>Confirm &amp; enable 2FA</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTotpSetup(null);
+                      setTotpQr('');
+                      setTotpCode('');
+                    }}
+                    className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : totpEnabled ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="Code to disable"
+                  className="w-36 px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg font-mono tracking-[0.2em]"
+                />
+                <button
+                  type="button"
+                  onClick={() => void disableTotp()}
+                  disabled={totpCode.length !== 6 || totpBusy}
+                  className="px-3.5 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 disabled:opacity-40 rounded-lg cursor-pointer"
+                >
+                  {totpBusy ? 'Disabling…' : 'Disable 2FA'}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void startTotpSetup()}
+                disabled={totpLive !== true || totpBusy}
+                className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg cursor-pointer flex items-center gap-1.5"
+              >
+                {totpBusy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{totpBusy ? 'Starting…' : 'Set up 2FA'}</span>
+              </button>
+            )}
+          </div>
 
           <button
             onClick={() => onNavigatePath?.('/api')}
@@ -408,7 +611,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-xs font-bold text-slate-700">GitHub Personal Access Token (classic or fine-grained)</label>
                 <a
-                  href="https://github.com/settings/tokens/new?scopes=repo,read:user&description=BarePod+Panel"
+                  href="https://github.com/settings/tokens/new?scopes=repo,read:user,admin:repo_hook&description=BarePod+Panel"
                   target="_blank"
                   rel="noreferrer"
                   className="text-[11px] text-blue-600 hover:text-blue-700 flex items-center gap-1 font-medium"

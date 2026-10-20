@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -40,31 +41,43 @@ type cachePayload struct {
 }
 
 type createWebsiteRequest struct {
-	Slug             string            `json:"slug"`
-	Domain           string            `json:"domain"`
-	TenantUser       string            `json:"tenantUser"`
-	Runtime          string            `json:"runtime"`
-	Version          string            `json:"version"`
-	Framework        string            `json:"framework"`
-	FrameworkVersion string            `json:"frameworkVersion"`
-	WebServer        string            `json:"webServer"`
-	Port             int               `json:"port"`
-	UpstreamURL      string            `json:"upstreamUrl"`
-	ProxyWebsocket   bool              `json:"proxyWebsocket"`
-	ProxyPreserveHost bool             `json:"proxyPreserveHost"`
-	ProxyRealIP      bool              `json:"proxyRealIp"`
-	ProxyTimeoutSecs int               `json:"proxyTimeoutSecs"`
-	SSL              bool              `json:"ssl"`
-	TunnelEnabled    bool              `json:"tunnelEnabled"`
-	Source           sourcePayload     `json:"source"`
-	Database         *databasePayload  `json:"database"`
-	Cache            *cachePayload     `json:"cache"`
-	AutomationSteps  []string          `json:"automationSteps"`
-	DeployScript     string            `json:"deployScript"`
-	Env              map[string]string `json:"env"`
+	Slug              string        `json:"slug"`
+	Domain            string        `json:"domain"`
+	TenantUser        string        `json:"tenantUser"`
+	Runtime           string        `json:"runtime"`
+	Version           string        `json:"version"`
+	Framework         string        `json:"framework"`
+	FrameworkVersion  string        `json:"frameworkVersion"`
+	WebServer         string        `json:"webServer"`
+	Port              int           `json:"port"`
+	UpstreamURL       string        `json:"upstreamUrl"`
+	ProxyWebsocket    bool          `json:"proxyWebsocket"`
+	ProxyPreserveHost bool          `json:"proxyPreserveHost"`
+	ProxyRealIP       bool          `json:"proxyRealIp"`
+	ProxyTimeoutSecs  int           `json:"proxyTimeoutSecs"`
+	SSL               bool          `json:"ssl"`
+	TunnelEnabled     bool          `json:"tunnelEnabled"`
+	Source            sourcePayload `json:"source"`
+	// AutoDeploy is a pointer so an omitted field keeps the default (on for a Git source) instead
+	// of silently turning a wizard toggle off just because false is the zero value.
+	AutoDeploy      *bool             `json:"autoDeploy"`
+	Database        *databasePayload  `json:"database"`
+	Cache           *cachePayload     `json:"cache"`
+	AutomationSteps []string          `json:"automationSteps"`
+	DeployScript    string            `json:"deployScript"`
+	Env             map[string]string `json:"env"`
 }
 
 var slugSanitizer = regexp.MustCompile(`[^a-z0-9-]+`)
+
+// isGitSourceKind reports whether a deploy source needs a repository and can auto-deploy.
+func isGitSourceKind(kind string) bool {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "github", "gitlab", "bitbucket", "gitea", "custom", "git":
+		return true
+	}
+	return false
+}
 
 func (r *createWebsiteRequest) normalize() {
 	r.Domain = strings.ToLower(strings.TrimSpace(r.Domain))
@@ -169,11 +182,23 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		writeJSON(w, http.StatusBadRequest, validationResponse(fields, "The deployment plan is not valid"))
 		return
 	}
-	if _, err := s.store.WebsiteBySlug(req.Slug); err == nil {
-		writeJSON(w, http.StatusConflict, validationResponse(
-			map[string]string{"slug": "this website name is already in use"},
-			"A website with this name already exists"))
-		return
+	// Smart scoped slug: a slug is global (it names vhosts, units and directories), but two
+	// tenants may both want "blog". If the existing owner is someone else, prefix the slug with
+	// the caller's username; if the caller already owns it, refuse instead of silently renaming.
+	if existing, err := s.store.WebsiteBySlug(req.Slug); err == nil {
+		if existing.TenantUser == req.TenantUser {
+			writeJSON(w, http.StatusConflict, validationResponse(
+				map[string]string{"slug": "this website name is already in use by your account"},
+				"A website with this name already exists"))
+			return
+		}
+		req.Slug = req.TenantUser + "-" + req.Slug
+		if _, err := s.store.WebsiteBySlug(req.Slug); err == nil {
+			writeJSON(w, http.StatusConflict, validationResponse(
+				map[string]string{"slug": "this website name is already in use"},
+				"A website with this name already exists"))
+			return
+		}
 	}
 	if dom, err := s.store.GetDomainByName(req.Domain); err == nil && dom != nil {
 		writeJSON(w, http.StatusConflict, validationResponse(
@@ -238,28 +263,60 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 
+	// Auto-deploy defaults to on for a Git source (the wizard offers it) and to off for every
+	// other source, where there is nothing to watch. An explicit `autoDeploy` always wins.
+	gitSource := isGitSourceKind(req.Source.Kind)
+	autoDeploy := gitSource
+	if req.AutoDeploy != nil {
+		autoDeploy = *req.AutoDeploy
+	}
+	autoDeployMode := "none"
+	if autoDeploy {
+		// "poll" is the safe initial mode: the commit watcher needs no inbound port and works on
+		// a private LAN. Enabling auto-deploy from the Deploy tab upgrades it to "webhook" when
+		// GitHub accepts the registration.
+		autoDeployMode = "poll"
+	}
+
 	site := &store.Website{
-		Slug:         req.Slug,
-		Domain:       req.Domain,
-		TenantUser:   req.TenantUser,
-		Runtime:      req.Runtime,
-		Version:      req.Version,
-		Framework:    req.Framework,
-		WebServer:    req.WebServer,
-		Status:       "stopped",
-		DeployStatus: "pending",
-		SSL:          req.SSL,
-		TunnelEnable: req.TunnelEnabled,
-		Port:         req.Port,
-		UpstreamURL:  req.UpstreamURL,
-		SourceKind:   req.Source.Kind,
-		SourceRepo:   req.Source.Repo,
-		SourceBranch: req.Source.Branch,
-		DeployScript: req.DeployScript,
+		AutoDeploy:     autoDeploy,
+		AutoDeployMode: autoDeployMode,
+		Slug:           req.Slug,
+		Domain:         req.Domain,
+		TenantUser:     req.TenantUser,
+		Runtime:        req.Runtime,
+		Version:        req.Version,
+		Framework:      req.Framework,
+		WebServer:      req.WebServer,
+		Status:         "stopped",
+		DeployStatus:   "pending",
+		SSL:            req.SSL,
+		TunnelEnable:   req.TunnelEnabled,
+		Port:           req.Port,
+		UpstreamURL:    req.UpstreamURL,
+		SourceKind:     req.Source.Kind,
+		SourceRepo:     req.Source.Repo,
+		SourceBranch:   req.Source.Branch,
+		DeployScript:   req.DeployScript,
 	}
 	if err := s.store.CreateWebsite(site); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Could not record the website")
 		return
+	}
+
+	// Zero-config auto-deploy: when the wizard asked for it on a Git source and the panel has an
+	// address GitHub can reach, register the webhook in the background. Doing it here (rather than
+	// waiting for the operator to toggle the switch) is what makes creation itself zero-config;
+	// it stays a goroutine so the 202 is not held up by a GitHub round-trip, and a failure simply
+	// leaves the polling fallback in place.
+	if autoDeploy && gitSource {
+		if base := s.publicPanelBaseURL(r); base != "" {
+			siteCopy := *site
+			userCopy := *user
+			webhookURL := strings.TrimSuffix(base, "/") +
+				"/api/v1/webhooks/deploy/" + site.Slug + "?token=" + site.DeployHookToken
+			go s.registerWebhookAfterCreate(&siteCopy, &userCopy, webhookURL)
+		}
 	}
 
 	if req.Runtime == "proxy" {
@@ -300,6 +357,10 @@ func (s *Server) handleCreateWebsite(w http.ResponseWriter, r *http.Request, use
 		Env:              req.Env,
 	})
 	if err != nil {
+		if errors.Is(err, deploy.ErrDeployInProgress) {
+			writeError(w, http.StatusConflict, "deploy_in_progress", err.Error())
+			return
+		}
 		_ = s.store.SetWebsiteRuntimeState(req.Slug, "error", "failed")
 		writeError(w, http.StatusInternalServerError, "internal", "Could not start the deployment")
 		return
@@ -331,8 +392,8 @@ func toCacheSpec(p *cachePayload) *deploy.CacheSpec {
 }
 
 // handleDeployJob returns a job plus its log lines after ?after=<id>.
-func (s *Server) handleDeployJob(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
-	job, ok := s.resolveDeployJob(w, r)
+func (s *Server) handleDeployJob(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	job, ok := s.resolveDeployJob(w, r, user)
 	if !ok {
 		return
 	}
@@ -346,8 +407,12 @@ func (s *Server) handleDeployJob(w http.ResponseWriter, r *http.Request, _ *stor
 }
 
 // handleLatestDeploy returns the most recent job of a website.
-func (s *Server) handleLatestDeploy(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
+func (s *Server) handleLatestDeploy(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	slug := r.PathValue("slug")
+	if site, err := s.store.WebsiteBySlug(slug); err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
 	job, err := s.store.LatestDeployJob(slug)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not_found", "No deployment has run for this website")
@@ -356,9 +421,38 @@ func (s *Server) handleLatestDeploy(w http.ResponseWriter, r *http.Request, _ *s
 	writeJSON(w, http.StatusOK, job)
 }
 
-func (s *Server) resolveDeployJob(w http.ResponseWriter, r *http.Request) (*store.DeployJob, bool) {
+// handleDeployHistory is what the Deploy tab's timeline reads. The pipeline keeps the newest ten
+// jobs per site, so no extra retention policy is needed here.
+func (s *Server) handleDeployHistory(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	slug := r.PathValue("slug")
+	if site, err := s.store.WebsiteBySlug(slug); err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+	limit := 20
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+	jobs, err := s.store.ListDeployJobs(slug, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", "Could not read the deployment history")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": jobs, "total": len(jobs)})
+}
+
+// resolveDeployJob loads a job and refuses one that belongs to another tenant. The latest-job and
+// SSE routes used to trust the slug alone, so a signed-in tenant could read another site's build
+// log by naming its slug.
+func (s *Server) resolveDeployJob(w http.ResponseWriter, r *http.Request, user *store.User) (*store.DeployJob, bool) {
 	slug := r.PathValue("slug")
 	id := r.PathValue("id")
+	if site, err := s.store.WebsiteBySlug(slug); err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return nil, false
+	}
 	var (
 		job *store.DeployJob
 		err error
@@ -377,8 +471,8 @@ func (s *Server) resolveDeployJob(w http.ResponseWriter, r *http.Request) (*stor
 
 // handleDeployStream replays the persisted log and then follows it over SSE.
 // Because every line is stored, a dropped connection loses nothing.
-func (s *Server) handleDeployStream(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
-	job, ok := s.resolveDeployJob(w, r)
+func (s *Server) handleDeployStream(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	job, ok := s.resolveDeployJob(w, r, user)
 	if !ok {
 		return
 	}
@@ -729,8 +823,13 @@ func (s *Server) handleRedeployWebsite(w http.ResponseWriter, r *http.Request, u
 		TunnelEnabled: site.TunnelEnable,
 		Source:        deploy.SourceSpec{Kind: kind, Repo: site.SourceRepo, Branch: site.SourceBranch},
 		Redeploy:      true,
+		Trigger:       "redeploy",
 	})
 	if err != nil {
+		if errors.Is(err, deploy.ErrDeployInProgress) {
+			writeError(w, http.StatusConflict, "deploy_in_progress", err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "internal", "Could not start the redeploy")
 		return
 	}

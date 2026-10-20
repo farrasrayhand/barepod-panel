@@ -735,9 +735,166 @@ func (h *Host) DetectGit(ctx context.Context, tenant, slug string) (*GitDetectIn
 	return info, nil
 }
 
+// GitCommitInfo is the checked-out commit of a site's working tree. The deploy pipeline copies it
+// onto the job so the Deploy tab can show what was actually built.
+type GitCommitInfo struct {
+	SHA     string
+	Message string
+	Author  string
+}
+
+// GitHeadInfo reads HEAD as the tenant. It uses the full SHA (not DetectGit's short form) because
+// the commit watcher compares it against the remote tip; a short hash is for display only.
+func (h *Host) GitHeadInfo(ctx context.Context, tenant, slug string) (*GitCommitInfo, error) {
+	if h.Runner == nil {
+		return nil, errors.New("host: no command runner")
+	}
+	dir := h.SitePath(tenant, slug)
+	if fi, err := os.Stat(filepath.Join(dir, ".git")); err != nil || !fi.IsDir() {
+		return nil, errors.New("host: not a git checkout")
+	}
+
+	info := &GitCommitInfo{}
+	if out, err := h.Runner.RunAs(ctx, tenant, dir, "git", "rev-parse", "HEAD"); err == nil {
+		info.SHA = strings.TrimSpace(out)
+	}
+	if out, err := h.Runner.RunAs(ctx, tenant, dir, "git", "log", "-1", "--pretty=format:%s"); err == nil {
+		info.Message = strings.TrimSpace(out)
+	}
+	if out, err := h.Runner.RunAs(ctx, tenant, dir, "git", "log", "-1", "--pretty=format:%an"); err == nil {
+		info.Author = strings.TrimSpace(out)
+	}
+	if info.SHA == "" {
+		return nil, errors.New("host: could not read HEAD")
+	}
+	return info, nil
+}
+
+// LocalGitSHA resolves the checked-out commit by reading the git directory, without spawning a
+// process. The commit watcher runs every few minutes for every poll-mode site, so three `git`
+// processes per site (rev-parse + two log calls) would be thousands of forks per hour at scale.
+// This handles a normal checkout, a detached HEAD, and refs stored in packed-refs.
+func (h *Host) LocalGitSHA(tenant, slug string) (string, error) {
+	dir := h.SitePath(tenant, slug)
+	gitDir := filepath.Join(dir, ".git")
+
+	fi, err := os.Stat(gitDir)
+	if err != nil {
+		return "", errors.New("host: not a git checkout")
+	}
+	if !fi.IsDir() {
+		// A worktree/submodule has a .git file containing "gitdir: <path>".
+		data, err := os.ReadFile(gitDir)
+		if err != nil {
+			return "", err
+		}
+		target := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(data)), "gitdir:"))
+		if target == "" {
+			return "", errors.New("host: unusable .git file")
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(dir, target)
+		}
+		gitDir = target
+	}
+
+	head, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return "", err
+	}
+	headText := strings.TrimSpace(string(head))
+
+	// Detached HEAD stores the commit directly.
+	if !strings.HasPrefix(headText, "ref:") {
+		if isHexSHA(headText) {
+			return headText, nil
+		}
+		return "", errors.New("host: HEAD does not name a commit")
+	}
+
+	ref := strings.TrimSpace(strings.TrimPrefix(headText, "ref:"))
+	// Loose ref: .git/refs/heads/<branch>.
+	if data, err := os.ReadFile(filepath.Join(gitDir, filepath.FromSlash(ref))); err == nil {
+		sha := strings.TrimSpace(string(data))
+		if isHexSHA(sha) {
+			return sha, nil
+		}
+	}
+	// Packed ref: a freshly cloned repository often has no loose ref file at all.
+	if data, err := os.ReadFile(filepath.Join(gitDir, "packed-refs")); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "^") {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) == 2 && fields[1] == ref && isHexSHA(fields[0]) {
+				return fields[0], nil
+			}
+		}
+	}
+	return "", fmt.Errorf("host: could not resolve %s from %s", ref, gitDir)
+}
+
+// isHexSHA accepts the SHA-1 and SHA-256 forms git writes into refs.
+func isHexSHA(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		case r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// RemoteGitHead reads the tip of a remote branch without touching the working tree. The commit
+// watcher uses it to decide whether the site is behind; it runs as the tenant and reuses the
+// site's ED25519 deploy key, so a private SSH repository works without a token.
+func (h *Host) RemoteGitHead(ctx context.Context, tenant, slug, repo, branch string) (string, error) {
+	if h.Runner == nil {
+		return "", errors.New("host: no command runner")
+	}
+	repo = strings.TrimSpace(repo)
+	if repo == "" {
+		return "", errors.New("host: no git remote configured")
+	}
+	if strings.TrimSpace(branch) == "" {
+		branch = "main"
+	}
+
+	args := []string{"git"}
+	if keyPath := h.DeployKeyPath(tenant, slug); fileExists(keyPath) {
+		sshCmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new", keyPath)
+		args = append(args, "-c", "core.sshCommand="+sshCmd)
+	}
+	args = append(args, "ls-remote", repo, "refs/heads/"+branch)
+
+	dir := h.SitePath(tenant, slug)
+	out, err := h.Runner.RunAs(ctx, tenant, dir, args[0], args[1:]...)
+	if err != nil {
+		return "", fmt.Errorf("host: git ls-remote failed: %w", err)
+	}
+	fields := strings.Fields(out)
+	if len(fields) == 0 {
+		return "", fmt.Errorf("host: branch %q was not found on the remote", branch)
+	}
+	return fields[0], nil
+}
+
+// fileExists is a small local helper so RemoteGitHead reads as one decision per line.
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // DetectFramework inspects a website's working directory on disk and returns the detected framework.
 func (h *Host) DetectFramework(tenant, slug string) *framework.DetectedFramework {
 	dir := h.SitePath(tenant, slug)
 	return framework.Detect(dir)
 }
-

@@ -3,9 +3,13 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
 
 func TestGitAndDeployKeyEndpoints(t *testing.T) {
@@ -98,6 +102,293 @@ func TestGitAndDeployKeyEndpoints(t *testing.T) {
 		t.Errorf("webhook push status = %d, want 202", pushResp.StatusCode)
 	}
 	time.Sleep(100 * time.Millisecond)
+}
+
+func TestGitAutoDeployModeAndDeployHistory(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	// The contract name is repoUrl; it must behave like repo and leave auto-deploy off when asked.
+	resp, body := panel.do(t, http.MethodPatch, "/api/v1/websites/alex-site/git", map[string]any{
+		"repoUrl":    "https://github.com/myorg/custom-repo.git",
+		"branch":     "production",
+		"autoDeploy": false,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch git (repoUrl) status = %d (%s)", resp.StatusCode, body)
+	}
+	site, err := panel.store.WebsiteBySlug("alex-site")
+	if err != nil {
+		t.Fatalf("get alex-site: %v", err)
+	}
+	if site.SourceRepo != "https://github.com/myorg/custom-repo.git" || site.AutoDeployMode != "none" {
+		t.Errorf("repoUrl/autoDeploy not applied: %+v", site)
+	}
+
+	// Poll mode needs no inbound port, so it is the deterministic path to assert in a test.
+	resp, body = panel.do(t, http.MethodPost, "/api/v1/websites/alex-site/git/auto-deploy", map[string]any{
+		"enabled":         true,
+		"mode":            "poll",
+		"pollIntervalSec": 120,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("enable auto-deploy status = %d (%s)", resp.StatusCode, body)
+	}
+	var auto struct {
+		Mode              string `json:"mode"`
+		WebhookRegistered bool   `json:"webhookRegistered"`
+		PollIntervalSec   int    `json:"pollIntervalSec"`
+	}
+	_ = json.Unmarshal([]byte(body), &auto)
+	if auto.Mode != "poll" || auto.WebhookRegistered || auto.PollIntervalSec != 120 {
+		t.Errorf("unexpected auto-deploy response: %+v", auto)
+	}
+
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/websites/alex-site/git", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get git status = %d (%s)", resp.StatusCode, body)
+	}
+	var status WebsiteGitStatus
+	_ = json.Unmarshal([]byte(body), &status)
+	if status.AutoDeployMode != "poll" || status.AutoDeployPollSec != 120 {
+		t.Errorf("git status did not expose the resolved mode: %+v", status)
+	}
+
+	// Deployment history reads the persisted job fields.
+	if err := panel.store.CreateDeployJob(&store.DeployJob{
+		ID: "dep_test_history", Slug: "alex-site", Mode: "dry-run", Status: "success",
+		Trigger: "poll", CommitSHA: "0123456789abcdef", CommitMessage: "fix: ship it",
+		CommitAuthor: "alice", DurationMs: 1234, CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	}); err != nil {
+		t.Fatalf("create deploy job: %v", err)
+	}
+
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/websites/alex-site/deploy/history?limit=5", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("deploy history status = %d (%s)", resp.StatusCode, body)
+	}
+	var history struct {
+		Items []store.DeployJob `json:"items"`
+		Total int               `json:"total"`
+	}
+	if err := json.Unmarshal([]byte(body), &history); err != nil {
+		t.Fatalf("unmarshal history: %v", err)
+	}
+	if history.Total != 1 || len(history.Items) != 1 {
+		t.Fatalf("expected one history item, got %+v", history)
+	}
+	row := history.Items[0]
+	if row.Trigger != "poll" || row.CommitSHA != "0123456789abcdef" ||
+		row.CommitMessage != "fix: ship it" || row.CommitAuthor != "alice" || row.DurationMs != 1234 {
+		t.Errorf("history row lost its metadata: %+v", row)
+	}
+
+	// Disabling clears the mode so the watcher stops looking at this site.
+	resp, body = panel.do(t, http.MethodPost, "/api/v1/websites/alex-site/git/auto-deploy", map[string]any{"enabled": false})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("disable auto-deploy status = %d (%s)", resp.StatusCode, body)
+	}
+	site, _ = panel.store.WebsiteBySlug("alex-site")
+	if site.AutoDeploy || site.AutoDeployMode != "none" {
+		t.Errorf("auto-deploy was not disabled: %+v", site)
+	}
+}
+
+func TestLegacyAutoDeployDoesNotClaimPolling(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	// A row from before V27: auto_deploy is on, but there is no resolved mode. The old column
+	// default was 1, so upgrade must not make the watcher start deploying this site.
+	if err := panel.store.UpdateWebsiteGit("alex-site", "https://github.com/acme/legacy.git", "main", true); err != nil {
+		t.Fatalf("seed legacy site: %v", err)
+	}
+	site, err := panel.store.WebsiteBySlug("alex-site")
+	if err != nil {
+		t.Fatalf("reload site: %v", err)
+	}
+	if site.AutoDeployMode != "" {
+		t.Fatalf("expected an unset mode, got %q", site.AutoDeployMode)
+	}
+
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/websites/alex-site/git", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("git status = %d (%s)", resp.StatusCode, body)
+	}
+	var status WebsiteGitStatus
+	if err := json.Unmarshal([]byte(body), &status); err != nil {
+		t.Fatalf("unmarshal status: %v", err)
+	}
+	if !status.AutoDeploy {
+		t.Fatalf("fixture should have autoDeploy on")
+	}
+	if status.AutoDeployMode != "none" {
+		t.Errorf("legacy row must report mode none, got %q", status.AutoDeployMode)
+	}
+}
+
+func TestGitHubWebhookLifecycle(t *testing.T) {
+	var (
+		mu          sync.Mutex
+		hookURL     string
+		postCalls   int
+		patchCalls  int
+		deleteCalls int
+	)
+
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		switch {
+		case r.URL.Path == "/user":
+			_ = json.NewEncoder(w).Encode(map[string]string{"login": "alice"})
+		case strings.HasSuffix(r.URL.Path, "/hooks") && r.Method == http.MethodGet:
+			if hookURL == "" {
+				_ = json.NewEncoder(w).Encode([]any{})
+				return
+			}
+			_ = json.NewEncoder(w).Encode([]map[string]any{{
+				"id": 7, "active": true, "config": map[string]string{"url": hookURL},
+			}})
+		case strings.HasSuffix(r.URL.Path, "/hooks") && r.Method == http.MethodPost:
+			postCalls++
+			var payload struct {
+				Config struct {
+					URL string `json:"url"`
+				} `json:"config"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			hookURL = payload.Config.URL
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":7}`))
+		case strings.Contains(r.URL.Path, "/hooks/7") && r.Method == http.MethodPatch:
+			patchCalls++
+			var payload struct {
+				Config struct {
+					URL string `json:"url"`
+				} `json:"config"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			hookURL = payload.Config.URL
+			_, _ = w.Write([]byte(`{"id":7}`))
+		case strings.Contains(r.URL.Path, "/hooks/7") && r.Method == http.MethodDelete:
+			deleteCalls++
+			hookURL = ""
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer fake.Close()
+
+	oldBase := githubAPIBase
+	githubAPIBase = fake.URL
+	defer func() { githubAPIBase = oldBase }()
+
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	if resp, body := panel.do(t, http.MethodPost, "/api/v1/git/providers", map[string]any{
+		"provider": "github", "token": "ghp_fake", "name": "GitHub",
+	}); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create provider status = %d (%s)", resp.StatusCode, body)
+	}
+
+	if resp, body := panel.do(t, http.MethodPatch, "/api/v1/websites/alex-site/git", map[string]any{
+		"repoUrl": "https://github.com/acme/app.git", "branch": "main", "autoDeploy": false,
+	}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set repo status = %d (%s)", resp.StatusCode, body)
+	}
+
+	// First enable: no hook exists, so the panel creates one.
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/websites/alex-site/git/auto-deploy", map[string]any{
+		"enabled": true, "mode": "webhook", "pollIntervalSec": 120,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("enable webhook status = %d (%s)", resp.StatusCode, body)
+	}
+	var first struct {
+		Mode              string `json:"mode"`
+		WebhookRegistered bool   `json:"webhookRegistered"`
+	}
+	_ = json.Unmarshal([]byte(body), &first)
+	if first.Mode != "webhook" || !first.WebhookRegistered {
+		t.Fatalf("unexpected enable response: %+v (%s)", first, body)
+	}
+
+	// Simulate a panel hostname change: the stored hook points somewhere else, so the next enable
+	// must PATCH the existing hook instead of creating a second one.
+	mu.Lock()
+	hookURL = "https://old.example/api/v1/webhooks/deploy/alex-site?token=stale"
+	mu.Unlock()
+
+	resp, body = panel.do(t, http.MethodPost, "/api/v1/websites/alex-site/git/auto-deploy", map[string]any{
+		"enabled": true, "mode": "webhook", "pollIntervalSec": 120,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update webhook status = %d (%s)", resp.StatusCode, body)
+	}
+
+	mu.Lock()
+	gotPost, gotPatch := postCalls, patchCalls
+	mu.Unlock()
+	if gotPost != 1 || gotPatch != 1 {
+		t.Errorf("expected one create and one update, got post=%d patch=%d", gotPost, gotPatch)
+	}
+
+	// Disabling must remove the hook, not just forget it.
+	resp, body = panel.do(t, http.MethodPost, "/api/v1/websites/alex-site/git/auto-deploy", map[string]any{"enabled": false})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("disable status = %d (%s)", resp.StatusCode, body)
+	}
+	mu.Lock()
+	gotDelete := deleteCalls
+	finalURL := hookURL
+	mu.Unlock()
+	if gotDelete != 1 || finalURL != "" {
+		t.Errorf("expected the hook to be deleted, delete=%d url=%q", gotDelete, finalURL)
+	}
+}
+
+func TestGitHubWebhookDuplicateIsSuccess(t *testing.T) {
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/user":
+			_ = json.NewEncoder(w).Encode(map[string]string{"login": "alice"})
+		case strings.HasSuffix(r.URL.Path, "/hooks") && r.Method == http.MethodGet:
+			// A list failure forces the create path, which is where a 422 can happen.
+			w.WriteHeader(http.StatusInternalServerError)
+		case strings.HasSuffix(r.URL.Path, "/hooks") && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Hook already exists on this repository"}`))
+		}
+	}))
+	defer fake.Close()
+
+	oldBase := githubAPIBase
+	githubAPIBase = fake.URL
+	defer func() { githubAPIBase = oldBase }()
+
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+	if resp, body := panel.do(t, http.MethodPost, "/api/v1/git/providers", map[string]any{
+		"provider": "github", "token": "ghp_fake", "name": "GitHub",
+	}); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create provider status = %d (%s)", resp.StatusCode, body)
+	}
+	if resp, body := panel.do(t, http.MethodPatch, "/api/v1/websites/alex-site/git", map[string]any{
+		"repoUrl": "https://github.com/acme/app.git", "autoDeploy": false,
+	}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("set repo status = %d (%s)", resp.StatusCode, body)
+	}
+
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/websites/alex-site/git/auto-deploy", map[string]any{
+		"enabled": true, "mode": "webhook",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("duplicate hook should be accepted, got %d (%s)", resp.StatusCode, body)
+	}
 }
 
 func TestUnifiedCronJobLifecycle(t *testing.T) {

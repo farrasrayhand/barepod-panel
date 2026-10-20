@@ -18,8 +18,15 @@ type DeployJob struct {
 	TotalSteps  int    `json:"totalSteps"`
 	CurrentStep string `json:"currentStep"`
 	Error       string `json:"error,omitempty"`
-	CreatedAt   string `json:"createdAt"`
-	FinishedAt  string `json:"finishedAt,omitempty"`
+	// Trigger records what started the run: manual | redeploy | webhook | poll.
+	Trigger string `json:"trigger,omitempty"`
+	// The built commit, filled in after the source step when the site is a Git checkout.
+	CommitSHA     string `json:"commit,omitempty"`
+	CommitMessage string `json:"commitMessage,omitempty"`
+	CommitAuthor  string `json:"commitAuthor,omitempty"`
+	DurationMs    int64  `json:"durationMs"`
+	CreatedAt     string `json:"createdAt"`
+	FinishedAt    string `json:"finishedAt,omitempty"`
 }
 
 // DeployLog is a single streamed line of a deployment.
@@ -34,9 +41,11 @@ type DeployLog struct {
 // CreateDeployJob inserts a new job row.
 func (s *Store) CreateDeployJob(j *DeployJob) error {
 	_, err := s.DB.Exec(
-		`INSERT INTO deploy_jobs (id, slug, website_id, mode, status, step, total_steps, current_step, error, created_at, finished_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		j.ID, j.Slug, j.WebsiteID, j.Mode, j.Status, j.Step, j.TotalSteps, j.CurrentStep, j.Error, j.CreatedAt, j.FinishedAt,
+		`INSERT INTO deploy_jobs (id, slug, website_id, mode, status, step, total_steps, current_step, error,
+		                          trigger_source, commit_sha, commit_message, commit_author, duration_ms, created_at, finished_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		j.ID, j.Slug, j.WebsiteID, j.Mode, j.Status, j.Step, j.TotalSteps, j.CurrentStep, j.Error,
+		j.Trigger, j.CommitSHA, j.CommitMessage, j.CommitAuthor, j.DurationMs, j.CreatedAt, j.FinishedAt,
 	)
 	return err
 }
@@ -60,9 +69,12 @@ func (s *Store) InterruptRunningStackJobs(slug, reason string) (int, error) {
 
 func (s *Store) UpdateDeployJob(j *DeployJob) error {
 	_, err := s.DB.Exec(
-		`UPDATE deploy_jobs SET status = ?, step = ?, total_steps = ?, current_step = ?, error = ?, finished_at = ?
+		`UPDATE deploy_jobs SET status = ?, step = ?, total_steps = ?, current_step = ?, error = ?,
+		                        trigger_source = ?, commit_sha = ?, commit_message = ?, commit_author = ?,
+		                        duration_ms = ?, finished_at = ?
 		 WHERE id = ?`,
-		j.Status, j.Step, j.TotalSteps, j.CurrentStep, j.Error, j.FinishedAt, j.ID,
+		j.Status, j.Step, j.TotalSteps, j.CurrentStep, j.Error,
+		j.Trigger, j.CommitSHA, j.CommitMessage, j.CommitAuthor, j.DurationMs, j.FinishedAt, j.ID,
 	)
 	return err
 }
@@ -70,7 +82,8 @@ func (s *Store) UpdateDeployJob(j *DeployJob) error {
 func scanDeployJob(row *sql.Row) (*DeployJob, error) {
 	var j DeployJob
 	err := row.Scan(&j.ID, &j.Slug, &j.WebsiteID, &j.Mode, &j.Status, &j.Step, &j.TotalSteps,
-		&j.CurrentStep, &j.Error, &j.CreatedAt, &j.FinishedAt)
+		&j.CurrentStep, &j.Error, &j.Trigger, &j.CommitSHA, &j.CommitMessage, &j.CommitAuthor,
+		&j.DurationMs, &j.CreatedAt, &j.FinishedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -80,7 +93,8 @@ func scanDeployJob(row *sql.Row) (*DeployJob, error) {
 	return &j, nil
 }
 
-const deployJobColumns = `id, slug, website_id, mode, status, step, total_steps, current_step, error, created_at, finished_at`
+const deployJobColumns = `id, slug, website_id, mode, status, step, total_steps, current_step, error,
+	trigger_source, commit_sha, commit_message, commit_author, duration_ms, created_at, finished_at`
 
 // DeployJob loads a job by id.
 func (s *Store) DeployJob(jobID string) (*DeployJob, error) {
@@ -91,6 +105,33 @@ func (s *Store) DeployJob(jobID string) (*DeployJob, error) {
 func (s *Store) LatestDeployJob(slug string) (*DeployJob, error) {
 	return scanDeployJob(s.DB.QueryRow(
 		`SELECT `+deployJobColumns+` FROM deploy_jobs WHERE slug = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, slug))
+}
+
+// ListDeployJobs returns a website's recent jobs, newest first. The pipeline prunes to the newest
+// ten per site, so this is also the deployment history the Deploy tab shows.
+func (s *Store) ListDeployJobs(slug string, limit int) ([]DeployJob, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := s.DB.Query(
+		`SELECT `+deployJobColumns+` FROM deploy_jobs WHERE slug = ?
+		 ORDER BY created_at DESC, rowid DESC LIMIT ?`, slug, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []DeployJob{}
+	for rows.Next() {
+		var j DeployJob
+		if err := rows.Scan(&j.ID, &j.Slug, &j.WebsiteID, &j.Mode, &j.Status, &j.Step, &j.TotalSteps,
+			&j.CurrentStep, &j.Error, &j.Trigger, &j.CommitSHA, &j.CommitMessage, &j.CommitAuthor,
+			&j.DurationMs, &j.CreatedAt, &j.FinishedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
 }
 
 // AppendDeployLog stores one log line and returns its sequence id.

@@ -51,6 +51,57 @@ func TestMigrateLegacyTenants(t *testing.T) {
 	}
 }
 
+func TestLocalGitSHAReadsLoosePackedAndDetached(t *testing.T) {
+	root := t.TempDir()
+	h := &Host{Runner: &DryRunner{}, SitesRoot: root}
+	tenant := "alice"
+
+	const (
+		looseSHA    = "1111111111111111111111111111111111111111"
+		packedSHA   = "2222222222222222222222222222222222222222"
+		detachedSHA = "3333333333333333333333333333333333333333"
+	)
+
+	writeHead := func(slug, head string) string {
+		gitDir := filepath.Join(root, tenant, "web", slug, ".git")
+		if err := os.MkdirAll(gitDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte(head+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return gitDir
+	}
+
+	// A normal checkout keeps the branch tip in a loose ref file.
+	gitDir := writeHead("loose", "ref: refs/heads/main")
+	if err := os.MkdirAll(filepath.Join(gitDir, "refs", "heads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "refs", "heads", "main"), []byte(looseSHA+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := h.LocalGitSHA(tenant, "loose"); err != nil || got != looseSHA {
+		t.Errorf("loose ref: got %q, %v", got, err)
+	}
+
+	// A fresh clone often has no loose ref, only packed-refs.
+	gitDir = writeHead("packed", "ref: refs/heads/main")
+	packed := "# pack-refs with: peeled fully-peeled\n" + packedSHA + " refs/heads/main\n"
+	if err := os.WriteFile(filepath.Join(gitDir, "packed-refs"), []byte(packed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := h.LocalGitSHA(tenant, "packed"); err != nil || got != packedSHA {
+		t.Errorf("packed ref: got %q, %v", got, err)
+	}
+
+	// A detached HEAD stores the commit itself.
+	writeHead("detached", detachedSHA)
+	if got, err := h.LocalGitSHA(tenant, "detached"); err != nil || got != detachedSHA {
+		t.Errorf("detached HEAD: got %q, %v", got, err)
+	}
+}
+
 func TestEnsureDeployKeyGeneratesValidKey(t *testing.T) {
 	root := t.TempDir()
 	tenant := "deploy_user"
@@ -160,4 +211,3 @@ func TestDetectGit(t *testing.T) {
 		t.Errorf("expected detected=true when .git exists")
 	}
 }
-

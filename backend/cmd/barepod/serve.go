@@ -554,7 +554,7 @@ func runServe(args []string) error {
 	}
 	schedulerCtx, stopScheduler := context.WithCancel(context.Background())
 	defer stopScheduler()
-	go (&scheduler.Scheduler{Store: st, Host: h, Key: key, Caps: caps, Logf: log.Printf}).Run(schedulerCtx)
+	go (&scheduler.Scheduler{Store: st, Host: h, Deploy: deploys, Key: key, Caps: caps, Logf: log.Printf}).Run(schedulerCtx)
 	log.Printf("scheduler: %d built-in maintenance job(s) available", len(scheduler.Registry()))
 
 	log.Printf("host: %s/%s %q systemd=%v lxc=%v docker=%v smart=%v fstrim=%v",

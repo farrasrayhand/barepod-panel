@@ -8,6 +8,7 @@ package deploy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -17,6 +18,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/dbengine"
@@ -77,11 +79,19 @@ type Request struct {
 	Cache            *CacheSpec
 	Automation       []string
 	BuildScript      string
+	// Trigger says what started the run: manual | redeploy | webhook | poll. It is stored on the
+	// job so the deployment history explains itself.
+	Trigger string
 	// Redeploy keeps the existing database and cache instead of provisioning them.
 	Redeploy bool
 	// Env contains custom or wizard-generated environment variables to seed into .env
 	Env map[string]string
 }
+
+// ErrDeployInProgress is returned when a second deploy is asked for while one is still running.
+// A manual redeploy, a webhook and the commit watcher can all fire for the same site; letting them
+// run together would race on the same files and systemd unit.
+var ErrDeployInProgress = errors.New("a deploy is already running for this website")
 
 // Manager owns the deploy pipeline.
 type Manager struct {
@@ -89,11 +99,16 @@ type Manager struct {
 	host     *host.Host
 	key      []byte
 	redisURL string
+
+	// mu guards active. The set is in memory on purpose: it is a within-process lock, and a daemon
+	// restart leaves no job running, so there is nothing to persist.
+	mu     sync.Mutex
+	active map[string]struct{}
 }
 
 // NewManager builds a deploy manager.
 func NewManager(st *store.Store, h *host.Host, key []byte) *Manager {
-	return &Manager{store: st, host: h, key: key}
+	return &Manager{store: st, host: h, key: key, active: make(map[string]struct{})}
 }
 
 // SetRedisURL sets the Redis admin URL used to provision tenant ACL users.
@@ -106,7 +121,14 @@ func (m *Manager) Mode() string { return m.host.Mode() }
 
 // Start records the job and runs the pipeline in the background.
 func (m *Manager) Start(req Request) (*store.DeployJob, error) {
+	if !m.claim(req.Slug) {
+		return nil, ErrDeployInProgress
+	}
 	steps := plan(req)
+	trigger := strings.TrimSpace(req.Trigger)
+	if trigger == "" {
+		trigger = "manual"
+	}
 	job := &store.DeployJob{
 		ID:          id.New(),
 		Slug:        req.Slug,
@@ -114,12 +136,14 @@ func (m *Manager) Start(req Request) (*store.DeployJob, error) {
 		Status:      "pending",
 		TotalSteps:  len(steps),
 		CurrentStep: "queued",
+		Trigger:     trigger,
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 	if site, err := m.store.WebsiteBySlug(req.Slug); err == nil {
 		job.WebsiteID = site.ID
 	}
 	if err := m.store.CreateDeployJob(job); err != nil {
+		m.release(req.Slug)
 		return nil, err
 	}
 	// The pipeline mutates the job while it runs, so hand the caller a snapshot.
@@ -139,6 +163,24 @@ func (m *Manager) Start(req Request) (*store.DeployJob, error) {
 		m.run(job, req, steps)
 	}()
 	return &snapshot, nil
+}
+
+// claim takes the per-site deploy slot, returning false when another run holds it.
+func (m *Manager) claim(slug string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, busy := m.active[slug]; busy {
+		return false
+	}
+	m.active[slug] = struct{}{}
+	return true
+}
+
+// release frees the slot; the pipeline calls it last, whatever the outcome.
+func (m *Manager) release(slug string) {
+	m.mu.Lock()
+	delete(m.active, slug)
+	m.mu.Unlock()
 }
 
 // state carries what the steps need to share.
@@ -185,6 +227,12 @@ func plan(req Request) []step {
 }
 
 func (m *Manager) run(job *store.DeployJob, req Request, steps []step) {
+	// The slot is released however this ends, including a panic (the deferred recover in Start
+	// returns here before the function unwinds).
+	defer m.release(req.Slug)
+	// Duration is measured here rather than derived from timestamps: created_at is a string in the
+	// database and a redeploy queued behind another one would otherwise count the queue time.
+	started := time.Now()
 	// Bound the job history whether the deploy succeeds or fails.
 	defer func() {
 		if removed, err := m.store.PruneDeployJobs(job.Slug, keepRecentJobs); err == nil && removed > 0 {
@@ -225,6 +273,7 @@ func (m *Manager) run(job *store.DeployJob, req Request, steps []step) {
 			job.Status = "failed"
 			job.Error = err.Error()
 			job.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+			job.DurationMs = time.Since(started).Milliseconds()
 			_ = m.store.UpdateDeployJob(job)
 			s.log("stderr", "FAILED: "+err.Error())
 			_ = m.store.SetWebsiteRuntimeState(req.Slug, "error", "failed")
@@ -235,6 +284,7 @@ func (m *Manager) run(job *store.DeployJob, req Request, steps []step) {
 
 	job.Status = "success"
 	job.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+	job.DurationMs = time.Since(started).Milliseconds()
 	_ = m.store.UpdateDeployJob(job)
 
 	// In dry-run no service was started, so the website must not claim to be running.
@@ -285,6 +335,14 @@ func (s *state) runInSite(ctx context.Context, argv []string) error {
 		return fmt.Errorf("%s failed: %w", argv[0], err)
 	}
 	return nil
+}
+
+// shortSHA is the display form of a commit hash; the full value stays on the job for comparison.
+func shortSHA(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
 }
 
 func orDash(s string) string {
@@ -360,6 +418,17 @@ func stepFetchSource(ctx context.Context, s *state) error {
 	// tenant. This also repairs directories left root-owned by earlier versions.
 	if err := s.m.host.ChownSite(ctx, s.req.Tenant, s.req.Slug); err != nil {
 		return err
+	}
+	// A Git deploy records the commit it just checked out. The Deploy tab's history reads these
+	// fields, and the poll watcher compares CommitSHA with the remote tip before starting a run.
+	switch strings.ToLower(s.req.Source.Kind) {
+	case "github", "gitlab", "bitbucket", "gitea", "custom", "git":
+		if info, err := s.m.host.GitHeadInfo(ctx, s.req.Tenant, s.req.Slug); err == nil {
+			s.job.CommitSHA = info.SHA
+			s.job.CommitMessage = info.Message
+			s.job.CommitAuthor = info.Author
+			s.log("stdout", "checked out commit: "+shortSHA(info.SHA)+" — "+info.Message)
+		}
 	}
 	s.cleanupPlaceholderIndex()
 	if s.req.Source.Kind != "scaffold" {

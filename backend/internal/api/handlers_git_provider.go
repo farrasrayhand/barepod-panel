@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,10 +13,17 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 )
 
+// githubAPIBase is the public API in production. It is a variable only so tests can point every
+// provider call at an httptest server instead of the real GitHub.
+var githubAPIBase = "https://api.github.com"
+
 type testGitProviderRequest struct {
 	Provider string `json:"provider"`
 	APIURL   string `json:"apiUrl,omitempty"`
-	Token    string `json:"token"`
+	// BaseURL is the contract's name for a self-hosted instance; apiUrl is kept for the panel's
+	// own client and older clients.
+	BaseURL string `json:"baseUrl,omitempty"`
+	Token   string `json:"token"`
 }
 
 type testGitProviderResponse struct {
@@ -42,57 +50,34 @@ type gitBranchItem struct {
 	IsDefault bool   `json:"isDefault"`
 }
 
-// handleTestUserGitProvider tests token validity and retrieves account info from upstream Git provider.
-func (s *Server) handleTestUserGitProvider(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
-	var req testGitProviderRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "bad_json", "Unusable JSON body")
-		return
-	}
-
-	token := strings.TrimSpace(req.Token)
-	if token == "" {
-		writeError(w, http.StatusBadRequest, "missing_token", "Personal access token is required")
-		return
-	}
-
-	provider := strings.ToLower(strings.TrimSpace(req.Provider))
+// verifyGitProviderToken asks the provider who the token belongs to. It is shared by the "test"
+// endpoint and by provider creation, so a token that cannot authenticate is never stored.
+func verifyGitProviderToken(ctx context.Context, provider, apiURL, token string) testGitProviderResponse {
+	provider = strings.ToLower(strings.TrimSpace(provider))
 	if provider == "" {
 		provider = "github"
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	switch provider {
 	case "github":
-		reqURL := "https://api.github.com/user"
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+		httpReq, err := http.NewRequestWithContext(ctx, "GET", githubAPIBase+"/user", nil)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", err.Error())
-			return
+			return testGitProviderResponse{Message: err.Error()}
 		}
 		httpReq.Header.Set("Authorization", "Bearer "+token)
 		httpReq.Header.Set("Accept", "application/vnd.github+json")
 		httpReq.Header.Set("User-Agent", "BarePod-Panel")
 
-		client := &http.Client{}
-		resp, err := client.Do(httpReq)
+		resp, err := (&http.Client{}).Do(httpReq)
 		if err != nil {
-			writeJSON(w, http.StatusOK, testGitProviderResponse{
-				Valid:   false,
-				Message: fmt.Sprintf("Failed to reach GitHub API: %v", err),
-			})
-			return
+			return testGitProviderResponse{Message: fmt.Sprintf("Failed to reach GitHub API: %v", err)}
 		}
 		defer resp.Body.Close()
-
 		if resp.StatusCode != http.StatusOK {
-			writeJSON(w, http.StatusOK, testGitProviderResponse{
-				Valid:   false,
-				Message: fmt.Sprintf("GitHub returned status HTTP %d (invalid or expired token)", resp.StatusCode),
-			})
-			return
+			return testGitProviderResponse{Message: fmt.Sprintf("GitHub returned status HTTP %d (invalid or expired token)", resp.StatusCode)}
 		}
 
 		var ghUser struct {
@@ -109,59 +94,75 @@ func (s *Server) handleTestUserGitProvider(w http.ResponseWriter, r *http.Reques
 				}
 			}
 		}
-
-		writeJSON(w, http.StatusOK, testGitProviderResponse{
-			Valid:     true,
-			Username:  ghUser.Login,
-			AvatarURL: ghUser.AvatarURL,
-			Scopes:    scopes,
-			Message:   "Successfully authenticated with GitHub",
-		})
+		return testGitProviderResponse{
+			Valid: true, Username: ghUser.Login, AvatarURL: ghUser.AvatarURL,
+			Scopes: scopes, Message: "Successfully authenticated with GitHub",
+		}
 
 	case "gitlab":
-		baseURL := strings.TrimRight(req.APIURL, "/")
+		baseURL := strings.TrimRight(strings.TrimSpace(apiURL), "/")
 		if baseURL == "" {
 			baseURL = "https://gitlab.com"
 		}
-		reqURL := baseURL + "/api/v4/user"
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+		httpReq, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/api/v4/user", nil)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", err.Error())
-			return
+			return testGitProviderResponse{Message: err.Error()}
 		}
 		httpReq.Header.Set("PRIVATE-TOKEN", token)
 		httpReq.Header.Set("User-Agent", "BarePod-Panel")
 
-		client := &http.Client{}
-		resp, err := client.Do(httpReq)
-		if err != nil || resp.StatusCode != http.StatusOK {
-			writeJSON(w, http.StatusOK, testGitProviderResponse{
-				Valid:   false,
-				Message: "Failed to authenticate with GitLab",
-			})
-			return
+		resp, err := (&http.Client{}).Do(httpReq)
+		if err != nil {
+			return testGitProviderResponse{Message: "Failed to reach GitLab: " + err.Error()}
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return testGitProviderResponse{Message: fmt.Sprintf("GitLab returned HTTP %d (invalid or expired token)", resp.StatusCode)}
+		}
 
 		var glUser struct {
 			Username  string `json:"username"`
 			AvatarURL string `json:"avatar_url"`
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&glUser)
-
-		writeJSON(w, http.StatusOK, testGitProviderResponse{
-			Valid:     true,
-			Username:  glUser.Username,
-			AvatarURL: glUser.AvatarURL,
-			Message:   "Successfully authenticated with GitLab",
-		})
+		return testGitProviderResponse{
+			Valid: true, Username: glUser.Username, AvatarURL: glUser.AvatarURL,
+			Message: "Successfully authenticated with GitLab",
+		}
 
 	default:
-		writeJSON(w, http.StatusOK, testGitProviderResponse{
-			Valid:   true,
-			Message: "Generic provider configured",
-		})
+		// A custom/Gitea/Bitbucket server has no single user endpoint the panel can assume, so it
+		// is recorded without a network check and the repository call reports the truth later.
+		return testGitProviderResponse{Valid: true, Message: "Generic provider configured"}
 	}
+}
+
+// handleTestUserGitProvider tests token validity and retrieves account info from upstream Git provider.
+func (s *Server) handleTestUserGitProvider(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
+	var req testGitProviderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_json", "Unusable JSON body")
+		return
+	}
+
+	token := strings.TrimSpace(req.Token)
+	if token == "" {
+		writeError(w, http.StatusBadRequest, "missing_token", "Personal access token is required")
+		return
+	}
+
+	apiURL := firstNonEmpty(req.APIURL, req.BaseURL)
+	writeJSON(w, http.StatusOK, verifyGitProviderToken(r.Context(), req.Provider, apiURL, token))
+}
+
+// firstNonEmpty returns the first non-blank value; it keeps the two field names from fighting.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 // handleListGitProviderRepos fetches accessible repositories from upstream Git API using saved credentials.
@@ -183,6 +184,20 @@ func (s *Server) handleListGitProviderRepos(w http.ResponseWriter, r *http.Reque
 		token = dec
 	}
 
+	// Pagination is applied locally: GitHub's page is fetched at its maximum size, which keeps
+	// `total` truthful for the usual account and avoids sending the browser a total it cannot use.
+	page, perPage := 1, 30
+	if raw := r.URL.Query().Get("page"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			page = n
+		}
+	}
+	if raw := r.URL.Query().Get("per_page"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 100 {
+			perPage = n
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 
@@ -190,7 +205,7 @@ func (s *Server) handleListGitProviderRepos(w http.ResponseWriter, r *http.Reque
 
 	switch p.Provider {
 	case "github":
-		reqURL := "https://api.github.com/user/repos?per_page=100&sort=updated"
+		reqURL := githubAPIBase + "/user/repos?per_page=100&sort=updated"
 		httpReq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -245,9 +260,24 @@ func (s *Server) handleListGitProviderRepos(w http.ResponseWriter, r *http.Reque
 		repos = []gitRepoItem{}
 	}
 
+	total := len(repos)
+	start := (page - 1) * perPage
+	if start > total {
+		start = total
+	}
+	end := start + perPage
+	if end > total {
+		end = total
+	}
+
+	// `items` is kept beside `repos` so a client written against the pre-0.3.9 shape keeps working;
+	// the contract documents `repos`.
 	writeJSON(w, http.StatusOK, map[string]any{
-		"items": repos,
-		"total": len(repos),
+		"items":   repos[start:end],
+		"repos":   repos[start:end],
+		"page":    page,
+		"perPage": perPage,
+		"total":   total,
 	})
 }
 
@@ -280,10 +310,11 @@ func (s *Server) handleListGitProviderBranches(w http.ResponseWriter, r *http.Re
 	defer cancel()
 
 	var branches []string
+	defaultBranch := ""
 
 	switch p.Provider {
 	case "github":
-		reqURL := fmt.Sprintf("https://api.github.com/repos/%s/branches?per_page=100", repo)
+		reqURL := fmt.Sprintf("%s/repos/%s/branches?per_page=100", githubAPIBase, repo)
 		httpReq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -317,13 +348,61 @@ func (s *Server) handleListGitProviderBranches(w http.ResponseWriter, r *http.Re
 		for _, b := range rawBranches {
 			branches = append(branches, b.Name)
 		}
+		// The wizard preselects this, so it has to be the repository's own answer rather than a
+		// guess from the branch names.
+		defaultBranch = githubDefaultBranch(ctx, token, repo)
 
 	default:
 		branches = []string{"main", "master"}
+		defaultBranch = "main"
+	}
+
+	if defaultBranch == "" {
+		for _, candidate := range []string{"main", "master"} {
+			for _, b := range branches {
+				if b == candidate {
+					defaultBranch = candidate
+					break
+				}
+			}
+			if defaultBranch != "" {
+				break
+			}
+		}
+	}
+	if defaultBranch == "" && len(branches) > 0 {
+		defaultBranch = branches[0]
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"repo":     repo,
-		"branches": branches,
+		"repo":          repo,
+		"branches":      branches,
+		"defaultBranch": defaultBranch,
 	})
+}
+
+// githubDefaultBranch reads the repository's default branch. An unavailable value is not fatal:
+// the caller falls back to main/master.
+func githubDefaultBranch(ctx context.Context, token, repo string) string {
+	req, err := http.NewRequestWithContext(ctx, "GET", githubAPIBase+"/repos/"+repo, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "BarePod-Panel")
+
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var payload struct {
+		DefaultBranch string `json:"default_branch"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.DefaultBranch)
 }

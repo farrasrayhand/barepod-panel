@@ -34,7 +34,38 @@ var migrations = []migration{
 	{version: 24, statements: schemaV24},
 	{version: 25, statements: schemaV25},
 	{version: 26, statements: schemaV26},
+	{version: 27, statements: schemaV27},
+	{version: 28, statements: schemaV28},
 }
+
+// schemaV28 makes the new auto-deploy watcher safe for existing installations.
+//
+// Rows that predate V27 have auto_deploy=1 (the old column default) but no mode. If the watcher
+// treated an empty mode as "poll", every upgraded site with a repository would start deploying on
+// its own after the update — a behaviour nobody opted into. The backfill marks those rows "none":
+// a manually configured webhook keeps working exactly as before (the public endpoint still checks
+// auto_deploy), while polling only starts when an operator enables it in the Deploy tab or a new
+// site is created with it.
+const schemaV28 = `
+UPDATE websites SET auto_deploy_mode = 'none' WHERE auto_deploy_mode = '';
+`
+
+// schemaV27 is the Git CI/CD state the Deploy tab needs to be honest:
+//   - websites carry the resolved auto-deploy mode (webhook or poll), the poll interval, and the
+//     last time the commit watcher looked at the remote, so background polling survives a restart;
+//   - deploy_jobs carry what triggered the run and the commit that was built, which is what the
+//     deployment-history table shows. `trigger_source` avoids SQLite's reserved `trigger` word.
+const schemaV27 = `
+ALTER TABLE websites ADD COLUMN auto_deploy_mode TEXT NOT NULL DEFAULT '';
+ALTER TABLE websites ADD COLUMN auto_deploy_poll_sec INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE websites ADD COLUMN last_git_poll_at TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE deploy_jobs ADD COLUMN trigger_source TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE deploy_jobs ADD COLUMN commit_sha TEXT NOT NULL DEFAULT '';
+ALTER TABLE deploy_jobs ADD COLUMN commit_message TEXT NOT NULL DEFAULT '';
+ALTER TABLE deploy_jobs ADD COLUMN commit_author TEXT NOT NULL DEFAULT '';
+ALTER TABLE deploy_jobs ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0;
+`
 
 // schemaV26 gives each package a CPU *share* next to its hard quota. The quota
 // (cpu_quota_percent) stays the cap used in hardcap mode; cpu_weight is the

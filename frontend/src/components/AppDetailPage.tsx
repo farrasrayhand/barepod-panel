@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { siteSupportsShell, siteSupportsFiles, siteSupportsCI, siteHasGit, siteShellNote, siteFilesNote, siteCINote, siteTabSupport } from '../utils/siteRuntime';
+import { siteSupportsShell, siteSupportsFiles, siteSupportsCI, siteHasGit, siteShellNote, siteFilesNote, siteCINote, siteTabSupport, type SiteTabSupport } from '../utils/siteRuntime';
 import { 
   ArrowLeft, 
   Activity, 
@@ -75,7 +75,125 @@ import { DangerConfirmModal } from './DangerConfirmModal';
 import { api, apiReachable, subscribeDeploy, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey, type DeployJob, type DetectedFramework, type CloudflareZone, type TunnelStatusResponse, type DomainValidationResult } from '../api/client';
 import { describeError } from '../utils/format';
 
-export type AppDetailTab = 'monitoring' | 'overview' | 'logs' | 'map' | 'domains' | 'routing' | 'files' | 'env' | 'php' | 'runtime' | 'security' | 'deploy';
+export type AppDetailTab =
+  | 'monitoring'
+  | 'overview'
+  | 'logs'
+  | 'map'
+  | 'domains'
+  | 'routing'
+  | 'files'
+  | 'env'
+  | 'php'
+  | 'runtime'
+  | 'security'
+  | 'deploy'
+  // Group aliases accepted from a URL; normalised to a concrete view below.
+  | 'observability';
+
+type TabGroupId = 'overview' | 'runtime' | 'gateway' | 'deploy' | 'files' | 'observability' | 'domains' | 'security';
+
+interface TabGroupDef {
+  id: TabGroupId;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  views: AppDetailTab[];
+  accent: 'blue' | 'purple' | 'amber' | 'emerald';
+  subTabs?: { view: AppDetailTab; label: string }[];
+}
+
+const OBSERVABILITY_TABS: { view: AppDetailTab; label: string }[] = [
+  { view: 'monitoring', label: 'Metrics' },
+  { view: 'logs', label: 'Logs' },
+  { view: 'map', label: 'Traffic Map' },
+];
+
+/**
+ * An old bookmark keeps working. The URL still carries the concrete view id
+ * (`monitoring`, `logs`, `env`, `routing`, …), which is what the content blocks use;
+ * group-only names such as `observability` resolve to the view that renders them.
+ */
+function normalizeDetailTab(tab: string | undefined, proxy: boolean): AppDetailTab {
+  switch (tab) {
+    case 'observability':
+      return 'monitoring';
+    case 'php':
+      return proxy ? 'routing' : 'runtime';
+    case 'overview':
+      return proxy ? 'routing' : 'overview';
+    case undefined:
+    case '':
+      return proxy ? 'routing' : 'overview';
+    default:
+      // A proxy has no runtime, files, env or deploy view; an old deep link to one must not
+      // render a form the site type cannot use.
+      if (proxy && (tab === 'runtime' || tab === 'files' || tab === 'env' || tab === 'deploy')) {
+        return 'routing';
+      }
+      return tab as AppDetailTab;
+  }
+}
+
+/**
+ * The visual grouping of the detail page. Ten flat peers became seven groups for a
+ * normal site and four for a proxy; the underlying view ids are unchanged so the
+ * existing content conditions and deep links keep working.
+ */
+function tabGroupsFor(app: WebApp, support: SiteTabSupport): TabGroupDef[] {
+  if (app.runtime === 'proxy') {
+    return [
+      { id: 'gateway', label: 'Gateway & Upstream', icon: Zap, views: ['routing'], accent: 'purple' },
+      {
+        id: 'observability', label: 'Observability', icon: Activity,
+        views: ['monitoring', 'logs', 'map'], accent: 'blue', subTabs: OBSERVABILITY_TABS,
+      },
+      { id: 'domains', label: 'Domains & SSL', icon: Globe, views: ['domains'], accent: 'emerald' },
+      { id: 'security', label: 'Access & Security', icon: Shield, views: ['security'], accent: 'purple' },
+    ];
+  }
+
+  const deployViews: AppDetailTab[] = support.env ? ['deploy', 'env'] : ['deploy'];
+  const groups: TabGroupDef[] = [
+    { id: 'overview', label: 'Overview', icon: Server, views: ['overview'], accent: 'blue' },
+    {
+      id: 'runtime', label: 'Runtime', icon: Layers,
+      views: ['runtime', 'routing'], accent: 'purple',
+      subTabs: [
+        { view: 'runtime', label: 'Runtime Configuration' },
+        { view: 'routing', label: 'Proxy & Routing' },
+      ],
+    },
+    {
+      id: 'deploy', label: 'Deploy', icon: FolderGit2,
+      views: deployViews, accent: 'blue',
+      subTabs: support.env
+        ? [
+            { view: 'deploy', label: 'Build & Deploy' },
+            { view: 'env', label: 'Environment (.env)' },
+          ]
+        : undefined,
+    },
+  ];
+  if (support.files) {
+    groups.push({ id: 'files', label: 'Files', icon: Folder, views: ['files'], accent: 'amber' });
+  }
+  groups.push(
+    {
+      id: 'observability', label: 'Observability', icon: Activity,
+      views: ['monitoring', 'logs', 'map'], accent: 'blue', subTabs: OBSERVABILITY_TABS,
+    },
+    { id: 'domains', label: 'Domains & SSL', icon: Globe, views: ['domains'], accent: 'emerald' },
+    { id: 'security', label: 'Access & Security', icon: Shield, views: ['security'], accent: 'purple' },
+  );
+  return groups;
+}
+
+const GROUP_ACCENT: Record<TabGroupDef['accent'], { active: string; icon: string }> = {
+  blue: { active: 'border-blue-600 text-blue-700 font-bold', icon: 'text-blue-600' },
+  purple: { active: 'border-purple-600 text-purple-700 font-bold', icon: 'text-purple-600' },
+  amber: { active: 'border-amber-600 text-amber-700 font-bold', icon: 'text-amber-600' },
+  emerald: { active: 'border-emerald-600 text-emerald-700 font-bold', icon: 'text-emerald-600' },
+};
 
 interface AppDetailPageProps {
   app: WebApp;
@@ -104,8 +222,9 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   activeTab: activeTabProp,
   onTabChange,
 }) => {
-  const [internalTab, setInternalTab] = useState<AppDetailTab>(app.runtime === 'proxy' ? 'routing' : 'monitoring');
-  const activeTab: AppDetailTab = activeTabProp ?? internalTab;
+  const [internalTab, setInternalTab] = useState<AppDetailTab>(app.runtime === 'proxy' ? 'routing' : 'overview');
+  // Normalise before every content check so `observability`/`php` URLs render the right view.
+  const activeTab: AppDetailTab = normalizeDetailTab(activeTabProp ?? internalTab, app.runtime === 'proxy');
   const setActiveTab = (tab: AppDetailTab) => {
     setInternalTab(tab);
     onTabChange?.(tab);
@@ -134,6 +253,17 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   }, [showDeleteModal, app.name, app.id]);
 
   const tabSupport = siteTabSupport(app);
+  const tabGroups = tabGroupsFor(app, tabSupport);
+  const activeGroup = tabGroups.find((group) => group.views.includes(activeTab)) ?? tabGroups[0];
+  // Each group remembers the sub-tab it was left on, so switching groups does not reset the view.
+  const lastViewRef = useRef<Partial<Record<TabGroupId, AppDetailTab>>>({});
+  useEffect(() => {
+    lastViewRef.current[activeGroup.id] = activeTab;
+  }, [activeTab, activeGroup.id]);
+  const openTabGroup = (group: TabGroupDef) => {
+    const remembered = lastViewRef.current[group.id];
+    setActiveTab(remembered && group.views.includes(remembered) ? remembered : group.views[0]);
+  };
 
   // Read the real .env when the tab opens, not on mount: most visits never look at it.
   useEffect(() => {
@@ -165,7 +295,7 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
       (activeTab === 'deploy' && !tabSupport.deploy);
 
     if (unavailable) {
-      const fallbackTab: AppDetailTab = app.runtime === 'proxy' ? 'routing' : 'monitoring';
+      const fallbackTab: AppDetailTab = app.runtime === 'proxy' ? 'routing' : 'overview';
       setInternalTab(fallbackTab);
       onTabChange?.(fallbackTab);
     }
@@ -407,13 +537,47 @@ npm run build`;
     };
   }, [app.name, deployLogs.length]);
 
-  // Auto-fetch latest deploy logs when entering deploy tab
+  // Deployment history: the daemon keeps the newest ten jobs per site (commit, author, duration,
+  // status). The Deploy tab shows it below the live log so past runs stay inspectable.
+  const [deployHistory, setDeployHistory] = useState<DeployJob[]>([]);
+  const [isLoadingDeployHistory, setIsLoadingDeployHistory] = useState(false);
+
+  const loadDeployHistory = useCallback(() => {
+    setIsLoadingDeployHistory(true);
+    api.deployHistory(app.name, 10)
+      .then((res) => setDeployHistory(res.items || []))
+      .catch(() => setDeployHistory([]))
+      .finally(() => setIsLoadingDeployHistory(false));
+  }, [app.name]);
+
+  // Replay a past job's persisted log in the same terminal the live stream uses.
+  const handleViewDeployLog = async (job: DeployJob) => {
+    // The log terminal lives on the Deploy view; from Overview the click must bring it into view.
+    setActiveTab('deploy');
+    setDeployLogs([`[${new Date().toLocaleTimeString()}] Loading log for deploy ${job.id} (${job.status})...`]);
+    try {
+      const res = await api.deployJob(app.name, job.id);
+      setDeployLogs(res.log.map((l) => `[${l.stream}] ${l.line}`));
+    } catch (err) {
+      setDeployLogs([`[FAIL] Could not load the log: ${err instanceof Error ? err.message : 'unknown error'}`]);
+    }
+    // Wait for the Deploy view to render before looking for its terminal element.
+    setTimeout(() => {
+      document.getElementById('deploy-log-terminal')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+  };
+
+  // Auto-fetch the deployment timeline for Deploy *and* Overview (the summary shows the last run);
+  // the live log stream itself only matters on the Deploy tab.
   useEffect(() => {
+    if (activeTab === 'deploy' || activeTab === 'overview') {
+      loadDeployHistory();
+    }
     if (activeTab === 'deploy') {
       const cleanup = loadDeployLogs();
       return cleanup;
     }
-  }, [activeTab, loadDeployLogs]);
+  }, [activeTab, loadDeployLogs, loadDeployHistory]);
 
   // Auto-scroll terminal when logs update
   useEffect(() => {
@@ -1067,6 +1231,27 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
         autoDeploy,
         deployScript: buildScript,
       });
+      // When the toggle moved, ask the daemon to resolve the actual path: it registers a GitHub
+      // webhook when the panel has a public address and the tenant's PAT allows it, otherwise it
+      // stays on commit polling. Saving silently would leave the UI claiming "webhook".
+      let autoNote = '';
+      const wasAutoDeploy = gitStatus?.autoDeploy ?? app.autoDeploy;
+      if (wasAutoDeploy !== autoDeploy) {
+        try {
+          const resolved = await api.setWebsiteAutoDeploy(app.name, {
+            enabled: autoDeploy,
+            mode: 'auto',
+            pollIntervalSec: gitStatus?.autoDeployPollSec || 300,
+          });
+          autoNote = resolved.mode === 'webhook'
+            ? ' GitHub webhook registered.'
+            : resolved.mode === 'poll'
+              ? ' Using commit polling.'
+              : '';
+        } catch (autoErr) {
+          autoNote = ` Auto-deploy mode could not be resolved: ${autoErr instanceof Error ? autoErr.message : 'unknown error'}.`;
+        }
+      }
       const updated: WebApp = {
         ...app,
         gitRepo,
@@ -1075,12 +1260,75 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
         buildScript,
       };
       onUpdateApp?.(updated);
-      onShowToast?.('Settings Saved', `Git configuration and deploy script for '${app.name}' saved to server.`, 'success');
+      onShowToast?.('Settings Saved', `Git configuration and deploy script for '${app.name}' saved to server.${autoNote}`, 'success');
       api.websiteGitStatus(app.name).then(res => setGitStatus(res)).catch(() => {});
+      loadDeployHistory();
     } catch (err) {
       onShowToast?.('Save Failed', err instanceof Error ? err.message : 'Unknown error', 'error');
     } finally {
       setIsSavingDeployScript(false);
+    }
+  };
+
+  const [isCheckingGit, setIsCheckingGit] = useState(false);
+
+  // On-demand equivalent of one watcher tick. It reads the remote now, so an operator does not
+  // have to wait up to the poll interval to see whether the site is behind.
+  const handleCheckGitNow = async () => {
+    setIsCheckingGit(true);
+    try {
+      const res = await api.checkWebsiteGit(app.name);
+      if (res.status === 'up_to_date') {
+        onShowToast?.('Already up to date', `Local commit ${res.local.slice(0, 7)} matches the remote branch.`, 'info');
+      } else {
+        onShowToast?.('Deployment started', `Remote ${res.remote.slice(0, 7)} differs from ${res.local.slice(0, 7)}.`, 'success');
+        setActiveTab('deploy');
+        loadDeployLogs(true);
+        loadDeployHistory();
+      }
+      api.websiteGitStatus(app.name).then((status) => setGitStatus(status)).catch(() => {});
+    } catch (err) {
+      onShowToast?.('Git check failed', err instanceof Error ? err.message : 'Unknown error', 'error');
+    } finally {
+      setIsCheckingGit(false);
+    }
+  };
+
+  const [isSavingAutoDeployMode, setIsSavingAutoDeployMode] = useState(false);
+
+  // Changing the mode is an explicit operator choice: "auto" may still resolve to polling when
+  // GitHub cannot be reached, and the badge reports what actually happened. "none" is a real
+  // choice too — auto-deploy off, deploy only when the operator asks.
+  const handleAutoDeployModeChange = async (mode: 'auto' | 'webhook' | 'poll' | 'none') => {
+    setIsSavingAutoDeployMode(true);
+    try {
+      const res = mode === 'none'
+        ? await api.setWebsiteAutoDeploy(app.name, { enabled: false })
+        : await api.setWebsiteAutoDeploy(app.name, {
+            enabled: true,
+            mode,
+            pollIntervalSec: gitStatus?.autoDeployPollSec || 300,
+          });
+
+      setAutoDeploy(res.enabled);
+      if (mode === 'none') {
+        onShowToast?.(
+          'Auto-deploy disabled',
+          res.message || 'Pushes will not deploy this site until a mode is chosen again.',
+          'info',
+        );
+      } else {
+        onShowToast?.(
+          'Auto-deploy mode saved',
+          res.mode === 'webhook' ? 'GitHub webhook is registered.' : res.message || 'Using commit polling.',
+          res.mode === 'webhook' ? 'success' : 'info',
+        );
+      }
+      api.websiteGitStatus(app.name).then((status) => setGitStatus(status)).catch(() => {});
+    } catch (err) {
+      onShowToast?.('Could not change auto-deploy mode', err instanceof Error ? err.message : 'Unknown error', 'error');
+    } finally {
+      setIsSavingAutoDeployMode(false);
     }
   };
 
@@ -2396,272 +2644,297 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex items-center gap-1 border-b border-slate-200 bg-white px-4 rounded-t-2xl overflow-x-auto text-xs font-semibold">
-        {app.runtime === 'proxy' ? (
-          <>
-            <button
-              onClick={() => setActiveTab('routing')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'routing'
-                  ? 'border-purple-600 text-purple-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Zap className="w-4 h-4 text-purple-600" />
-              <span>Gateway & Upstream</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('monitoring')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'monitoring'
-                  ? 'border-blue-600 text-blue-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-              <span>Live Telemetry & Metrics</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" />
-            </button>
-
-            <button
-              onClick={() => setActiveTab('logs')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'logs'
-                  ? 'border-blue-600 text-blue-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              <span>Proxy Logs</span>
-              <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
-                {filteredLogs.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('map')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'map'
-                  ? 'border-blue-600 text-blue-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Globe className="w-4 h-4" />
-              <span>Traffic Map</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('domains')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'domains'
-                  ? 'border-emerald-600 text-emerald-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Globe className="w-4 h-4 text-emerald-600" />
-              <span>Domains & SSL</span>
-              {siteDomains.length > 1 && (
-                <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-mono text-[10px] font-bold">
-                  {siteDomains.length}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('security')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'security'
-                  ? 'border-purple-600 text-purple-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Shield className="w-4 h-4 text-purple-600" />
-              <span>Access & Security</span>
-              {(maintenanceMode || basicAuthEnabled) && (
-                <span className="flex items-center gap-1">
-                  {maintenanceMode && (
-                    <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold">
-                      503
-                    </span>
-                  )}
-                  {basicAuthEnabled && (
-                    <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 text-[9px] font-bold">
-                      Auth
-                    </span>
-                  )}
-                </span>
-              )}
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              onClick={() => setActiveTab('monitoring')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'monitoring'
-                  ? 'border-blue-600 text-blue-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-              <span>Live Telemetry & Metrics</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" />
-            </button>
-
-            <button
-              onClick={() => setActiveTab('runtime')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'php' || activeTab === 'runtime' || activeTab === 'overview'
-                  ? 'border-purple-600 text-purple-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Layers className="w-4 h-4 text-purple-600" />
-              <span>{getRuntimeTabTitle()}</span>
-              <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
-                v{app.version || (app.runtime === 'php' ? '8.4' : '1.0')}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('logs')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'logs'
-                  ? 'border-blue-600 text-blue-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              <span>Streaming Logs</span>
-              <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
-                {filteredLogs.length}
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('map')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'map'
-                  ? 'border-blue-600 text-blue-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Globe className="w-4 h-4" />
-              <span>Traffic Map</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('domains')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'domains'
-                  ? 'border-emerald-600 text-emerald-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Globe className="w-4 h-4 text-emerald-600" />
-              <span>Domains & SSL</span>
-              {siteDomains.length > 1 && (
-                <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-mono text-[10px] font-bold">
-                  {siteDomains.length}
-                </span>
-              )}
-            </button>
-
-            {tabSupport.deploy && (
+      {/* Navigation Tabs — grouped; the concrete view ids stay the same so old URLs work. */}
+      <div className="border-b border-slate-200 bg-white px-4 rounded-t-2xl">
+        <div className="flex items-center gap-1 overflow-x-auto text-xs font-semibold">
+          {tabGroups.map((group) => {
+            const Icon = group.icon;
+            const isActive = activeGroup.id === group.id;
+            const accent = GROUP_ACCENT[group.accent];
+            return (
               <button
-                onClick={() => setActiveTab('deploy')}
+                key={group.id}
+                type="button"
+                onClick={() => openTabGroup(group)}
                 className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                  activeTab === 'deploy'
-                    ? 'border-blue-600 text-blue-700 font-bold'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                  isActive ? accent.active : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
-                <FolderGit2 className="w-4 h-4 text-blue-600" />
-                <span>{siteHasGit(app) || gitStatus?.detected ? 'Git CI/CD & Deploy' : 'Deploy & Script'}</span>
-                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                  siteHasGit(app) || gitStatus?.detected
-                    ? 'bg-purple-100 text-purple-800'
-                    : 'bg-slate-100 text-slate-600'
-                }`}>
-                  {siteHasGit(app) || gitStatus?.detected ? (gitBranch || 'Git') : 'Local'}
-                </span>
-              </button>
-            )}
-
-            <button
-              onClick={() => setActiveTab('routing')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'routing'
-                  ? 'border-blue-600 text-blue-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Zap className="w-4 h-4" />
-              <span>Reverse Proxy & Multi-Engine Routing</span>
-            </button>
-
-            {tabSupport.env && (
-              <button
-                onClick={() => setActiveTab('env')}
-                className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                  activeTab === 'env'
-                    ? 'border-blue-600 text-blue-700 font-bold'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <Lock className="w-4 h-4" />
-                <span>Environment (.env)</span>
-              </button>
-            )}
-
-            {tabSupport.files && (
-              <button
-                onClick={() => setActiveTab('files')}
-                className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                  activeTab === 'files'
-                    ? 'border-amber-600 text-amber-700 font-bold'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <Folder className="w-4 h-4" />
-                <span>File Manager</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => setActiveTab('security')}
-              className={`py-3 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap ${
-                activeTab === 'security'
-                  ? 'border-purple-600 text-purple-700 font-bold'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Shield className="w-4 h-4 text-purple-600" />
-              <span>Access & Security</span>
-              {(maintenanceMode || basicAuthEnabled) && (
-                <span className="flex items-center gap-1">
-                  {maintenanceMode && (
-                    <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold">
-                      503
+                <Icon className={`w-4 h-4 ${isActive ? accent.icon : ''}`} />
+                <span>{group.label}</span>
+                {group.id === 'runtime' && app.runtime !== 'proxy' && (
+                  <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
+                    v{app.version || (app.runtime === 'php' ? '8.4' : '1.0')}
+                  </span>
+                )}
+                {group.id === 'deploy' && (
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                      siteHasGit(app) || gitStatus?.detected
+                        ? 'bg-purple-100 text-purple-800'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {siteHasGit(app) || gitStatus?.detected ? gitBranch || 'Git' : 'Local'}
+                  </span>
+                )}
+                {group.id === 'observability' && (
+                  <>
+                    <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
+                      {filteredLogs.length}
                     </span>
-                  )}
-                  {basicAuthEnabled && (
-                    <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 text-[9px] font-bold">
-                      Auth
-                    </span>
-                  )}
-                </span>
-              )}
-            </button>
-          </>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  </>
+                )}
+                {group.id === 'domains' && siteDomains.length > 1 && (
+                  <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-mono text-[10px] font-bold">
+                    {siteDomains.length}
+                  </span>
+                )}
+                {group.id === 'security' && (maintenanceMode || basicAuthEnabled) && (
+                  <span className="flex items-center gap-1">
+                    {maintenanceMode && (
+                      <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold">503</span>
+                    )}
+                    {basicAuthEnabled && (
+                      <span className="px-1.5 py-0.2 rounded bg-purple-100 text-purple-800 text-[9px] font-bold">Auth</span>
+                    )}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {activeGroup.subTabs && activeGroup.subTabs.filter((sub) => activeGroup.views.includes(sub.view)).length > 1 && (
+          <div className="flex items-center gap-1 pb-2 -mt-0.5 overflow-x-auto">
+            {activeGroup.subTabs
+              .filter((sub) => activeGroup.views.includes(sub.view))
+              .map((sub) => (
+                <button
+                  key={sub.view}
+                  type="button"
+                  onClick={() => setActiveTab(sub.view)}
+                  className={`px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                    activeTab === sub.view
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {sub.label}
+                </button>
+              ))}
+          </div>
         )}
       </div>
 
       {/* Main Tab Content View */}
       <div className="bg-white rounded-b-2xl border border-t-0 border-slate-200 p-6 shadow-2xs">
-        
+
+        {/* TAB: OVERVIEW — the summary a group bar now opens on, instead of dropping the
+            operator into a configuration form. */}
+        {activeTab === 'overview' && (
+          <div className="space-y-5 animate-in fade-in duration-200">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Status</span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      isRunning ? 'bg-emerald-500' : isDeployFailed ? 'bg-rose-500' : 'bg-slate-400'
+                    }`}
+                  />
+                  <span className="text-sm font-bold text-slate-900 capitalize">{app.status}</span>
+                </div>
+                <p className="text-xs text-slate-600 truncate" title={app.domain}>{app.domain}</p>
+                <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+                  {app.ssl && <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">SSL</span>}
+                  {app.tunnelEnabled && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">Tunnel</span>}
+                  <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">{app.tenantUser}</span>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Runtime</span>
+                <div className="text-sm font-bold text-slate-900">
+                  {app.runtime.toUpperCase()} {app.version ? `v${app.version}` : ''}
+                </div>
+                <p className="text-xs text-slate-600 truncate">{app.framework || 'No framework'}</p>
+                <p className="text-[11px] text-slate-500">Web server: {app.webServer}</p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('runtime')}
+                  className="text-[11px] font-bold text-purple-700 hover:underline cursor-pointer"
+                >
+                  Open runtime settings →
+                </button>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Deployment</span>
+                {siteHasGit(app) || gitStatus?.detected ? (
+                  <>
+                    <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                      <GitBranch className="w-3.5 h-3.5 text-slate-500" />
+                      <span className="truncate">{gitBranch || 'main'}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      {!autoDeploy
+                        ? 'Auto-deploy off'
+                        : gitStatus?.autoDeployMode === 'webhook'
+                          ? 'Webhook auto-deploy'
+                          : gitStatus?.autoDeployMode === 'poll'
+                            ? 'Polling auto-deploy'
+                            : 'Manual webhook only'}
+                    </p>
+                    {deployHistory[0] ? (
+                      <p className="text-[11px] text-slate-600">
+                        Last:{' '}
+                        <span className={deployHistory[0].status === 'success' ? 'text-emerald-700 font-bold' : deployHistory[0].status === 'failed' ? 'text-rose-700 font-bold' : 'text-amber-700 font-bold'}>
+                          {deployHistory[0].status}
+                        </span>{' '}
+                        · {deployHistory[0].commit ? deployHistory[0].commit.slice(0, 7) : '—'} ·{' '}
+                        {deployHistory[0].createdAt ? new Date(deployHistory[0].createdAt).toLocaleString() : ''}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-slate-400">No deployment yet</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-500">Local files — no Git repository connected.</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('deploy')}
+                  className="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
+                >
+                  Open deploy →
+                </button>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
+                <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Domains &amp; SSL</span>
+                <div className="text-sm font-bold text-slate-900">
+                  {siteDomains.length || 1} domain{(siteDomains.length || 1) === 1 ? '' : 's'}
+                </div>
+                <p className="text-xs text-slate-600 truncate">
+                  {siteDomains.find((d) => d.isPrimary)?.domain || app.domain}
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  {siteDomains.filter((d) => d.sslEnabled).length} with SSL
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('domains')}
+                  className="text-[11px] font-bold text-emerald-700 hover:underline cursor-pointer"
+                >
+                  Manage domains →
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl border border-slate-200 bg-white flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleTriggerDirectDeploy()}
+                disabled={isDeployingNow}
+                className="px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              >
+                <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
+                <span>{isDeployingNow ? 'Deploying…' : 'Redeploy now'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenTerminal(app)}
+                className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <Terminal className="w-3.5 h-3.5" /> Terminal
+              </button>
+              {tabSupport.files && (
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('files')}
+                  className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Folder className="w-3.5 h-3.5" /> Files
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveTab('logs')}
+                className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5" /> Logs
+              </button>
+              {(siteHasGit(app) || gitStatus?.detected) && (
+                <button
+                  type="button"
+                  onClick={() => void handleCheckGitNow()}
+                  disabled={isCheckingGit}
+                  className="px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingGit ? 'animate-spin' : ''}`} />
+                  {isCheckingGit ? 'Checking…' : 'Check Git now'}
+                </button>
+              )}
+            </div>
+
+            <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-slate-600" /> Recent deployments
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('deploy')}
+                  className="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
+                >
+                  View all
+                </button>
+              </div>
+              {deployHistory.length === 0 ? (
+                <p className="text-xs text-slate-500 py-2">No deployments recorded yet.</p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {deployHistory.slice(0, 3).map((job) => (
+                    <div key={job.id} className="py-2 flex items-center justify-between gap-3 text-xs">
+                      <div className="min-w-0">
+                        <div className="font-mono text-[11px] text-slate-800">
+                          {job.commit ? job.commit.slice(0, 7) : '—'}{' '}
+                          <span className="font-sans text-slate-600 truncate">{job.commitMessage || job.currentStep}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {job.trigger || 'manual'} · {job.createdAt ? new Date(job.createdAt).toLocaleString() : ''}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            job.status === 'success'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : job.status === 'failed'
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {job.status}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void handleViewDeployLog(job)}
+                          className="text-[11px] font-semibold text-blue-600 hover:underline cursor-pointer"
+                        >
+                          Log
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* TAB 1: LIVE MONITORING & TELEMETRY */}
         {activeTab === 'monitoring' && (
           <div className="space-y-6">
@@ -4407,7 +4680,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
         )}
 
         {/* TAB: SERVER & RUNTIME CONFIGURATION */}
-        {(activeTab === 'php' || activeTab === 'runtime' || activeTab === 'overview') && (
+        {(activeTab === 'php' || activeTab === 'runtime') && (
           <div className="space-y-6 animate-in fade-in duration-200">
             {/* ENGINE & RUNTIME SELECTION HUB */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -6076,18 +6349,57 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                         autoDeploy ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
                       }`}>
-                        {autoDeploy ? 'Active' : 'Disabled'}
+                        {!autoDeploy
+                          ? 'Disabled'
+                          : gitStatus?.autoDeployMode === 'webhook'
+                            ? 'Webhook Active'
+                            : gitStatus?.autoDeployMode === 'poll'
+                              ? `Polling every ${Math.max(1, Math.round((gitStatus?.autoDeployPollSec || 300) / 60))}m`
+                              : 'Manual webhook only'}
                       </span>
                     </div>
                     <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
                       <input
                         type="checkbox"
                         checked={autoDeploy}
-                        onChange={(e) => setAutoDeploy(e.target.checked)}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        onChange={(e) => void handleAutoDeployModeChange(e.target.checked ? 'auto' : 'none')}
+                        disabled={isSavingAutoDeployMode || !siteHasGit(app)}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
                       />
                       <span className="font-bold text-slate-900">Enable Auto Redeploy on Git Push</span>
                     </label>
+                  </div>
+
+                  {/* Mode + on-demand check: the badge above says what is active, this row lets
+                      the operator change it and see when the watcher last looked. */}
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+                    <span className="font-semibold">Mode</span>
+                    <select
+                      value={gitStatus?.autoDeployMode === 'webhook' ? 'webhook' : gitStatus?.autoDeployMode === 'poll' ? 'poll' : 'none'}
+                      onChange={(e) =>
+                        void handleAutoDeployModeChange(e.target.value as 'auto' | 'webhook' | 'poll' | 'none')
+                      }
+                      disabled={isSavingAutoDeployMode || !siteHasGit(app)}
+                      className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg disabled:opacity-50"
+                    >
+                      <option value="none">Off — manual deploy only</option>
+                      <option value="auto">Auto (webhook, fallback poll)</option>
+                      <option value="webhook">Webhook only</option>
+                      <option value="poll">Polling only</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void handleCheckGitNow()}
+                      disabled={isCheckingGit || !siteHasGit(app)}
+                      className="px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer disabled:opacity-50"
+                    >
+                      {isCheckingGit ? 'Checking…' : 'Check now'}
+                    </button>
+                    <span className="text-slate-500">
+                      {gitStatus?.lastGitPollAt
+                        ? `Last checked ${new Date(gitStatus.lastGitPollAt).toLocaleString()}`
+                        : 'Not checked yet'}
+                    </span>
                   </div>
 
                   <div className="flex gap-2">
@@ -6116,9 +6428,13 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                       <li><strong>Gitea:</strong> Settings &rarr; Webhooks &rarr; Add Gitea webhook &rarr; Paste Target URL.</li>
                     </ul>
                     <p className="text-[11px] text-blue-900 font-semibold pt-0.5">
-                      {autoDeploy
-                        ? '✓ Auto-deploy active: Pushing commits to branch ' + gitBranch + ' will automatically trigger redeployment.'
-                        : '⚠️ Auto-deploy disabled: Webhook will not deploy until "Enable Auto Redeploy" is checked.'}
+                      {!autoDeploy
+                        ? '⚠️ Auto-deploy is off: pushes will not deploy this site; use Redeploy Now or choose a mode above.'
+                        : gitStatus?.autoDeployMode === 'webhook'
+                          ? '✓ Webhook active: pushing to ' + gitBranch + ' calls the panel directly.'
+                          : gitStatus?.autoDeployMode === 'poll'
+                            ? `✓ Commit polling active (every ${Math.max(1, Math.round((gitStatus?.autoDeployPollSec || 300) / 60))} min): works on private/LAN hosts without an inbound webhook.`
+                            : 'ℹ️ This site kept its pre-update setting: a manually configured webhook still works, but the panel is not polling it. Choose Auto or Polling above to enable managed auto-deploy.'}
                     </p>
                   </div>
                 </div>
@@ -6348,6 +6664,99 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                 )}
                 <div ref={terminalEndRef} />
               </div>
+            </div>
+
+            {/* Deployment history: commit, author, trigger, duration and status per run. */}
+            <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-2">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-slate-600" />
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    Deployment History
+                  </h4>
+                  {isLoadingDeployHistory && <RefreshCw className="w-3 h-3 text-blue-500 animate-spin" />}
+                </div>
+                <button
+                  type="button"
+                  onClick={loadDeployHistory}
+                  disabled={isLoadingDeployHistory}
+                  className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50 self-start sm:self-auto"
+                >
+                  <RefreshCw className={`w-3 h-3 text-slate-600 ${isLoadingDeployHistory ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+              </div>
+
+              {deployHistory.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center text-slate-500">
+                  <Clock className="w-6 h-6 text-slate-400 mb-2" />
+                  <p className="text-xs">No deployments recorded yet for this website.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                        <th className="py-2 pr-3 font-bold">Commit</th>
+                        <th className="py-2 pr-3 font-bold">Message</th>
+                        <th className="py-2 pr-3 font-bold">Trigger</th>
+                        <th className="py-2 pr-3 font-bold">Duration</th>
+                        <th className="py-2 pr-3 font-bold">Status</th>
+                        <th className="py-2 pr-3 font-bold">When</th>
+                        <th className="py-2 font-bold text-right">Log</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deployHistory.map((job) => (
+                        <tr key={job.id} className="border-b border-slate-50 hover:bg-slate-50/70">
+                          <td className="py-2 pr-3 font-mono text-[11px] text-slate-700">
+                            {job.commit ? job.commit.slice(0, 7) : '—'}
+                          </td>
+                          <td className="py-2 pr-3 text-slate-700 max-w-[280px]">
+                            <div className="truncate" title={job.commitMessage || ''}>
+                              {job.commitMessage || job.currentStep || '—'}
+                            </div>
+                            {job.commitAuthor && (
+                              <div className="text-[10px] text-slate-400 truncate">{job.commitAuthor}</div>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 text-[11px] text-slate-500 capitalize">
+                            {job.trigger || 'manual'}
+                          </td>
+                          <td className="py-2 pr-3 text-[11px] text-slate-500">
+                            {job.durationMs ? `${(job.durationMs / 1000).toFixed(1)}s` : '—'}
+                          </td>
+                          <td className="py-2 pr-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                job.status === 'success'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : job.status === 'failed'
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {job.status}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-3 text-[11px] text-slate-500">
+                            {job.createdAt ? new Date(job.createdAt).toLocaleString() : '—'}
+                          </td>
+                          <td className="py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleViewDeployLog(job)}
+                              className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                            >
+                              View Log
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}

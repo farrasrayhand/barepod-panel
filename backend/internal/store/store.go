@@ -13,27 +13,33 @@ import (
 
 // Website is a hosted website (the "Website" entity in the UI).
 type Website struct {
-	ID           string `json:"id"`
-	Slug         string `json:"slug"`
-	Domain       string `json:"domain"`
-	TenantUser   string `json:"tenantUser"`
-	Runtime      string `json:"runtime"`
-	Version      string `json:"version"`
-	Framework    string `json:"framework"`
-	WebServer    string `json:"webServer"`
-	Status       string `json:"status"`       // running | stopped | building | error
-	DeployStatus string `json:"deployStatus"` // pending | building | ready | failed
-	SourceKind   string `json:"sourceKind"`   // scaffold | github | upload | existing
-	SourceRepo   string `json:"sourceRepo,omitempty"`
+	ID              string `json:"id"`
+	Slug            string `json:"slug"`
+	Domain          string `json:"domain"`
+	TenantUser      string `json:"tenantUser"`
+	Runtime         string `json:"runtime"`
+	Version         string `json:"version"`
+	Framework       string `json:"framework"`
+	WebServer       string `json:"webServer"`
+	Status          string `json:"status"`       // running | stopped | building | error
+	DeployStatus    string `json:"deployStatus"` // pending | building | ready | failed
+	SourceKind      string `json:"sourceKind"`   // scaffold | github | upload | existing
+	SourceRepo      string `json:"sourceRepo,omitempty"`
 	SourceBranch    string `json:"sourceBranch,omitempty"`
 	DeployHookToken string `json:"deployHookToken,omitempty"`
 	AutoDeploy      bool   `json:"autoDeploy"`
-	DeployScript    string `json:"deployScript,omitempty"`
-	SSL             bool   `json:"ssl"`
-	TunnelEnable    bool   `json:"tunnelEnabled"`
-	Port            int    `json:"port"`
-	UpstreamURL     string `json:"upstreamUrl,omitempty"`
-	CreatedAt       string `json:"createdAt"`
+	// AutoDeployMode is the resolved path used when AutoDeploy is on: "webhook" (GitHub was
+	// registered by the panel), "poll" (the commit watcher checks the remote), or "none".
+	AutoDeployMode string `json:"autoDeployMode,omitempty"`
+	// AutoDeployPollSec is the per-site polling interval; 0 means the watcher's default.
+	AutoDeployPollSec int    `json:"autoDeployPollSec,omitempty"`
+	LastGitPollAt     string `json:"lastGitPollAt,omitempty"`
+	DeployScript      string `json:"deployScript,omitempty"`
+	SSL               bool   `json:"ssl"`
+	TunnelEnable      bool   `json:"tunnelEnabled"`
+	Port              int    `json:"port"`
+	UpstreamURL       string `json:"upstreamUrl,omitempty"`
+	CreatedAt         string `json:"createdAt"`
 }
 
 // WebsiteCronJob represents a scheduled task configured for a website running as its tenant.

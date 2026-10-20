@@ -163,7 +163,7 @@ func (s *Server) handleRunSystemCronJob(w http.ResponseWriter, r *http.Request, 
 	defer cancel()
 
 	start := time.Now()
-	env := scheduler.NewEnv(s.store, s.host, s.key, sysinfo.Detect(), nil)
+	env := scheduler.NewEnv(s.store, s.host, s.deploy, s.key, sysinfo.Detect(), nil)
 	out, err := scheduler.RunJob(ctx, env, id)
 	status := "success"
 	if err != nil {

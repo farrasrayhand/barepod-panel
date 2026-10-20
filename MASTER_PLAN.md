@@ -1,5 +1,5 @@
 # Master Architecture & Development Plan: BarePod Panel
-> **Document Version:** 0.3.8 (Prototype) — 4-web-server ingress switching, automated ACME SSL/TLS, database auto-healing, and multi-tenant Git CI/CD architecture
+> **Document Version:** 0.3.9 (Prototype) — multi-tenant Git CI/CD, auto-deploy with webhook/polling/off, deploy history, grouped App Detail, and upgrade-safe migrations
 > **Last Updated:** October 19, 2026  
 > **Status:** Active & Maintained
 
@@ -8,7 +8,7 @@
 The number describes **completed milestones, not effort** — and nothing may
 invent its own version.
 
-- **0.x = prototype line.** The line is at **0.3** (patch `v0.3.8`: domains, automated SSL, 4-web-server ingress switching, auto-healing credentials, and multi-tenant Git CI/CD architecture) and stays
+- **0.x = prototype line.** The line is at **0.3** (patch `v0.3.9`: multi-tenant Git CI/CD, auto-deploy with webhook/polling/off, deploy history, grouped App Detail, and upgrade-safe migrations) and stays
   in 0.x while the panel is a prototype (some views still mock, dry-run provisioning,
   no release artefact).
 - **0.1 → 0.2 (reached):** the milestone was *"a website really runs end-to-end on
@@ -27,7 +27,7 @@ invent its own version.
   with suspend & restore, AES-256-GCM password vault with elevated session, and UI Reveal /
   Rotate click-through.
 - **0.3.4 → 0.3.8 (reached):** the milestone was *"Domains, Automated ACME SSL/TLS, 4-Web-Server Ingress Switching, Nginx/Caddy Port Collision Prevention, SSL Traversal Hardening, and Database Credential Auto-Healing"*. Verified end-to-end across multiple real hosts (`172.19.1.26`, `192.10.5.60`): automated Let's Encrypt issuance with DNS preflight, Caddy / Nginx edge ingress hot-swap, `/etc/barepod/ssl` permission self-healing for unprivileged daemons, and database user credential auto-reprovisioning post-engine migration.
-- **0.3.8 → 0.3.9 (in progress / next target milestone):** the milestone is *"Universal Multi-Tenant Git CI/CD, GitHub PAT Auto-Discovery, Zero-Config Auto-Deploy & Polling Fallback"*. User connects GitHub PAT once at `/profile` (AES-256-GCM encrypted); Add-Website wizard auto-discovers repos and branches via GitHub API; Zero-Config Auto-Deploy registers GitHub webhook automatically when public/tunnel URL exists, with smart commit watcher polling fallback (`git_commit_watcher`) for local/private IP servers; and clean Vercel-style Deploy tab in App Detail page (Source Card + Deploy History + Collapsed Advanced Settings).
+- **0.3.8 → 0.3.9 (reached in code; live-host verification of the Git flows still pending):** the milestone is *"Universal Multi-Tenant Git CI/CD, GitHub PAT Auto-Discovery, Zero-Config Auto-Deploy & Polling Fallback"*. User connects a GitHub PAT once at `/profile` (AES-256-GCM encrypted); the Add-Website wizard auto-discovers repos and branches via the GitHub API; auto-deploy resolves to a webhook (registered/updated/deleted by the daemon), commit polling (`git_commit_watcher`), or **off**; the Deploy tab exposes the mode, **Check now**, `lastGitPollAt` and a deployment-history timeline with **View Log**; deploy runs are single-flight per site; and the App Detail page groups its tabs. **Verified by unit and HTTP tests; a real GitHub push/webhook and a many-site watcher run on a host are the remaining live checks.** Repo/branch discovery for GitLab/Gitea/Bitbucket and an ETag-based GitHub API poll for private HTTPS repositories remain follow-ups.
 - **It only moves when a milestone is finished**, e.g. `0.2` = a website really
   runs end-to-end on a Linux host; `0.3` = databases module; `0.3.4` = domains, SSL, and security hardening; `0.3.8` = multi-engine ingress & autoheal; `0.3.9` = Git CI/CD & auto-deploy; `1.0` = first
   release with the installer and a supported upgrade path. Commits, features in
@@ -64,7 +64,7 @@ This document is the complete technical architecture blueprint, module specifica
 
 The detailed build log of every fix — with its measurements — is in this file's history (`git log -- MASTER_PLAN.md`). What follows is the durable part: what is real, and the decisions a later change must not undo. **Current state, architectural decisions, and the working loop live in this document; endpoints live in `API_CONTRACT.md`.**
 
-**Real, verified on a Linux host (LXC, Ubuntu 24.04):** the daemon and its API (`mode: real`), sign-in with Argon2id + session cookies + CSRF + audit, websites deployed end to end (unit, tenant ownership, cgroup limits, health check) with redeploy and delete, a jailed tenant terminal, host and per-site metrics, a host file manager whose system paths are read-only by policy, databases and caches (0.3) with a vault, a web port that answers a status page instead of "connection refused", and **Domains & Automated SSL/TLS (1.0)** with ACME Let's Encrypt automated issuance, pre-flight DNS verification, high-grade ECDSA P-256 self-signed generator, custom certificate validator/uploader, 301 Force HTTPS redirection, and multi-webserver vhost hot-reload. **Still mock, and badged as such:** Pods/Docker, API & MCP, Backup & Migration, Cloudflare Tunnels, and most of Panel Settings.
+**Real, verified on a Linux host (LXC, Ubuntu 24.04):** the daemon and its API (`mode: real`), sign-in with Argon2id + session cookies + CSRF + audit, websites deployed end to end (unit, tenant ownership, cgroup limits, health check) with redeploy and delete, a jailed tenant terminal, host and per-site metrics, a host file manager whose system paths are read-only by policy, databases and caches (0.3) with a vault, a web port that answers a status page instead of "connection refused", **Domains & Automated SSL/TLS (1.0)** with ACME Let's Encrypt automated issuance, pre-flight DNS verification, high-grade ECDSA P-256 self-signed generator, custom certificate validator/uploader, 301 Force HTTPS redirection, and multi-webserver vhost hot-reload, **Cloudflare Zero Trust Tunnels** (token vault, live ingress routes, panel hostname publish), and **Panel Settings** (PHP defaults, alerts, ports, timezone, IP allowlist, cron). **Still mock, and badged as such:** Pods/Docker, API & MCP, and Backup & Migration. **Partially live (v0.3.9):** Universal Git CI/CD — PAT vault, repo/branch discovery, ED25519 deploy keys, push webhook, auto-deploy modes and deploy history (see §3.10).
 
 **Decisions that must not be silently reversed**
 
@@ -104,7 +104,9 @@ The detailed build log of every fix — with its measurements — is in this fil
   - *No-TLS-Verify Auto-Handling*: Removed manual checkboxes and disclaimers from the ingress modal; the daemon automatically sets `noTLSVerify = isHttpsTarget`.
   - *Domain Pre-Flight Validation Locking*: Modal buttons ("Add Domain", "Continue") dynamically lock and display spinning validation status while asynchronous DNS/routing preflight checks are active, eliminating race conditions.
 
-> **Versioning note:** the panel is still a prototype, so the document stays in the 0.x line (**0.3.4**; see the policy at the top).
+- **App Detail groups its tabs** — Overview, Runtime, Deploy, Files, Observability, Domains & Security (a proxy keeps Gateway & Upstream, Observability, Domains, Security) — while every legacy view URL (`monitoring`, `logs`, `map`, `env`, `routing`, `deploy`, `files`, `domains`, `security`) stays valid; `observability` and `php` are accepted aliases.
+
+> **Versioning note:** the panel is still a prototype, so the document stays in the 0.x line (**0.3.9**; see the policy at the top).
 
 > **Note for the Go backend:** since URLs are path-based, the server MUST implement SPA fallback (unknown paths serve `index.html`) while `/api/*` answers JSON `404`. The contract is in §4 and `API_CONTRACT.md`.
 
@@ -112,7 +114,7 @@ The detailed build log of every fix — with its measurements — is in this fil
 
 **BarePod Panel** is designed to solve the dilemma of traditional server panels (such as cPanel, Plesk, AaPanel, CyberPanel, Coolify, and EasyPanel):
 1. **Clean, Modern & Intuitive User Experience**: A responsive and aesthetic interface based on a modern color palette, with a tidy layout free of confusing stacked menu hierarchies.
-2. **Total Multi-Tenant Isolation (Linux cgroups v2 + Namespaces)**: Each tenant user has its own Linux system user, isolated directory (`/home/<tenant>/apps/<app>`), and safe resource quotas.
+2. **Total Multi-Tenant Isolation (Linux cgroups v2 + Namespaces)**: Each tenant user has its own Linux system user, isolated directory (`/home/<tenant>/web/<site>`, with legacy `apps/` auto-migrated), and safe resource quotas.
 3. **Smart CLI Automation (Auto-Switch Runtime)**: When a user opens a web terminal on a website, CLI commands such as `php -v`, `node -v`, or `python -v` automatically match the runtime version configured for that site without conflicting between tenants.
 4. **Flexibility of 4 Web Server Engines**: Supports OpenLiteSpeed (OLS + LSCache), Nginx, Caddy (Auto-HTTPS & HTTP/3), and Apache 2.4 according to the user's application architecture needs.
 5. **Complete Database & In-Memory Support**: PostgreSQL 16, MariaDB 11/MySQL 8, MongoDB 7.0, Redis 7.2, and file-based SQLite ready to use from a single panel, with databases and caches provisioned independently with a *Shared Daemon* or *Dedicated Pod* option.
@@ -168,8 +170,8 @@ graph TD
         TenantA[Tenant User: <tenant>]
         TenantB[Tenant User: clientA]
         
-        TenantA --> PathA["/home/<tenant>/apps/<site> (PHP 8.4)"]
-        TenantB --> PathB["/home/clientA/apps/sentiment (Python 3.12 Flask)"]
+        TenantA --> PathA["/home/<tenant>/web/<site> (PHP 8.4)"]
+        TenantB --> PathB["/home/clientA/web/sentiment (Python 3.12 Flask)"]
         
         BarePodCore -->|WebSocket PTY Bridge| TerminalA[Terminal Session: auto PHP 8.4]
         BarePodCore -->|WebSocket PTY Bridge| TerminalB[Terminal Session: auto Python 3.12]
@@ -307,7 +309,7 @@ graph TD
   - Encrypted transfer via high-speed rsync stream without needing to download to a laptop.
   - *Source VPS Node* mode: Temporary migration token generator (valid for 2 hours).
 - **Portable Snapshot (`.bpod` / `.tar.gz`)**:
-  - The bundle package stores the codebase (`/var/www/apps/<app>`), `.env`, vhost routing config, logical database dump, and data volumes.
+  - The bundle package stores the codebase (`/home/<tenant>/web/<site>`), `.env`, vhost routing config, logical database dump, and data volumes.
   - Optional AES-256 encryption and SHA-256 checksum validation.
 - **Restore from File**:
   - Drag-and-drop a `.bpod` file with a manifest inspector.
@@ -354,6 +356,7 @@ The platform a host runs is one admin screen, because these are **host-level** f
 - **Panel Settings**: 10 tabs (general, monitoring policy, security, reverse proxy & SSL, backup policy, notifications, database defaults, PHP defaults, system & cleanup, cron & scheduled tasks).
 - **Domains & SSL** as well as **Overview/VPS Dashboard**.
 - **URL routing per menu & deep-linking**: all menus and app sub-tabs are bookmark/refresh-safe; the production server must implement SPA fallback.
+- **App Detail tab groups (UI, no URL break)**: the detail page presents **7 groups** for a normal site — Overview, Runtime, Deploy, Files, Observability, Domains & SSL, Access & Security — and **4** for a proxy (Gateway & Upstream, Observability, Domains, Security). Runtime holds `runtime`/`php`/`routing`; Deploy holds `deploy`/`env`; Observability holds `monitoring`/`logs`/`map`. The underlying view ids are unchanged, so `/web/<slug>/logs`, `/env`, `/routing`, etc. keep working; `observability` and `php` are accepted aliases. Overview is a real summary (status, runtime, last deploy, domains, quick actions, recent deployments), not a renamed settings form.
 - **Guided Deploy wizard & provision presets**: 5-step deploy flow with source selection (scaffold / GitHub / upload / existing) and per-framework install + automation steps (`src/data/frameworkProvision.ts`).
 - **Database, Cache & SQLite semantics**: databases and caches are separate resources; SQLite is a file database (path, no credentials) rather than a shared daemon.
 - **API & MCP**: menu with API tokens, webhooks and the MCP tool catalog; API tokens are a new RBAC capability (10 total).
@@ -368,10 +371,10 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - Git provider credentials and Personal Access Tokens (PATs) are **strictly isolated per tenant account** (`user_id`). User A cannot see, list, or use Git accounts or repositories configured by User B.
   - All sensitive provider access tokens and SSH credentials stored in `user_git_providers` are encrypted using **AES-256-GCM** via `internal/secrets`, with the key stored in a host `0600` file outside the database.
 - **Universal Provider Matrix**:
-  - **GitHub**: GitHub Cloud and GitHub Enterprise instances.
-  - **GitLab**: GitLab.com (SaaS) and private self-hosted GitLab CE/EE instances via custom `baseUrl`.
-  - **Gitea / Forgejo**: Self-hosted lightweight Git servers via custom `baseUrl`.
-  - **Bitbucket**: Bitbucket Cloud workspaces.
+  - **GitHub**: GitHub Cloud — PAT verification, repository and branch discovery, and zero-config webhook registration are **implemented**.
+  - **GitLab**: GitLab.com (SaaS) and private self-hosted GitLab CE/EE instances via custom `baseUrl` — **token verification implemented**; repository/branch discovery is not wired yet (the wizard falls back to a manual URL).
+  - **Gitea / Forgejo**: Self-hosted lightweight Git servers via custom `baseUrl` — stored for SSH deploy-key clones; discovery not wired yet.
+  - **Bitbucket**: Bitbucket Cloud workspaces — stored for SSH deploy-key clones; discovery not wired yet.
   - **Custom Git / Generic SSH**: Any private Git server or VPS accessed via standard SSH repository URLs (`git@host:user/repo.git`).
 
 - **Architecture: Where Git Settings & PAT Live (Separation of Concerns & Anti-Clutter UI)**:
@@ -380,30 +383,34 @@ The platform a host runs is one admin screen, because these are **host-level** f
     - Token requires standard scopes: `repo` (for private repos, branches, commit discovery) and optional `admin:repo_hook` (for zero-config auto-webhook creation).
     - Status badge confirms live connectivity: `✅ GitHub Connected: @username (38 repositories available)`.
   - **Add-Website Wizard (Zero-Friction Creation)**:
-    - Source selection offers **GitHub**: dropdown auto-populates all user repositories via `GET /api/v1/me/git/repos` with real-time fuzzy search.
-    - Selecting a repository automatically loads branches (`GET /api/v1/me/git/repos/:owner/:repo/branches`) and pre-selects default branch (`main` / `master`).
+    - Source selection offers **GitHub**: dropdown auto-populates the connected account's repositories via `GET /api/v1/me/git/providers/:id/repos` with real-time fuzzy search.
+    - Selecting a repository automatically loads branches (`GET /api/v1/me/git/providers/:id/branches?repo=<owner/repo>`) and preselects the repository's own `defaultBranch`.
     - Single toggle: `[x] Auto-deploy on Git push`.
-  - **App Detail Layout ("Anti-Ruwet" Clean Vercel-Style Git & Deploy Tab)**:
+  - **App Detail Layout ("Anti-Ruwet" Clean Vercel-Style Git & Deploy Tab)** — the mode badge and history timeline are implemented; the visual regrouping below is the remaining work:
     - To eliminate clutter ("ruwet") from the project detail page, the `Deploy` tab is streamlined into two primary sections:
       1. **Source & Deployment Card (Top)**:
          - Repository & Branch badge: `github.com/user/project [Branch: main ▾]`.
-         - Auto-Deploy Switch: `Auto-Deploy: [ON / OFF]` with real-time status (`Webhook Active` or `Polling every 2m`).
+         - Auto-Deploy Switch: `Auto-Deploy: [ON / OFF]` with real-time status (`Webhook Active` or `Polling every 5m`, using the site's configured interval).
          - Primary Action: Clean, prominent **`[ Redeploy Now ]`** button.
-      2. **Deployment History (Bottom)**:
-         - Clean timeline table of past deploys: commit hash, commit message, author, deployment date/time, duration, status (success/failed), and `[ View Log ]` modal trigger.
+      2. **Deployment History (Bottom) — implemented**:
+         - Clean timeline table of past deploys: commit hash, commit message, author, trigger, deployment date/time, duration, status (success/failed), and a `[ View Log ]` action that replays the persisted log in the live terminal. Data comes from `GET /websites/:slug/deploy/history`; the pipeline keeps the newest ten jobs per site.
       3. **Advanced Collapsible Accordion (`Advanced Build & Shell Settings`)**:
          - Build script editor (`composer install`, `npm run build`), environment variable injection overrides, and raw SSH Deploy Keys are tucked inside a closed-by-default accordion, so 95% of users never see unnecessary complexity.
 
 - **Auto-Deploy on Push Without Manual Webhook Setup**:
-  - **Mode 1: Zero-Configuration Auto-Webhook Registration (For Public/Tunnel Hosts)**:
-    - If the user provided a GitHub PAT with `admin:repo_hook` and the panel has a reachable public URL (direct domain or active Cloudflare Tunnel):
-    - When the operator enables "Auto-Deploy", the BarePod daemon **automatically calls the GitHub API (`POST /repos/:owner/:repo/hooks`)** to register the panel's deployment webhook.
+  - **Mode 1: Zero-Configuration Auto-Webhook Registration (For Public/Tunnel Hosts) — implemented**:
+    - `POST /websites/:slug/git/auto-deploy` with `mode: "auto"` (what the Deploy tab sends when the toggle moves):
+    - If the panel has a public address (`panel_fqdn`, or a public request host) and the tenant stored a GitHub PAT, the daemon **calls the GitHub API (`POST /repos/:owner/:repo/hooks`)** with the site's `deployHookToken` URL and records `autoDeployMode: "webhook"`.
+    - A 422 "already exists" counts as success. With `mode: "webhook"` an explicit failure answers `502 webhook_registration_failed` instead of pretending; `mode: "auto"` falls back to polling.
+    - **The hook is lifecycle-managed**: before creating, the daemon lists `GET /repos/:owner/:repo/hooks` and, if this site's hook exists, **PATCHes** it to the current URL (so a panel hostname change does not leave GitHub calling a stale address). Disabling auto-deploy **DELETEs** the hook, so a push stops calling the panel instead of being silently ignored. Repo/branch edits on a webhook-mode site refresh the hook in the background.
+    - 401/403/404 are reported as actionable messages (invalid token, missing `admin:repo_hook`/repository access, repository not visible) rather than a bare status number.
     - The operator never has to copy-paste URLs, configure secrets, or open GitHub settings manually.
-  - **Mode 2: Smart Commit Polling Fallback (For Local Network, Staging & Private IP Hosts)**:
-    - If the server has no public IP, no active tunnel, or if the PAT lacks webhook administration permissions:
-    - The built-in maintenance scheduler runs a lightweight background watcher (`git_commit_watcher`) that checks remote branch HEAD via GitHub API (`GET /repos/:owner/:repo/commits/:branch`) or lightweight `git ls-remote` every 2–5 minutes.
-    - If the latest commit SHA differs from the locally deployed commit SHA, BarePod automatically triggers the deployment pipeline (`git pull` + build + service reload).
-    - **Outcome**: Auto-deploy works 100% seamlessly on local lab servers, LAN environments, and private VPS without requiring any webhook or open inbound ports!
+  - **Mode 2: Smart Commit Polling Fallback (For Local Network, Staging & Private IP Hosts) — implemented**:
+    - If the server has no public address, no PAT, or the token lacks `admin:repo_hook`, the daemon records `autoDeployMode: "poll"`.
+    - The built-in scheduler runs `git_commit_watcher` (default every 5 minutes, 5-minute timeout, per-site interval clamped 60–86400 seconds via `autoDeployPollSec`): it reads the local `HEAD` **from the `.git` files with no subprocess**, checks each **unique (repo, branch)** only once (staging + production of the same repository share the answer), runs at most **4 remote checks concurrently** with a 45-second timeout each, then starts a redeploy (`trigger: "poll"`) when they differ.
+    - The Deploy tab exposes **Check now** (`POST /websites/:slug/git/check`) for one on-demand tick, shows `lastGitPollAt` and lets the operator pin the mode (`auto`, `webhook`, `poll`). The mode badge reports what actually resolved, not what was requested.
+    - It skips a site whose deploy is already `pending`/`running`, and a suspended owner's sites. A repository it cannot reach is reported in the job output without failing the run for other tenants.
+    - **Outcome**: Auto-deploy works on local lab servers, LAN environments, and private VPS without a webhook or open inbound ports. Private HTTPS repositories still need the SSH deploy key (or a public repo); the PAT is never placed on a command line.
 
 - **Private Repository Authentication Architecture**:
   - **Per-Website ED25519 SSH Deploy Key (Standard & Universal Fallback)**:
@@ -455,19 +462,20 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - Allows multiple tenant accounts (e.g., `admin` and `suprion7`) to independently create websites, databases, and pods with common, friendly names (e.g., `blog`, `portfolio`, `wordpress`).
   - When provisioning (`POST /api/v1/websites`), if `slug` is globally vacant, it is retained directly. If already claimed by another user, the daemon automatically provisions `<tenantUser>-<slug>` (e.g. `suprion7-blog`), preventing `/etc/<webserver>/sites-available/barepod-<slug>.conf` and systemd unit collisions.
   - Per-tenant isolated filesystem hierarchy: `/home/<tenantUser>/web/<name>` (or `<slug>`), owned by that tenant's dedicated Linux UID.
-- **Cross-View Multi-Tenant Sorting & Filtering**:
+- **Cross-View Multi-Tenant Sorting & Filtering (client-side)**:
   - In `AppsView`, `PodsView`, and `DatabasesView`, administrators can filter resources by tenant owner (`All Owners` or `@<tenantUser>`).
   - Multi-attribute sort controls support sorting by Owner/Tenant, Name, Status, Runtime/Engine, and Size, with instant A-Z / Z-A direction toggles.
   - Interactive table column headers support 1-click toggle sorting with directional arrow indicators.
+  - The sort/filter happens in the browser. The server-side query contract (`?owner=&sort_by=&order=`) is **not served yet** — see `API_CONTRACT.md` §4.2.
 
 ## 4. Implementation Status & Development Roadmap
 
 > [!IMPORTANT]
 > **Current Real Condition:**
-> **Phase 1 (frontend)**: complete as a **prototype**, and now **wired to the API where the daemon already covers it** — sign-in, the website list, per-website metrics, the file manager, databases & caches, monitoring and a real terminal are live. Pods, backups, domains, tunnels and the traffic-map telemetry still run on mock data.
+> **Phase 1 (frontend)**: complete as a **prototype**, and now **wired to the API where the daemon already covers it** — sign-in, the website list, per-website metrics, the file manager, databases & caches, monitoring, a real terminal, domains & SSL, Cloudflare tunnels and Panel Settings are live. Pods, backups/migration and the traffic-map telemetry's live-host verification are still pending.
 > **Phase 2 (Go daemon)**: SQLite/WAL + migrations · Argon2id + opaque session cookies with CSRF, instant revoke, elevated mode, audit log · per-account RBAC where a group is also the resource package, with a **live capacity guard** · the `barepod` CLI (+ the `fs-exec` privilege-drop helper) · an **8-step asynchronous deploy pipeline** with a persisted job log over SSE · a **file manager** with a separator-safe path jail and tenant-credential helper · **PTY terminals** with one-time tickets · **host and per-website metrics** (raw numbers) · **LXC-aware capability reporting** with reasons and advice.
 > **Execution modes are honest:** real work only on Linux with systemd; everywhere else **dry-run** — units and `.env` are written, nothing is started, and the API reports `mode: "dry-run"` instead of a fake success.
-> **Next:** The single source of truth is maintained in `MASTER_PLAN.md` and `API_CONTRACT.md`. Tenants & User Groups, one PHP website end to end (nginx + php-fpm pool writer), databases & caches, watchdog, and The Stack (dynamic runtimes, dynamic CPU arch, ingress collision prevention, hybrid multi-engine, dry-run plan modal) are live and measured. Next scheduled modules: domains & TLS, backups, pods and tunnels.
+> **Next:** The single source of truth is maintained in `MASTER_PLAN.md` and `API_CONTRACT.md`. Tenants & User Groups, one PHP website end to end (nginx + php-fpm pool writer), databases & caches, watchdog, and The Stack (dynamic runtimes, dynamic CPU arch, ingress collision prevention, hybrid multi-engine, dry-run plan modal) are live and measured, and domains & TLS, Cloudflare tunnels and Panel Settings are live too. Next scheduled modules: finish Universal Git CI/CD (v0.3.9), then backups/migration, pods, and API & MCP.
 
 ### 4.1. Component Status Table: Simulated Frontend vs Real Backend
 
@@ -493,14 +501,15 @@ The platform a host runs is one admin screen, because these are **host-level** f
 | **Docker Pods & Containers** | ✅ Complete (PodsView, deploy/config modals) | ⏳ Not yet (Docker Engine SDK) | **UI Simulation** |
 | **Backup & Migration Hub** | ✅ Complete (wizard, token, `.bpod`) | ⏳ Not yet (rsync stream, S3/R2) | **UI Simulation** |
 | **World Traffic Map & Streaming Telemetry** | ✅ Complete (vector map with equirectangular projection, pulsing pins, live SSE listener, light/dark console) | 🟡 Ingests Caddy/Nginx access logs, dynamic GeoIP (`ip-api.com`), host physical detection, private IP mapping, SSE stream handler mounted (`/api/v1/websites/:slug/telemetry/stream`). All unit tests pass; pending live verification on host 172.19.1.26 (offline/blackout). | **Implemented in Code (Pending Live Verification 🟡)** |
-| **Universal Multi-Tenant Git CI/CD** | ⏳ Deploy tab UI & wizard source selector | ⏳ Contract designed: ED25519 per-site deploy key generator (`0600`), AES-256-GCM user token vault, webhook push-to-deploy runner (`POST /api/v1/webhooks/deploy/:slug?token=...`) | **Scheduled (Contract Planned 📋)** |
+| **Universal Multi-Tenant Git CI/CD** | ✅ Live (Profile GitHub PAT, Add-Website repo/branch auto-discovery, Deploy tab with git settings, deploy key card, auto-deploy toggle + mode badge + `Check now`, deploy history table) | ✅ `user_git_providers` (AES-256-GCM per `user_id`), repo/branch discovery through the provider API, ED25519 per-site deploy key (`0600`), `GET|PUT|PATCH /websites/:slug/git`, `POST .../git/deploy-key/rotate`, `POST .../git/auto-deploy` with **webhook create/update/delete lifecycle** + polling fallback, `POST .../git/check`, public push webhook (`POST /webhooks/deploy/:slug?token=`), **per-site single-flight deploy**, `git_commit_watcher` scheduler job (deduped per remote, 4 concurrent checks), `GET .../deploy/history` | **Live (v0.3.9; GitHub discovery — GitLab/Gitea/Bitbucket discovery pending)** |
 | **Per-App Access Control & Security** | ✅ Complete (503 maintenance mode, HTTP Basic Auth, IP allowlist/denylist, rate limiting, live preview) | ✅ `GET|PUT /websites/:slug/security`, `POST .../maintenance/toggle`, `POST .../basic-auth/toggle`. Generates dark-mode 503 HTML with pulse badge & countdown, `.htpasswd` with bcrypt, IP matchers, rate-limiting across all 4 web servers (Nginx, Caddy, Apache, OpenLiteSpeed) + atomic hot-reload. Verified live on host. | **Live (verified on LXC)** |
 | **In-Panel Self-Update (OTA Engine)** | ✅ Complete (Settings → System & Updates: manifest discovery, release notes viewer, live SSE console, auto-reload) | ✅ `GET /system/updates/check`, `POST /system/updates/apply`, `GET /system/updates/stream`. Atomic binary swap, SHA-256 manifest verification, binary smoke test, automated backup & supervisor restart. | **Live (verified on LXC)** |
-| **System Cron & Maintenance Scheduler** | ✅ Complete (Cron tab: enable/disable, editable schedule, Run Now, last run + log per job; the duplicate job list from the old System & Cleanup tab is gone and that tab is merged into Cron) | ✅ In-daemon scheduler (`internal/scheduler`) with its own 5-field cron matcher (plus `@daily`… aliases), `system_cron_jobs` table (migration V24, seeded idempotently from the job registry so an update never re-enables what an operator turned off), `GET /cron/jobs` returns real state, `PUT /cron/jobs/system/:id`, `POST /cron/jobs/system/:id/run`. **All eleven jobs are implemented and executed**: service_watchdog, metrics_prune, logrotate, ssl_renew, disk_alert, smart_test, fstrim, docker_prune, system_junk, security_updates (unattended-upgrade, else apt-get upgrade with the dpkg lock timeout), db_maintenance (PostgreSQL VACUUM ANALYZE; MariaDB/MySQL OPTIMIZE TABLE through `internal/enginedb`). Per-job timeouts (apt 60m, DB 30m). Jobs that free or change disk state start disabled | **Live** |
+| **System Cron & Maintenance Scheduler** | ✅ Complete (Cron tab: enable/disable, editable schedule, Run Now, last run + log per job; the duplicate job list from the old System & Cleanup tab is gone and that tab is merged into Cron) | ✅ In-daemon scheduler (`internal/scheduler`) with its own 5-field cron matcher (plus `@daily`… aliases), `system_cron_jobs` table (migration V24, seeded idempotently from the job registry so an update never re-enables what an operator turned off), `GET /cron/jobs` returns real state, `PUT /cron/jobs/system/:id`, `POST /cron/jobs/system/:id/run`. **All twelve jobs are implemented and executed**: service_watchdog, metrics_prune, logrotate, ssl_renew, disk_alert, smart_test, fstrim, docker_prune, system_junk, security_updates (unattended-upgrade, else apt-get upgrade with the dpkg lock timeout), db_maintenance (PostgreSQL VACUUM ANALYZE; MariaDB/MySQL OPTIMIZE TABLE through `internal/enginedb`), and git_commit_watcher (the polling half of Git auto-deploy). Per-job timeouts (apt 60m, DB 30m). Jobs that free or change disk state start disabled | **Live** |
 | **Notifications & Alerting** | ✅ Complete (Settings → Alerts & Webhooks persists to the daemon; secrets are write-only and masked; “Send Test Ping” delivers for real) | ✅ `internal/notify` with Telegram, Discord and SMTP (STARTTLS) channels; config in `panel_settings` with the bot token, webhook URL and SMTP password encrypted under the panel key; `GET|PUT /system/notifications`, `POST /system/notifications/test`. The `disk_alert` job sends through it at the configured threshold | **Live** |
 | **Panel Settings & PHP Defaults** | ✅ Complete (horizontal top tabs, w-full responsive layout, php blueprint editor & module inspector; the System & Cleanup tab was removed — its jobs live in Cron) | ✅ `GET|PUT /system/settings/php-defaults` (persisted in SQLite `panel_settings`, generates `/etc/php/<ver>/mods-available/99-barepod-tuning.ini`, runs `phpenmod -v <ver>` and enables blueprint extensions, reloads `php<ver>-fpm`), `GET|PATCH /system/settings`, `GET|POST /system/ports/*`, **host timezone read/applied via `timedatectl`** (`GET|POST /system/time`), **enforced admin session lifetime** (`sessionTimeoutHours`, checked per request) and an **enforced panel IP allowlist** (`panelAccessGuard`, loopback always allowed, `/api/v1/health` exempt) | **Live** |
 | **Panel Own Domain (Cloudflare) & Host Binding** | ✅ Complete (Settings → General: “Use Cloudflare” toggle + zone picker from the admin's account) | ✅ `GET /panel/tunnel`, `POST /panel/tunnel/publish`, `POST /panel/tunnel/unpublish` (admin only), `panel_fqdn` + `panel_use_cloudflare` in `panel_settings`, host-binding middleware (`403 host_not_allowed` while Cloudflare is on; IP access always works), Cloudflare run/API tokens are never returned | **Live** |
-| **URL Routing & Deep-link** | ✅ Complete (`/apps/<slug>/<tab>`, `/settings/<tab>`, …) | ✅ SPA fallback in the daemon | **Live** |
+| **Cloudflare Zero Trust Tunnels** | ✅ Complete (tunnel token, zones, ingress routes, panel hostname, numeric/RSS/uptime status) | ✅ `GET /tunnels/status`, `POST /tunnels/token`, `GET /tunnels/zones`, `POST|PUT|DELETE /tunnels/routes`, `POST /tunnels/sync|restart`, Cloudflare API client, per-tenant `barepod-tunnel@<tenant>.service`, token never readable back | **Live** |
+| **URL Routing & Deep-link** | ✅ Complete (`/apps/<slug>/<tab>`, `/settings/<tab>`, …; legacy detail views stay valid after the tab grouping, with `observability`/`php` aliases) | ✅ SPA fallback in the daemon | **Live** |
 
 ---
 
@@ -527,8 +536,8 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - ✅ **LXC-aware degradation**: `GET /system/capabilities` also returns a **`limitations[]`** list (reason + advice) for what an unprivileged container cannot do — S.M.A.R.T. (no block device), fstrim (no discard; use host `fstrim.timer` or pool `discard`/`autotrim`), `setquota` (use host-side quotas) — instead of showing an error. CPU/RAM capacity stays container-aware.
   - ✅ **Metrics** (`internal/metrics`): a background sampler (default 15s, ring buffer in memory) serves `GET /system/metrics?range=1h` and `GET /websites/:slug/metrics`. Host figures come from `/proc` (stat deltas, meminfo, diskstats, net/dev) with real deltas — the first sample reports rates as 0 instead of averaging over uptime — and per-website figures from cgroup v2 (`memory.current`, `memory.max`, `pids.current`, `cpu.stat`). Raw numbers + RFC3339 only; a metric the host cannot provide is **unavailable with a reason**, never a fake zero. The host **core count has one source** — `resources.DetectCPUCores` (cgroup `cpu.max` → `cpu/online` → `NumCPU`), shared with the capacity guard — instead of counting `/proc/stat` `cpuN` lines, whose set differs inside a container (a cpuset like `cpu4,cpu12,cpu13,cpu21` made `max+1` report 22 for a 4-core box, and drifting as the host moved the container between cores).
   - ✅ **Frontend wired to the API**: `src/api/client.ts` (session, websites, deploy SSE, files, terminal ticket, metrics, capacity), `useSession` (daemon reachable → real login; otherwise the prototype stays in simulation mode with its mock data), a real **sign-in screen** (with the `barepod admin create` hint), the website list loaded from the daemon with per-site metrics, a **live terminal pane** (`@xterm/xterm`) over the ticketed WebSocket — tenant shell per website, host shell switch for admins — and the **File Manager tab on real files** (list/save/create/rename/copy/move/delete/upload/zip/preview with a Live badge, mock tree only when no daemon answers).
-  - ✅ **Website lifecycle**: `DELETE /websites/:slug` tears a site down for real (stop + disable the unit, remove the drop-in and reload systemd, delete the app directory **inside the sites root only**, forget the secrets and the row) and `POST /websites/:slug/redeploy` re-runs the pipeline from the source recorded at create time, keeping the existing database and cache. No more cleaning up by hand after a failed deploy.
-  - ✅ **Version has one source**: `api.Version` (0.3.4-prototype) is what `/health` reports, what the CLI prints and what the footer shows.
+  - ✅ **Website lifecycle**: `DELETE /websites/:slug` tears a site down for real (stop + disable the unit, remove the drop-in and reload systemd, delete the app directory **inside the sites root only**, forget the secrets and the row) and `POST /websites/:slug/redeploy` re-runs the pipeline from the source recorded at create time, keeping the existing database and cache. No more cleaning up by hand after a failed deploy. **One deploy per site at a time**: `deploy.Manager` holds an in-memory per-slug slot, so a manual redeploy, a webhook push and the commit watcher cannot race on the same files; the second request answers `409 deploy_in_progress` (the webhook sees `200 ignored` so GitHub does not log a failure).
+  - ✅ **Version has one source**: `api.Version` (**0.3.9**) is what `/health` reports, what the CLI prints and what the footer shows.
   - ✅ **Self-install as a systemd service**: `barepod service install` writes the daemon unit from the same flags as `serve`, enables + starts it, and `service status|uninstall` manage it. Verified on the LXC: active + enabled, and killing the process by force brings it straight back (`Restart=always`).
   - ✅ **Deploys own their files as the tenant** (fixed): `Runner.RunAs` runs a command with the tenant's UID/GID and HOME, `RunInSite` and the GitHub clone go through it, and the source step ends with a `chown -R <tenant>` on the site directory — so a scaffolded `.venv` or a cloned repo belongs to the tenant instead of root, and sites deployed before the fix are repaired by their next deploy. Verified on the LXC: the old `root:root` `.venv` came back as `bptest:bptest` after a redeploy, and a fresh Flask scaffold had zero root-owned files. Install scripts no longer run as root either (a supply-chain win, not just tidiness).
   - ✅ **Databases & Caches module (0.3 reached)**: SQLite file engine with live `os.Stat` size reporting & `.trash` Recycle Bin, Redis multi-tenant ACL users with key prefix restrictions and password rotation, AES-256-GCM vault with elevated sessions, and live UI Reveal/Rotate click-through.
@@ -537,8 +546,8 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - ✅ **PHP website end to end**: `internal/phpfpm` writes the pool (`<site>/php-fpm.conf`, tenant-owned, unix socket inside the site, `open_basedir` = site + `/tmp`), `internal/webserver` writes the nginx/caddy vhost (`fastcgi_pass` to socket, read access granted to `www-data` via setgid). Verified on LXC: `php-demo.test` answers "Hello from PHP 8.3.6 as bptest" through both nginx and caddy.
   - ✅ **The Stack (host-level package management)**: detection and dynamic discovery of runtimes (Node, Go, Python, PHP 5.6–8.5 with dynamic extension discovery, Ruby, Rust), databases, and 4 web servers. Hybrid multi-engine concurrent execution (ports 8080/8088/8081) and primary edge ingress switching (Nginx/Caddy) without port collisions. Dynamic CPU architecture resolution (x64/arm64). Database migration pre-flight plan modal (`GET /system/stack/plan`) and dedicated runtime uninstall confirmation modal.
   - 🟡 **World Traffic Map & Streaming Telemetry (implemented in code, pending live host verification)**: `GET /api/v1/websites/:slug/telemetry` & `GET /api/v1/websites/:slug/telemetry/stream` (SSE). Real-time access log ingestion (Caddy JSON, Nginx/Apache CLF), threat detection, dynamic GeoIP lookup (`ip-api.com` with in-memory cache), automatic host location detection, and RFC1918 private IP mapping. All unit tests pass; awaiting live traffic test on host 172.19.1.26.
-* **Phase 3: Universal Git CI/CD, Container Pods & Integrations (SCHEDULED 📋)**:
-  - 📋 **Milestone v0.3.9 — Universal Multi-Tenant Git CI/CD & Deploy Key Engine**: Per-user Git accounts (`user_git_providers` table, AES-256-GCM encrypted tokens) in `/profile`, auto-discovery of repos & branches in Add-Website wizard, zero-config auto-deploy on push (API-registered webhooks + fallback commit watcher polling for local/LAN hosts), per-website ED25519 deploy keypair (`0600`) for private repos without user tokens, webhook push-to-deploy runner (`POST /api/v1/webhooks/deploy/:slug?token=...`) with streaming build logs, and streamlined Vercel-style clean Deploy tab in App Detail page.
+* **Phase 3: Universal Git CI/CD, Container Pods & Integrations (IN PROGRESS 🚧)**:
+  - ✅ **Milestone v0.3.9 — Universal Multi-Tenant Git CI/CD & Deploy Key Engine (reached in code; live-host Git verification pending)**: **live** — per-user Git accounts (`user_git_providers`, AES-256-GCM), GitHub PAT verification, repo/branch auto-discovery in the Add-Website wizard, the wizard's auto-deploy toggle persisted at create, per-website ED25519 deploy keypair (`0600`), webhook push-to-deploy (`POST /api/v1/webhooks/deploy/:slug?token=...`), `POST /websites/:slug/git/auto-deploy` (GitHub webhook registration with polling fallback), the in-daemon `git_commit_watcher` job (deduped and concurrent), `POST .../git/check` with the Deploy tab's mode badge/`Check now`/last-check time, webhook update-and-delete lifecycle, deploy single-flight (a manual, webhook and poll trigger cannot run together), deploy history (`GET .../deploy/history`) and ownership checks on every deploy-log route. **Remaining** — Vercel-style visual restructure of the tab (source card first, advanced settings collapsed), repo/branch discovery for GitLab/Gitea/Bitbucket, and an ETag-based GitHub API poll for private HTTPS repositories.
   - Docker Engine SDK (`docker/moby`) integration for container pod management.
   - Pod lifecycle (create, start, stop, rebuild, env, volumes, port mapping).
 * **Phase 4: Web Server & Network Automations (PARTIALLY LIVE 🟡)**:
@@ -557,7 +566,7 @@ The platform a host runs is one admin screen, because these are **host-level** f
 
 * **Deferred — known, deliberate, not scheduled**:
   - 📋 **Modal overlays are still vertically centred** (`fixed inset-0 … flex items-center justify-center`, 44 call sites). Now that every modal caps itself at `max-h-[92dvh]` (92% + the 32px overlay padding still fits a 375×667 phone), nothing is clipped, so the sweep was skipped as not worth the churn. If a short **landscape** screen ever shows a modal's header or footer cut off, change the overlays to `items-start sm:items-center` and add `overflow-y-auto` — the conventions live in `frontend/README.md`.
-  - 📋 **`PodConfigModal` breaks rules-of-hooks**: a `if (!isOpen || !pod) return null;` sits *before* its ~26 `useState` calls, which is what makes `npm run lint` exit non-zero (26 errors). The parent mounts the modal conditionally, so it does not bite today. The fix is to move the guard below the hooks — the initial state reads `pod.name` and friends, so it is a small refactor (optional chaining or a non-null default), not a one-line move.
+  - ✅ **`PodConfigModal` rules-of-hooks — fixed.** The modal is now a tiny wrapper with no hooks that mounts `PodConfigModalInner` only when a pod exists, so the hook order is always the same. `npm run lint` (`oxlint`) exits **0 errors** today; the 237 remaining findings are `react-hooks(exhaustive-deps)` **warnings** in long-lived effects (mostly Settings/Profile loaders). They are deliberate for now — adding every callback to those dependency arrays would re-run network loads — but they are the next lint cleanup if the project decides warnings must be zero.
 
 ---
 
@@ -652,11 +661,11 @@ The panel must be automatable without the UI — for users, CI/CD, and **AI agen
 Locked decisions to be implemented in Phase 2/3:
 
 1. **Tenant isolation model — Hybrid (LOCKED).**
-   - **Websites** run **native**: one Linux user per tenant, app directory `/home/<tenant>/apps/<site>`, per-app service, resource limits via **cgroups v2**. Native-first because it is light, instant to start, and works in **LXC without `security.nesting`** (AMD64/ARM64 friendly).
+   - **Websites** run **native**: one Linux user per tenant, app directory `/home/<tenant>/web/<site>` (legacy `apps/<site>` is migrated on first touch), per-app service, resource limits via **cgroups v2**. Native-first because it is light, instant to start, and works in **LXC without `security.nesting`** (AMD64/ARM64 friendly).
    - **Pods** run as **Docker containers** (Phase 3, Docker SDK): images / Dockerfile / compose for heavier services and prebuilt images.
    - Consequence: two operational paths (files, terminal, logs, backup) — the daemon must abstract them behind one interface so the UI stays the same.
 2. **Process supervision — Hybrid (LOCKED).**
-   - **Long-running services** (Node, Python, Go, Rust, Ruby, and other daemons) run as **systemd units**, generated from a **template** `barepod-app@<site>.service` with a per-site drop-in: `User=<tenant>`, `WorkingDirectory=/home/<tenant>/apps/<site>`, `EnvironmentFile=.env`, `Restart=always`, `RestartSec=3`, `MemoryMax=`, `CPUQuota=`, `ProtectSystem=strict`, `ReadWritePaths=/home/<tenant>`, `PrivateTmp=yes`. Units are `enable`d so apps come back after a reboot; logs are read via `journalctl -u`.
+   - **Long-running services** (Node, Python, Go, Rust, Ruby, and other daemons) run as **systemd units**, generated from a **template** `barepod-app@<site>.service` with a per-site drop-in: `User=<tenant>`, `WorkingDirectory=/home/<tenant>/web/<site>`, `EnvironmentFile=.env`, `Restart=always`, `RestartSec=3`, `MemoryMax=`, `CPUQuota=`, `ProtectSystem=strict`, `ReadWritePaths=/home/<tenant>`, `PrivateTmp=yes`. Units are `enable`d so apps come back after a reboot; logs are read via `journalctl -u`.
    - **PHP websites** get their **own php-fpm master**, started by the site's unit with `--fpm-config <site>/php-fpm.conf`. One master per site is deliberate: the unit is what carries the package's cgroup limits (RAM/CPU/tasks) and the per-tenant isolation, so a shared system-wide FPM service with pools would leave a PHP site the only kind without limits. (This supersedes the earlier "no per-app unit" wording; the pool is a `[www]` section inside the panel-owned config, and a reload is a restart of that one master.)
    - **One-shot jobs** (build/deploy, migrations, rsync backup, prune, terminal sessions) are **managed by the daemon itself** as short-lived jobs in their own cgroup session — they are not daemons.
    - Fallback: if systemd is unavailable (minimal containers), the daemon can supervise long-running services internally; this capability is reported by `GET /system/capabilities`.
@@ -711,7 +720,18 @@ All kickoff decisions are **LOCKED** — Phase 2 can start.
   4. Restart daemon: `systemctl restart barepod`.
   5. Verify by host measurement: `systemctl is-active barepod`, journalctl logs, listening sockets (`ss -tulpn`), and database state.
 
-### 9.2. Traps & Rules
+### 9.2. Updating an existing installation (safety contract)
+
+An update must not change behaviour an operator did not ask for. The rules:
+
+- **Migrations are append-only and additive.** A new release only adds migrations; it never rewrites one that already ran. New columns come with a default (V27 added the auto-deploy/deploy-history columns this way), so every existing row remains readable without a rewrite of the table.
+- **V28 protects existing Git sites.** Rows from before V27 have `auto_deploy = 1` (the old column default) but no resolved mode. V28 backfills `auto_deploy_mode = 'none'`: a **manually configured webhook keeps working exactly as before** (the public endpoint still checks `auto_deploy`), while the new `git_commit_watcher` only polls sites explicitly set to `poll`. Without this, an upgrade would have started deploying old repositories on its own.
+- **After updating, the Deploy tab says "Manual webhook only"** for such a site. Choosing `Auto`, `Webhook` or `Polling` (or using **Check now**) is an explicit opt-in to managed auto-deploy.
+- **API changes are additive.** New endpoints and response fields do not replace old ones; the provider repo list returns both `repos` and the legacy `items` key so an older client keeps parsing it. A breaking rename is a versioned milestone, not a silent update.
+- **The OTA updater snapshots before swapping.** `POST /system/updates/apply` backs up the SQLite database (with WAL) and the current binary/dist, runs a smoke test, swaps atomically, and rolls back if the new daemon fails its health check (`MASTER_PLAN` §3.12). `barepod uninstall` is not part of an update.
+- **What is not automatic:** no existing website is redeployed by an update, no package limit changes, no cron job an operator disabled is re-enabled (`INSERT OR IGNORE` seeding), and no stored secret is re-encrypted or invalidated.
+
+### 9.3. Traps & Rules
 - **Direct, honest claims**: A mock is labelled `Not applied: ...`. Every "done" must be measured on the host, not just compiled.
 - **Credential hygiene**: Passwords, SSH keys, and secret tokens must NEVER be committed to git.
 - **Commits**: Commits carry no co-author trailers. Changes to behavior must update documentation in the same commit.

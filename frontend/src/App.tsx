@@ -601,6 +601,9 @@ export function App() {
             repo: created.runtime === 'proxy' ? undefined : newApp.gitRepo,
             branch: created.runtime === 'proxy' ? undefined : newApp.gitBranch,
           },
+          // The wizard's toggle used to be stored only in local state; the daemon needs it so a
+          // site created with auto-deploy off does not start polling its repository anyway.
+          autoDeploy: created.runtime === 'proxy' ? undefined : (newApp.gitRepo ? newApp.autoDeploy : undefined),
           database:
             created.runtime !== 'proxy' && newApp.dbAutoProvision && newApp.dbEngine
               ? { engine: newApp.dbEngine, name: newApp.dbName, user: newApp.dbUser }

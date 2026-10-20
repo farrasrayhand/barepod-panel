@@ -7,7 +7,7 @@
 ### Implementation status
 
 | Already served by the daemon | Contract only (planned) |
-| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `system/guard` (+ `unban`) · `system/settings` · `system/ports` (panel/ssh) · **the Stack**: `system/stack` + `web-server` switch + allowlisted `install` (job + real-time verbose **SSE stream** via `RunDetachedStream`) + dedicated uninstall modal + targeted PHP extensions sync (`version: "all" \| "<X.Y>"`) + Rustup channel selection (`stable`, `beta`, `nightly`) · **accounts & packages**: `users` list/create/patch/delete + password reset + `provision`, `groups` list/create/`PATCH`/delete · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · **all 4 web servers (nginx, caddy, apache, openlitespeed vhosts & concurrent ports)** · **`runtime` (get/put) + `vhost/preview` + `php-fpm/reload`** · **PHP web shell defense (`disable_functions` default & upload directory `.php` block)** · **PHP extensions toggle (`system/php/extensions`) & host tuning blueprint (`system/settings/php-defaults`)** · **Framework version detection (`GET /websites/:slug/detect-framework`, `POST /websites/detect-framework`) & version guardrails** · **Operational command execution (`POST /websites/:slug/exec`)** · **Non-destructive .env injection & merge** · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**, plus **DbGate** as a per-database container), and a real logical **`export`** · **Domains & Automated SSL/TLS**: `domains` list/`POST`/`DELETE`, Cloudflare Tunnel vs Direct IP routing mode detection (`isTunnelConnected`), ACME Let's Encrypt automated issuance with preflight DNS check, self-signed local generator, custom cert upload, 301 Force HTTPS redirection, HSTS headers, and vhost hot-reload · **Website Telemetry & Traffic Map** (`GET /websites/:slug/telemetry` + SSE stream, implemented in code, pending live host verification) · **Universal Git Providers & Deploy Keys** (`GET /websites/:slug/git/deploy-key`, rotate, `/git/providers`) · **Push-to-Deploy Webhooks** (`POST /api/v1/webhooks/deploy/:slug` & `/webhook/:slug/deploy`) · **Centralized Cron & Scheduled Tasks** (`GET\|POST\|PUT\|DELETE /api/v1/cron/jobs`, `POST /api/v1/cron/jobs/:id/run`) · **In-Panel Self-Update (OTA Engine)** (`GET /api/v1/system/updates/check`, `POST /api/v1/system/updates/apply`, `GET /api/v1/system/updates/stream`) | Pods (Docker) · backups & migration · MCP server · per-app access control (503, basic auth, anti-brute-force) · per-site custom php.ini directive editor |
+| `GET /health` · auth: `login`, `logout`, `me`, `verify` (elevated) · `sessions` list + revoke · `audit` · `system/capabilities` (+`limitations[]`) · `system/capacity` · `system/metrics` · `system/guard` (+ `unban`) · `system/settings` · `system/ports` (panel/ssh) · **the Stack**: `system/stack` + `web-server` switch + allowlisted `install` (job + real-time verbose **SSE stream** via `RunDetachedStream`) + dedicated uninstall modal + targeted PHP extensions sync (`version: "all" \| "<X.Y>"`) + Rustup channel selection (`stable`, `beta`, `nightly`) · **accounts & packages**: `users` list/create/patch/delete + password reset + `provision`, `groups` list/create/`PATCH`/delete · `websites` list/get/`POST`/`prepare-directory`/`DELETE`/`redeploy` · deploy job, poll and **SSE stream** · per-website `metrics` · **all 4 web servers (nginx, caddy, apache, openlitespeed vhosts & concurrent ports)** · **`runtime` (get/put) + `vhost/preview` + `php-fpm/reload`** · **PHP web shell defense (`disable_functions` default & upload directory `.php` block)** · **PHP extensions toggle (`system/php/extensions`) & host tuning blueprint (`system/settings/php-defaults`)** · **Framework version detection (`GET /websites/:slug/detect-framework`, `POST /websites/detect-framework`) & version guardrails** · **Operational command execution (`POST /websites/:slug/exec`)** · **Non-destructive .env injection & merge** · `start`/`stop`/`restart` · `secrets` list + reveal · the **whole file manager** (`/files/*`, site + host/tenant scope) · `GET /tenants` · `ws/ticket` + `WS /pty` (site and host, confined to the site) · **databases & caches**: `db-engines`, list/create/get/patch, `rotate-password`, `reveal`, `connection-string`, bin/restore/purge, `recycle-bin`, **`tables`/`query`** for every engine, the gated **`gui`** family (tool list + hosted **pgweb**/**phpMyAdmin**, plus **DbGate** as a per-database container), and a real logical **`export`** · **Domains & Automated SSL/TLS**: `domains` list/`POST`/`DELETE`, Cloudflare Tunnel vs Direct IP routing mode detection (`isTunnelConnected`), ACME Let's Encrypt automated issuance with preflight DNS check, self-signed local generator, custom cert upload, 301 Force HTTPS redirection, HSTS headers, and vhost hot-reload · **Website Telemetry & Traffic Map** (`GET /websites/:slug/telemetry` + SSE stream, implemented in code, pending live host verification) · **Universal Git Providers & Deploy Keys** (`GET /websites/:slug/git`, `PUT|PATCH .../git`, `POST .../git/auto-deploy`, `GET|POST .../git/deploy-key[/rotate]`, `/me/git/providers` + repos/branches) · **Deploy History** (`GET /websites/:slug/deploy/history`) · **Push-to-Deploy Webhooks** (`POST /api/v1/webhooks/deploy/:slug` & `/webhook/:slug/deploy`) · **Per-App Access Control** (`GET|PUT /websites/:slug/security`, `maintenance/toggle`, `basic-auth/toggle`) · **Centralized Cron & Scheduled Tasks** (`GET\|POST\|PUT\|DELETE /api/v1/cron/jobs`, `POST /api/v1/cron/jobs/:id/run`) · **In-Panel Self-Update (OTA Engine)** (`GET /api/v1/system/updates/check`, `POST /api/v1/system/updates/apply`, `GET /api/v1/system/updates/stream`) | Pods (Docker) · backups & migration · MCP server · API tokens · server-side collection filter/sort params · per-website `logs`/`routes`/`backup` endpoints |
 
 `mode: "real" | "dry-run"` appears on every response that depends on privileged work — off Linux+systemd the daemon is in dry-run and says so instead of faking success.
 
@@ -16,7 +16,7 @@
 ## 1. Conventions
 
 - **Base path:** `/api/v1`
-- **Known gaps, recorded rather than implied** (a reader should not assume these exist): the deploy wizard and the redeploy screen call the daemon, but **nothing in this session was verified through a real browser** — every claim is HTTP-level; the manager start has a **bounded retry, not a queue** (a cold open can still take the waiting page, and there is no ordered job queue with per-job status); **domains & automated SSL** (Let's Encrypt / ZeroSSL) is still scheduled (vhost generation for nginx & caddy exists, but automated ACME cert issuance is not yet wired); **per-database exposure is applied per engine and gated behind the watchdog** (a `public` exposure answers `409 guard_required` while it is not enforcing); and the status page's **503 maintenance variant is unused** until the web-server module owns the ports.
+- **Known gaps, recorded rather than implied** (a reader should not assume these exist): the manager start has a **bounded retry, not a queue** (a cold open can still take the waiting page, and there is no ordered job queue with per-job status); **per-database exposure is applied per engine and gated behind the watchdog** (a `public` exposure answers `409 guard_required` while it is not enforcing); collection **filter/sort query parameters are not served** (see §4.2 — the panel sorts client-side); **`GET /websites/:slug/logs`, `/routes` and `POST /websites/:slug/backup` are planned**, not served; and **Pods, API & MCP, and Backup/Migration are still mock** in the UI. Domains & automated SSL, Cloudflare tunnels, Panel Settings and Git CI/CD are served (see §4.8 and §4.8.3).
 - **A milestone is a claim about the daemon, not about a screen.** The deploy and database flows are verified by driving these endpoints (curl on the LXC); a panel screen that does not call them is mock and is labelled as such in the UI (the Add-Website wizard was one until it was wired to `POST /websites`).
 - **Everything is behind one origin.** The panel and every manager it hosts are reached on the panel's own port and path, so a reverse proxy or tunnel (Cloudflare Tunnel, nginx) only has to point at the panel — there is no second hostname or port to expose, and nothing to configure per database. When one is in front, `X-Forwarded-Proto` decides the scheme the *visitor* is on: a manager's absolute URLs (phpMyAdmin's `PmaAbsoluteUri`) and the session cookie's `Secure` flag follow the visitor, not the plain-HTTP hop to the daemon.
 - **Format:** JSON (`application/json`), UTF-8.
@@ -31,7 +31,7 @@
 - **Metrics:** send **raw numbers** (`memoryBytes`, `cpuPercent`), never formatted strings. Formatting (`"42 MB"`, `"0.3%"`) happens in the frontend.
 - **IDs:** internal primary keys are **ULID** (time-sortable and immutable) — never the user-visible name. Websites are addressable by **slug** (URL-friendly) *or* `id`; if a website is renamed, the slug changes and the old slug is kept as a redirect alias so bookmarks and webhooks keep working. Other resources (`/databases/:id`, `/pods/:id`, …) use `id`.
 - **Webhook (public):** `POST /api/v1/webhook/:slug/deploy?token=<deployHookToken>` (no JWT).
-- **Errors:** `{ "error": { "code": "...", "message": "..." } }`, plus a `fields` map on validation failures. Codes: `bad_request`, `validation_error` (+`fields`), `unauthenticated`, `invalid_credentials`, `suspended`, `csrf`, `system_path_protected` (a write into a system tree through the host-wide browser), `elevation_required` (reveal/rotate needs the 5-minute sudo mode), `capability_required` (group lacks the permission), `not_applicable` (the site type has no such capability, e.g. a proxy has no shell/files), `insufficient_capacity` (the packages exceed the server), `forbidden`, `not_found`, `slug_taken`, `directory_missing`, `service_error`, `owner_suspended` (a website's owner account is suspended), `provisioning_failed` / `linux_account_missing` (the Linux account could not be created and the panel account was not added), `internal`.
+- **Errors:** `{ "error": { "code": "...", "message": "..." } }`, plus a `fields` map on validation failures. Codes: `bad_request`, `validation_error` (+`fields`), `unauthenticated`, `invalid_credentials`, `suspended`, `csrf`, `system_path_protected` (a write into a system tree through the host-wide browser), `elevation_required` (reveal/rotate needs the 5-minute sudo mode), `capability_required` (group lacks the permission), `not_applicable` (the site type has no such capability, e.g. a proxy has no shell/files), `insufficient_capacity` (the packages exceed the server), `forbidden`, `not_found`, `slug_taken`, `directory_missing`, `service_error`, `owner_suspended` (a website's owner account is suspended), `provisioning_failed` / `linux_account_missing` (the Linux account could not be created and the panel account was not added), `deploy_in_progress` (one deploy per site at a time), `git_not_configured` / `not_git_checkout` (a Git check was asked for a site without a repository or checkout), `internal`.
 - **Tenant scoping:** collection endpoints return only the caller's own resources; `GET /:id` on someone else's resource is `404`, not `403` (it must not confirm existence). Only role `admin` sees every tenant.
 - **Serving rules (normative):** an unknown **`/api/*`** route always returns the JSON `404` above — it must never fall back to the single-page app, or a client parsing JSON receives HTML. Any *page* path instead serves `index.html`, because deep links such as `/web/<slug>/files` (or legacy `/apps/<slug>/files`) are resolved by the client router on refresh. The client is responsible for correcting a path it does not recognise to a route it does show (it replaces the URL rather than leaving the address bar disagreeing with the screen).
 
@@ -108,24 +108,22 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `POST /websites` — deploy payload from the wizard:
   ```json
   {
-    "name": "example-shop",
+    "slug": "example-shop",
     "domain": "shop.example.com",
     "tenantUser": "admin",
     "webServer": "openlitespeed",
-    "runtime": "php", "version": "8.4", "framework": "Laravel 12",
-    "source": { "kind": "scaffold" },
-    "git": { "repo": null, "branch": null, "autoDeploy": false },
-    "database": { "provision": true, "engine": "postgres", "version": "PostgreSQL 16.4",
-                  "name": "shop_db", "user": "admin_shop_db", "password": "…",
-                  "maxConnections": 25 },
-    "cache": { "provision": true, "engine": "redis", "version": "Redis 7.2.4", "password": "…" },
-    "autoEnv": true,
+    "runtime": "php", "version": "8.4", "framework": "laravel", "frameworkVersion": "12",
+    "source": { "kind": "github", "repo": "https://github.com/acme/shop.git", "branch": "main" },
+    "autoDeploy": true,
+    "database": { "engine": "postgres", "version": "16", "name": "shop_db" },
+    "cache": { "engine": "redis", "version": "7.2" },
     "env": { "APP_KEY": "base64:…", "CUSTOM_VAR": "value" },
+    "deployScript": "composer install --no-dev && php artisan migrate --force",
     "automationSteps": ["composer install …", "php artisan migrate --force"]
   }
   ```
   `env` is an optional `Record<string, string>` map. The deployment pipeline (`stepWriteEnv`) reads pre-existing `.env` (or `.env.example`) and non-destructively merges custom variables alongside database credentials (`DB_*`, `DATABASE_URL`) and Redis cache configurations (`REDIS_*`, `CACHE_STORE`, `CACHE_URL`). Existing keys and secrets are never wiped out or overwritten by blank defaults on redeployment.
-  `source.kind` ∈ `scaffold | github | upload | existing | default`. For `upload` the archive is sent to `POST /websites/:slug/files/upload`; for `existing` the directory must exist **and not be empty** (the daemon returns `409` otherwise, and the job fails with an actionable message); for `default` the daemon writes a single `index.html` (owned by the tenant) and nothing else, so a website can exist and answer before its application does — and a static site needs no `version` (`static` and `proxy` are version-less by contract, which the validator now accepts).
+  `source.kind` ∈ `scaffold | github | upload | existing | default`. `source.repo`/`source.branch` describe the Git source; `autoDeploy` (default `true` for a Git source, `false` otherwise) records the wizard's Auto-Deploy toggle. For `upload` the archive is sent to `POST /websites/:slug/files/upload`; for `existing` the directory must exist **and not be empty** (the daemon returns `409` otherwise, and the job fails with an actionable message); for `default` the daemon writes a single `index.html` (owned by the tenant) and nothing else, so a website can exist and answer before its application does — and a static site needs no `version` (`static` and `proxy` are version-less by contract, which the validator now accepts). `database`/`cache` carry only the engine choice and an optional name/version; the daemon generates credentials and records them in the vault.
 - `source.kind = scaffold` runs the framework's download **and writes its starter entrypoint** when that file is absent (never overwriting uploaded or cloned code), so the site runs as promised: Flask/FastAPI get an `app.py` exposing `/` and `/healthz`, and FastAPI's unit starts gunicorn with an ASGI worker. For Python, virtual environment creation uses the chosen version (`python<version> -m venv .venv`, e.g. `python3.12`) rather than an unversioned system default. A preset that only installed packages would deploy a site that cannot start.
 - **`POST /websites/prepare-directory`** `{ slug, tenantUser }` → `201 { slug, tenantUser, path, created, existed, mode }`. **Tenants have no shell on the server**, so this is how "Existing Files" is reachable from the panel: create the folder here → upload the code with the File Manager → deploy. Idempotent; also gated on `deployApps` and restricted to the caller's own tenant.
 - **`DELETE /websites/:slug` has to be told what happens to the website's databases.** A SQLite file lives *inside* the site directory, so deleting the site used to take the file and leave the record behind, pointing at nothing (`409 not_ready — its file is gone`). The request now answers `409 has_databases` listing them unless it carries `?databases=keep` — the record is detached (its `websiteSlug` cleared) and a file-based database's file is **moved out of the site** into the tenant's own home — `<sites root>/<tenant>/detached/<file>`, handed back to that account so it stays reachable in their File Manager — and the record's `path` is updated, so the manager still opens it — or `?databases=delete`, which purges them with the website. A kept record carries `detachedAt` (migration 8) and `GET /databases?detached=true` lists exactly those, which is what the panel's **Detached** tab shows; the mark is cleared if the record belongs to a website again.
@@ -141,25 +139,18 @@ This is the main rework risk — the UI currently stores some values as presenta
     - Linux Virtual Host configuration path: `/etc/<webserver>/sites-available/barepod-<resolved_slug>.conf`.
     - Systemd Service unit: `barepod-<resolved_slug>.service`.
     - Website Home Directory: `/home/<tenantUser>/web/<name>` (isolated under tenant UID/GID).
-- **Collection Filtering and Sorting Contract**:
-  - `GET /websites?owner=<tenantUser>&sort_by=<field>&order=asc|desc`
-  - `GET /databases?owner=<tenantUser>&sort_by=<field>&order=asc|desc`
-  - `GET /caches?owner=<tenantUser>&sort_by=<field>&order=asc|desc`
-  - `GET /pods?owner=<tenantUser>&sort_by=<field>&order=asc|desc`
-    - `owner`: Optional string to filter resources by tenant username. Permitted for `role: "admin"`; non-admin tenants are strictly scoped to their own resources regardless of parameter.
-    - `sort_by`: `owner | name | status | engine | runtime | size`
-    - `order`: `asc | desc` (default: `asc`).
+- **Collection Filtering and Sorting (client-side today)**: the panel filters by owner and sorts by owner/name/status/runtime/engine/size in the browser (`AppsView`, `DatabasesView`). The server-side query contract `GET /websites?owner=&sort_by=&order=` (and the same for `/databases`, `/caches`) is **not served yet** — the collection endpoints return the caller's scoped items in default order. A caller must not assume the query parameters change the result until this is implemented.
 - **`GET /websites/:slug/deploy`** → the latest job · **`GET /websites/:slug/deploy/:id?after=<logId>`** → `{ job, log[] }` (safe polling) · **`GET /websites/:slug/deploy/stream?id=`** → **SSE** `event: log` frames, closed by `event: done` with the final job. Every line is persisted, so a reconnect loses nothing.
 - **`DELETE /websites/:slug`** → `200 { slug, steps[], mode }`. Full teardown: stop + disable the unit, remove the per-site drop-in and reload systemd, delete the app directory (bounded to `<sites-root>/<tenant>/web/<slug>` or legacy `<sites-root>/<tenant>/apps/<slug>` — the daemon refuses the root or a tenant home), then forget the stored secrets and the row. A second delete is a `404`.
+- **One deploy per site at a time.** A manual redeploy, a webhook push and the commit watcher can fire for the same site; the daemon holds an in-memory per-slug slot, so the second answers `409 deploy_in_progress`. The public webhook treats that case as `200 { ok: false, status: "ignored", message }` so a Git provider does not record a failed delivery.
 - **`POST /websites/:slug/redeploy`** → `202` with the same envelope as create. The pipeline runs again from the **source recorded at create time** (`sourceKind`/`sourceRepo`/`sourceBranch` are part of the website model); when a row predates that field the source falls back to `existing`. A redeploy **keeps the existing database and cache** and says so in the log, and it is refused with `409 not_applicable` for a reverse proxy (nothing to build).
 - The website model carries **`deployStatus`**: `pending | building | ready | failed`. Its service state (`status`) is `running`, `stopped`, or `suspended` — the last set when the owner account is suspended (§4.2.2); starting a site whose owner is suspended answers `409 owner_suspended`.
 - **Failure & rollback:** if a step fails, the deploy stops, `deployStatus` becomes `failed`, and the failure is reported on the stream. Partial resources are **kept** (so the log can be inspected and the deploy retried) but are marked as unlinked: a failed database/cache is created in the Recycle Bin rather than dropped, and `POST /websites/:slug/redeploy` retries from the failed step. A website that never reached `ready` can be deleted without leaving orphans.
 - `POST /websites/:slug/start|stop|restart`
-- `GET /websites/:slug/metrics?range=` · `GET /websites/:slug/logs?range=`
-- `PUT /websites/:slug/maintenance` · `PUT /websites/:slug/basic-auth` · `PUT /websites/:slug/anti-bruteforce`
-- `GET|POST|DELETE /websites/:slug/routes` (multi-engine path routing)
+- `GET /websites/:slug/metrics?range=`
+- **Access control lives under `/security`** (see §4.8.1): `GET|PUT /websites/:slug/security`, `POST .../maintenance/toggle`, `POST .../basic-auth/toggle`. The older `PUT /websites/:slug/maintenance`, `/basic-auth` and `/anti-bruteforce` paths are **not served**.
 - `GET|PUT /websites/:slug/env`
-- `POST /websites/:slug/backup` (export per-website `.bpod`)
+- **Not served yet (planned):** `GET /websites/:slug/logs?range=` (the Logs tab reads `telemetry`), `GET|POST|DELETE /websites/:slug/routes` (multi-engine path routing), and `POST /websites/:slug/backup` (per-website `.bpod`; the Backup module is still mock).
 - **`POST /websites/:slug/exec`** `{ command: string }` → `200 { ok: boolean, command: string, output: string, durationMs: number }`. Executes an operational command inside the site directory (`/home/<tenant>/web/<slug>`) as the tenant user with timeout protection.
 
 ### 4.2.1 Site Types and What They Expose
@@ -468,52 +459,67 @@ Normative: a client must not offer a control the site type cannot use, and the s
   - `event: stats` → `{ totalRequests, totalThreats, totalBandwidthBytes }`
   Automatically reconnects in browser via standard `EventSource`.
 
-### 4.8.3 Universal Multi-Tenant Git Providers & Deploy Keys
-> **Implementation status:** Planned for v0.3.9.
+### 4.8.3 Universal Multi-Tenant Git Providers, Auto-Deploy & Deploy Keys
+> **Implementation status:** Live (v0.3.9) except where marked **not served**. The provider API currently discovers repositories/branches for **GitHub**; GitLab has token verification, and Gitea/Bitbucket/custom are stored for SSH deploy-key clones (the wizard falls back to manual URL entry).
 - **Multi-Tenant Git Isolation:** All provider tokens are scoped to the authenticated tenant (`user_id`) in `user_git_providers` and encrypted with **AES-256-GCM**. Non-admin tenants cannot view, use, or mutate another tenant's Git connections.
-- **`GET /me/git/providers`** → `{ items: ApiGitProvider[] }`.
+- **`GET /me/git/providers`** (alias `GET /git/providers`) → `{ items: ApiGitProvider[] }`.
   Returns the authenticated user's configured Git providers:
-  `{ id, name, provider: "github" | "gitlab" | "gitea" | "bitbucket" | "custom", baseUrl?, username?, createdAt, lastSyncedAt? }` (tokens are never returned).
-- **`POST /me/git/providers/test`** → Body `{ provider: string, baseUrl?: string, token: string }` → `200 { valid: bool, username: string, avatarUrl?: string, scopes: string[] }`.
-  Tests and verifies a personal access token (e.g. GitHub PAT) with upstream API before saving.
-- **`POST /me/git/providers`** → Body `{ name: string, provider: string, baseUrl?: string, token: string, username?: string }` → `201 ApiGitProvider`.
-  Connects a new provider account for the current user. Validates credentials against provider API and stores token encrypted with AES-256-GCM.
-- **`DELETE /me/git/providers/:id`** → `200 { status: "deleted", id }`.
-  Removes a provider integration for the current user. Refuses deletion with `409 in_use` if active websites rely on automatic branch syncing through this provider.
+  `{ id, userId, name, provider: "github" | "gitlab" | "gitea" | "bitbucket" | "custom", apiUrl?, username?, createdAt, updatedAt? }`. Tokens are never returned (`tokenCipher` is `json:"-"`).
+- **`POST /me/git/providers/test`** (alias `POST /git/providers/test`) → Body `{ provider, apiUrl?, baseUrl?, token }` → `200 { valid, username?, avatarUrl?, scopes?, message? }`.
+  Verifies a PAT with the upstream API. `baseUrl` is the contract's name for a self-hosted instance; `apiUrl` is accepted too.
+- **`POST /me/git/providers`** → Body `{ name?, provider, apiUrl? | baseUrl?, token, username? }` → `201 ApiGitProvider`.
+  Verifies the token before storing it (`400 invalid_token` when the provider rejects it) and stores it encrypted with AES-256-GCM.
+- **`DELETE /me/git/providers/:id`** → `200 { ok: true }`.
+  Removes the caller's provider connection. The panel does **not** block deletion while websites use the repository: a website stores the repository URL, not the provider id, and its per-site deploy key/webhook keeps working. The trade-off is that repo/branch auto-discovery stops for that account until a provider is connected again.
 - **`GET /me/git/providers/:id/repos?page=1&per_page=30`** → `{ repos: ApiGitRepo[], page, perPage, total }`.
-  Fetches available repositories the user has access to from the Git provider API:
-  `{ fullName, defaultBranch, isPrivate, cloneUrl, sshUrl, description? }`.
-- **`GET /me/git/providers/:id/branches?repo=<owner/repo>`** → `{ branches: string[], defaultBranch: string }`.
-  Auto-discovers branches for the selected repository, allowing the Add Website wizard to populate the branch dropdown automatically without manual input.
+  Fetches up to 100 repositories the token can see, then paginates locally:
+  `{ name, fullName, defaultBranch, isPrivate, cloneUrl, sshUrl, htmlUrl, description? }`. The response also carries the legacy `items` key beside `repos`, so a pre-0.3.9 client keeps working.
+- **`GET /me/git/providers/:id/branches?repo=<owner/repo>`** → `{ repo, branches: string[], defaultBranch }`.
+  Auto-discovers branches and the repository's real default branch, so the Add Website wizard preselects it instead of assuming `main`.
 - **`GET /websites/:slug/git`** → `200 WebsiteGitStatus`.
   Auto-detects live repository status from server disk (`/home/<tenant>/web/<slug>/.git`):
-  `{ repo, branch, commit, commitMessage, detected: bool, autoDeploy: bool, autoDeployMode: "webhook" | "poll" | "none", deployHookToken, webhookUrl, deployKey?: ApiDeployKey, deployScript?: string, framework?: DetectedFramework }`.
-- **`PUT /websites/:slug/git`** → Body `{ repoUrl?: string, branch?: string, deployScript?: string, autoDeploy?: bool }` → `200 { status: "updated", ... }`.
-  Updates Git configuration, deployment build script, or toggles auto-deploy on push.
-- **`POST /websites/:slug/git/auto-deploy`** → Body `{ enabled: bool, mode?: "auto" | "webhook" | "poll", pollIntervalSec?: int }` → `200 { status: "ok", mode: "webhook" | "poll", webhookUrl?: string, webhookRegistered: bool, pollIntervalSec?: int }`.
-  Configures Zero-Config Auto-Deploy:
-  - If public domain or active Cloudflare tunnel exists: auto-registers inbound webhook on GitHub via stored PAT.
-  - If server is on a private network or unreachable from the internet: falls back to background commit polling (`git_commit_watcher`) checking remote ref every N minutes (default 300s) to deploy new commits without any webhook requirement.
-- **`GET /websites/:slug/detect-framework`** → `200 DetectedFramework`.
-  Inspects existing site directory on disk (`composer.json`, `package.json`, `requirements.txt`, `go.mod`, etc.) and returns auto-detected runtime, framework, docRoot, and recommended CI/CD build script.
-- **`POST /websites/detect-framework`** → `200 DetectedFramework`.
-  Vercel-style zero-config project inspection. Supports:
-  1. `multipart/form-data` with `archive` file (inspects uploaded `.zip` in memory without writing to disk).
-  2. `application/json` with `{ tenant, slug }` (inspects prepared directory on host).
-  Returns:
-  `{ framework: string, title: string, runtime: string, version: string, docRoot: string, buildCommand: string, packageManager: string, databaseEngine: string }`.
-- **`GET /websites/:slug/git/deploy-key`** → `200 ApiDeployKey`.
-  Returns the website's dedicated ED25519 deploy key:
-  `{ publicKey: string, fingerprint: string, algorithm: "ED25519", createdAt: string }`.
-  The private key is stored at `/home/<tenant>/.ssh/id_ed25519_<slug>` with `0600` permissions and never exposed via the API.
+  `{ detected, repo, branch, commit, commitMessage, autoDeploy, autoDeployMode: "webhook" | "poll" | "none", autoDeployPollSec?, lastGitPollAt?, deployHookToken, webhookUrl, deployScript?, framework?, deployKey? }`.
+- **`PUT|PATCH /websites/:slug/git`** → Body `{ repo?: string, repoUrl?: string, branch?, deployScript?, autoDeploy? }` → the updated website row.
+  `repo` and `repoUrl` are accepted as aliases. Turning `autoDeploy` on without another call resolves to **poll**; turning it off sets the mode to `none`.
+- **`POST /websites/:slug/git/auto-deploy`** → Body `{ enabled: bool, mode?: "auto" | "webhook" | "poll", pollIntervalSec?: int }` → `200 { status: "ok", enabled, mode: "webhook" | "poll" | "none", webhookRegistered, webhookUrl?, pollIntervalSec, message? }`.
+  Resolves Zero-Config Auto-Deploy:
+  - `auto`: if the panel has a public address (`panel_fqdn`, or a public request host) **and** the tenant has a GitHub PAT, the daemon calls `POST /repos/:owner/:repo/hooks`; success means `mode: "webhook"`, any failure (422 duplicate counts as success) falls back to `mode: "poll"`.
+  - `webhook`: the same registration, but a failure answers `502 webhook_registration_failed` with the reason instead of silently downgrading.
+  - `poll`: no inbound port required. The in-daemon `git_commit_watcher` job compares `git ls-remote` (run as the tenant with the site's deploy key) against the local `HEAD` and starts a deploy when they differ.
+  - `pollIntervalSec` is clamped to 60–86400 (default 300) and checked per site via `last_git_poll_at`.
+  - Enabling with no repository answers `409 git_not_configured`.
+  - **Upgrade note:** a website created before migration V27 can have `autoDeploy: true` with `autoDeployMode: "none"` — the old column default meant only "a manual webhook may call me". It is **not polled** until an operator chooses a mode; the public webhook keeps working. Migration V28 performs this backfill.
+  - **Hook lifecycle:** before creating, the daemon lists the repository hooks and PATCHes this site's existing hook when its URL changed (a panel hostname move must not leave GitHub calling the old address). Disabling auto-deploy DELETEs the hook. Repo/branch edits on a webhook-mode site refresh it in the background. A 422 "already exists" is success; 401/403/404 answer with an actionable reason (invalid token, missing `admin:repo_hook`/repository access, repository not visible).
+  - **Off is a first-class choice:** `{ "enabled": false }` answers `mode: "none"`, removes any hook the panel registered, and leaves manual deploys (`POST .../redeploy`, `POST .../git/check`) untouched. The Deploy tab offers it as **Off — manual deploy only**.
+- **`POST /websites/:slug/git/check`** → `200 { status: "up_to_date", local, remote }` or `200 { status: "deployed", local, remote, deployId, stream }`.
+  Runs one commit-watcher tick for this site on demand (the Deploy tab's **Check now**). It reads the local `HEAD` from the checkout, reads the remote branch as the tenant with the deploy key, records `lastGitPollAt`, and starts a redeploy only when the SHAs differ. A site without a repository answers `409 git_not_configured`, one without a checkout `409 not_git_checkout`, and a concurrent deploy `409 deploy_in_progress`.
+- **`GET /websites/:slug/deploy/history?limit=20`** → `{ items: DeployJob[], total }`.
+  The Deploy tab's timeline, newest first (the pipeline keeps the newest ten jobs per site). Each job carries `trigger` (`manual | redeploy | webhook | poll`), `commit`, `commitMessage`, `commitAuthor`, `durationMs`, `status`, `createdAt`, `finishedAt`.
+- **`GET /websites/:slug/detect-framework`** → `200 { ok: true, framework: DetectedFramework }`.
+  Inspects the site directory (`composer.lock`, `composer.json`, `package.json`, `requirements.txt`, `pyproject.toml`, `wp-includes/version.php`) and returns runtime, framework version, `minPhpVersion`, `compatiblePhp`, docRoot and the recommended build script.
+- **`POST /websites/detect-framework`** → `200 { ok, framework }`. Supports:
+  1. `multipart/form-data` with an `archive` file (inspected in memory; nothing is written to disk).
+  2. `application/json` with `{ tenant, slug }` (inspects a prepared directory on the host).
+- **`GET /websites/:slug/git/deploy-key`** → `200 ApiDeployKey`:
+  `{ publicKey, fingerprint, algorithm: "ED25519", createdAt }`.
+  The private key is written to `/home/<tenant>/.ssh/id_ed25519_<slug>` as the tenant (`0600`; `.ssh` is `0700`) and never returned by the API.
 - **`POST /websites/:slug/git/deploy-key/rotate`** → `200 ApiDeployKey`.
-  Generates a fresh ED25519 keypair, archives the old key, and returns the new public key for pasting into the repository's Deploy Keys.
-- **`POST /webhooks/deploy/:slug?token=<deployHookToken>`** → `202 Accepted { deployId: string, slug: string, stream: string }` (or `200 { status: "ignored", reason: "auto_deploy_disabled" }`).
-  Universal inbound push webhook for GitHub, GitLab, Gitea, or custom Git triggers. Public endpoint (no cookie/session required; authenticated strictly via URL query `token`).
-  - Verifies `token` against the website's vaulted `deployHookToken`.
-  - Checks if `autoDeploy` is enabled (`site.AutoDeploy`). If disabled, safely ignores webhook execution.
-  - When enabled, dispatches an asynchronous deployment job (`internal/deploy`): executes `git fetch` and `git checkout <branch>` as the tenant UID/GID, runs framework build/migration steps (`stepRunBuildScript`), updates cgroup limits, and hot-reloads the service.
-  - Streaming build logs available at `GET /websites/:slug/deploy/stream?id=<deployId>`.
+  Generates a fresh ED25519 keypair. The previous key is replaced rather than archived on disk, so the public key must be updated in the repository before the next private-repo fetch.
+- **`POST /webhooks/deploy/:slug?token=<deployHookToken>`** (alias `POST /webhook/:slug/deploy`) → `202 Accepted { ok, status: "deploying", slug, deployId, totalSteps, stream }`.
+  - A provider `ping` event answers `200 { ok: true, message: "Pong! …" }`.
+  - A bad/missing token answers `401 { code: "unauthorized" }`.
+  - Auto-deploy disabled answers `200 { ok: false, status: "ignored", message }`.
+  - A push whose `ref` is not the configured branch is ignored with the same shape.
+  - Otherwise it starts an asynchronous deploy (`trigger: "webhook"`): `git fetch`/`git checkout` as the tenant UID/GID, build/migration steps, cgroup limits and a service reload. Logs: `GET /websites/:slug/deploy/stream?id=<deployId>`.
+
+### 4.8.4 Git Commit Watcher (polling fallback)
+- Runs inside the daemon's scheduler as the built-in job **`git_commit_watcher`** (`*/5 * * * *` by default, 5-minute timeout; enabled on a fresh install). It can be paused/moved from Settings → Cron (`PUT /cron/jobs/system/git_commit_watcher`) or run immediately (`POST /cron/jobs/system/git_commit_watcher/run`).
+- For every website with `autoDeploy: true`, `autoDeployMode: "poll"`, a Git source and a non-suspended owner:
+  - skips the site while its `pollIntervalSec` has not elapsed or while a deploy is `pending`/`running`;
+  - reads the local `HEAD` **directly from the `.git` files** (no subprocess), then makes **one remote check per unique `(repo, branch)`** — several sites on the same repository share the answer — with at most **4 checks in flight**, each bounded to 45 seconds;
+  - reads the remote tip with `git ls-remote` as the tenant (reusing the ED25519 deploy key);
+  - when the two differ, starts a redeploy with `trigger: "poll"` (and skips it if another deploy already holds the site's slot).
+- A repository that cannot be reached is reported in the job's output and does not fail the run for other sites. Private **HTTPS** repositories need the deploy key configured for SSH (or a public repository); polling does not send the PAT on the command line.
 
 ### 4.9 Users, Groups & RBAC
 - `GET|POST /users` · `PATCH|DELETE /users/:id` · `POST /users/:id/password`
@@ -565,7 +571,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `GET|POST /pods` (image / dockerfile / compose) · `GET|PATCH|DELETE /pods/:id`
 - `POST /pods/:id/start|stop|restart` · `GET /pods/:id/logs` (+ `WS: pod-logs`) · `GET /pods/:id/compose`
 
-### 4.14 Unified Cron Jobs & Scheduled Tasks (Settings & Website Modules)
+### 4.15 Unified Cron Jobs & Scheduled Tasks (Settings & Website Modules)
 - **`GET /cron/jobs`** → `{ items: ApiCronJob[], systemJobs: SystemCronJob[] }`
   Returns all website-scoped scheduled tasks (filtered by tenant for non-admins) as well as the daemon's **built-in maintenance jobs** (`systemJobs`) with their real, stored state: `{ id, label, desc, schedule, enabled, category, implemented, lastRunAt?, lastStatus?, lastOutput? }`. The jobs are seeded into `system_cron_jobs` from the daemon's own registry and executed by an in-daemon scheduler (no host systemd timers); a job's `enabled` flag and `schedule` survive restarts, and seeding is `INSERT OR IGNORE`, so a reinstall/update never re-enables a job an operator turned off. Every listed job is implemented today (`implemented: true`); the flag is kept so a future entry can be listed before its executor exists. Each job has its own timeout (default 15m; `security_updates` 60m, `db_maintenance` 30m). Jobs that free or change disk state seed as disabled.
 - **`POST /cron/jobs`** → Body `{ websiteSlug: string, name: string, schedule: string, command: string, enabled?: boolean, timeoutSec?: number }` → `201 ApiCronJob`.
@@ -589,10 +595,10 @@ Normative: a client must not offer a control the site type cannot use, and the s
 |---|---|
 | `/websites` | `GET /websites` |
 | `/websites/<name>` + monitoring tab | `GET /websites/:slug`, `GET .../metrics?range=` |
-| `/websites/<name>/logs` & `/map` | `GET .../logs`, `GET .../telemetry`, `GET .../telemetry/stream` (SSE) |
-| `/websites/<name>/routing` | `GET|POST .../routes`, `GET .../vhost/preview` |
+| `/websites/<name>/logs` & `/map` | `GET .../telemetry`, `GET .../telemetry/stream` (SSE); `GET .../logs` is **planned** |
+| `/websites/<name>/routing` | `GET .../vhost/preview`; `GET|POST .../routes` is **planned** |
 | `/websites/<name>/files` | file manager endpoints |
-| `/websites/<name>/deploy` & Git | `GET /me/git/providers`, `GET .../repos`, `GET .../branches`, `GET|PUT /websites/:slug/git`, `POST .../git/auto-deploy`, `GET|POST .../git/deploy-key`, `POST /webhooks/deploy/:slug`, `POST .../redeploy` (+ `deploy/stream` SSE) |
+| `/websites/<name>/deploy` & Git | `GET /me/git/providers`, `GET .../repos`, `GET .../branches`, `GET|PUT|PATCH /websites/:slug/git`, `POST .../git/auto-deploy`, `GET|POST .../git/deploy-key[/rotate]`, `GET .../deploy/history`, `GET .../deploy/:id`, `POST .../git/check`, `POST /webhooks/deploy/:slug`, `POST .../redeploy` (+ `deploy/stream` SSE) |
 | `/websites/<name>/security` | maintenance / basic-auth / anti-bruteforce |
 | `/terminal` (tenant) | `GET /websites`, `WS /websites/:slug/pty` |
 | `/monitoring/*` | system monitoring endpoints (+ `WS`) |
@@ -604,6 +610,8 @@ Normative: a client must not offer a control the site type cannot use, and the s
 | `/backup/*` | backup & migration endpoints |
 | `/users/*` | users & groups endpoints |
 | `/settings/*` | settings, PHP defaults, alerts (`GET\|PUT /system/notifications`, `POST /system/notifications/test`), and cron (`GET\|POST\|PUT\|DELETE /cron/jobs`, `POST /cron/jobs/:id/run`, `PUT /cron/jobs/system/:id`, `POST /cron/jobs/system/:id/run`) |
+
+> The App Detail screen groups its tabs visually: **Overview, Runtime, Deploy, Files, Observability, Domains & SSL, Access & Security** (a proxy shows Gateway & Upstream, Observability, Domains, Security). URLs keep the concrete view id (`monitoring`, `logs`, `map`, `env`, `routing`, `deploy`, `files`, `domains`, `security`), so old bookmarks remain valid; `observability` and `php` are accepted aliases.
 
 ---
 

@@ -785,8 +785,9 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
             setLoadingRepos(true);
             api.listGitProviderRepos(res.items[0].id)
               .then((repoRes) => {
-                if (active && repoRes?.items) {
-                  setGitRepos(repoRes.items);
+                // The contract calls the collection `repos`; pagination is already applied.
+                if (active && repoRes?.repos) {
+                  setGitRepos(repoRes.repos);
                 }
               })
               .catch((err) => console.warn('Failed to load git repos', err))
@@ -811,6 +812,8 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
         const bRes = await api.listGitProviderBranches(gitProviders[0].id, repo.fullName);
         if (bRes?.branches && bRes.branches.length > 0) {
           setGitBranches(bRes.branches);
+          // Prefer the repository's own default branch over the one embedded in the list row.
+          if (bRes.defaultBranch) setGitBranch(bRes.defaultBranch);
         } else {
           setGitBranches([repo.defaultBranch || 'main']);
         }
