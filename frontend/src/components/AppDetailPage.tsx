@@ -121,6 +121,9 @@ function normalizeDetailTab(tab: string | undefined, proxy: boolean): AppDetailT
       return proxy ? 'routing' : 'runtime';
     case 'overview':
       return proxy ? 'routing' : 'overview';
+    case 'routing':
+      // A normal site has no routing view until the path-route API exists.
+      return proxy ? 'routing' : 'runtime';
     case undefined:
     case '':
       return proxy ? 'routing' : 'overview';
@@ -155,14 +158,9 @@ function tabGroupsFor(app: WebApp, support: SiteTabSupport): TabGroupDef[] {
   const deployViews: AppDetailTab[] = support.env ? ['deploy', 'env'] : ['deploy'];
   const groups: TabGroupDef[] = [
     { id: 'overview', label: 'Overview', icon: Server, views: ['overview'], accent: 'blue' },
-    {
-      id: 'runtime', label: 'Runtime', icon: Layers,
-      views: ['runtime', 'routing'], accent: 'purple',
-      subTabs: [
-        { view: 'runtime', label: 'Runtime Configuration' },
-        { view: 'routing', label: 'Proxy & Routing' },
-      ],
-    },
+    // Routing/path-splitting has no backend yet (`/websites/:slug/routes` is planned), so a normal
+    // site does not get a mock tab. A proxy keeps its real Gateway view below.
+    { id: 'runtime', label: 'Runtime', icon: Layers, views: ['runtime'], accent: 'purple' },
     {
       id: 'deploy', label: 'Deploy', icon: FolderGit2,
       views: deployViews, accent: 'blue',
@@ -194,6 +192,46 @@ const GROUP_ACCENT: Record<TabGroupDef['accent'], { active: string; icon: string
   amber: { active: 'border-amber-600 text-amber-700 font-bold', icon: 'text-amber-600' },
   emerald: { active: 'border-emerald-600 text-emerald-700 font-bold', icon: 'text-emerald-600' },
 };
+
+/**
+ * One rendered-vhost inspector, shared by Runtime (normal sites) and Gateway (proxy).
+ * It used to appear twice — a daemon-rendered copy under Security and a locally generated
+ * one under Routing — which disagreed as soon as the real config changed.
+ */
+const VhostPreviewCard: React.FC<{
+  engine: string;
+  filename: string;
+  config: string;
+  loading: boolean;
+  onRefresh: () => void;
+}> = ({ engine, filename, config, loading, onRefresh }) => (
+  <div className="p-5 bg-slate-900 rounded-2xl text-slate-100 space-y-3 border border-slate-800 shadow-md">
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+        <span className="text-xs font-bold font-mono text-slate-200">
+          Live VHost Configuration ({engine.toUpperCase()})
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={loading}
+          className="text-[10px] text-slate-300 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 font-mono transition-colors flex items-center gap-1.5 cursor-pointer"
+        >
+          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin text-emerald-400' : ''}`} />
+          <span>Refresh Preview</span>
+        </button>
+        <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">{filename}</span>
+      </div>
+    </div>
+
+    <pre className="font-mono text-xs bg-slate-950 p-4 rounded-xl overflow-x-auto text-emerald-400 leading-relaxed border border-slate-800 max-h-96">
+      {config || '# Loading live configuration from daemon...'}
+    </pre>
+  </div>
+);
 
 interface AppDetailPageProps {
   app: WebApp;
@@ -1133,6 +1171,27 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
     }, 600);
   };
 
+  const [isSavingGateway, setIsSavingGateway] = useState(false);
+
+  // Gateway settings the daemon actually owns today: the upstream URL and WebSocket passthrough.
+  // The remaining controls in that card are display-only and say so.
+  const handleSaveGateway = async () => {
+    setIsSavingGateway(true);
+    try {
+      await api.updateRuntimeConfig(app.name, {
+        upstreamUrl: currentUpstream.trim(),
+        websocket: wsEnabled,
+      });
+      onUpdateApp?.({ ...app, upstreamUrl: currentUpstream.trim() });
+      onShowToast?.('Gateway saved', 'Upstream target and WebSocket behaviour applied to the vhost.', 'success');
+      void loadVhostPreview();
+    } catch (err) {
+      onShowToast?.('Could not save gateway', err instanceof Error ? err.message : 'Unknown error', 'error');
+    } finally {
+      setIsSavingGateway(false);
+    }
+  };
+
   const handleCopyDeployWebhook = () => {
     const url = gitStatus?.webhookUrl || `${window.location.origin}/api/v1/webhooks/deploy/${app.name}?token=${app.deployHookToken || ''}`;
     navigator.clipboard.writeText(url);
@@ -1811,6 +1870,13 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
   const isRunning = app.status === 'running' && !isDeployFailed;
   const isSuspended = app.status === 'suspended';
   const appPath = app.path || `/home/${app.tenantUser}/web/${app.name}`;
+  // The WebApp object and the daemon's git status come from different payloads: a site created
+  // before the wizard recorded sourceKind can have a real `.git` (gitStatus.detected/repo) while
+  // app.gitRepo is still empty. Controls must look at both, or they render read-only on a site
+  // whose webhook is demonstrably active.
+  const hasGitRepository = Boolean(
+    siteHasGit(app) || gitStatus?.detected || gitStatus?.repo?.trim(),
+  );
 
   // Derived real CPU & RAM metrics from server
   const parseMetricNumber = (val?: string): number => {
@@ -2522,8 +2588,13 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 
             {siteSupportsCI(app) && (siteHasGit(app) || gitStatus?.detected) && (
               <button
-                onClick={() => onOpenGit(app)}
-                title={`Git Push-to-Deploy (${gitBranch || app.gitBranch || 'main'})`}
+                onClick={() => {
+                  // One Git surface: the Deploy tab. This button used to open a second modal with
+                  // the same repository/branch/build settings.
+                  if (tabSupport.deploy) setActiveTab('deploy');
+                  else onOpenGit(app);
+                }}
+                title={`Open Deploy settings for Git Push-to-Deploy (${gitBranch || app.gitBranch || 'main'})`}
                 className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-purple-700 bg-purple-50 border border-purple-200 rounded-xl hover:bg-purple-100 transition-colors shadow-2xs"
               >
                 <FolderGit2 className="w-3.5 h-3.5 text-purple-600" />
@@ -2803,13 +2874,25 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                 ) : (
                   <p className="text-xs text-slate-500">Local files — no Git repository connected.</p>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('deploy')}
-                  className="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
-                >
-                  Open deploy →
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('deploy')}
+                    className="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
+                  >
+                    Open deploy →
+                  </button>
+                  {(siteHasGit(app) || gitStatus?.detected) && (
+                    <button
+                      type="button"
+                      onClick={() => void handleCheckGitNow()}
+                      disabled={isCheckingGit}
+                      className="text-[11px] font-bold text-purple-700 hover:underline disabled:opacity-50 cursor-pointer"
+                    >
+                      {isCheckingGit ? 'Checking…' : 'Check Git now'}
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
@@ -2831,52 +2914,6 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                   Manage domains →
                 </button>
               </div>
-            </div>
-
-            <div className="p-4 rounded-xl border border-slate-200 bg-white flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void handleTriggerDirectDeploy()}
-                disabled={isDeployingNow}
-                className="px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-              >
-                <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
-                <span>{isDeployingNow ? 'Deploying…' : 'Redeploy now'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onOpenTerminal(app)}
-                className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1.5 cursor-pointer"
-              >
-                <Terminal className="w-3.5 h-3.5" /> Terminal
-              </button>
-              {tabSupport.files && (
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('files')}
-                  className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Folder className="w-3.5 h-3.5" /> Files
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setActiveTab('logs')}
-                className="px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1.5 cursor-pointer"
-              >
-                <FileText className="w-3.5 h-3.5" /> Logs
-              </button>
-              {(siteHasGit(app) || gitStatus?.detected) && (
-                <button
-                  type="button"
-                  onClick={() => void handleCheckGitNow()}
-                  disabled={isCheckingGit}
-                  className="px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isCheckingGit ? 'animate-spin' : ''}`} />
-                  {isCheckingGit ? 'Checking…' : 'Check Git now'}
-                </button>
-              )}
             </div>
 
             <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
@@ -4443,156 +4480,30 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
               </div>
             </div>
 
-            {/* Add Custom Location Route Form (Toggleable) */}
-            {showAddRoute && (
-              <form onSubmit={handleAddCustomRoute} className="p-4 bg-blue-50/50 border border-blue-200 rounded-2xl space-y-3 animate-in fade-in duration-150">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-blue-900">Add New Split / Forward Route</h4>
-                  <button
-                    type="button"
-                    onClick={() => setShowAddRoute(false)}
-                    className="text-xs text-blue-600 hover:underline"
-                  >
-                    Cancel
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Location Path URL Prefix
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="/api/v2/* or /webhook/*"
-                      value={newRoutePath}
-                      onChange={(e) => setNewRoutePath(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Upstream Destination
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="http://127.0.0.1:4000"
-                      value={newRouteUpstream}
-                      onChange={(e) => setNewRouteUpstream(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Service Description
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="e.g. Express Microservice"
-                        value={newRouteTarget}
-                        onChange={(e) => setNewRouteTarget(e.target.value)}
-                        className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg"
-                      />
-                      <button
-                        type="submit"
-                        className="px-3.5 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
-                      >
-                        Save
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </form>
-            )}
-
-            {/* Mapped Routes Table */}
-            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-2xs">
-              <table className="w-full text-left text-xs font-mono">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
-                  <tr>
-                    <th className="py-3 px-4">LOCATION PATH</th>
-                    <th className="py-3 px-4">UPSTREAM DESTINATION</th>
-                    <th className="py-3 px-4">SERVICE / RUNTIME</th>
-                    <th className="py-3 px-4">CACHE STRATEGY</th>
-                    <th className="py-3 px-4">STATUS</th>
-                    <th className="py-3 px-4 text-center">ACTION</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {routes.map((r, i) => (
-                    <tr key={i} className="hover:bg-slate-50/50">
-                      <td className="py-3 px-4">
-                        {r.path === '/' ? (
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-blue-600 text-sm">/</span>
-                            <span className="px-1.5 py-0.5 text-[9px] bg-blue-100 text-blue-700 font-sans font-bold rounded">
-                              Root Gateway
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="font-bold text-slate-800">{r.path}</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-purple-900 font-bold">
-                        {r.path === '/' ? currentUpstream : r.upstream}
-                      </td>
-                      <td className="py-3 px-4 text-slate-800 font-sans">{r.target}</td>
-                      <td className="py-3 px-4 text-slate-500">{r.cache}</td>
-                      <td className="py-3 px-4 text-emerald-600 font-bold">Active</td>
-                      <td className="py-3 px-4 text-center">
-                        {r.path === '/' ? (
-                          <span className="text-[10px] text-slate-400 font-sans italic">Default</span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteRoute(r.path)}
-                            title={`Delete route ${r.path}`}
-                            className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors inline-flex items-center justify-center"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] text-slate-500">
+                Only the upstream URL and WebSocket toggle are applied by the daemon today; timeout
+                and header controls above are display-only until the vhost writer exposes them.
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleSaveGateway()}
+                disabled={isSavingGateway}
+                className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl disabled:opacity-50 cursor-pointer"
+              >
+                {isSavingGateway ? 'Saving…' : 'Save Gateway'}
+              </button>
             </div>
 
-            {/* Generated VHost Config Code Inspector */}
-            <div className="rounded-2xl border border-slate-200 bg-slate-950 overflow-hidden shadow-2xs">
-              <div className="px-4 py-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-slate-300 text-xs font-mono">
-                  <Code2 className="w-4 h-4 text-purple-400" />
-                  <span>Real-Time {app.webServer.toUpperCase()} Reverse Proxy VirtualHost Config</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const snippet = getReverseProxyConfigSnippet();
-                    navigator.clipboard.writeText(snippet);
-                    setCopiedVhost(true);
-                    setTimeout(() => setCopiedVhost(false), 2000);
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
-                >
-                  {copiedVhost ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedVhost ? 'Copied' : 'Copy Config'}</span>
-                </button>
-              </div>
-
-              <pre className="p-4 text-xs font-mono text-purple-300 overflow-x-auto leading-relaxed max-h-56">
-                {getReverseProxyConfigSnippet()}
-              </pre>
-            </div>
+            <VhostPreviewCard
+              engine={app.webServer}
+              filename={`barepod-${app.name}.${app.webServer === 'caddy' ? 'caddy' : 'conf'}`}
+              config={vhostPreviewConfig}
+              loading={isLoadingVhost}
+              onRefresh={() => void loadVhostPreview()}
+            />
           </div>
         )}
-
 
         {/* TAB 4: ENVIRONMENT VARIABLES (.ENV) */}
         {activeTab === 'env' && (
@@ -5499,6 +5410,13 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                 </div>
               </div>
             )}
+            <VhostPreviewCard
+              engine={app.webServer}
+              filename={`barepod-${app.name}.${app.webServer === 'caddy' ? 'caddy' : 'conf'}`}
+              config={vhostPreviewConfig}
+              loading={isLoadingVhost}
+              onRefresh={() => void loadVhostPreview()}
+            />
           </div>
         )}
 
@@ -6042,35 +5960,6 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
 
             </div>
 
-            {/* CARD 5: LIVE VHOST RULES INSPECTOR */}
-            <div className="p-5 bg-slate-900 rounded-2xl text-slate-100 space-y-3 border border-slate-800 shadow-md">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <span className="text-xs font-bold font-mono text-slate-200">
-                    Live VHost Configuration ({app.webServer.toUpperCase()})
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={loadVhostPreview}
-                    disabled={isLoadingVhost}
-                    className="text-[10px] text-slate-300 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 font-mono transition-colors flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${isLoadingVhost ? 'animate-spin text-emerald-400' : ''}`} />
-                    <span>Refresh Preview</span>
-                  </button>
-                  <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
-                    barepod-{app.name}.{app.webServer === 'caddy' ? 'caddy' : 'conf'}
-                  </span>
-                </div>
-              </div>
-
-              <pre className="font-mono text-xs bg-slate-950 p-4 rounded-xl overflow-x-auto text-emerald-400 leading-relaxed border border-slate-800 max-h-96">
-                {vhostPreviewConfig || '# Loading live configuration from daemon...'}
-              </pre>
-            </div>
           </div>
         )}
 
@@ -6363,7 +6252,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                         type="checkbox"
                         checked={autoDeploy}
                         onChange={(e) => void handleAutoDeployModeChange(e.target.checked ? 'auto' : 'none')}
-                        disabled={isSavingAutoDeployMode || !siteHasGit(app)}
+                        disabled={isSavingAutoDeployMode || !hasGitRepository}
                         className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
                       />
                       <span className="font-bold text-slate-900">Enable Auto Redeploy on Git Push</span>
@@ -6379,7 +6268,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                       onChange={(e) =>
                         void handleAutoDeployModeChange(e.target.value as 'auto' | 'webhook' | 'poll' | 'none')
                       }
-                      disabled={isSavingAutoDeployMode || !siteHasGit(app)}
+                      disabled={isSavingAutoDeployMode || !hasGitRepository}
                       className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg disabled:opacity-50"
                     >
                       <option value="none">Off — manual deploy only</option>
@@ -6390,7 +6279,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                     <button
                       type="button"
                       onClick={() => void handleCheckGitNow()}
-                      disabled={isCheckingGit || !siteHasGit(app)}
+                      disabled={isCheckingGit || !hasGitRepository}
                       className="px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer disabled:opacity-50"
                     >
                       {isCheckingGit ? 'Checking…' : 'Check now'}

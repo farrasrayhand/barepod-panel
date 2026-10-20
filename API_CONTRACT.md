@@ -611,7 +611,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 | `/users/*` | users & groups endpoints |
 | `/settings/*` | settings, PHP defaults, alerts (`GET\|PUT /system/notifications`, `POST /system/notifications/test`), and cron (`GET\|POST\|PUT\|DELETE /cron/jobs`, `POST /cron/jobs/:id/run`, `PUT /cron/jobs/system/:id`, `POST /cron/jobs/system/:id/run`) |
 
-> The App Detail screen groups its tabs visually: **Overview, Runtime, Deploy, Files, Observability, Domains & SSL, Access & Security** (a proxy shows Gateway & Upstream, Observability, Domains, Security). URLs keep the concrete view id (`monitoring`, `logs`, `map`, `env`, `routing`, `deploy`, `files`, `domains`, `security`), so old bookmarks remain valid; `observability` and `php` are accepted aliases.
+> The App Detail screen groups its tabs visually: **Overview, Runtime, Deploy, Files, Observability, Domains & SSL, Access & Security** (a proxy shows Gateway & Upstream, Observability, Domains, Security). URLs keep the concrete view id (`monitoring`, `logs`, `map`, `env`, `routing`, `deploy`, `files`, `domains`, `security`), so old bookmarks remain valid; `observability` and `php` are accepted aliases, and `routing` on a normal site resolves to Runtime (it is a proxy-only Gateway view until `/websites/:slug/routes` exists).
 
 ---
 
