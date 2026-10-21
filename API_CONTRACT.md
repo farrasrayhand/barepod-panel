@@ -543,12 +543,16 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `GET /system/network/interfaces` · `POST /system/network/ping` · `GET /system/sockets` (`ss -tulpn`)
 - `GET /system/capabilities` → `{ smart: bool, fstrim: bool, docker: bool, lxc: bool }` (**important for LXC**: the UI shows "unavailable" instead of an error)
 
-### 4.11 Backup & Migration
+### 4.11 Backup & Migration (planned — contract only)
+> **Status (2026-10-21):** no endpoint in this section is served yet. The Backup Policy tab and `/backup` page are marked **Not applied**. This is the next implementation item.
+
 - `GET|POST /backups` · `GET /backups/:id/download` · `POST /backups/:id/restore`
 - `POST /backups/restore-upload` (drag & drop `.bpod`)
 - `POST /migrations/handshake` · `POST /migrations/start` (+ `WS: migration-progress`)
 - `GET /migrations/source-token` (2-hour TTL)
 - `GET|PUT /backups/cloud-sync` (R2/S3/GCS/Wasabi, cron, retention) · `POST /backups/cloud-sync/test`
+- **Archive contract:** a `.bpod` manifest carries format version, site/tenant identity, source checksum, file list, `.env`, vhost config and DB dump metadata; AES-256 is optional and the panel key is never embedded. Restore validates the manifest/checksum before touching the live site and is tenant-scoped.
+- **Acceptance:** create → download → restore round trip on a real host, retention prune, SSE progress, audit, no secret leakage, and a failed restore leaves the existing site untouched.
 
 ### 4.12 System Cleanup & Panel Settings
 - `GET /system/settings/php-defaults` → `{ config: PhpDefaultsConfig, installedVersions: string[] }`
@@ -576,9 +580,12 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - `POST /system/notifications/test` → `200 { ok, channels[], errors? }`. Sends one test message through every configured channel; `400 no_channels` when none is complete. Audited as `system.notifications_test`.
   Used by the `disk_alert` maintenance job (`diskAlertThresholdPercent`, default 90) and available to any alert source.
 
-### 4.13 Docker Pods
+### 4.13 Docker Pods (planned — contract only)
+> **Status (2026-10-21):** not served. The Pods page is **Not applied** and disables deploy/refresh. Docker SDK work comes after Backup and tokens/MCP.
+
 - `GET|POST /pods` (image / dockerfile / compose) · `GET|PATCH|DELETE /pods/:id`
 - `POST /pods/:id/start|stop|restart` · `GET /pods/:id/logs` (+ `WS: pod-logs`) · `GET /pods/:id/compose`
+- **Acceptance:** create/start/stop/delete a pod, enforce cgroup limits, stream logs, support a container shell, and leave no orphan containers after delete.
 
 ### 4.15 Unified Cron Jobs & Scheduled Tasks (Settings & Website Modules)
 - **`GET /cron/jobs`** → `{ items: ApiCronJob[], systemJobs: SystemCronJob[] }`
@@ -620,7 +627,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
 | `/users/*` | users & groups endpoints |
 | `/settings/*` | settings, PHP defaults, alerts (`GET\|PUT /system/notifications`, `POST /system/notifications/test`), and cron (`GET\|POST\|PUT\|DELETE /cron/jobs`, `POST /cron/jobs/:id/run`, `PUT /cron/jobs/system/:id`, `POST /cron/jobs/system/:id/run`) |
 
-> The App Detail screen groups its tabs visually: **Overview, Runtime, Deploy, Files, Observability, Domains & SSL, Access & Security** (a proxy shows Gateway & Upstream, Observability, Domains, Security). URLs keep the concrete view id (`monitoring`, `logs`, `map`, `env`, `routing`, `deploy`, `files`, `domains`, `security`), so old bookmarks remain valid; `observability` and `php` are accepted aliases, and `routing` on a normal site resolves to Runtime (it is a proxy-only Gateway view until `/websites/:slug/routes` exists).
+> The App Detail screen groups its tabs visually: **Overview, Runtime, Deploy, Files, Observability, Domains & SSL, Access & Security** (a proxy shows Gateway & Upstream, Observability, Domains, Security). URLs keep the concrete view id (`monitoring`, `logs`, `map`, `env`, `routing`, `deploy`, `files`, `domains`, `security`), so old bookmarks remain valid; `observability` and `php` are accepted aliases, and `routing` is a real sub-tab backed by `/websites/:slug/routes` on both normal sites and proxies.
 
 ---
 
@@ -638,7 +645,9 @@ Normative: a client must not offer a control the site type cannot use, and the s
 
 ---
 
-## 7. Automation: API Tokens, Webhooks & MCP Server
+## 7. Automation: API Tokens, Webhooks & MCP Server (planned — contract only)
+
+> **Status (2026-10-21):** no `/api-tokens`, `/webhooks`, `/hooks/:token`, `/openapi.json` or MCP server is served yet; `ApiMcpView` is a UI blueprint. Implementation order: **tokens → outbound webhooks → MCP**. The token/webhook/MCP shapes below are the agreed contract, not current behaviour.
 
 Goal: let users (and **AI agents**) automate the panel without opening the UI.
 

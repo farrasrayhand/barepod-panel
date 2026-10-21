@@ -470,16 +470,38 @@ The platform a host runs is one admin screen, because these are **host-level** f
   - In `AppsView`, `PodsView`, and `DatabasesView`, administrators can filter resources by tenant owner (`All Owners` or `@<tenantUser>`).
   - Multi-attribute sort controls support sorting by Owner/Tenant, Name, Status, Runtime/Engine, and Size, with instant A-Z / Z-A direction toggles.
   - Interactive table column headers support 1-click toggle sorting with directional arrow indicators.
-  - The sort/filter happens in the browser. The server-side query contract (`?owner=&sort_by=&order=`) is **not served yet** — see `API_CONTRACT.md` §4.2.
+  - The server-side query contract (`?owner=&sort_by=&order=`) is served for websites, databases and caches; the views send it on owner/sort changes and keep the local sort only as an offline fallback — see `API_CONTRACT.md` §4.2.
+
+### 3.11. Next Implementation Queue (recorded 2026-10-21)
+
+These are **not started**; the API shapes below are contract-only until their implementation lands.
+
+1. **Backup & Migration Hub (next, highest product value).**
+   - Contract: `API_CONTRACT.md` §4.11; UI: `/backup` and Settings → Backup Policy currently say **Not applied**.
+   - Scope: `.bpod` archive manifest (files, `.env`, vhost config, logical DB dump, optional AES-256, SHA-256), local + S3/R2 destinations, retention, download/upload restore, server-to-server migration, SSE progress, audit.
+   - Safety: never ship the raw panel key; validate/checksum before deleting anything; tenant-scoped; restore refuses unknown manifest versions; dry-run reports the plan.
+   - Acceptance: create → download → restore round trip on a real host, retention prune, no secret leakage, and a failed restore leaves the current site untouched.
+2. **API Tokens + outbound webhooks + MCP (medium).**
+   - Contract: `API_CONTRACT.md` §7; the `ApiMcpView` screen is still a blueprint.
+   - Scope: `bp_live_…` tokens stored as prefix+hash, scopes ∩ group permissions, expiry/revoke/IP allowlist/rate limit/audit, OpenAPI, HMAC-SHA256 outbound webhooks, standalone MCP server using tokens only.
+   - Acceptance: token cannot exceed its owner’s group, revoke takes effect immediately, webhook signature verifies, MCP has no panel password.
+3. **Docker Pods (large).**
+   - Contract: `API_CONTRACT.md` §4.13; the page is **Not applied** and disables deploy/refresh.
+   - Scope: Docker SDK, image/Dockerfile/compose, env, volumes, ports, cgroup limits, logs, container shell, lifecycle and cleanup.
+   - Acceptance: create/start/stop/delete a pod, limits enforced, logs streamed, no orphan containers after delete.
+4. **Small follow-ups.**
+   - Live-test Connect Git via a provider PAT and a private SSH repo (manual HTTPS + clone + Check now already passed E2E).
+   - Keep host SSH key-only and rotate the temporary root password used during verification.
+   - Enable **All package updates** in Cron only if the operator wants routine full upgrades.
 
 ## 4. Implementation Status & Development Roadmap
 
 > [!IMPORTANT]
 > **Current Real Condition:**
-> **Phase 1 (frontend)**: complete as a **prototype**, and now **wired to the API where the daemon already covers it** — sign-in, the website list, per-website metrics, the file manager, databases & caches, monitoring, a real terminal, domains & SSL, Cloudflare tunnels and Panel Settings are live. Pods, backups/migration and the traffic-map telemetry's live-host verification are still pending.
+> **Phase 1 (frontend)**: complete as a **prototype**, and now **wired to the API where the daemon already covers it** — sign-in, the website list, per-website metrics, the file manager, databases & caches, monitoring, a real terminal, domains & SSL, Cloudflare tunnels, Panel Settings and telemetry are live. Pods and backups/migration are still pending.
 > **Phase 2 (Go daemon)**: SQLite/WAL + migrations · Argon2id + opaque session cookies with CSRF, instant revoke, elevated mode, audit log · per-account RBAC where a group is also the resource package, with a **live capacity guard** · the `barepod` CLI (+ the `fs-exec` privilege-drop helper) · an **8-step asynchronous deploy pipeline** with a persisted job log over SSE · a **file manager** with a separator-safe path jail and tenant-credential helper · **PTY terminals** with one-time tickets · **host and per-website metrics** (raw numbers) · **LXC-aware capability reporting** with reasons and advice.
 > **Execution modes are honest:** real work only on Linux with systemd; everywhere else **dry-run** — units and `.env` are written, nothing is started, and the API reports `mode: "dry-run"` instead of a fake success.
-> **Next:** The single source of truth is maintained in `MASTER_PLAN.md` and `API_CONTRACT.md`. Tenants & User Groups, one PHP website end to end (nginx + php-fpm pool writer), databases & caches, watchdog, and The Stack (dynamic runtimes, dynamic CPU arch, ingress collision prevention, hybrid multi-engine, dry-run plan modal) are live and measured, and domains & TLS, Cloudflare tunnels and Panel Settings are live too. Next scheduled modules: backups/migration, pods, and API & MCP (Git CI/CD and persistent metrics are live).
+> **Next:** The single source of truth is maintained in `MASTER_PLAN.md` and `API_CONTRACT.md`. Tenants & User Groups, one PHP website end to end (nginx + php-fpm pool writer), databases & caches, watchdog, and The Stack (dynamic runtimes, dynamic CPU arch, ingress collision prevention, hybrid multi-engine, dry-run plan modal) are live and measured, and domains & TLS, Cloudflare tunnels and Panel Settings are live too. Next scheduled modules (queue in §3.11): backups/migration, API tokens/webhooks/MCP, then pods. Git CI/CD, persistent metrics and telemetry are live.
 
 ### 4.1. Component Status Table: Simulated Frontend vs Real Backend
 
