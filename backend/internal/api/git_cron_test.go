@@ -207,7 +207,7 @@ func TestWebsiteRoutesLifecycleRendersVhost(t *testing.T) {
 	}
 	var route store.WebsiteRoute
 	_ = json.Unmarshal([]byte(body), &route)
-	if route.ID == "" || route.Path != "/api" {
+	if route.ID == "" || route.Path != "/api/" {
 		t.Fatalf("unexpected route: %+v", route)
 	}
 
@@ -231,7 +231,7 @@ func TestWebsiteRoutesLifecycleRendersVhost(t *testing.T) {
 		Config string `json:"config"`
 	}
 	_ = json.Unmarshal([]byte(body), &preview)
-	if !strings.Contains(preview.Config, "location ^~ /api {") || !strings.Contains(preview.Config, "127.0.0.1:9000") {
+	if !strings.Contains(preview.Config, "location ^~ /api/ {") || !strings.Contains(preview.Config, "127.0.0.1:9000") {
 		t.Errorf("route is missing from the rendered vhost:\n%s", preview.Config)
 	}
 

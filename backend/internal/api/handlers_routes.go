@@ -49,8 +49,12 @@ func normalizeRoute(payload *routePayload) error {
 	if payload.Path == "" || !strings.HasPrefix(payload.Path, "/") || payload.Path == "/" {
 		return fmt.Errorf("path must start with / and cannot be the root route")
 	}
-	if strings.Contains(payload.Path, "..") || strings.ContainsAny(payload.Path, " \t\r\n") || len(payload.Path) > 200 {
-		return fmt.Errorf("path must be a clean prefix such as /api, without spaces or ..")
+	if strings.Contains(payload.Path, "..") || strings.ContainsAny(payload.Path, " \t\r\n?") || len(payload.Path) > 200 {
+		return fmt.Errorf("path must be a clean prefix such as /api, without spaces, ? or ..")
+	}
+	// One canonical prefix: "/api" and "/api/" must not become two routes that render differently.
+	if !strings.HasSuffix(payload.Path, "/") {
+		payload.Path += "/"
 	}
 	parsed, err := url.Parse(payload.Upstream)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {

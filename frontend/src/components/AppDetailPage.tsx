@@ -92,6 +92,14 @@ interface TabGroupDef {
   subTabs?: { view: AppDetailTab; label: string }[];
 }
 
+// A runtime version is numeric ("8.4", "22"); a site type is not ("HTML5", "Static").
+// Prefixing every value with "v" produced labels such as "vHTML5".
+function runtimeVersionLabel(app: WebApp): string {
+  const raw = (app.version || '').trim();
+  if (!raw) return app.runtime === 'php' ? 'v8.4' : '';
+  return /^\d/.test(raw) ? `v${raw}` : raw;
+}
+
 const OBSERVABILITY_TABS: { view: AppDetailTab; label: string }[] = [
   { view: 'monitoring', label: 'Metrics' },
   { view: 'logs', label: 'Access & WAF' },
@@ -153,8 +161,8 @@ function tabGroupsFor(app: WebApp, support: SiteTabSupport): TabGroupDef[] {
       id: 'runtime', label: 'Runtime', icon: Layers,
       views: ['runtime', 'routing'], accent: 'purple',
       subTabs: [
-        { view: 'runtime', label: 'Runtime Configuration' },
-        { view: 'routing', label: 'Proxy & Routing' },
+        { view: 'runtime', label: 'Configuration' },
+        { view: 'routing', label: 'Routing' },
       ],
     },
     {
@@ -849,6 +857,7 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
   const [isLoadingRoutes, setIsLoadingRoutes] = useState(false);
   const [isSavingRoute, setIsSavingRoute] = useState(false);
   const [showAddRoute, setShowAddRoute] = useState(false);
+  const [editingRoute, setEditingRoute] = useState<ApiWebsiteRoute | null>(null);
   const [newRoutePath, setNewRoutePath] = useState('');
   const [newRouteUpstream, setNewRouteUpstream] = useState('');
   const [newRouteDescription, setNewRouteDescription] = useState('');
@@ -1226,27 +1235,51 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
     if (activeTab === 'routing') void loadRoutes();
   }, [activeTab, loadRoutes]);
 
-  const handleAddRoute = async (e: React.FormEvent) => {
+  const resetRouteForm = () => {
+    setEditingRoute(null);
+    setShowAddRoute(false);
+    setNewRoutePath('');
+    setNewRouteUpstream('');
+    setNewRouteDescription('');
+  };
+
+  const handleEditRoute = (route: ApiWebsiteRoute) => {
+    setEditingRoute(route);
+    setNewRoutePath(route.path);
+    setNewRouteUpstream(route.upstream);
+    setNewRouteDescription(route.description || '');
+    setNewRouteWebsocket(route.websocket);
+    setNewRouteStripPrefix(route.stripPrefix);
+    setShowAddRoute(true);
+  };
+
+  const handleSubmitRoute = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRoutePath.trim() || !newRouteUpstream.trim()) return;
     setIsSavingRoute(true);
     try {
-      await api.createWebsiteRoute(app.name, {
+      const payload = {
         path: newRoutePath.trim(),
         upstream: newRouteUpstream.trim(),
         description: newRouteDescription.trim(),
         websocket: newRouteWebsocket,
         stripPrefix: newRouteStripPrefix,
-      });
-      setNewRoutePath('');
-      setNewRouteUpstream('');
-      setNewRouteDescription('');
-      setShowAddRoute(false);
-      onShowToast?.('Route added', 'The vhost was rewritten with the new path route.', 'success');
+      };
+      if (editingRoute) {
+        await api.updateWebsiteRoute(app.name, editingRoute.id, payload);
+      } else {
+        await api.createWebsiteRoute(app.name, payload);
+      }
+      onShowToast?.(
+        editingRoute ? 'Route updated' : 'Route added',
+        'The vhost was rewritten with the new path route.',
+        'success',
+      );
+      resetRouteForm();
       await loadRoutes();
       void loadVhostPreview();
     } catch (err) {
-      onShowToast?.('Could not add route', err instanceof Error ? err.message : 'Unknown error', 'error');
+      onShowToast?.('Could not save route', err instanceof Error ? err.message : 'Unknown error', 'error');
     } finally {
       setIsSavingRoute(false);
     }
@@ -2625,7 +2658,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                 <span>{group.label}</span>
                 {group.id === 'runtime' && app.runtime !== 'proxy' && (
                   <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-mono text-[10px] font-bold border border-purple-200">
-                    v{app.version || (app.runtime === 'php' ? '8.4' : '1.0')}
+                    {runtimeVersionLabel(app)}
                   </span>
                 )}
                 {group.id === 'deploy' && (
@@ -2668,23 +2701,26 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
         </div>
 
         {activeGroup.subTabs && activeGroup.subTabs.filter((sub) => activeGroup.views.includes(sub.view)).length > 1 && (
-          <div className="flex items-center gap-1 pb-2 -mt-0.5 overflow-x-auto">
-            {activeGroup.subTabs
-              .filter((sub) => activeGroup.views.includes(sub.view))
-              .map((sub) => (
-                <button
-                  key={sub.view}
-                  type="button"
-                  onClick={() => setActiveTab(sub.view)}
-                  className={`px-3 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
-                    activeTab === sub.view
-                      ? 'bg-slate-900 text-white border-slate-900'
-                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  {sub.label}
-                </button>
-              ))}
+          <div className="flex items-center gap-2 px-4 pb-2 pt-1 overflow-x-auto">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 shrink-0">View</span>
+            <div className="inline-flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-100 border border-slate-200 shrink-0">
+              {activeGroup.subTabs
+                .filter((sub) => activeGroup.views.includes(sub.view))
+                .map((sub) => (
+                  <button
+                    key={sub.view}
+                    type="button"
+                    onClick={() => setActiveTab(sub.view)}
+                    className={`px-2.5 py-1 text-[11px] font-semibold rounded-md transition-all cursor-pointer ${
+                      activeTab === sub.view
+                        ? 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    {sub.label}
+                  </button>
+                ))}
+            </div>
           </div>
         )}
       </div>
@@ -2718,7 +2754,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
               <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2">
                 <span className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Runtime</span>
                 <div className="text-sm font-bold text-slate-900">
-                  {app.runtime.toUpperCase()} {app.version ? `v${app.version}` : ''}
+                  {app.runtime.toUpperCase()} {runtimeVersionLabel(app)}
                 </div>
                 <p className="text-xs text-slate-600 truncate">{app.framework || 'No framework'}</p>
                 <p className="text-[11px] text-slate-500">Web server: {app.webServer}</p>
@@ -4469,7 +4505,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
               </div>
 
               {showAddRoute && (
-                <form onSubmit={handleAddRoute} className="p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl space-y-3">
+                <form onSubmit={handleSubmitRoute} className="p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl space-y-3">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 mb-1">Path prefix</label>
@@ -4500,9 +4536,9 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                     </div>
                   </div>
                   <div className="flex justify-end gap-2">
-                    <button type="button" onClick={() => setShowAddRoute(false)} className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:underline cursor-pointer">Cancel</button>
+                    <button type="button" onClick={resetRouteForm} className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:underline cursor-pointer">Cancel</button>
                     <button type="submit" disabled={isSavingRoute} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 cursor-pointer">
-                      {isSavingRoute ? 'Saving…' : 'Save route'}
+                      {isSavingRoute ? 'Saving…' : editingRoute ? 'Update route' : 'Save route'}
                     </button>
                   </div>
                 </form>
@@ -4533,9 +4569,14 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                             {route.description ? ` · ${route.description}` : ''}
                           </td>
                           <td className="py-2 px-3 text-right">
-                            <button type="button" onClick={() => void handleDeleteRoute(route)} className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer" title="Delete route">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            <div className="flex items-center justify-end gap-1">
+                              <button type="button" onClick={() => handleEditRoute(route)} className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 cursor-pointer" title="Edit route">
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button type="button" onClick={() => void handleDeleteRoute(route)} className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer" title="Delete route">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

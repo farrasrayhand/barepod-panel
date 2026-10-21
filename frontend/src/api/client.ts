@@ -593,14 +593,21 @@ export interface CreateDatabasePayload {
 
 /** Databases and caches are the same resource with different commands. */
 const databaseFamily = (base: string) => ({
-  list: (bin = false) =>
-    request<{
+  list: (bin = false, params?: { owner?: string; sortBy?: string; order?: 'asc' | 'desc' }) => {
+    const query = new URLSearchParams();
+    if (bin) query.set('bin', 'true');
+    if (params?.owner) query.set('owner', params.owner);
+    if (params?.sortBy) query.set('sort_by', params.sortBy);
+    if (params?.order) query.set('order', params.order);
+    const suffix = query.toString();
+    return request<{
       items: DatabaseRow[];
       bin: boolean;
       retentionDays: number;
       /** The account's package allowance, present only when it is under one. */
       quota?: { maxDatabases: number; usedDatabases: number };
-    }>(`${base}${bin ? '?bin=true' : ''}`),
+    }>(`${base}${suffix ? `?${suffix}` : ''}`);
+  },
 
   recycleBin: () => request<{ items: DatabaseRow[]; retentionDays: number }>(`${base}/recycle-bin`),
 
@@ -881,7 +888,14 @@ export const api = {
   /** The caller's own activity; an admin receives every account's (see `everything`). */
   audit: (limit = 25) => request<{ items: AuditEntry[]; everything: boolean }>(`/audit?limit=${limit}`),
 
-  websites: () => request<{ items: ApiWebsite[] }>('/websites'),
+  websites: (params?: { owner?: string; sortBy?: string; order?: 'asc' | 'desc' }) => {
+    const query = new URLSearchParams();
+    if (params?.owner) query.set('owner', params.owner);
+    if (params?.sortBy) query.set('sort_by', params.sortBy);
+    if (params?.order) query.set('order', params.order);
+    const suffix = query.toString();
+    return request<{ items: ApiWebsite[] }>(`/websites${suffix ? `?${suffix}` : ''}`);
+  },
 
   /** The real deploy: the daemon provisions asynchronously and answers with a job id. */
   createWebsite: (payload: CreateWebsitePayload) =>

@@ -8,15 +8,15 @@ import (
 )
 
 func TestPathRoutesRenderInEveryEngine(t *testing.T) {
-	routes := []RouteSpec{{Path: "/api", Upstream: "http://127.0.0.1:9000", Websocket: true, StripPrefix: true}}
+	routes := []RouteSpec{{Path: "/api/", Upstream: "http://127.0.0.1:9000", Websocket: true, StripPrefix: true}}
 	base := Spec{Slug: "shop", Domain: "shop.example.com", Kind: "php",
 		DocRoot: "/home/alex/apps/shop", Socket: "/home/alex/apps/shop/fpm.sock", Routes: routes}
 
 	cases := map[string]string{
-		Nginx:         "location ^~ /api {",
+		Nginx:         "location ^~ /api/ {",
 		Caddy:         "handle_path /api/* {",
-		Apache:        "<Location \"/api\">",
-		OpenLiteSpeed: "context /api {",
+		Apache:        "<Location \"/api/\">",
+		OpenLiteSpeed: "context /api/ {",
 	}
 	for engine, want := range cases {
 		cfg, err := Render(engine, base)

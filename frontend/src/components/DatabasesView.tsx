@@ -190,10 +190,15 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
       if (!reachable) return;
       setLoading(true);
       try {
+        const listParams = {
+          owner: ownerFilter === 'all' ? undefined : ownerFilter,
+          sortBy,
+          order: sortDirection,
+        };
         const [engineList, dbList, cacheList, dbBin, cacheBin, sites] = await Promise.all([
           api.dbEngines(),
-          api.databases.list(),
-          api.caches.list(),
+          api.databases.list(false, listParams),
+          api.caches.list(false, listParams),
           api.databases.recycleBin(),
           api.caches.recycleBin(),
           api.websites(),
@@ -212,7 +217,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
     return () => {
       cancelled = true;
     };
-  }, [reloadKey, onShowToast]);
+  }, [reloadKey, onShowToast, ownerFilter, sortBy, sortDirection]);
 
   const handleCreateDatabase = (newDb: DatabaseItem) => {
     setDatabases([newDb, ...databases]);

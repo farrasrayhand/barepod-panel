@@ -156,9 +156,71 @@ func verifyGitProviderToken(ctx context.Context, provider, apiURL, token string)
 			Message: "Successfully authenticated with GitLab",
 		}
 
+	case "gitea", "forgejo":
+		baseURL := strings.TrimRight(strings.TrimSpace(apiURL), "/")
+		if baseURL == "" {
+			return testGitProviderResponse{Message: "Gitea/Forgejo needs a base URL before the token can be checked"}
+		}
+		data, status, err := providerGET(ctx, baseURL+"/api/v1/user", map[string]string{
+			"Authorization": "token " + token,
+		})
+		if err != nil {
+			return testGitProviderResponse{Message: "Failed to reach Gitea: " + err.Error()}
+		}
+		if status != http.StatusOK {
+			return testGitProviderResponse{Message: fmt.Sprintf("Gitea returned HTTP %d (invalid or expired token)", status)}
+		}
+		var user struct {
+			Login     string `json:"login"`
+			FullName  string `json:"full_name"`
+			AvatarURL string `json:"avatar_url"`
+		}
+		_ = json.Unmarshal(data, &user)
+		username := user.Login
+		if username == "" {
+			username = user.FullName
+		}
+		return testGitProviderResponse{
+			Valid: true, Username: username, AvatarURL: user.AvatarURL,
+			Message: "Successfully authenticated with Gitea/Forgejo",
+		}
+
+	case "bitbucket":
+		baseURL := strings.TrimRight(strings.TrimSpace(apiURL), "/")
+		if baseURL == "" {
+			baseURL = "https://api.bitbucket.org/2.0"
+		}
+		data, status, err := providerGET(ctx, baseURL+"/user", map[string]string{
+			"Authorization": "Bearer " + token,
+		})
+		if err != nil {
+			return testGitProviderResponse{Message: "Failed to reach Bitbucket: " + err.Error()}
+		}
+		if status != http.StatusOK {
+			return testGitProviderResponse{Message: fmt.Sprintf("Bitbucket returned HTTP %d (invalid or expired token)", status)}
+		}
+		var user struct {
+			Username    string `json:"username"`
+			DisplayName string `json:"display_name"`
+			Links       struct {
+				Avatar struct {
+					Href string `json:"href"`
+				} `json:"avatar"`
+			} `json:"links"`
+		}
+		_ = json.Unmarshal(data, &user)
+		username := user.Username
+		if username == "" {
+			username = user.DisplayName
+		}
+		return testGitProviderResponse{
+			Valid: true, Username: username, AvatarURL: user.Links.Avatar.Href,
+			Message: "Successfully authenticated with Bitbucket",
+		}
+
 	default:
-		// A custom/Gitea/Bitbucket server has no single user endpoint the panel can assume, so it
-		// is recorded without a network check and the repository call reports the truth later.
+		// Custom Git has no single user endpoint the panel can assume. It is recorded without a
+		// network check; repository calls report the truth later.
 		return testGitProviderResponse{Valid: true, Message: "Generic provider configured"}
 	}
 }

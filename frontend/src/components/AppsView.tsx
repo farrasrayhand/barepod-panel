@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   RefreshCw,
   Plus,
@@ -31,6 +31,7 @@ import { GitDeploymentModal } from './GitDeploymentModal';
 import { AppDetailPage, type AppDetailTab } from './AppDetailPage';
 import { DangerConfirmModal } from './DangerConfirmModal';
 import { api } from '../api/client';
+import { toWebApp } from '../api/adapters';
 
 interface AppsViewProps {
   apps: WebApp[];
@@ -76,6 +77,37 @@ export const AppsView: React.FC<AppsViewProps> = ({
   const [ownerFilter, setOwnerFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'name' | 'domain' | 'owner' | 'status'>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  // The collection endpoint is the authority for owner filtering and ordering; the local list is
+  // the fallback when the daemon is not reachable.
+  const [serverApps, setServerApps] = useState<WebApp[] | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (!isAdmin) {
+      setServerApps(null);
+      return;
+    }
+    const sortMap: Record<typeof sortBy, string> = {
+      name: 'name',
+      domain: 'name', // the server has no domain sort; name is the closest stable order
+      owner: 'owner',
+      status: 'status',
+    };
+    api.websites({
+      owner: ownerFilter === 'all' ? undefined : ownerFilter,
+      sortBy: sortMap[sortBy],
+      order: sortDirection,
+    })
+      .then((res) => {
+        if (active) setServerApps(res.items.map((item) => toWebApp(item)));
+      })
+      .catch(() => {
+        if (active) setServerApps(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isAdmin, ownerFilter, sortBy, sortDirection, apps.length]);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Delete Website Modal State
@@ -128,7 +160,8 @@ export const AppsView: React.FC<AppsViewProps> = ({
     return Array.from(set).sort();
   }, [apps]);
 
-  const filteredApps = apps.filter((app) => {
+  const sourceApps = serverApps ?? apps;
+  const filteredApps = sourceApps.filter((app) => {
     const matchesFilter = filterType === 'all' || app.runtime === filterType || app.webServer === filterType;
     const matchesOwner = ownerFilter === 'all' || app.tenantUser === ownerFilter;
     const matchesSearch = app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

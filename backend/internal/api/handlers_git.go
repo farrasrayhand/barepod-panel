@@ -67,13 +67,25 @@ func (s *Server) handlePublicDeployWebhook(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// 3. Inspect branch if provided in JSON payload
+	// 3. Inspect branch if provided in JSON payload. GitHub/GitLab/Gitea send `ref`; Bitbucket
+	// sends the new branch under push.changes[].new.name.
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 1024*1024))
 	if len(body) > 0 {
 		var payload struct {
-			Ref string `json:"ref"` // e.g. "refs/heads/main"
+			Ref  string `json:"ref"` // e.g. "refs/heads/main"
+			Push struct {
+				Changes []struct {
+					New struct {
+						Name string `json:"name"`
+					} `json:"new"`
+				} `json:"changes"`
+			} `json:"push"`
 		}
-		if err := json.Unmarshal(body, &payload); err == nil && payload.Ref != "" {
+		_ = json.Unmarshal(body, &payload)
+		if payload.Ref == "" && len(payload.Push.Changes) > 0 {
+			payload.Ref = "refs/heads/" + payload.Push.Changes[0].New.Name
+		}
+		if payload.Ref != "" {
 			refBranch := strings.TrimPrefix(payload.Ref, "refs/heads/")
 			expectedBranch := site.SourceBranch
 			if expectedBranch == "" {
@@ -409,9 +421,9 @@ func (s *Server) handleSetWebsiteAutoDeploy(w http.ResponseWriter, r *http.Reque
 	if !req.Enabled {
 		mode = "none"
 		// Removing the hook is what makes "disabled" true outside the panel too; otherwise a push
-		// would still call the endpoint and be ignored. Best-effort: a GitHub outage must not stop
-		// the operator from turning auto-deploy off locally.
-		if removed, detail := s.unregisterGitHubWebhook(r.Context(), site, user); removed > 0 {
+		// would still call the endpoint and be ignored. Best-effort: a provider outage must not
+		// stop the operator from turning auto-deploy off locally.
+		if removed, detail := s.unregisterWebhook(r.Context(), site, user); removed > 0 {
 			message = fmt.Sprintf("auto-deploy disabled; %s", detail)
 		} else if detail != "" {
 			message = "auto-deploy disabled; hook cleanup: " + detail
@@ -419,10 +431,10 @@ func (s *Server) handleSetWebsiteAutoDeploy(w http.ResponseWriter, r *http.Reque
 	} else {
 		switch mode {
 		case "auto":
-			// Only try the webhook when the panel has an address GitHub can reach; otherwise the
-			// registration call would fail for the ordinary private-LAN case and slow the request.
+			// Only try the webhook when the panel has an address the provider can reach;
+			// otherwise registration fails for the ordinary private-LAN case and slows the request.
 			if s.publicPanelBaseURL(r) != "" {
-				webhookRegistered, message = s.registerGitHubWebhook(r.Context(), site, user, webhookURL)
+				webhookRegistered, message = s.registerWebhook(r.Context(), site, user, webhookURL)
 			} else {
 				message = "no public panel address detected; using commit polling"
 			}
@@ -432,7 +444,7 @@ func (s *Server) handleSetWebsiteAutoDeploy(w http.ResponseWriter, r *http.Reque
 				mode = "poll"
 			}
 		case "webhook":
-			webhookRegistered, message = s.registerGitHubWebhook(r.Context(), site, user, webhookURL)
+			webhookRegistered, message = s.registerWebhook(r.Context(), site, user, webhookURL)
 			if !webhookRegistered {
 				// An explicit webhook request must not silently become polling: the operator asked
 				// for this path and needs the reason.
@@ -666,7 +678,7 @@ func (s *Server) listGitHubHooks(ctx context.Context, token, owner, repo string)
 func findSiteHook(hooks []githubHook, slug string) *githubHook {
 	for i := range hooks {
 		url := hooks[i].Config.URL
-		if strings.Contains(url, "/webhooks/deploy/"+slug) || strings.Contains(url, "/webhook/"+slug+"/deploy") {
+		if hookMatchesSite(url, slug) {
 			return &hooks[i]
 		}
 	}
@@ -840,7 +852,7 @@ func (s *Server) registerWebhookAfterCreate(site *store.Website, user *store.Use
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	ok, msg := s.registerGitHubWebhook(ctx, site, user, webhookURL)
+	ok, msg := s.registerWebhook(ctx, site, user, webhookURL)
 	mode := "poll"
 	if ok {
 		mode = "webhook"

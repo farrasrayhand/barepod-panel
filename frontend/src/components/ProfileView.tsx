@@ -61,6 +61,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
   const [gitProviders, setGitProviders] = useState<UserGitProvider[]>([]);
   const [gitLoading, setGitLoading] = useState(false);
   const [githubPat, setGithubPat] = useState('');
+  const [gitProviderKind, setGitProviderKind] = useState<'github' | 'gitlab' | 'gitea' | 'bitbucket'>('github');
+  const [gitBaseUrl, setGitBaseUrl] = useState('');
   const [gitConnecting, setGitConnecting] = useState(false);
 
   const loadGitProviders = useCallback(async () => {
@@ -79,25 +81,60 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
     void loadGitProviders();
   }, [loadGitProviders]);
 
-  const handleConnectGitHub = async (e: React.FormEvent) => {
+  const providerLabel = (kind: string) => {
+    switch (kind) {
+      case 'gitlab': return 'GitLab';
+      case 'gitea':
+      case 'forgejo': return 'Gitea / Forgejo';
+      case 'bitbucket': return 'Bitbucket';
+      default: return 'GitHub';
+    }
+  };
+
+  const providerCode = (kind: string) => {
+    switch (kind) {
+      case 'github': return 'GH';
+      case 'gitlab': return 'GL';
+      case 'gitea':
+      case 'forgejo': return 'GT';
+      case 'bitbucket': return 'BB';
+      default: return 'GIT';
+    }
+  };
+
+  const handleConnectGit = async (e: React.FormEvent) => {
     e.preventDefault();
     const token = githubPat.trim();
     if (!token) return;
+    const baseUrl = gitBaseUrl.trim();
+    if (gitProviderKind === 'gitea' && !baseUrl) {
+      onShowToast?.('Base URL required', 'Gitea/Forgejo needs its instance URL, for example https://git.example.com.', 'error');
+      return;
+    }
     try {
       setGitConnecting(true);
-      const testRes = await api.testUserGitProvider({ provider: 'github', token });
+      const testRes = await api.testUserGitProvider({
+        provider: gitProviderKind,
+        apiUrl: baseUrl || undefined,
+        token,
+      });
       if (!testRes.valid) {
-        onShowToast?.('Invalid GitHub Token', testRes.message || 'Authentication failed', 'error');
+        onShowToast?.(`Invalid ${providerLabel(gitProviderKind)} token`, testRes.message || 'Authentication failed', 'error');
         return;
       }
       await api.createUserGitProvider({
-        provider: 'github',
-        name: `GitHub (@${testRes.username || 'user'})`,
+        provider: gitProviderKind,
+        name: `${providerLabel(gitProviderKind)} (@${testRes.username || 'user'})`,
         username: testRes.username,
+        apiUrl: baseUrl || undefined,
         token,
       });
       setGithubPat('');
-      onShowToast?.('GitHub Connected', `Connected as @${testRes.username}. Repositories are now auto-discovered!`, 'success');
+      onShowToast?.(
+        `${providerLabel(gitProviderKind)} connected`,
+        `Connected as @${testRes.username}. Repositories are now auto-discovered!`,
+        'success',
+      );
       await loadGitProviders();
     } catch (err) {
       onShowToast?.('Connection failed', describeError(err), 'error');
@@ -553,7 +590,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
         </div>
       </div>
 
-      {/* Connected Git Accounts (GitHub PAT) */}
+      {/* Connected Git Accounts (tenant-scoped) */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -567,10 +604,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
         </div>
 
         <p className="text-xs text-slate-500">
-          Connect your GitHub Personal Access Token (PAT) once. BarePod will auto-discover your repositories and branches in the Add Website wizard and enable zero-config auto-deploy.
+          Connect a Git provider once. BarePod auto-discovers repositories and branches in the Add Website wizard, and uses the token for push webhooks and private GitHub HTTPS polling. Each tenant only ever sees its own connections.
         </p>
 
-        {gitProviders.length > 0 ? (
+        {gitProviders.length > 0 && (
           <div className="space-y-3">
             {gitProviders.map((gp) => (
               <div
@@ -578,8 +615,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
                 className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/70"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-                    GH
+                  <div className="w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center font-bold text-[10px] shadow-xs uppercase">
+                    {providerCode(gp.provider)}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
@@ -589,7 +626,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
                       </span>
                     </div>
                     <span className="text-[11px] text-slate-500">
-                      Auto-discovery enabled · Added {timeAgo(gp.createdAt)}
+                      Auto-discovery enabled{gp.apiUrl ? ` · ${gp.apiUrl}` : ''} · Added {timeAgo(gp.createdAt)}
                     </span>
                   </div>
                 </div>
@@ -604,11 +641,46 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
               </div>
             ))}
           </div>
-        ) : (
-          <form onSubmit={handleConnectGitHub} className="space-y-3">
+        )}
+
+        <form onSubmit={handleConnectGit} className="space-y-3 pt-3 border-t border-slate-100">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-bold text-slate-700">GitHub Personal Access Token (classic or fine-grained)</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Provider</label>
+              <select
+                value={gitProviderKind}
+                onChange={(e) => setGitProviderKind(e.target.value as 'github' | 'gitlab' | 'gitea' | 'bitbucket')}
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
+              >
+                <option value="github">GitHub</option>
+                <option value="gitlab">GitLab</option>
+                <option value="gitea">Gitea / Forgejo</option>
+                <option value="bitbucket">Bitbucket</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Instance / API base URL {gitProviderKind === 'gitea' ? '(required)' : '(optional)'}
+              </label>
+              <input
+                type="url"
+                value={gitBaseUrl}
+                onChange={(e) => setGitBaseUrl(e.target.value)}
+                placeholder="https://git.example.com"
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Required for Gitea/Forgejo; optional for self-hosted GitLab. Cloud hosts use their defaults.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-bold text-slate-700">
+                {providerLabel(gitProviderKind)} Personal Access Token
+              </label>
+              {gitProviderKind === 'github' && (
                 <a
                   href="https://github.com/settings/tokens/new?scopes=repo,read:user,admin:repo_hook&description=BarePod+Panel"
                   target="_blank"
@@ -617,31 +689,31 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
                 >
                   Generate Token <ExternalLink className="w-2.5 h-2.5" />
                 </a>
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx or github_pat_..."
-                  value={githubPat}
-                  onChange={(e) => setGithubPat(e.target.value)}
-                  className="flex-1 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
-                  required
-                />
-                <button
-                  type="submit"
-                  disabled={gitConnecting || !githubPat.trim()}
-                  className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shrink-0"
-                >
-                  {gitConnecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <GitBranch className="w-3.5 h-3.5" />}
-                  <span>Connect GitHub</span>
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-1.5">
-                Token is securely stored in BarePod Vault using AES-256-GCM encryption and is never returned in plaintext.
-              </p>
+              )}
             </div>
-          </form>
-        )}
+            <div className="flex gap-2">
+              <input
+                type="password"
+                placeholder={gitProviderKind === 'github' ? 'ghp_xxxxxxxx or github_pat_...' : 'Paste the access token'}
+                value={githubPat}
+                onChange={(e) => setGithubPat(e.target.value)}
+                className="flex-1 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 font-mono"
+                required
+              />
+              <button
+                type="submit"
+                disabled={gitConnecting || !githubPat.trim()}
+                className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+              >
+                {gitConnecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <GitBranch className="w-3.5 h-3.5" />}
+                <span>Connect {providerLabel(gitProviderKind)}</span>
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1.5">
+              Token is stored in the BarePod vault with AES-256-GCM and is never returned in plaintext.
+            </p>
+          </div>
+        </form>
       </div>
 
       {/* Active sessions */}
