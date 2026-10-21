@@ -1279,6 +1279,7 @@ export const api = {
       usage: { cpu: number; ram: number; disk: number };
       fits: boolean;
       exceeds: string[];
+      overcommit: { cpu: boolean; ram: boolean; disk: boolean };
       suggested: Record<string, number>;
       packages: { name: string; members: number; limits: Record<string, number> }[];
       /** False when this host cannot enforce a filesystem quota (an unprivileged LXC). */

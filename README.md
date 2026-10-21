@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 ## 📊 Current Live Status
 
 > [!NOTE]
-> BarePod Panel follows an honest versioning policy: **Live** means verified on a real Linux host (Ubuntu 24.04 in Proxmox LXC), not just compiled. Current snapshot: **v0.4.6 (2026-10-21)**. The single source of truth is documented in [`MASTER_PLAN.md`](./MASTER_PLAN.md).
+> BarePod Panel follows an honest versioning policy: **Live** means verified on a real Linux host (Ubuntu 24.04 in Proxmox LXC), not just compiled. Current snapshot: **v0.4.7 (2026-10-21)**. The single source of truth is documented in [`MASTER_PLAN.md`](./MASTER_PLAN.md).
 
 | Feature / Module | Real Host Status | Description |
 |---|---|---|
@@ -60,7 +60,7 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 | **Cron Defaults** | **Live ✅** | Safe heartbeat jobs stay on (watchdog/git watcher 5m, disk alert 15m, SSL renew 12h, logrotate/metrics prune/junk/security daily, fstrim weekly). Heavy or destructive jobs stay off by default (SMART test, Docker prune, full package upgrades, DB optimize) and are staggered into a maintenance window. |
 | **Docker Pods** | **Scheduled 📋** | Container pod orchestration through the Docker SDK (Pod lifecycle, env, volumes, port mapping). |
 
-**Verification for v0.4.6:** on a real Ubuntu 24.04 host, the daemon reported `mode: real` with migrations through V29, the active Caddy config validated, a site returned `200` and matched its remote branch, a real GitHub webhook delivery was answered, a foreign-branch push was ignored, and telemetry aggregation plus SSE were exercised, and metrics rollups were written to the separate metrics.db. Repeatable checks live in [`scripts/verify-v046.sh`](./scripts/verify-v046.sh).
+**Verification for v0.4.7:** on a real Ubuntu 24.04 host, the daemon reported `mode: real` with migrations through V29, the active Caddy config validated, a site returned `200` and matched its remote branch, a real GitHub webhook delivery was answered, a foreign-branch push was ignored, and telemetry aggregation plus SSE were exercised, and metrics rollups were written to the separate metrics.db. Repeatable checks live in [`scripts/verify-v047.sh`](./scripts/verify-v047.sh).
 
 ---
 

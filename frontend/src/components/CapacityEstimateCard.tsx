@@ -12,6 +12,7 @@ interface CapacityPayload {
   usage: { cpu: number; ram: number; disk: number };
   fits: boolean;
   exceeds: string[];
+  overcommit: { cpu: boolean; ram: boolean; disk: boolean };
   suggested: Record<string, number>;
   packages: { name: string; members: number; limits: Record<string, number> }[];
 }
@@ -47,15 +48,26 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
   const suggested = data.suggested || {};
   const allocation = data.allocation || {};
   const usage = data.usage || { cpu: 0, ram: 0, disk: 0 };
+  const overcommit = data.overcommit || { cpu: false, ram: false, disk: false };
   const exceeds = data.exceeds || [];
   const packages = data.packages || [];
   const cpuPer = Number(suggested.cpuQuotaPercent) || 100;
   const ramPer = Number(suggested.memoryMb) || 1024;
   const diskPer = Number(suggested.diskQuotaGb) || 10;
 
-  const cpuRemaining = Math.max(0, data.capacity.cpuCores * 100 - Number(allocation.cpuQuotaPercent || 0));
-  const ramRemaining = Math.max(0, data.capacity.memoryMb - Number(allocation.memoryMb || 0));
-  const diskRemaining = Math.max(0, data.capacity.diskGb - Number(allocation.diskQuotaGb || 0));
+  // Shared resources are deliberately allowed to exceed their reservations. For
+  // those the usable headroom is the physical capacity, not "capacity - claims";
+  // otherwise a 142% RAM claim would report zero new users even though the host
+  // is mostly idle. Disk uses the filesystem's free space.
+  const cpuRemaining = overcommit.cpu
+    ? data.capacity.cpuCores * 100
+    : Math.max(0, data.capacity.cpuCores * 100 - Number(allocation.cpuQuotaPercent || 0));
+  const ramRemaining = overcommit.ram
+    ? data.capacity.memoryMb
+    : Math.max(0, data.capacity.memoryMb - Number(allocation.memoryMb || 0));
+  const diskRemaining = data.capacity.diskFreeGb > 0
+    ? data.capacity.diskFreeGb
+    : Math.max(0, data.capacity.diskGb - Number(allocation.diskQuotaGb || 0));
 
   const byCpu = Math.floor(cpuRemaining / cpuPer);
   const byRam = Math.floor(ramRemaining / ramPer);
@@ -147,6 +159,11 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
             <div className="mt-1 text-[10px] opacity-80">
               Estimate assumes the suggested package: {cpuPer}% CPU, {ramPer} MB RAM, {diskPer} GB disk per user,
               with 25% headroom for the OS, panel, database, and traffic spikes. Actual capacity depends on the apps' workloads.
+              {(overcommit.cpu || overcommit.ram) && (
+                <div className="mt-1">
+                  CPU/RAM are marked shared{overcommit.cpu ? ' (CPU)' : ''}{overcommit.ram ? ' (RAM)' : ''}, so reservations may exceed physical capacity; this estimate uses the physical headroom instead.
+                </div>
+              )}
             </div>
           </div>
         </div>
