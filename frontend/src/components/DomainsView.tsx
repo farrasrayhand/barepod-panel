@@ -62,6 +62,8 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const [editTunnelConnected, setEditTunnelConnected] = useState(false);
   const [editRoutingMode, setEditRoutingMode] = useState<'cloudflare' | 'direct'>('direct');
   const [isUpdatingDomain, setIsUpdatingDomain] = useState(false);
+  const [editValidation, setEditValidation] = useState<DomainValidationResult | null>(null);
+  const [isValidatingEdit, setIsValidatingEdit] = useState(false);
 
   // Add Domain Form
   const [addWebsiteSlug, setAddWebsiteSlug] = useState('');
@@ -149,7 +151,8 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
     setIsValidatingDomain(true);
     const timer = setTimeout(async () => {
       try {
-        const res = await api.validateDomain(effectiveAddDomain);
+        const site = websites.find((w) => w.slug === addWebsiteSlug);
+        const res = await api.validateDomain({ domain: effectiveAddDomain, websiteSlug: addWebsiteSlug, tenant: site?.tenantUser });
         setDomainValidation(res);
       } catch (err) {
         console.warn('Validate domain error in DomainsView', err);
@@ -159,7 +162,34 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [effectiveAddDomain, showAddModal]);
+  }, [effectiveAddDomain, showAddModal, addWebsiteSlug, websites]);
+
+  useEffect(() => {
+    if (!editingDomain || !effectiveEditDomain) {
+      setEditValidation(null);
+      setIsValidatingEdit(false);
+      return;
+    }
+    if (effectiveEditDomain === editingDomain.domain.toLowerCase() && editWebsiteSlug === editingDomain.websiteSlug) {
+      setEditValidation(null);
+      return;
+    }
+    let alive = true;
+    const timer = setTimeout(() => {
+      const site = websites.find((w) => w.slug === editWebsiteSlug);
+      setIsValidatingEdit(true);
+      void api.validateDomain({
+        domain: effectiveEditDomain,
+        currentDomainId: editingDomain.id,
+        websiteSlug: editWebsiteSlug,
+        tenant: site?.tenantUser,
+      })
+        .then((res) => { if (alive) setEditValidation(res); })
+        .catch(() => { if (alive) setEditValidation(null); })
+        .finally(() => { if (alive) setIsValidatingEdit(false); });
+    }, 400);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [editingDomain, effectiveEditDomain, editWebsiteSlug, websites]);
 
   const openEditModal = async (dom: ApiDomain) => {
     setEditingDomain(dom);
@@ -189,18 +219,18 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
       const connected = Boolean(status?.hasToken && status?.status === 'connected' && zones.length > 0);
       setEditZones(zones);
       setEditTunnelConnected(connected);
-      if (knownMode === 'cloudflare' && connected) {
-        const name = dom.domain.toLowerCase();
-        const zone = zones
+      const name = dom.domain.toLowerCase();
+      const zone = connected
+        ? zones
           .filter((z) => name === z.name.toLowerCase() || name.endsWith('.' + z.name.toLowerCase()))
-          .sort((a, b) => b.name.length - a.name.length)[0];
-        if (zone) {
-          const suffix = '.' + zone.name.toLowerCase();
-          setEditZone(zone.name);
-          setEditSubdomain(name.endsWith(suffix) ? dom.domain.slice(0, dom.domain.length - suffix.length) : '');
-          return;
-        }
+          .sort((a, b) => b.name.length - a.name.length)[0]
+        : undefined;
+      if (zone) {
+        const suffix = '.' + zone.name.toLowerCase();
+        setEditZone(zone.name);
+        setEditSubdomain(name.endsWith(suffix) ? dom.domain.slice(0, dom.domain.length - suffix.length) : '');
       }
+      if (knownMode === 'cloudflare' && zone) return;
       // No usable tenant zone: fall back to the direct-address editor instead of showing
       // an empty zone selector.
       setEditRoutingMode('direct');
@@ -214,6 +244,10 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
     if (!editingDomain || !effectiveEditDomain || isValidatingDomain) return;
     if (editRoutingMode === 'cloudflare' && !editZone) {
       onShowToast?.('Cloudflare zone unavailable', 'Connect a Cloudflare tunnel for this tenant or choose Direct IP.', 'error');
+      return;
+    }
+    if (isValidatingEdit || (editValidation && !editValidation.available)) {
+      onShowToast?.('Domain not available', editValidation?.message || 'Wait for validation to finish.', 'error');
       return;
     }
     const cleaned = effectiveEditDomain;
@@ -1077,7 +1111,24 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                     </label>
                   </div>
 
-                  <div className="flex items-center justify-end gap-2 pt-2">
+                  {isValidatingEdit ? (
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-slate-500 text-xs flex items-center gap-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                    <span>Validating domain…</span>
+                  </div>
+                ) : editValidation?.available ? (
+                  <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Domain is available for routing</span>
+                  </div>
+                ) : editValidation ? (
+                  <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                    <span>{editValidation.message || 'This domain cannot be used here.'}</span>
+                  </div>
+                ) : null}
+
+                <div className="flex items-center justify-end gap-2 pt-2">
                     <button
                       type="button"
                       onClick={() => setSelectedDomain(null)}
