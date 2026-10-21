@@ -43,6 +43,7 @@ type Deps struct {
 	Tenants        *tenant.Manager
 	Metrics        *metrics.Sampler
 	SiteMetrics    *metrics.SiteSampler
+	MetricsDB      *metrics.Persistence
 	MaxUploadBytes int64
 	// Tools is the supervisor for the on-demand database managers. Nil means no
 	// manager can be hosted (the gate still reports honestly).
@@ -65,6 +66,7 @@ type Server struct {
 	tenants        *tenant.Manager
 	metrics        *metrics.Sampler
 	siteMetrics    *metrics.SiteSampler
+	metricsDB      *metrics.Persistence
 	tickets        *ticketStore
 	maxUploadBytes int64
 	// engines is the single-flight orchestrator for containerised engines.
@@ -137,6 +139,7 @@ func New(d Deps) http.Handler {
 		tenants:        d.Tenants,
 		metrics:        d.Metrics,
 		siteMetrics:    d.SiteMetrics,
+		metricsDB:      d.MetricsDB,
 		tickets:        newTicketStore(),
 		maxUploadBytes: maxUpload,
 		tools:          d.Tools,

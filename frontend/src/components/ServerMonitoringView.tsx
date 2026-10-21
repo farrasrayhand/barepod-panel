@@ -147,11 +147,13 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
   };
 
-  /** The daemon keeps a bounded ring buffer, so only ask for what it has. */
+  /** Live windows come from memory; long windows from metrics.db rollups. */
   const apiRangeFor = (range: string): string => {
     if (range === 'live') return '5m';
-    if (range === '1h') return '1h';
-    return '24h'; // 24h fits the default buffer; 7d/30d/90d do not
+    // Longer windows are answered by metrics.db rollups; the daemon falls back to
+    // its in-memory window when the persistent database is disabled.
+    if (range === '1h' || range === '24h' || range === '7d' || range === '30d' || range === '90d') return range;
+    return '24h';
   };
 
   useEffect(() => {

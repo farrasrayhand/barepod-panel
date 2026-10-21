@@ -45,6 +45,10 @@ type Config struct {
 
 	MetricsInterval time.Duration
 	MetricsHistory  int
+	// MetricsDBPath is the separate SQLite file that holds aggregated metric
+	// history. It is deliberately not the panel database: time-series writes
+	// must not bloat or lock the data behind the UI.
+	MetricsDBPath string
 
 	// DbtoolsIdle is how long an on-demand database manager (pgweb) may sit
 	// unused before the sweeper stops it. The timer slides on every request.
@@ -57,6 +61,11 @@ type Config struct {
 // DefaultDbtoolsDir sits next to the panel database unless overridden.
 func DefaultDbtoolsDir() string {
 	return env("BAREPOD_DBTOOLS_DIR", filepath.Join(filepath.Dir(DefaultDBPath()), "dbtools"))
+}
+
+// DefaultMetricsDBPath sits beside the panel database unless overridden.
+func DefaultMetricsDBPath() string {
+	return env("BAREPOD_METRICS_DB", filepath.Join(filepath.Dir(DefaultDBPath()), "metrics.db"))
 }
 
 func envDuration(key string, fallback time.Duration) time.Duration {
@@ -153,11 +162,18 @@ func Load(args []string) (Config, error) {
 	maxUpload := fs.Int("max-upload-mb", envInt("BAREPOD_MAX_UPLOAD_MB", 64), "upload/edit ceiling for the file manager, in MiB")
 	metricsInterval := fs.Duration("metrics-interval", envDuration("BAREPOD_METRICS_INTERVAL", 15*time.Second), "how often host and per-website metrics are sampled")
 	metricsHistory := fs.Int("metrics-history", envInt("BAREPOD_METRICS_HISTORY", 2880), "how many metric samples to keep in memory (2880 x 15s = 12h)")
+	metricsDBPath := fs.String("metrics-db", env("BAREPOD_METRICS_DB", ""), "path to the separate SQLite database for aggregated metric history (default: beside -db)")
 	dbtoolsIdle := fs.Duration("dbtools-idle", envDuration("BAREPOD_DBTOOLS_IDLE", 15*time.Minute), "how long an unused on-demand database manager (pgweb, phpMyAdmin, DbGate) stays up before it is stopped")
 	dbtoolsDir := fs.String("dbtools-dir", DefaultDbtoolsDir(), "where on-demand managers that need installing (phpMyAdmin) live, and where their configs are written")
 
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
+	}
+	resolvedMetricsDB := strings.TrimSpace(*metricsDBPath)
+	if resolvedMetricsDB == "" {
+		// Follow the panel database unless the operator chose a path. This keeps a
+		// custom -db working without also requiring -metrics-db.
+		resolvedMetricsDB = filepath.Join(filepath.Dir(filepath.Clean(*dbPath)), "metrics.db")
 	}
 
 	return Config{
@@ -180,6 +196,7 @@ func Load(args []string) (Config, error) {
 		HTTPSListen:     strings.TrimSpace(*httpsListen),
 		MetricsInterval: *metricsInterval,
 		MetricsHistory:  *metricsHistory,
+		MetricsDBPath:   filepath.Clean(resolvedMetricsDB),
 		DbtoolsIdle:     *dbtoolsIdle,
 		DbtoolsDir:      filepath.Clean(*dbtoolsDir),
 	}, nil

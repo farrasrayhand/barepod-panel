@@ -170,11 +170,16 @@ func (s *Sampler) MaxRange() time.Duration {
 
 // ranges maps the UI's time-range keys to durations.
 var ranges = map[string]time.Duration{
-	"5m":  5 * time.Minute,
-	"1h":  time.Hour,
-	"6h":  6 * time.Hour,
-	"12h": 12 * time.Hour,
-	"24h": 24 * time.Hour,
+	"5m":   5 * time.Minute,
+	"1h":   time.Hour,
+	"6h":   6 * time.Hour,
+	"12h":  12 * time.Hour,
+	"24h":  24 * time.Hour,
+	"7d":   7 * 24 * time.Hour,
+	"30d":  30 * 24 * time.Hour,
+	"90d":  90 * 24 * time.Hour,
+	"365d": 365 * 24 * time.Hour,
+	"1y":   365 * 24 * time.Hour,
 }
 
 // RangeKeys lists the supported range keys, longest first.

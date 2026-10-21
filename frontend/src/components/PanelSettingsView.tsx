@@ -57,6 +57,12 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   // no public address to find, and a domain is knowledge only the operator has.
   const [externalAddress, setExternalAddress] = useState('');
   const [externalSaving, setExternalSaving] = useState(false);
+  // Metric history lives in its own SQLite file; these two values control whether
+  // it is written and how long the hourly tier is kept.
+  const [metricsPersistence, setMetricsPersistence] = useState(true);
+  const [metricsRetentionDays, setMetricsRetentionDays] = useState(365);
+  const [metricsDbBytes, setMetricsDbBytes] = useState(0);
+  const [metricsSaving, setMetricsSaving] = useState(false);
   // The addresses the lockout must never ban, one per line. Visible because a list that can silently be
   // empty is the foot-gun it exists to remove — the operator's own address is added by any sign-in, but
   // seeing that is the difference between trusting it and hoping.
@@ -287,6 +293,9 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           setSessionTimeoutHours(settings.sessionTimeoutHours || 24);
           setIpWhitelist((settings.ipAllowlist || []).join('\n'));
           setTrustedDraft((settings.trustedAddresses || []).join('\n'));
+          setMetricsPersistence(settings.metricsPersistence !== false);
+          setMetricsRetentionDays(settings.metricsRetentionDays || 365);
+          setMetricsDbBytes(settings.metricsDbBytes || 0);
         }
       } catch {
         // Left empty: the panel then names the address it is being used on.
@@ -812,6 +821,31 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
       }
     } catch (err) {
       onShowToast?.('Test failed', describeError(err), 'error');
+    }
+  };
+
+  const saveMetricsSettings = async () => {
+    if (!isAdmin || metricsSaving) return;
+    setMetricsSaving(true);
+    try {
+      const saved = await api.savePanelSettings({
+        metricsPersistence,
+        metricsRetentionDays,
+      });
+      setMetricsPersistence(saved.metricsPersistence !== false);
+      setMetricsRetentionDays(saved.metricsRetentionDays || metricsRetentionDays);
+      setMetricsDbBytes(saved.metricsDbBytes || 0);
+      onShowToast?.(
+        'Metric retention saved',
+        metricsPersistence
+          ? `Rollups are written to metrics.db; hourly history is kept for ${metricsRetentionDays} days.`
+          : 'Metric persistence is off; only the in-memory live window is collected.',
+        'success',
+      );
+    } catch (err) {
+      onShowToast?.('Could not save metric retention', describeError(err), 'error');
+    } finally {
+      setMetricsSaving(false);
     }
   };
 
@@ -1402,21 +1436,61 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </p>
               </div>
 
-              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3">
+              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-4">
                 <div className="flex items-center gap-2.5">
                   <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
                     <Server className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-slate-900">Live metrics are held in memory</h3>
-                    <p className="text-xs text-slate-500">Host and per-site samples behind the charts.</p>
+                    <h3 className="text-sm font-bold text-slate-900">Metric history is stored separately</h3>
+                    <p className="text-xs text-slate-500">Live samples stay in memory; rollups survive restarts.</p>
                   </div>
                 </div>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  The sampler keeps a bounded ring buffer in memory and never writes time-series data to
-                  disk, so there is no retention window to configure here: the history starts empty again
-                  when the daemon restarts. The retention below applies to what the daemon does persist.
+                  The live chart reads 5-second samples from memory. Once a minute the daemon writes
+                  averages to <code className="font-mono">metrics.db</code>: 1-minute rows for 24 hours,
+                  5-minute rows for 30 days, and hourly rows for the retention below. The panel database
+                  is not touched, and disabling this leaves only the in-memory window.
                 </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={metricsPersistence}
+                      onChange={(e) => setMetricsPersistence(e.target.checked)}
+                      disabled={!isAdmin || metricsSaving}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    Store metric history
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                    Hourly retention
+                    <select
+                      value={metricsRetentionDays}
+                      onChange={(e) => setMetricsRetentionDays(Number(e.target.value))}
+                      disabled={!isAdmin || metricsSaving || !metricsPersistence}
+                      className="px-2 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500"
+                    >
+                      <option value={30}>30 days</option>
+                      <option value={90}>90 days</option>
+                      <option value={365}>365 days</option>
+                    </select>
+                  </label>
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    metrics.db: {(metricsDbBytes / (1024 * 1024)).toFixed(1)} MB
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void saveMetricsSettings()}
+                    disabled={!isAdmin || metricsSaving}
+                    className="px-3.5 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors cursor-pointer"
+                  >
+                    {metricsSaving ? 'Saving…' : 'Save retention'}
+                  </button>
+                </div>
+                {!isAdmin && (
+                  <p className="text-[10px] text-slate-400">Only an administrator may change retention.</p>
+                )}
               </div>
 
               <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3">

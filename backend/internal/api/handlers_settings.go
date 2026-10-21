@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/farrasrayhand/barepod-panel/backend/internal/metrics"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/validate"
@@ -107,14 +108,20 @@ func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *
 		writeError(w, http.StatusInternalServerError, "store_error", err.Error())
 		return
 	}
+	metricsPersistence, _ := s.store.PanelSetting(metrics.PersistenceSettingKey)
+	metricsRetention, _ := s.store.PanelSetting(metrics.RetentionSettingKey)
+	persistenceAvailable := s.metricsDB != nil
 	writeJSON(w, http.StatusOK, map[string]any{
-		"externalAddress":     address,
-		"panelFqdn":           fqdn,
-		"useCloudflare":       useCloudflare == "true",
-		"letsencryptEmail":    letsEncrypt,
-		"sessionTimeoutHours": parseSessionHours(sessionHours),
-		"ipAllowlist":         splitAllowlist(allowlist),
-		"overcommit":          resources.ParseSharing(sharing),
+		"externalAddress":      address,
+		"panelFqdn":            fqdn,
+		"useCloudflare":        useCloudflare == "true",
+		"letsencryptEmail":     letsEncrypt,
+		"sessionTimeoutHours":  parseSessionHours(sessionHours),
+		"ipAllowlist":          splitAllowlist(allowlist),
+		"overcommit":           resources.ParseSharing(sharing),
+		"metricsPersistence":   metricsPersistence != "false" && persistenceAvailable,
+		"metricsRetentionDays": parseMetricsRetention(metricsRetention),
+		"metricsDbBytes":       s.metricsDBSize(),
 		// The addresses the lockout must never ban, and the reason it matters that they are visible:
 		// this list can be empty without anything saying so, which is exactly the foot-gun it exists to
 		// remove. The operator's own address is added by any successful sign-in.
@@ -126,14 +133,16 @@ func (s *Server) handlePanelSettings(w http.ResponseWriter, r *http.Request, _ *
 // is a decision worth a name against it.
 func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	var body struct {
-		ExternalAddress     *string            `json:"externalAddress"`
-		PanelFQDN           *string            `json:"panelFqdn"`
-		UseCloudflare       *bool              `json:"useCloudflare"`
-		LetsEncryptEmail    *string            `json:"letsencryptEmail"`
-		SessionTimeoutHours *int               `json:"sessionTimeoutHours"`
-		IPAllowlist         *[]string          `json:"ipAllowlist"`
-		TrustedAddresses    *[]string          `json:"trustedAddresses"`
-		Overcommit          *resources.Sharing `json:"overcommit"`
+		ExternalAddress      *string            `json:"externalAddress"`
+		PanelFQDN            *string            `json:"panelFqdn"`
+		UseCloudflare        *bool              `json:"useCloudflare"`
+		LetsEncryptEmail     *string            `json:"letsencryptEmail"`
+		SessionTimeoutHours  *int               `json:"sessionTimeoutHours"`
+		IPAllowlist          *[]string          `json:"ipAllowlist"`
+		TrustedAddresses     *[]string          `json:"trustedAddresses"`
+		Overcommit           *resources.Sharing `json:"overcommit"`
+		MetricsPersistence   *bool              `json:"metricsPersistence"`
+		MetricsRetentionDays *int               `json:"metricsRetentionDays"`
 	}
 	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "could not read the settings")
@@ -141,7 +150,8 @@ func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request,
 	}
 	if body.ExternalAddress == nil && body.PanelFQDN == nil && body.UseCloudflare == nil &&
 		body.LetsEncryptEmail == nil && body.SessionTimeoutHours == nil && body.IPAllowlist == nil &&
-		body.TrustedAddresses == nil && body.Overcommit == nil {
+		body.TrustedAddresses == nil && body.Overcommit == nil &&
+		body.MetricsPersistence == nil && body.MetricsRetentionDays == nil {
 		writeError(w, http.StatusBadRequest, "invalid_body", "nothing to change")
 		return
 	}
@@ -257,6 +267,29 @@ func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request,
 		// allocation to every deployed site now, rather than waiting for its next deploy.
 		s.reapplyResourceLimits(r.Context())
 	}
+	if body.MetricsPersistence != nil {
+		value := "true"
+		if !*body.MetricsPersistence {
+			value = "false"
+		}
+		if err := s.store.SavePanelSetting(metrics.PersistenceSettingKey, value); err != nil {
+			writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+			return
+		}
+		_ = s.store.Audit(user.ID, "panel.settings", "metrics_persistence", clientIP(r), "set to "+value)
+	}
+	if body.MetricsRetentionDays != nil {
+		days := *body.MetricsRetentionDays
+		if days < 30 || days > 3650 {
+			writeError(w, http.StatusBadRequest, "invalid_days", "metric retention must be between 30 and 3650 days")
+			return
+		}
+		if err := s.store.SavePanelSetting(metrics.RetentionSettingKey, strconv.Itoa(days)); err != nil {
+			writeError(w, http.StatusInternalServerError, "store_error", err.Error())
+			return
+		}
+		_ = s.store.Audit(user.ID, "panel.settings", "metrics_retention_days", clientIP(r), "set to "+strconv.Itoa(days))
+	}
 	if body.ExternalAddress == nil {
 		fqdn, _ := s.store.PanelSetting(panelFQDNKey)
 		useCloudflare, _ := s.store.PanelSetting(panelUseCloudflareKey)
@@ -264,14 +297,19 @@ func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request,
 		sessionHours, _ := s.store.PanelSetting(sessionTimeoutHoursKey)
 		allowlist, _ := s.store.PanelSetting(panelIPAllowlistKey)
 		sharing, _ := s.store.PanelSetting(store.OvercommitSettingKey)
+		metricsPersistence, _ := s.store.PanelSetting(metrics.PersistenceSettingKey)
+		metricsRetention, _ := s.store.PanelSetting(metrics.RetentionSettingKey)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"panelFqdn":           fqdn,
-			"useCloudflare":       useCloudflare == "true",
-			"letsencryptEmail":    letsEncrypt,
-			"sessionTimeoutHours": parseSessionHours(sessionHours),
-			"ipAllowlist":         splitAllowlist(allowlist),
-			"overcommit":          resources.ParseSharing(sharing),
-			"trustedAddresses":    clean,
+			"panelFqdn":            fqdn,
+			"useCloudflare":        useCloudflare == "true",
+			"letsencryptEmail":     letsEncrypt,
+			"sessionTimeoutHours":  parseSessionHours(sessionHours),
+			"ipAllowlist":          splitAllowlist(allowlist),
+			"overcommit":           resources.ParseSharing(sharing),
+			"metricsPersistence":   metricsPersistence != "false" && s.metricsDB != nil,
+			"metricsRetentionDays": parseMetricsRetention(metricsRetention),
+			"metricsDbBytes":       s.metricsDBSize(),
+			"trustedAddresses":     clean,
 		})
 		return
 	}
@@ -301,4 +339,12 @@ func (s *Server) handleSavePanelSettings(w http.ResponseWriter, r *http.Request,
 	}
 	_ = s.store.Audit(user.ID, "panel.settings", "external_address", clientIP(r), detail)
 	writeJSON(w, http.StatusOK, map[string]any{"externalAddress": address})
+}
+
+func parseMetricsRetention(raw string) int {
+	days, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || days < 30 || days > 3650 {
+		return metrics.DefaultRetentionDays
+	}
+	return days
 }

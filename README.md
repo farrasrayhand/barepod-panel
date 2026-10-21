@@ -52,6 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 | **Anti-Brute Force Watchdog** | **Live ✅** | Kernel-level nftables enforcement reading 6 independent sources (Postgres, MariaDB, Mongo, Redis ACL, SSH, and Panel logins). |
 | **File Manager Pro** | **Live ✅** | Path-jail protected file manager running under tenant UID/GID (`barepod fs-exec`) with chunked uploads, batch zip, in-browser editor, and media previewers. |
 | **Traffic Telemetry & Map** | **Live ✅** | Reads the active vhost's access log (Caddy JSON, Nginx/Apache combined CLF), resolves country/city/ISP/coordinates via `ip-api.com`, maps RFC1918/loopback peers to **Local Network**, flags threat probes, and streams new hits over SSE. Verified on a real host with live traffic. |
+| **Metrics History & Retention** | **Live ✅** | Live samples stay in memory; aggregated rollups (1m → 24h, 5m → 30d, 1h → configurable 30/90/365d) are written once a minute to a separate `metrics.db`, so history survives restarts. Admin can disable persistence or change retention from Monitoring & Retention. |
 | **Git CI/CD & Auto-Deploy** | **Live ✅** | Per-tenant GitHub, GitLab, Gitea/Forgejo and Bitbucket connections with AES-256-GCM tokens, repo/branch discovery, ED25519 deploy keys, deploy history, and auto-deploy in **webhook / polling / off** modes. Provider hooks are registered, updated and deleted by the daemon. |
 | **Path Routing, Service Logs & Lists** | **Live ✅** | Per-site path prefixes (`/api/` → upstream) rendered into Nginx, Caddy, Apache and OpenLiteSpeed vhosts with hot reload; inline edit/delete; journald service logs; server-side `?owner=&sort_by=&order=` for websites, databases and caches. |
 | **Docker Pods** | **Scheduled 📋** | Container pod orchestration through the Docker SDK (Pod lifecycle, env, volumes, port mapping). |
@@ -98,6 +99,7 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
   - `GET /api/v1/websites/:slug/telemetry` — aggregated snapshot (nodes, totals, unique IPs, threats, recent log items).
   - `GET /api/v1/websites/:slug/telemetry/stream` — SSE `snapshot` event, then new parsed lines about once per second, with a `: ping` keepalive every 15 seconds.
 - **Verified on a real host**: the aggregation endpoint returned `200`, an SSE connection stayed open under live traffic, the Caddy JSON log contained real requests, and the GeoIP lookup succeeded.
+- **History survives a restart**: the live window is in memory, while `metrics.db` keeps 1-minute, 5-minute and hourly rollups. The file is separate from the panel database, written once a minute, and pruned by the retention setting; it can be disabled entirely from **Panel Settings → Monitoring & Retention**.
 
 ### 🗄️ Databases, Caches & Fast Hosted GUIs
 - **Dedicated Native Process per App for Redis**: Each cache instance binds to an isolated loopback IP (`127.0.0.X:6379`) with dedicated memory and storage. Completely immune to cross-app `FLUSHALL` or key collisions!

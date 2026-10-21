@@ -469,10 +469,15 @@ export interface MetricSeries<T> {
   range: string;
   windowSeconds: number;
   intervalSeconds: number;
-  /** Longest window the daemon can answer (ring buffer bound). */
+  /** Longest window the daemon can answer (memory + metrics.db). */
   maxRangeSeconds?: number;
   buffered?: number;
   source?: string;
+  /** Which rollup tier answered: 1m, 5m, 1h, or live memory. */
+  resolution?: string;
+  /** "memory" or "sqlite". */
+  storage?: string;
+  metricsDbBytes?: number;
 }
 
 export interface FileEntry {
@@ -816,10 +821,10 @@ export const api = {
     }),
 
   panelSettings: () =>
-    request<{ externalAddress: string; panelFqdn: string; useCloudflare: boolean; letsencryptEmail: string; sessionTimeoutHours: number; ipAllowlist: string[]; trustedAddresses: string[]; overcommit: OvercommitPolicy }>('/system/settings'),
+    request<{ externalAddress: string; panelFqdn: string; useCloudflare: boolean; letsencryptEmail: string; sessionTimeoutHours: number; ipAllowlist: string[]; trustedAddresses: string[]; overcommit: OvercommitPolicy; metricsPersistence: boolean; metricsRetentionDays: number; metricsDbBytes: number }>('/system/settings'),
 
-  savePanelSettings: (settings: { externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; sessionTimeoutHours?: number; ipAllowlist?: string[]; trustedAddresses?: string[]; overcommit?: OvercommitPolicy }) =>
-    request<{ externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; sessionTimeoutHours?: number; ipAllowlist?: string[]; trustedAddresses?: string[]; overcommit?: OvercommitPolicy }>('/system/settings', {
+  savePanelSettings: (settings: { externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; sessionTimeoutHours?: number; ipAllowlist?: string[]; trustedAddresses?: string[]; overcommit?: OvercommitPolicy; metricsPersistence?: boolean; metricsRetentionDays?: number }) =>
+    request<{ externalAddress?: string; panelFqdn?: string; useCloudflare?: boolean; letsencryptEmail?: string; sessionTimeoutHours?: number; ipAllowlist?: string[]; trustedAddresses?: string[]; overcommit?: OvercommitPolicy; metricsPersistence?: boolean; metricsRetentionDays?: number; metricsDbBytes?: number }>('/system/settings', {
       method: 'PATCH',
       body: JSON.stringify(settings),
     }),

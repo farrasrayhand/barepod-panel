@@ -478,8 +478,7 @@ func runServe(args []string) error {
 	defer stopMetrics()
 	sampler := metrics.NewSampler(metrics.NewCollector(cfg.SitesRoot), cfg.MetricsInterval, cfg.MetricsHistory)
 	siteSampler := metrics.NewSiteSampler(cfg.MetricsHistory)
-	go sampler.Start(metricsCtx)
-	go siteSampler.Run(metricsCtx, func() []string {
+	listSlugs := func() []string {
 		sites, err := st.ListWebsites()
 		if err != nil {
 			return nil
@@ -489,7 +488,24 @@ func runServe(args []string) error {
 			slugs = append(slugs, site.Slug)
 		}
 		return slugs
-	}, cfg.MetricsInterval)
+	}
+	go sampler.Start(metricsCtx)
+	go siteSampler.Run(metricsCtx, listSlugs, cfg.MetricsInterval)
+
+	// Aggregated history lives in its own SQLite file, so a busy writer never
+	// contends with the panel tables and the file can be pruned or removed alone.
+	var metricsDB *metrics.Persistence
+	if cfg.MetricsDBPath != "" {
+		opened, err := metrics.OpenPersistence(cfg.MetricsDBPath)
+		if err != nil {
+			log.Printf("metrics: persistence disabled: %v", err)
+		} else {
+			metricsDB = opened
+			defer metricsDB.Close()
+			go metrics.NewPersister(metricsDB, st, sampler, siteSampler, listSlugs).Run(metricsCtx)
+			log.Printf("metrics: aggregated history in %s", cfg.MetricsDBPath)
+		}
+	}
 	log.Printf("metrics: sampling every %s (history %d samples, source %s)",
 		cfg.MetricsInterval, cfg.MetricsHistory, sampler.Collector().Mode())
 
@@ -575,6 +591,7 @@ func runServe(args []string) error {
 			Tenants:        tenants,
 			Metrics:        sampler,
 			SiteMetrics:    siteSampler,
+			MetricsDB:      metricsDB,
 			MaxUploadBytes: int64(cfg.MaxUploadMB) << 20,
 			Tools:          tools,
 			Guard:          watchdog,

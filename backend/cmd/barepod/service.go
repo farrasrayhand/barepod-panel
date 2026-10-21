@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"runtime"
+	"strconv"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/config"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
@@ -54,6 +55,8 @@ func serviceInstall(args []string) error {
 		"-sites-root", cfg.SitesRoot,
 		"-units-dir", cfg.UnitsDir,
 		"-metrics-interval", cfg.MetricsInterval.String(),
+		"-metrics-history", strconv.Itoa(cfg.MetricsHistory),
+		"-metrics-db", cfg.MetricsDBPath,
 		"-log-level", cfg.LogLevel,
 	}
 	if cfg.DryRun {
