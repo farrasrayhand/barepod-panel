@@ -81,16 +81,39 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
       ? 'RAM'
       : 'disk';
 
-  const bar = (label: string, used: number, total: number, color: string) => (
-    <div>
-      <div className="flex items-center justify-between text-[11px] mb-1">
-        <span className="text-slate-600 font-medium">{label}</span>
-        <span className="font-mono text-slate-700">{Math.round(used)} / {Math.round(total)}</span>
+  const sharedResources = [
+    overcommit.cpu ? 'CPU' : '',
+    overcommit.ram ? 'RAM' : '',
+  ].filter(Boolean);
+  const bottleneckLabel = bottleneck === 'CPU quota' ? 'CPU' : bottleneck;
+
+  const resource = (
+    label: string,
+    total: string,
+    promised: string,
+    percent: number,
+    color: string,
+    shared: boolean,
+    detail?: string,
+  ) => (
+    <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">{label}</span>
+        {shared && (
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-white border border-amber-200 text-amber-700">
+            Shared
+          </span>
+        )}
       </div>
-      <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
+      <div className="font-mono font-bold text-slate-800 text-sm mt-1">{total}</div>
+      <div className={`text-[10px] mt-0.5 ${percent > 100 ? 'text-amber-700' : 'text-slate-500'}`}>
+        {promised}
+        {detail ? ` · ${detail}` : ''}
+      </div>
+      <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden mt-2">
         <div
-          className={`h-full rounded-full ${color}`}
-          style={{ width: `${Math.min(100, total > 0 ? (used / total) * 100 : 0)}%` }}
+          className={`h-full rounded-full ${percent > 100 ? 'bg-amber-500' : color}`}
+          style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
         />
       </div>
     </div>
@@ -105,7 +128,7 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
           </div>
           <div>
             <h3 className="text-sm font-bold text-slate-900">Capacity Estimate</h3>
-            <p className="text-xs text-slate-500">How many more packages this host can hold.</p>
+            <p className="text-xs text-slate-500">A practical guide to how many more users this host can take.</p>
           </div>
         </div>
         <button
@@ -119,54 +142,66 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">CPU</div>
-          <div className="font-mono font-bold text-slate-800 text-sm mt-0.5">{data.capacity.cpuCores} vCPU</div>
-          <div className="text-[10px] text-slate-500 mt-0.5">{pct(usage.cpu)} allocated</div>
-        </div>
-        <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">RAM</div>
-          <div className="font-mono font-bold text-slate-800 text-sm mt-0.5">{(data.capacity.memoryMb / 1024).toFixed(1)} GB</div>
-          <div className="text-[10px] text-slate-500 mt-0.5">{pct(usage.ram)} allocated</div>
-        </div>
-        <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Disk</div>
-          <div className="font-mono font-bold text-slate-800 text-sm mt-0.5">{data.capacity.diskGb} GB</div>
-          <div className="text-[10px] text-slate-500 mt-0.5">{data.capacity.diskFreeGb} GB free</div>
-        </div>
-        <div className="rounded-xl bg-indigo-50 border border-indigo-200 p-3">
-          <div className="text-[10px] uppercase tracking-wide text-indigo-500 font-semibold">Comfortable</div>
-          <div className="font-mono font-bold text-indigo-800 text-sm mt-0.5">{comfortable} user{comfortable === 1 ? '' : 's'}</div>
-          <div className="text-[10px] text-indigo-600 mt-0.5">+{addable} theoretical</div>
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 flex items-start gap-3">
+        <div className="text-3xl font-bold leading-none text-indigo-800 font-mono">{comfortable}</div>
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-indigo-900">
+            {comfortable > 0 ? `more user${comfortable === 1 ? '' : 's'} can be added safely` : 'no safe headroom at this package size'}
+          </div>
+          <p className="text-[11px] text-indigo-700 mt-1">
+            Maximum {addable} at the suggested package. {addable > 0 ? `${bottleneckLabel} is the first limit.` : 'Free CPU, RAM, or disk first.'}
+          </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {bar('CPU claim', Number(allocation.cpuQuotaPercent || 0), data.capacity.cpuCores * 100, 'bg-blue-600')}
-        {bar('RAM claim', Number(allocation.memoryMb || 0), data.capacity.memoryMb, 'bg-emerald-600')}
-        {bar('Disk claim', Number(allocation.diskQuotaGb || 0), data.capacity.diskGb, 'bg-violet-600')}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {resource(
+          'CPU',
+          `${data.capacity.cpuCores} vCPU`,
+          `${(Number(allocation.cpuQuotaPercent || 0) / 100).toFixed(2)} vCPU promised (${pct(usage.cpu)})`,
+          usage.cpu * 100,
+          'bg-blue-600',
+          overcommit.cpu,
+        )}
+        {resource(
+          'RAM',
+          `${(data.capacity.memoryMb / 1024).toFixed(1)} GB`,
+          `${(Number(allocation.memoryMb || 0) / 1024).toFixed(1)} GB promised (${pct(usage.ram)})`,
+          usage.ram * 100,
+          'bg-emerald-600',
+          overcommit.ram,
+        )}
+        {resource(
+          'Disk',
+          `${data.capacity.diskGb} GB`,
+          `${data.capacity.diskFreeGb} GB free`,
+          data.capacity.diskGb > 0 ? (Number(allocation.diskQuotaGb || 0) / data.capacity.diskGb) * 100 : 0,
+          'bg-violet-600',
+          overcommit.disk,
+          `${Number(allocation.diskQuotaGb || 0)} GB promised`,
+        )}
       </div>
 
-      <div className={`rounded-xl border p-3 text-[11px] leading-relaxed ${data.fits ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
+      <div className={`rounded-xl border p-3 text-[11px] leading-relaxed ${data.fits ? 'bg-slate-50 border-slate-200 text-slate-700' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
         <div className="flex items-start gap-2">
-          {data.fits ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />}
+          {data.fits ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />}
           <div>
-            <strong>{data.fits ? 'Current allocation fits.' : 'Current allocation exceeds the host.'}</strong>{' '}
-            {exceeds.length > 0
-              ? exceeds.join(' ')
-              : `Bottleneck for new users: ${bottleneck}.`}
-            <div className="mt-1 text-[10px] opacity-80">
-              Estimate assumes the suggested package: {cpuPer}% CPU, {ramPer} MB RAM, {diskPer} GB disk per user,
-              with 25% headroom for the OS, panel, database, and traffic spikes. Actual capacity depends on the apps' workloads.
-              {(overcommit.cpu || overcommit.ram) && (
-                <div className="mt-1">
-                  CPU/RAM are marked shared{overcommit.cpu ? ' (CPU)' : ''}{overcommit.ram ? ' (RAM)' : ''}, so reservations may exceed physical capacity; this estimate uses the physical headroom instead.
-                </div>
-              )}
-            </div>
+            <strong>{data.fits ? 'The current plan fits.' : 'The current plan exceeds the host.'}</strong>{' '}
+            {exceeds.length > 0 && <span>{exceeds.join(' ')}</span>}
+            {data.fits && sharedResources.length > 0 && (
+              <div className="mt-1">
+                {sharedResources.join(' and ')} {sharedResources.length === 1 ? 'is' : 'are'} shared, so promised
+                values may go above the physical hardware. The estimate above uses real capacity and free disk,
+                not the promises.
+              </div>
+            )}
           </div>
         </div>
+      </div>
+
+      <div className="text-[10px] text-slate-400 leading-relaxed">
+        Assumes <strong className="text-slate-500">{cpuPer}% CPU, {ramPer} MB RAM, {diskPer} GB disk</strong> per user,
+        with 25% headroom for the OS, panel, database, and traffic spikes. Actual capacity depends on the apps' workloads.
       </div>
 
       <div className="flex items-center gap-2 text-[10px] text-slate-400">
