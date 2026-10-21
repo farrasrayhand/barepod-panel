@@ -92,7 +92,12 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
     ? (editSubdomain.trim() ? `${editSubdomain.trim().toLowerCase()}.${editZone}` : editZone)
     : newDomainInput.trim().toLowerCase();
 
-  const isDomainCloudflare = (domName: string) => {
+  const isDomainCloudflare = (domName: string, websiteSlug?: string) => {
+    // An admin viewing a tenant's domain cannot see that tenant's tunnel routes in
+    // tunnelStatus. The website's own flag is the authoritative shared source, so the
+    // Domains badge and the Apps "CF Tunnel" badge cannot disagree.
+    const site = websiteSlug ? websites.find((w) => w.slug === websiteSlug) : undefined;
+    if (site?.tunnelEnabled) return true;
     if (tunnelStatus?.routes?.some(r => r.hostname.toLowerCase() === domName.toLowerCase())) return true;
     return cfZones.some(z => domName.toLowerCase() === z.name.toLowerCase() || domName.toLowerCase().endsWith('.' + z.name.toLowerCase()));
   };
@@ -537,7 +542,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 filtered.map((d) => {
                   const targetWeb = websites.find(w => w.slug === d.websiteSlug);
                   const isExpiringSoon = Boolean(d.sslExpiresAt) && nowMs > 0 && (new Date(d.sslExpiresAt).getTime() - nowMs) < 15 * 86400000;
-                  const isCf = isDomainCloudflare(d.domain);
+                  const isCf = isDomainCloudflare(d.domain, d.websiteSlug);
 
                   return (
                     <tr key={d.id} className="hover:bg-slate-50/80 transition-colors">
