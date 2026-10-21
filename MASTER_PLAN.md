@@ -387,7 +387,7 @@ The platform a host runs is one admin screen, because these are **host-level** f
     - Source selection offers **GitHub**: dropdown auto-populates the connected account's repositories via `GET /api/v1/me/git/providers/:id/repos` with real-time fuzzy search.
     - Selecting a repository automatically loads branches (`GET /api/v1/me/git/providers/:id/branches?repo=<owner/repo>`) and preselects the repository's own `defaultBranch`.
     - Single toggle: `[x] Auto-deploy on Git push`.
-  - **App Detail Layout ("Anti-Ruwet" Clean Vercel-Style Git & Deploy Tab)** — implemented: the Source & Deployment card carries the repo/branch, auto-deploy mode/toggle, Check now and Redeploy; deployment history follows; repository/branch editing, deploy key, webhook URL and build script live in a closed-by-default **Advanced Build & Shell Settings** accordion.
+  - **App Detail Layout ("Anti-Ruwet" Clean Git & Deploy Tab)** — implemented: the Source & Deployment card carries the repo/branch, auto-deploy mode/toggle, Check now and Redeploy; deployment history follows; repository/branch editing, deploy key, webhook URL and build script live in a closed-by-default **Advanced Build & Shell Settings** accordion.
     - To eliminate clutter ("ruwet") from the project detail page, the `Deploy` tab is streamlined into two primary sections:
       1. **Source & Deployment Card (Top)**:
          - Repository & Branch badge: `github.com/user/project [Branch: main ▾]`.

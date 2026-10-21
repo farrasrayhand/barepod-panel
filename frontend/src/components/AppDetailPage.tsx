@@ -520,7 +520,7 @@ npm run build`;
   const [isDeployingNow, setIsDeployingNow] = useState(false);
   const [copiedDeployWebhook, setCopiedDeployWebhook] = useState(false);
   const [deployLogs, setDeployLogs] = useState<string[]>([]);
-  // Vercel-style: the source card is visible, the shell/build details are one click away.
+  // Source-first: the deploy card is visible, the shell/build details are one click away.
   const [showAdvancedDeploy, setShowAdvancedDeploy] = useState(false);
   const [isLoadingDeployLogs, setIsLoadingDeployLogs] = useState(false);
   const deployLogContainerRef = useRef<HTMLDivElement>(null);
@@ -6092,7 +6092,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
               </div>
             )}
 
-            {/* Auto-detected Framework & Vercel-style CI/CD Banner */}
+            {/* Auto-detected Framework & Push-to-Deploy Banner */}
             {gitStatus?.framework && (
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-4 bg-gradient-to-r from-indigo-50/90 via-purple-50/90 to-blue-50/90 border border-indigo-200/90 rounded-2xl shadow-2xs">
                 <div className="flex items-start gap-3.5">
@@ -6105,7 +6105,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                         Auto-Detected Framework: {gitStatus.framework.title}
                       </h4>
                       <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full font-mono border border-indigo-200">
-                        Vercel-Style CI/CD
+                        Push-to-Deploy
                       </span>
                     </div>
                     <p className="text-xs text-slate-600 mt-1 leading-relaxed">

@@ -1589,7 +1589,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-900">Project Auto-Detected: {detectedFw.title}</span>
                   <span className="text-[10px] font-mono px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full border border-purple-200 font-semibold">
-                    Vercel-Style Auto-Preset
+                    Auto-Detected Preset
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">

@@ -389,7 +389,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                   <div className="flex items-center gap-2 font-bold text-slate-900">
                     <span>Auto-Detected: {gitStatus.framework.title}</span>
                     <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.2 rounded-full border border-indigo-200 font-mono">
-                      Vercel-Style CI/CD
+                      Push-to-Deploy
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-600 mt-0.5">
