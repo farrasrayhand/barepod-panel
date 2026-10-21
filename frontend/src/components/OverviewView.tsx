@@ -47,6 +47,19 @@ interface SessionLine {
   current: boolean;
 }
 
+const ingressTarget = (app: WebApp): { label: string; title: string } => {
+  if (app.runtime === 'php') {
+    return { label: 'PHP-FPM', title: 'Served through the ingress vhost to the PHP-FPM Unix socket; no TCP port is bound.' };
+  }
+  if (app.runtime === 'static') {
+    return { label: 'File server', title: 'Served directly from the document root by the ingress; no TCP port is bound.' };
+  }
+  if (app.runtime === 'proxy') {
+    return { label: `upstream :${app.port}`, title: 'The ingress forwards hostname traffic to the configured upstream URL.' };
+  }
+  return { label: app.port ? `127.0.0.1:${app.port}` : '—', title: 'The ingress forwards hostname traffic to this loopback port.' };
+};
+
 export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, onSelectApp, onOpenAddModal }) => {
   const runningApps = apps.filter((a) => a.status === 'running').length;
 
@@ -390,7 +403,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
                     <th className="py-2.5 px-5">Website / Domain</th>
                     <th className="py-2.5 px-5">Runtime & Server</th>
                     <th className="py-2.5 px-5">Tenant</th>
-                    <th className="py-2.5 px-5">Port</th>
+                    <th className="py-2.5 px-5">Ingress target</th>
                     <th className="py-2.5 px-5 text-right">Status</th>
                   </tr>
                 </thead>
@@ -421,7 +434,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
                           </span>
                         </td>
                         <td className="py-3 px-5 font-mono text-slate-600 font-medium">{app.tenantUser}</td>
-                        <td className="py-3 px-5 font-mono text-slate-500">{app.port || '—'}</td>
+                        <td className="py-3 px-5 font-mono text-slate-500" title={ingressTarget(app).title}>{ingressTarget(app).label}</td>
                         <td className="py-3 px-5 text-right">
                           <span className={`inline-flex items-center gap-1.5 font-medium px-2 py-0.5 rounded text-[11px] ${
                             app.status === 'suspended' ? 'bg-amber-50 text-amber-700' :
