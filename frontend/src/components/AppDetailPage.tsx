@@ -526,6 +526,7 @@ npm run build`;
   const [showScriptEditor, setShowScriptEditor] = useState(false);
   // Connect Git can use a stored provider PAT for repository/branch discovery, or a manual URL.
   const [connectMethod, setConnectMethod] = useState<'pat' | 'manual'>('manual');
+  const [connectProtocol, setConnectProtocol] = useState<'ssh' | 'https'>('ssh');
   const [connectProviders, setConnectProviders] = useState<UserGitProvider[]>([]);
   const [connectProviderId, setConnectProviderId] = useState('');
   const [connectRepos, setConnectRepos] = useState<GitRepoItem[]>([]);
@@ -1403,6 +1404,13 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
     );
   };
 
+  const applyConnectProtocol = (protocol: 'ssh' | 'https') => {
+    setConnectProtocol(protocol);
+    if (connectMethod !== 'pat') return;
+    const repo = connectRepos.find((item) => item.fullName === connectRepoFullName);
+    if (repo) setGitRepo(protocol === 'https' ? (repo.cloneUrl || repo.sshUrl) : (repo.sshUrl || repo.cloneUrl));
+  };
+
   const loadConnectRepos = useCallback(async (providerId: string) => {
     setConnectLoading(true);
     setConnectError('');
@@ -1427,7 +1435,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
     if (!repo) return;
     // SSH URL lets the site's own ED25519 deploy key handle private repositories; the PAT
     // is used for discovery only and is not copied onto the website.
-    setGitRepo(repo.sshUrl || repo.cloneUrl);
+    setGitRepo(connectProtocol === 'https' ? (repo.cloneUrl || repo.sshUrl) : (repo.sshUrl || repo.cloneUrl));
     setGitBranch(repo.defaultBranch || 'main');
     if (!connectProviderId) return;
     try {
@@ -1437,7 +1445,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
     } catch {
       setConnectBranches([repo.defaultBranch || 'main']);
     }
-  }, [connectRepos, connectProviderId]);
+  }, [connectRepos, connectProviderId, connectProtocol]);
 
   useEffect(() => {
     if (!showConnectGit) return;
@@ -6238,7 +6246,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
             )}
 
             {/* If site has NO git repo configured and NO .git detected and user hasn't clicked connect: show clean local info card */}
-            {!siteHasGit(app) && !gitStatus?.detected && !showConnectGit ? (
+            {!siteHasGit(app) && !gitStatus?.detected ? (
               <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl space-y-4 shadow-2xs">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div className="flex items-start gap-3.5">
@@ -6292,170 +6300,6 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                     >
                       <FolderGit2 className="w-4 h-4 text-purple-600" />
                       <span>Connect Git</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : showConnectGit && !hasStoredGit ? (
-              <div className="p-6 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
-                <div className="flex items-start gap-3.5">
-                  <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-700 border border-purple-200 flex items-center justify-center shrink-0">
-                    <FolderGit2 className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-900">Connect this site to Git</h3>
-                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                      Pick a repository from a connected Git account, or paste a repository URL yourself.
-                      After saving, click <strong>Redeploy Now</strong> once to clone it.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">
-                  <button
-                    type="button"
-                    onClick={() => setConnectMethod('pat')}
-                    disabled={connectProviders.length === 0}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-40 ${
-                      connectMethod === 'pat' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
-                    }`}
-                  >
-                    From connected Git account
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setConnectMethod('manual')}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                      connectMethod === 'manual' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
-                    }`}
-                  >
-                    Manual repository URL
-                  </button>
-                </div>
-
-                {connectError && (
-                  <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-                    {connectError}
-                  </p>
-                )}
-
-                {connectMethod === 'pat' ? (
-                  connectProviders.length === 0 ? (
-                    <p className="text-xs text-slate-500">
-                      No Git account is connected. Add one in <strong>Profile → Connected Git Accounts</strong>,
-                      or switch to Manual repository URL.
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Git account</label>
-                        <select
-                          value={connectProviderId}
-                          onChange={(e) => {
-                            setConnectProviderId(e.target.value);
-                            void loadConnectRepos(e.target.value);
-                          }}
-                          className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg"
-                        >
-                          {connectProviders.map((provider) => (
-                            <option key={provider.id} value={provider.id}>
-                              {provider.name} ({provider.provider})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Repository</label>
-                        <select
-                          value={connectRepoFullName}
-                          onChange={(e) => void selectConnectRepo(e.target.value)}
-                          disabled={connectLoading || connectRepos.length === 0}
-                          className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg disabled:opacity-60"
-                        >
-                          <option value="">
-                            {connectLoading ? 'Loading repositories…' : 'Select a repository'}
-                          </option>
-                          {connectRepos.map((repo) => (
-                            <option key={repo.fullName} value={repo.fullName}>
-                              {repo.fullName}{repo.isPrivate ? ' (private)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Branch</label>
-                        <select
-                          value={gitBranch}
-                          onChange={(e) => setGitBranch(e.target.value)}
-                          disabled={connectBranches.length === 0}
-                          className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg disabled:opacity-60"
-                        >
-                          {connectBranches.length === 0 && <option value={gitBranch}>{gitBranch || 'main'}</option>}
-                          {connectBranches.map((branch) => (
-                            <option key={branch} value={branch}>{branch}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-xs font-bold text-slate-700 mb-1">Repository URL used on the server</label>
-                        <input
-                          value={gitRepo}
-                          readOnly
-                          placeholder="Select a repository above"
-                          className="w-full px-3 py-2 text-xs font-mono bg-slate-100 text-slate-600 border border-slate-200 rounded-lg"
-                        />
-                      </div>
-                      <p className="md:col-span-3 text-[10px] text-slate-500">
-                        The PAT is used only to list repositories and branches. The site clones with its own
-                        ED25519 deploy key, so no provider token is copied onto the website.
-                      </p>
-                    </div>
-                  )
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Repository URL</label>
-                      <input
-                        type="text"
-                        autoFocus
-                        value={gitRepo}
-                        onChange={(e) => setGitRepo(e.target.value)}
-                        placeholder="https://github.com/username/repository.git or git@github.com:..."
-                        className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">Branch</label>
-                      <input
-                        type="text"
-                        value={gitBranch}
-                        onChange={(e) => handleBranchChange(e.target.value)}
-                        placeholder="main"
-                        className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[10px] text-slate-500">
-                    After Save &amp; Connect, click Redeploy Now once to create the checkout.
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={cancelConnectGit}
-                      className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:underline cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleSaveDeployScript()}
-                      disabled={isSavingDeployScript || !gitRepo.trim()}
-                      className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 rounded-xl transition-colors cursor-pointer"
-                    >
-                      {isSavingDeployScript ? 'Saving…' : 'Save & Connect'}
                     </button>
                   </div>
                 </div>
@@ -6766,6 +6610,221 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                 </div>
                   </>)}
             </>
+            )}
+
+            {showConnectGit && !hasStoredGit && (
+
+              <div className="p-6 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-700 border border-purple-200 flex items-center justify-center shrink-0">
+                    <FolderGit2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Connect this site to Git</h3>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                      Pick a repository from a connected Git account, or paste a repository URL yourself.
+                      After saving, click <strong>Redeploy Now</strong> once to clone it.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+                  <button
+                    type="button"
+                    onClick={() => setConnectMethod('pat')}
+                    disabled={connectProviders.length === 0}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-40 ${
+                      connectMethod === 'pat' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                    }`}
+                  >
+                    From connected Git account
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConnectMethod('manual')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      connectMethod === 'manual' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                    }`}
+                  >
+                    Manual repository URL
+                  </button>
+                </div>
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+                  <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Clone via</span>
+                  <button
+                    type="button"
+                    onClick={() => applyConnectProtocol('ssh')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      connectProtocol === 'ssh' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                    }`}
+                  >
+                    SSH
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyConnectProtocol('https')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      connectProtocol === 'https' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-600'
+                    }`}
+                  >
+                    HTTPS
+                  </button>
+                </div>
+                </div>
+
+                {connectError && (
+                  <p className="text-[11px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                    {connectError}
+                  </p>
+                )}
+
+                {connectMethod === 'pat' ? (
+                  connectProviders.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                      No Git account is connected. Add one in <strong>Profile → Connected Git Accounts</strong>,
+                      or switch to Manual repository URL.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Git account</label>
+                        <select
+                          value={connectProviderId}
+                          onChange={(e) => {
+                            setConnectProviderId(e.target.value);
+                            void loadConnectRepos(e.target.value);
+                          }}
+                          className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg"
+                        >
+                          {connectProviders.map((provider) => (
+                            <option key={provider.id} value={provider.id}>
+                              {provider.name} ({provider.provider})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Repository</label>
+                        <select
+                          value={connectRepoFullName}
+                          onChange={(e) => void selectConnectRepo(e.target.value)}
+                          disabled={connectLoading || connectRepos.length === 0}
+                          className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg disabled:opacity-60"
+                        >
+                          <option value="">
+                            {connectLoading ? 'Loading repositories…' : 'Select a repository'}
+                          </option>
+                          {connectRepos.map((repo) => (
+                            <option key={repo.fullName} value={repo.fullName}>
+                              {repo.fullName}{repo.isPrivate ? ' (private)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Branch</label>
+                        <select
+                          value={gitBranch}
+                          onChange={(e) => setGitBranch(e.target.value)}
+                          disabled={connectBranches.length === 0}
+                          className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg disabled:opacity-60"
+                        >
+                          {connectBranches.length === 0 && <option value={gitBranch}>{gitBranch || 'main'}</option>}
+                          {connectBranches.map((branch) => (
+                            <option key={branch} value={branch}>{branch}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-bold text-slate-700 mb-1">Repository URL used on the server</label>
+                        <input
+                          value={gitRepo}
+                          readOnly
+                          placeholder="Select a repository above"
+                          className="w-full px-3 py-2 text-xs font-mono bg-slate-100 text-slate-600 border border-slate-200 rounded-lg"
+                        />
+                      </div>
+                      <p className="md:col-span-3 text-[10px] text-slate-500">
+                        The PAT is used only to list repositories and branches. The site clones with its own
+                        ED25519 deploy key, so no provider token is copied onto the website.
+                      </p>
+                    </div>
+                  )
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Repository URL</label>
+                      <input
+                        type="text"
+                        autoFocus
+                        value={gitRepo}
+                        onChange={(e) => setGitRepo(e.target.value)}
+                        placeholder={connectProtocol === 'ssh' ? 'git@github.com:username/repository.git' : 'https://github.com/username/repository.git'}
+                        className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Branch</label>
+                      <input
+                        type="text"
+                        value={gitBranch}
+                        onChange={(e) => handleBranchChange(e.target.value)}
+                        placeholder="main"
+                        className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {connectProtocol === 'ssh' && (
+                  <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      SSH clone uses this site's ED25519 deploy key. Add the public key to the repository
+                      before redeploying (read access is enough for cloning).
+                    </p>
+                    <code className="block px-2.5 py-2 text-[10px] font-mono bg-white border border-slate-200 rounded-lg break-all text-slate-700">
+                      {deployKeyInfo?.publicKey || 'Loading deploy key…'}
+                    </code>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCopyDeployKeyInPage}
+                        disabled={!deployKeyInfo?.publicKey}
+                        className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg cursor-pointer disabled:opacity-50"
+                      >
+                        Copy public key
+                      </button>
+                      {deployKeyInfo?.fingerprint && (
+                        <span className="text-[10px] text-slate-500 font-mono">{deployKeyInfo.fingerprint}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[10px] text-slate-500">
+                    After Save &amp; Connect, click Redeploy Now once to create the checkout.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={cancelConnectGit}
+                      className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:underline cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveDeployScript()}
+                      disabled={isSavingDeployScript || !gitRepo.trim()}
+                      className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 rounded-xl transition-colors cursor-pointer"
+                    >
+                      {isSavingDeployScript ? 'Saving…' : 'Save & Connect'}
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
 
             {showScriptEditor && (<>
