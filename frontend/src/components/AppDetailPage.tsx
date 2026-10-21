@@ -523,6 +523,7 @@ npm run build`;
   const [deployLogs, setDeployLogs] = useState<string[]>([]);
   // Source-first: the deploy card is visible, the shell/build details are one click away.
   const [showAdvancedDeploy, setShowAdvancedDeploy] = useState(false);
+  const [showScriptEditor, setShowScriptEditor] = useState(false);
   const [isLoadingDeployLogs, setIsLoadingDeployLogs] = useState(false);
   const deployLogContainerRef = useRef<HTMLDivElement>(null);
 
@@ -637,6 +638,14 @@ npm run build`;
     (app.gitRepo && app.gitRepo.trim() !== '') ||
     app.sourceKind === 'github' ||
     (gitStatus && gitStatus.detected && Boolean(gitStatus.repo?.trim()))
+  );
+
+  // Draft input makes isGitConnected true as soon as the operator types, so the
+  // connect form must key off what is actually stored, not the draft.
+  const hasPersistedGit = Boolean(
+    (app.gitRepo && app.gitRepo.trim() !== '') ||
+    ['github', 'gitlab', 'bitbucket', 'gitea', 'forgejo', 'custom', 'git'].includes((app.sourceKind || '').toLowerCase()) ||
+    (gitStatus?.detected && Boolean(gitStatus.repo?.trim())),
   );
 
   const handleBranchChange = (newBranch: string) => {
@@ -1425,6 +1434,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
         buildScript,
       };
       onUpdateApp?.(updated);
+      if (gitRepo.trim()) setShowConnectGit(false);
       onShowToast?.('Settings Saved', `Git configuration and deploy script for '${app.name}' saved to server.${autoNote}`, 'success');
       api.websiteGitStatus(app.name).then(res => setGitStatus(res)).catch(() => {});
       loadDeployHistory();
@@ -6186,22 +6196,87 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
                     <button
                       type="button"
-                      onClick={() => setShowAdvancedDeploy(true)}
+                      onClick={() => setShowScriptEditor((v) => !v)}
                       className="px-4 py-2.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
                     >
                       <Code2 className="w-4 h-4 text-slate-500" />
-                      <span>Edit deploy script</span>
+                      <span>{showScriptEditor ? 'Hide deploy script' : 'Edit deploy script'}</span>
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => setShowConnectGit(true)}
+                      onClick={() => {
+                        setShowConnectGit(true);
+                        setShowAdvancedDeploy(false);
+                        setShowScriptEditor(false);
+                      }}
                       className="px-4 py-2.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
                     >
                       <FolderGit2 className="w-4 h-4 text-purple-600" />
                       <span>Connect Git</span>
                     </button>
                   </div>
+                </div>
+              </div>
+            ) : showConnectGit && !hasPersistedGit ? (
+              <div className="p-6 bg-white border border-slate-200 rounded-2xl shadow-2xs space-y-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-11 h-11 rounded-2xl bg-purple-50 text-purple-700 border border-purple-200 flex items-center justify-center shrink-0">
+                    <FolderGit2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Connect this site to Git</h3>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                      Save the repository and branch first. Then click <strong>Redeploy Now</strong> once to
+                      clone it into the site directory; after that, auto-deploy and Check now become usable.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Repository URL</label>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={gitRepo}
+                      onChange={(e) => setGitRepo(e.target.value)}
+                      placeholder="https://github.com/username/repository.git"
+                      className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Branch</label>
+                    <input
+                      type="text"
+                      value={gitBranch}
+                      onChange={(e) => handleBranchChange(e.target.value)}
+                      placeholder="main"
+                      className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:border-blue-500 focus:bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGitRepo(app.gitRepo || '');
+                      setGitBranch(app.gitBranch || 'main');
+                      setShowConnectGit(false);
+                    }}
+                    className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:underline cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveDeployScript()}
+                    disabled={isSavingDeployScript || !gitRepo.trim()}
+                    className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 rounded-xl transition-colors cursor-pointer"
+                  >
+                    {isSavingDeployScript ? 'Saving…' : 'Save & Connect'}
+                  </button>
                 </div>
               </div>
             ) : (
@@ -6320,10 +6395,10 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                   <div className="flex justify-end -mt-1">
                     <button
                       type="button"
-                      onClick={() => setShowAdvancedDeploy(true)}
+                      onClick={() => setShowScriptEditor((v) => !v)}
                       className="text-[11px] font-semibold text-blue-700 hover:text-blue-800 hover:underline cursor-pointer"
                     >
-                      Edit deploy script
+                      {showScriptEditor ? 'Hide deploy script' : 'Edit deploy script'}
                     </button>
                   </div>
                 )}
@@ -6483,7 +6558,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
             </>
             )}
 
-            {showAdvancedDeploy && (<>
+            {showScriptEditor && (<>
             {/* Build Script Editor Card */}
             <div id="deploy-script-editor" className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">

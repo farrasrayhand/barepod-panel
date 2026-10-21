@@ -229,7 +229,7 @@ func (s *Server) handleGetWebsiteGit(w http.ResponseWriter, r *http.Request, use
 	if activeRepo == "" && detectedInfo.Detected && detectedInfo.Repo != "" {
 		activeRepo = detectedInfo.Repo
 		// If website had no repo in DB but .git exists on disk, auto-sync DB
-		_ = s.store.UpdateWebsiteGit(site.Slug, activeRepo, detectedInfo.Branch, site.AutoDeploy)
+		_ = s.store.UpdateWebsiteGit(site.Slug, activeRepo, detectedInfo.Branch, site.AutoDeploy, gitSourceKind(activeRepo))
 	}
 
 	activeBranch := site.SourceBranch
@@ -291,6 +291,23 @@ type updateGitPayload struct {
 }
 
 // handleUpdateWebsiteGit updates repository, branch, auto_deploy settings, and deploy_script.
+// gitSourceKind maps a repository URL to the source kind the deploy pipeline understands.
+func gitSourceKind(repo string) string {
+	if strings.TrimSpace(repo) == "" {
+		return ""
+	}
+	switch {
+	case strings.HasSuffix(repoHost(repo), "github.com"):
+		return "github"
+	case strings.HasSuffix(repoHost(repo), "gitlab.com"):
+		return "gitlab"
+	case strings.HasSuffix(repoHost(repo), "bitbucket.org"):
+		return "bitbucket"
+	default:
+		return "git"
+	}
+}
+
 func (s *Server) handleUpdateWebsiteGit(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
 	slug := r.PathValue("slug")
 	site, err := s.store.WebsiteBySlug(slug)
@@ -323,7 +340,14 @@ func (s *Server) handleUpdateWebsiteGit(w http.ResponseWriter, r *http.Request, 
 		autoDeploy = *req.AutoDeploy
 	}
 
-	if err := s.store.UpdateWebsiteGit(site.Slug, newRepo, newBranch, autoDeploy); err != nil {
+	newKind := ""
+	if newRepo != "" {
+		newKind = gitSourceKind(newRepo)
+	} else if site.SourceRepo != "" {
+		// Disconnecting Git: keep the local files but stop treating them as a checkout.
+		newKind = "existing"
+	}
+	if err := s.store.UpdateWebsiteGit(site.Slug, newRepo, newBranch, autoDeploy, newKind); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", "Could not save git settings")
 		return
 	}

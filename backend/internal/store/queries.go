@@ -317,10 +317,15 @@ func (s *Store) CreateWebsite(w *Website) error {
 }
 
 // UpdateWebsiteGit updates repository URL, target branch, and auto_deploy setting.
-func (s *Store) UpdateWebsiteGit(slug, repo, branch string, autoDeploy bool) error {
+func (s *Store) UpdateWebsiteGit(slug, repo, branch string, autoDeploy bool, sourceKind string) error {
+	// A non-empty sourceKind switches a scaffold/local site onto the Git path; an empty
+	// value leaves the existing kind alone (for example when only the script is saved).
 	_, err := s.DB.Exec(
-		`UPDATE websites SET source_repo = ?, source_branch = ?, auto_deploy = ? WHERE slug = ?`,
-		repo, branch, autoDeploy, slug,
+		`UPDATE websites
+		 SET source_repo = ?, source_branch = ?, auto_deploy = ?,
+		     source_kind = CASE WHEN ? <> '' THEN ? ELSE source_kind END
+		 WHERE slug = ?`,
+		repo, branch, autoDeploy, sourceKind, sourceKind, slug,
 	)
 	return err
 }

@@ -348,7 +348,7 @@ func TestLegacyAutoDeployDoesNotClaimPolling(t *testing.T) {
 
 	// A row from before V27: auto_deploy is on, but there is no resolved mode. The old column
 	// default was 1, so upgrade must not make the watcher start deploying this site.
-	if err := panel.store.UpdateWebsiteGit("alex-site", "https://github.com/acme/legacy.git", "main", true); err != nil {
+	if err := panel.store.UpdateWebsiteGit("alex-site", "https://github.com/acme/legacy.git", "main", true, "github"); err != nil {
 		t.Fatalf("seed legacy site: %v", err)
 	}
 	site, err := panel.store.WebsiteBySlug("alex-site")
@@ -357,6 +357,9 @@ func TestLegacyAutoDeployDoesNotClaimPolling(t *testing.T) {
 	}
 	if site.AutoDeployMode != "" {
 		t.Fatalf("expected an unset mode, got %q", site.AutoDeployMode)
+	}
+	if site.SourceKind != "github" {
+		t.Fatalf("saving a repo must move the site onto the Git path, got source kind %q", site.SourceKind)
 	}
 
 	resp, body := panel.do(t, http.MethodGet, "/api/v1/websites/alex-site/git", nil)
