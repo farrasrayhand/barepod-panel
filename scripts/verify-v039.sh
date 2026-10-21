@@ -148,6 +148,40 @@ else
   warn "logs endpoint mode='${LOG_MODE:-unknown}' (dry-run/missing journal); note: ${LOG_NOTE:-none}"
 fi
 
+say "Metric history"
+METRICS="$(api GET '/system/metrics?range=7d' || true)"
+MET_STORAGE="$(printf '%s' "$METRICS" | jget storage)"
+MET_RESOLUTION="$(printf '%s' "$METRICS" | jget resolution)"
+MET_BYTES="$(printf '%s' "$METRICS" | jget metricsDbBytes)"
+MET_COUNT="$(printf '%s' "$METRICS" | python3 -c '
+import json,sys
+try:
+    print(len(json.load(sys.stdin).get("items") or []))
+except Exception:
+    print("0")
+')"
+if [[ "$MET_STORAGE" == "sqlite" ]]; then
+  pass "7d host history answered from metrics.db (${MET_RESOLUTION}, ${MET_COUNT} bucket(s), ${MET_BYTES:-0} bytes)"
+elif [[ "$MET_STORAGE" == "memory" ]]; then
+  warn "7d history answered from memory; metrics.db may be empty yet or persistence is off"
+else
+  fail "metrics history response: $METRICS"
+fi
+SITE_METRICS="$(api GET "/websites/${SLUG}/metrics?range=7d" || true)"
+SITE_STORAGE="$(printf '%s' "$SITE_METRICS" | jget storage)"
+SITE_COUNT="$(printf '%s' "$SITE_METRICS" | python3 -c '
+import json,sys
+try:
+    print(len(json.load(sys.stdin).get("items") or []))
+except Exception:
+    print("0")
+')"
+if [[ "$SITE_STORAGE" == "sqlite" && "$SITE_COUNT" -gt 0 ]]; then
+  pass "site 7d history has $SITE_COUNT bucket(s)"
+else
+  warn "site 7d history: storage=${SITE_STORAGE:-unknown}, buckets=$SITE_COUNT"
+fi
+
 say "Real upstream ping ($SLUG)"
 PING="$(api POST "/websites/${SLUG}/ping" '{}' || true)"
 PING_OK="$(printf '%s' "$PING" | jget ok)"
