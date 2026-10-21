@@ -27,7 +27,7 @@ import {
   Unlink,
   Trash2
 } from 'lucide-react';
-import { api, type TunnelStatusResponse, type IngressRouteDTO, type CloudflareZone } from '../api/client';
+import { api, type TunnelStatusResponse, type IngressRouteDTO, type CloudflareZone, type DomainValidationResult } from '../api/client';
 
 interface CloudflareTunnelViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
@@ -64,6 +64,8 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
   const [newAppName, setNewAppName] = useState('');
   const [noTlsVerify, setNoTlsVerify] = useState(false);
   const [isSavingRoute, setIsSavingRoute] = useState(false);
+  const [routeValidation, setRouteValidation] = useState<DomainValidationResult | null>(null);
+  const [isValidatingRoute, setIsValidatingRoute] = useState(false);
 
   // Unlink State
   const [showUnlinkConfirm, setShowUnlinkConfirm] = useState(false);
@@ -279,6 +281,39 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
     }
   };
 
+  useEffect(() => {
+    if (!isAddRouteOpen) {
+      setRouteValidation(null);
+      setIsValidatingRoute(false);
+      return;
+    }
+    const host = newHostname.trim().toLowerCase();
+    if (!host) {
+      setRouteValidation(null);
+      setIsValidatingRoute(false);
+      return;
+    }
+    // Re-saving an existing route under its own hostname is not a collision.
+    if (editingRoute && host === editingRoute.hostname.toLowerCase()) {
+      setRouteValidation(null);
+      setIsValidatingRoute(false);
+      return;
+    }
+    let alive = true;
+    setIsValidatingRoute(true);
+    const timer = setTimeout(() => {
+      void api.validateDomain({
+        domain: host,
+        tenant: activeUser,
+        websiteSlug: selectedAppSlug || undefined,
+      })
+        .then((res) => { if (alive) setRouteValidation(res); })
+        .catch(() => { if (alive) setRouteValidation(null); })
+        .finally(() => { if (alive) setIsValidatingRoute(false); });
+    }, 400);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [isAddRouteOpen, newHostname, editingRoute, activeUser, selectedAppSlug]);
+
   const handleEditRoute = (route: IngressRouteDTO) => {
     setEditingRoute(route);
     setSelectedAppSlug('');
@@ -388,7 +423,11 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
 
   const handleSaveRoute = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newHostname.trim()) return;
+    if (!newHostname.trim() || isValidatingRoute) return;
+    if (routeValidation && (!routeValidation.validFormat || routeValidation.collisionType === 'cf_route')) {
+      onShowToast?.('Domain not available', routeValidation.message || 'Use a valid hostname that is not already routed.', 'error');
+      return;
+    }
 
     const isHttpsTarget = newTargetService.trim().toLowerCase().startsWith('https://');
     const effectiveNoTls = isHttpsTarget || noTlsVerify;
@@ -1286,6 +1325,23 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   </div>
                 )}
 
+                {isValidatingRoute ? (
+                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-slate-500 text-xs flex items-center gap-2 animate-in fade-in duration-150">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                    <span>Validating domain…</span>
+                  </div>
+                ) : routeValidation?.validFormat && (routeValidation.available || routeValidation.collisionType === 'panel_primary' || routeValidation.collisionType === 'panel_alias') ? (
+                  <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-in fade-in duration-150">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>{routeValidation.available ? 'Domain is available for ingress' : 'Existing website domain — the route will be attached to it.'}</span>
+                  </div>
+                ) : routeValidation ? (
+                  <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs flex items-start gap-2 animate-in fade-in duration-150">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                    <span>{routeValidation.message || 'This hostname cannot be routed.'}</span>
+                  </div>
+                ) : null}
+
                 {tunnelData?.autoSync ? (
                   <p className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1 font-medium">
                     <Sparkles className="w-3 h-3" /> Auto-sync enabled: This route and DNS CNAME will be created automatically in Cloudflare!
@@ -1471,7 +1527,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                 </button>
                 <button
                   type="submit"
-                  disabled={isSavingRoute}
+                  disabled={isSavingRoute || isValidatingRoute || Boolean(routeValidation && (!routeValidation.validFormat || routeValidation.collisionType === 'cf_route'))}
                   className="px-4 py-2 font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
                   {isSavingRoute ? (
