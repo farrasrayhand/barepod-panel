@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 ## 📊 Current Live Status
 
 > [!NOTE]
-> BarePod Panel follows an honest versioning policy: **Live** means fully verified on real Linux hosts (Ubuntu 24.04 in Proxmox LXC), not just mockups. The single source of truth is documented in [`MASTER_PLAN.md`](./MASTER_PLAN.md).
+> BarePod Panel follows an honest versioning policy: **Live** means verified on a real Linux host (Ubuntu 24.04 in Proxmox LXC), not just compiled. Current snapshot: **v0.3.9 (2026-10-21)**. The single source of truth is documented in [`MASTER_PLAN.md`](./MASTER_PLAN.md).
 
 | Feature / Module | Real Host Status | Description |
 |---|---|---|
@@ -51,8 +51,12 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 | **In-Panel Self-Update (OTA)** | **Live ✅** | Zero tenant downtime atomic binary swap (`ETXTBSY` avoidance), pre-flight SHA-256 checksums, binary smoke test, automated DB backup, and auto-rollback guard. |
 | **Anti-Brute Force Watchdog** | **Live ✅** | Kernel-level nftables enforcement reading 6 independent sources (Postgres, MariaDB, Mongo, Redis ACL, SSH, and Panel logins). |
 | **File Manager Pro** | **Live ✅** | Path-jail protected file manager running under tenant UID/GID (`barepod fs-exec`) with chunked uploads, batch zip, in-browser editor, and media previewers. |
-| **Traffic Telemetry & Map** | **Implemented 🟡** | Streaming access log parser (CLF/JSON), GeoIP coordinate resolution, private IP mapping, and SSE live beacon stream (pending live remote host verification). |
-| **Docker Pods & Git CI/CD** | **Scheduled 📋** | Container pod orchestration (Docker SDK) and Push-to-Deploy webhooks with ED25519 deploy keys. |
+| **Traffic Telemetry & Map** | **Live ✅** | Reads the active vhost's access log (Caddy JSON, Nginx/Apache combined CLF), resolves country/city/ISP/coordinates via `ip-api.com`, maps RFC1918/loopback peers to **Local Network**, flags threat probes, and streams new hits over SSE. Verified on a real host with live traffic. |
+| **Git CI/CD & Auto-Deploy** | **Live ✅** | Per-tenant GitHub, GitLab, Gitea/Forgejo and Bitbucket connections with AES-256-GCM tokens, repo/branch discovery, ED25519 deploy keys, deploy history, and auto-deploy in **webhook / polling / off** modes. Provider hooks are registered, updated and deleted by the daemon. |
+| **Path Routing, Service Logs & Lists** | **Live ✅** | Per-site path prefixes (`/api/` → upstream) rendered into Nginx, Caddy, Apache and OpenLiteSpeed vhosts with hot reload; inline edit/delete; journald service logs; server-side `?owner=&sort_by=&order=` for websites, databases and caches. |
+| **Docker Pods** | **Scheduled 📋** | Container pod orchestration through the Docker SDK (Pod lifecycle, env, volumes, port mapping). |
+
+**Verification for v0.3.9:** on a real Ubuntu 24.04 host, the daemon reported `mode: real` with migrations through V29, the active Caddy config validated, a site returned `200` and matched its remote branch, a real GitHub webhook delivery was answered, a foreign-branch push was ignored, and telemetry aggregation plus SSE were exercised. Repeatable checks live in [`scripts/verify-v039.sh`](./scripts/verify-v039.sh).
 
 ---
 
@@ -67,7 +71,7 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 
 ### 🔒 Enterprise-Grade Multi-Tenant Isolation
 - **1 Tenant = 1 Linux UID**: Websites do not share user privileges or processes.
-- **Private Mount Namespaces**: Interactive web terminals (`@xterm/xterm` over WebSocket) run confined to `/home/<tenant>/apps/<site>` with root directories masked read-only.
+- **Private Mount Namespaces**: Interactive web terminals (`@xterm/xterm` over WebSocket) run confined to `/home/<tenant>/web/<site>` with root directories masked read-only.
 - **Auto-Switching CLI Environment**: Opening a terminal automatically configures `PATH` so `php -v`, `node -v`, or `python -v` matches the exact version assigned to the website.
 - **Kernel cgroups v2**: Resource package limits (RAM, CPU quota, task limits) are strictly enforced by the Linux kernel.
 
@@ -75,6 +79,25 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 - **Pre-Flight DNS Resolution Guard**: Checks DNS propagation before calling Certbot to prevent hitting Let's Encrypt rate limits (5 failures/hr per domain).
 - **High-Grade ECDSA P-256 Fallback**: Automatically generates elliptic-curve self-signed certificates for unpointed domains, local testing, or staging environments.
 - **Instant Hot-Reload**: Re-tests and reloads active web servers with zero dropped connections.
+
+### 🔀 Git CI/CD & Auto-Deploy
+- **One connection per tenant**: GitHub, GitLab (SaaS or self-hosted), Gitea/Forgejo, and Bitbucket tokens are stored per account with AES-256-GCM and never returned by the API. Each tenant can only see its own connections.
+- **Repository and branch discovery**: the Add-Website wizard lists repositories, loads branches, and preselects the provider's default branch. A per-site ED25519 deploy key (`0600`) covers private repositories and Custom Git.
+- **Three explicit auto-deploy modes**:
+  - **Webhook** — the daemon creates, updates or deletes the provider's push hook (`/repos/:owner/:repo/hooks` on GitHub, `/api/v4/projects/:id/hooks` on GitLab, `/api/v1/repos/:owner/:repo/hooks` on Gitea/Forgejo, `/2.0/repositories/:workspace/:repo/hooks` on Bitbucket). The public endpoint still checks the site token and the configured branch.
+  - **Polling** — `git_commit_watcher` runs every 5 minutes, reads local `HEAD` from `.git` without a subprocess, dedupes checks per `(repo, branch)`, runs at most 4 remote checks concurrently, and uses GitHub's REST API with `If-None-Match` (or `git ls-remote` for other providers).
+  - **Off** — manual deploy only; the panel removes the hook it registered.
+- **Deploy history and safety**: newest ten jobs per site (commit, author, trigger, duration, status, replayable log), one deploy per site at a time (`409 deploy_in_progress` for the second trigger), and a public webhook that answers `200 ignored` instead of making GitHub record a failed delivery.
+- **Path routes and service logs**: path prefixes are rendered into all four engines before the primary location, rewritten and reloaded on every mutation; `GET /websites/:slug/logs` reads the site unit's journald output.
+
+### 🗺️ Traffic Telemetry & Live Map
+- **Real access logs, not synthetic traffic**: the daemon tails the active vhost log — `/var/log/caddy/barepod-<slug>.access.log`, `/var/log/nginx/...`, `/var/log/apache2/...`, or the OpenLiteSpeed equivalent — and parses **Caddy JSON** or **Nginx/Apache combined CLF**.
+- **GeoIP and local peers**: `ip-api.com` resolves country, city, ISP, latitude and longitude with an in-memory cache; the host node is detected automatically; RFC1918, loopback, link-local and CGNAT peers are labelled **Local Network** instead of being sent to a public lookup.
+- **Threat hints**: 403 responses and common probe paths (`.env`, `wp-login`, `xmlrpc.php`, `phpinfo`, `.git/`, etc.) are flagged in the same stream.
+- **Two endpoints**:
+  - `GET /api/v1/websites/:slug/telemetry` — aggregated snapshot (nodes, totals, unique IPs, threats, recent log items).
+  - `GET /api/v1/websites/:slug/telemetry/stream` — SSE `snapshot` event, then new parsed lines about once per second, with a `: ping` keepalive every 15 seconds.
+- **Verified on a real host**: the aggregation endpoint returned `200`, an SSE connection stayed open under live traffic, the Caddy JSON log contained real requests, and the GeoIP lookup succeeded.
 
 ### 🗄️ Databases, Caches & Fast Hosted GUIs
 - **Dedicated Native Process per App for Redis**: Each cache instance binds to an isolated loopback IP (`127.0.0.X:6379`) with dedicated memory and storage. Completely immune to cross-app `FLUSHALL` or key collisions!

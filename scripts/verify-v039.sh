@@ -12,7 +12,7 @@
 # Usage:
 #   BAREPOD_URL=https://panel.example.com \
 #   BAREPOD_USER=admin BAREPOD_PASS='...' \
-#   BAREPOD_SLUG=mae \
+#   BAREPOD_SLUG=my-site \
 #   ./scripts/verify-v039.sh
 #
 # Optional:
@@ -26,7 +26,7 @@
 
 set -euo pipefail
 
-BASE="${BAREPOD_URL:-https://barepod.tjkt-project.my.id}"
+BASE="${BAREPOD_URL:?set BAREPOD_URL (for example https://panel.example.com)}"
 BASE="${BASE%/}"
 USERNAME="${BAREPOD_USER:?set BAREPOD_USER (panel username)}"
 PASSWORD="${BAREPOD_PASS:?set BAREPOD_PASS (panel password)}"
