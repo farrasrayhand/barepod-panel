@@ -596,6 +596,40 @@ var registry = []Job{
 		},
 	},
 	{
+		ID: "package_updates", Label: "All package updates", Category: "system",
+		Desc:            "Install every available apt package upgrade, not only security updates.",
+		DefaultSchedule: "0 6 * * *", DefaultEnabled: false, Implemented: true,
+		// Same ceiling as the security-only job: a slow mirror or local rebuild must not
+		// be killed halfway through dpkg.
+		Timeout: 60 * time.Minute,
+		Run: func(ctx context.Context, env *Env) (string, error) {
+			if !hasBinary("apt-get") {
+				return "apt-get is not available on this host; nothing to update", nil
+			}
+			aptEnv := []string{"DEBIAN_FRONTEND=noninteractive"}
+			if out, err := env.Host.Runner.RunEnv(ctx, "", aptEnv,
+				"apt-get", "-o", "DPkg::Lock::Timeout=600", "update", "-qq"); err != nil {
+				return strings.TrimSpace(out), fmt.Errorf("apt-get update: %w", err)
+			}
+			// Plain upgrade, not full-upgrade: it keeps existing packages installed and
+			// does not remove anything to satisfy a new dependency.
+			out, err := env.Host.Runner.RunEnv(ctx, "", aptEnv,
+				"apt-get", "-y",
+				"-o", "DPkg::Lock::Timeout=600",
+				"-o", "Dpkg::Options::=--force-confold",
+				"-o", "Dpkg::Options::=--force-confdef",
+				"upgrade")
+			out = strings.TrimSpace(out)
+			if err != nil {
+				return out, err
+			}
+			if out == "" {
+				return "all packages are up to date", nil
+			}
+			return out, nil
+		},
+	},
+	{
 		ID: "db_maintenance", Label: "Database maintenance", Category: "database",
 		Desc:            "PostgreSQL VACUUM ANALYZE & MariaDB/MySQL table optimize on every managed database.",
 		DefaultSchedule: "0 3 * * 0", DefaultEnabled: false, Implemented: true,
