@@ -70,17 +70,8 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
 
   if (!isOpen || !database) return null;
 
-  // Mock plain passwords for display once unlocked
-  const mockPasswords: Record<string, string> = {
-    'db-1': 'bp_pg_98f!aA72#xK',
-    'db-2': 'analytics_sec_89Qv$L1',
-    'db-3': 'mongo_cl_4412$zP9@w',
-    'db-4': 'rd_cache_k9921_xOp8#',
-    'db-5': 'wp_mysql_pass_8829#',
-    'db-6': 'pos_legacy_pwd_771@',
-  };
-
-  const actualPassword = credential?.password ?? mockPasswords[database.id] ?? 'barepod_secret_key_889#';
+  // Only the daemon can reveal a credential; there is no local fallback.
+  const actualPassword = credential?.password ?? '';
   const actualUser = credential?.user ?? database.username;
 
   const handleUnlock = async (e: React.FormEvent) => {
@@ -89,24 +80,20 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
       setErrorMsg('Please enter your panel password.');
       return;
     }
-    if (onUnlock) {
-      setBusy(true);
-      setErrorMsg('');
-      try {
-        setCredential(await onUnlock(panelPassword));
-        setIsUnlocked(true);
-      } catch (err) {
-        setErrorMsg(err instanceof Error ? err.message : 'That password was not accepted.');
-      } finally {
-        setBusy(false);
-      }
+    if (!onUnlock) {
+      setErrorMsg('This panel did not provide a credential bridge, so the password cannot be revealed.');
       return;
     }
-
-    // In a real system, the daemon verifies hash with bcrypt
-    // Here any non-empty input unlocks it for demonstration
-    setIsUnlocked(true);
+    setBusy(true);
     setErrorMsg('');
+    try {
+      setCredential(await onUnlock(panelPassword));
+      setIsUnlocked(true);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'That password was not accepted.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleCopy = (text: string, field: string) => {
@@ -276,10 +263,11 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
                 </div>
                 <div className="flex items-center justify-between mt-0.5">
                   <span className="font-mono text-slate-900 font-bold tracking-wider">
-                    {showPasswordText ? actualPassword : '••••••••••••••••'}
+                    {actualPassword ? (showPasswordText ? actualPassword : '••••••••••••••••') : 'Unavailable'}
                   </span>
                   <button
-                    onClick={() => handleCopy(actualPassword, 'pwd')}
+                    onClick={() => actualPassword && handleCopy(actualPassword, 'pwd')}
+                    disabled={!actualPassword}
                     className="text-slate-400 hover:text-blue-600"
                   >
                     {copiedField === 'pwd' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}

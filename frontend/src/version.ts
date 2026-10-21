@@ -5,7 +5,7 @@
  * is *completed*, never because a commit landed. While the project is a
  * prototype it stays in the 0.x line, and the UI shows the **daemon's** version
  * when one is running (`GET /health`), falling back to this constant in
- * simulation mode.
+ * offline state.
  */
 export const PANEL_VERSION = '0.3.9';
 

@@ -2,7 +2,7 @@
  * Minimal API client for the BarePod daemon.
  *
  * The frontend is still a prototype: when the daemon is not running every call
- * fails fast and the UI falls back to its mock data (see `apiReachable`).
+ * fails fast and the UI shows an offline state instead of inventing data.
  */
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api/v1';

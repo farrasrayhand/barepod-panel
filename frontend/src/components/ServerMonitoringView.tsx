@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSubRoute } from '../hooks/useSubRoute';
 import { MetricHistoryChart } from './MetricHistoryChart';
 import { HostConsole } from './HostConsole';
@@ -107,9 +107,8 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   };
 
   // Live Metrics State
-  const [cpuUsage, setCpuUsage] = useState(14.2);
-  const [,setCpuHistory] = useState<number[]>([12, 14, 18, 15, 13, 16, 22, 19, 14, 15, 17, 14]);
-  const [perCore, setPerCore] = useState([16.4, 12.1, 18.0, 10.5]);
+  const [cpuUsage] = useState(0);
+  const [perCore] = useState([0, 0, 0, 0]);
 
   // Host telemetry time range + synthetic history series
   const [hostRange, setHostRange] = useState<'live' | '1h' | '24h' | '7d' | '30d' | '90d'>('24h');
@@ -125,36 +124,11 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             : r === '30d' ? ['-30d', '-15d', 'now']
               : ['-90d', '-45d', 'now'];
 
-  const history = useMemo(() => {
-    const points = hostRange === 'live' ? 24 : hostRange === '1h' ? 30 : hostRange === '24h' ? 48 : hostRange === '7d' ? 56 : 60;
-    const gen = (base: number, amp: number) =>
-      Array.from({ length: points }, (_, i) => {
-        const wave = Math.sin((i / points) * Math.PI * 6) * amp;
-        const drift = Math.sin((i / points) * Math.PI * 2) * amp * 0.4;
-        const noise = (Math.random() - 0.5) * amp * 0.5;
-        return Math.max(0.1, Number((base + wave + drift + noise).toFixed(2)));
-      });
 
-    // Real timestamps for the window, so hovering can show when a point happened.
-    const spanMs =
-      hostRange === 'live' ? 5 * 60_000
-        : hostRange === '1h' ? 60 * 60_000
-          : hostRange === '24h' ? 24 * 60 * 60_000
-            : hostRange === '7d' ? 7 * 24 * 60 * 60_000
-              : hostRange === '30d' ? 30 * 24 * 60 * 60_000
-                : 90 * 24 * 60 * 60_000;
-    const now = Date.now();
-    const stamps = Array.from({ length: points }, (_, i) =>
-      new Date(now - spanMs + (spanMs * i) / Math.max(1, points - 1)).toISOString(),
-    );
-
-    return { cpu: gen(12, 8), mem: gen(26, 5), net: gen(18, 12), disk: gen(6, 4), stamps };
-  }, [hostRange]);
 
   // --- live metrics from the daemon ---------------------------------------
-  // The page shows real numbers when a daemon answers and falls back to the
-  // simulated series when none does — and it says which one you are looking at,
-  // instead of quietly mixing the two.
+  // The page shows real numbers when a daemon answers. Without one it shows an
+  // empty, clearly labelled state rather than inventing a series.
   const [liveMode, setLiveMode] = useState(false);
   const [live, setLive] = useState<HostMetrics | null>(null);
   const [liveSeries, setLiveSeries] = useState<LiveSeries | null>(null);
@@ -254,8 +228,8 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             : '',
         );
       } catch {
-        // The daemon went away: fall back to the simulation rather than showing
-        // stale numbers as if they were live.
+        // The daemon went away: clear the charts instead of showing stale numbers
+        // as if they were live.
         if (!cancelled) {
           setLiveMode(false);
           setLive(null);
@@ -337,16 +311,16 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
     return () => { cancelled = true; };
   }, [activeServiceLogs]);
 
-  const [ramUsed, setRamUsed] = useState(2.3);
-  const [ramTotal] = useState(8.0);
-  const [swapUsed, setSwapUsed] = useState(0.08);
-  const [swapTotal] = useState(2.0);
-  const [netRxMbps, setNetRxMbps] = useState(18.4);
-  const [netTxMbps, setNetTxMbps] = useState(42.1);
-  const [netRxHistory, setNetRxHistory] = useState<number[]>([14.2, 16.5, 15.0, 18.4, 21.2, 17.8, 19.4, 18.4]);
-  const [netTxHistory, setNetTxHistory] = useState<number[]>([36.1, 38.4, 40.2, 42.1, 46.5, 39.8, 41.2, 42.1]);
-  const [diskReadMb, setDiskReadMb] = useState(4.8);
-  const [diskWriteMb, setDiskWriteMb] = useState(22.4);
+  const [ramUsed, setRamUsed] = useState(0);
+  const [ramTotal] = useState(0);
+  const [swapUsed, setSwapUsed] = useState(0);
+  const [swapTotal] = useState(0);
+  const [netRxMbps, setNetRxMbps] = useState(0);
+  const [netTxMbps, setNetTxMbps] = useState(0);
+  const [netRxHistory, setNetRxHistory] = useState<number[]>([]);
+  const [netTxHistory, setNetTxHistory] = useState<number[]>([]);
+  const [diskReadMb, setDiskReadMb] = useState(0);
+  const [diskWriteMb, setDiskWriteMb] = useState(0);
 
   // S.M.A.R.T. Disk Health State
   const [,_setSelectedDriveIdx] = useState(0);
@@ -365,85 +339,21 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   const [processCategory, setProcessCategory] = useState<string>('all');
 
   // Top Processes List
-  const [processes, setProcesses] = useState<ProcessItem[]>([
-    { pid: 1042, user: 'root', cpu: 0.8, mem: 1.4, rss: '112 MB', threads: 4, status: 'S', command: '/usr/sbin/nginx -g daemon on;', category: 'web' },
-    { pid: 1045, user: 'www-data', cpu: 1.2, mem: 0.9, rss: '72 MB', threads: 1, status: 'S', command: 'nginx: worker process', category: 'web' },
-    { pid: 1420, user: 'root', cpu: 2.4, mem: 3.2, rss: '256 MB', threads: 14, status: 'S', command: '/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock', category: 'container' },
-    { pid: 1850, user: 'postgres', cpu: 1.5, mem: 2.1, rss: '168 MB', threads: 8, status: 'S', command: '/usr/lib/postgresql/16/bin/postgres -D /var/lib/postgresql/16/main', category: 'database' },
-    { pid: 1912, user: 'mysql', cpu: 1.9, mem: 3.8, rss: '304 MB', threads: 12, status: 'S', command: '/usr/sbin/mariadbd --basedir=/usr --datadir=/var/lib/mysql', category: 'database' },
-    { pid: 2140, user: 'redis', cpu: 0.3, mem: 0.4, rss: '32 MB', threads: 4, status: 'S', command: '/usr/bin/redis-server 127.0.0.1:6379', category: 'database' },
-    { pid: 2480, user: 'www-data', cpu: 3.1, mem: 1.8, rss: '144 MB', threads: 6, status: 'R', command: 'php-fpm: pool tenant_laravel (8.3)', category: 'web' },
-    { pid: 2890, user: 'tenant1', cpu: 2.2, mem: 2.4, rss: '192 MB', threads: 10, status: 'R', command: 'node /home/tenant1/sites/node-api/dist/server.js', category: 'web' },
-    { pid: 3120, user: 'root', cpu: 0.5, mem: 0.8, rss: '64 MB', threads: 5, status: 'S', command: '/usr/bin/cloudflared tunnel --no-autoupdate run', category: 'system' },
-    { pid: 820, user: 'root', cpu: 0.1, mem: 0.3, rss: '24 MB', threads: 1, status: 'S', command: '/usr/sbin/cron -f', category: 'system' },
-    { pid: 740, user: 'systemd', cpu: 0.2, mem: 0.5, rss: '40 MB', threads: 2, status: 'S', command: '/lib/systemd/systemd-journald', category: 'system' },
-    { pid: 910, user: 'root', cpu: 0.1, mem: 0.2, rss: '18 MB', threads: 1, status: 'S', command: 'sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups', category: 'system' }
-  ]);
+  const [processes, setProcesses] = useState<ProcessItem[]>([]);
 
   // System Services
-  const [services, setServices] = useState<ServiceItem[]>([
-    { unit: 'nginx.service', name: 'Nginx Web Proxy', status: 'active', subState: 'running', description: 'High Performance HTTP and Reverse Proxy Server', memory: '112 MB', uptime: '18 days', category: 'web' },
-    { unit: 'docker.service', name: 'Docker Engine', status: 'active', subState: 'running', description: 'Docker Application Container Engine', memory: '256 MB', uptime: '18 days', category: 'container' },
-    { unit: 'cloudflared.service', name: 'Cloudflare Tunnel', status: 'active', subState: 'running', description: 'Cloudflare Zero Trust Ingress Daemon', memory: '64 MB', uptime: '14 days', category: 'network' },
-    { unit: 'postgresql@16-main.service', name: 'PostgreSQL 16', status: 'active', subState: 'running', description: 'PostgreSQL RDBMS Engine', memory: '168 MB', uptime: '18 days', category: 'database' },
-    { unit: 'mariadb.service', name: 'MariaDB / MySQL', status: 'active', subState: 'running', description: 'MariaDB Community Database Server', memory: '304 MB', uptime: '18 days', category: 'database' },
-    { unit: 'redis-server.service', name: 'Redis Cache', status: 'active', subState: 'running', description: 'Advanced key-value cache and store', memory: '32 MB', uptime: '18 days', category: 'database' },
-    { unit: 'php8.3-fpm.service', name: 'PHP 8.3 FPM', status: 'active', subState: 'running', description: 'PHP FastCGI Process Manager', memory: '144 MB', uptime: '18 days', category: 'web' },
-    { unit: 'ufw.service', name: 'UFW Firewall', status: 'active', subState: 'running', description: 'Uncomplicated Firewall Security Rules', memory: '8 MB', uptime: '18 days', category: 'system' },
-    { unit: 'cron.service', name: 'Cron Daemon', status: 'active', subState: 'running', description: 'Regular Background Program Execution Scheduler', memory: '12 MB', uptime: '18 days', category: 'system' },
-    { unit: 'ssh.service', name: 'OpenSSH Daemon', status: 'active', subState: 'running', description: 'OpenBSD Secure Shell Server', memory: '18 MB', uptime: '18 days', category: 'system' },
-  ]);
+  const [services, setServices] = useState<ServiceItem[]>([]);
 
-  // Simulation tick for real-time telemetry — only while the daemon is not the
-  // source of the numbers.
-  useEffect(() => {
-    if (!isAutoRefresh || liveMode) return;
-    const interval = setInterval(() => {
-      // Small jitter for realistic CPU & RAM monitoring
-      const cpuDelta = (Math.random() - 0.48) * 3;
-      const nextCpu = Math.max(8.5, Math.min(65.0, Number((cpuUsage + cpuDelta).toFixed(1))));
-      setCpuUsage(nextCpu);
-      setCpuHistory(prev => [...prev.slice(1), nextCpu]);
 
-      setPerCore([
-        Math.max(5, Math.min(80, Number((perCore[0] + (Math.random() - 0.5) * 4).toFixed(1)))),
-        Math.max(4, Math.min(75, Number((perCore[1] + (Math.random() - 0.5) * 4).toFixed(1)))),
-        Math.max(6, Math.min(85, Number((perCore[2] + (Math.random() - 0.5) * 4).toFixed(1)))),
-        Math.max(3, Math.min(70, Number((perCore[3] + (Math.random() - 0.5) * 4).toFixed(1)))),
-      ]);
 
-      const ramDelta = (Math.random() - 0.5) * 0.08;
-      setRamUsed(Math.max(2.1, Math.min(3.8, Number((ramUsed + ramDelta).toFixed(2)))));
-
-      const nextRx = Math.max(8, Number((netRxMbps + (Math.random() - 0.5) * 5).toFixed(1)));
-      const nextTx = Math.max(20, Number((netTxMbps + (Math.random() - 0.5) * 8).toFixed(1)));
-      setNetRxMbps(nextRx);
-      setNetTxMbps(nextTx);
-      setNetRxHistory(prev => [...prev.slice(1), nextRx]);
-      setNetTxHistory(prev => [...prev.slice(1), nextTx]);
-
-      setDiskReadMb(Math.max(1.2, Number((diskReadMb + (Math.random() - 0.5) * 2).toFixed(1))));
-      setDiskWriteMb(Math.max(8.0, Number((diskWriteMb + (Math.random() - 0.5) * 6).toFixed(1))));
-    }, refreshInterval);
-
-    return () => clearInterval(interval);
-  }, [cpuUsage, ramUsed, perCore, netRxMbps, netTxMbps, diskReadMb, diskWriteMb, isAutoRefresh, refreshInterval, liveMode]);
-
-  // Either the daemon's series or the prototype's, in the same shape.
-  const chart = liveSeries ?? {
-    cpu: history.cpu,
-    mem: history.mem,
-    net: history.net,
-    disk: history.disk,
-    stamps: history.stamps,
-  };
+  const chart = liveSeries ?? { cpu: [], mem: [], net: [], disk: [], stamps: [] };
 
   const kpi = {
     cpu: live ? live.cpuPercent : cpuUsage,
-    cores: live ? live.cpuCores : 4,
+    cores: live ? live.cpuCores : 0,
     load: live
       ? `${live.load1.toFixed(2)}, ${live.load5.toFixed(2)}, ${live.load15.toFixed(2)}`
-      : '0.34, 0.48, 0.52',
+      : '—',
     ramUsedGb: live ? live.memoryUsedBytes / 2 ** 30 : ramUsed,
     ramTotalGb: live ? live.memoryTotalBytes / 2 ** 30 : ramTotal,
     swapUsedGb: live ? live.swapUsedBytes / 2 ** 30 : swapUsed,
@@ -452,9 +362,9 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
     netOutMbps: live ? (live.netTxBps * 8) / 1e6 : netTxMbps,
     diskReadMbs: live ? live.diskReadBps / 1e6 : diskReadMb,
     diskWriteMbs: live ? live.diskWriteBps / 1e6 : diskWriteMb,
-    diskUsedGb: live ? live.diskUsedBytes / 2 ** 30 : 28.4,
-    diskTotalGb: live ? live.diskTotalBytes / 2 ** 30 : 160,
-    uptime: live ? formatUptime(live.uptimeSeconds) : '18 days, 4h 12m',
+    diskUsedGb: live ? live.diskUsedBytes / 2 ** 30 : 0,
+    diskTotalGb: live ? live.diskTotalBytes / 2 ** 30 : 0,
+    uptime: live ? formatUptime(live.uptimeSeconds) : '—',
   };
 
   const handleRunSmartSelfTest = () => {
@@ -489,22 +399,9 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   const handlePingProbe = async () => {
     setIsPingingNet(true);
     try {
-      if (liveMode) {
-        const res = await api.systemPing();
-        setPingLatencyResults({
-          cloudflare: res.cloudflare,
-          google: res.google,
-          gateway: res.gateway,
-        });
-        onShowToast?.('Network Latency Probed', `ICMP ping round-trip: Edge ${res.cloudflare}, Gateway ${res.gateway}`, 'success');
-      } else {
-        setPingLatencyResults({
-          cloudflare: '35.5 ms',
-          google: '30.4 ms',
-          gateway: '0.4 ms',
-        });
-        onShowToast?.('Network Latency Probed', 'ICMP round-trip latency probed.', 'success');
-      }
+      const res = await api.systemPing();
+      setPingLatencyResults({ cloudflare: res.cloudflare, google: res.google, gateway: res.gateway });
+      onShowToast?.('Network Latency Probed', `ICMP ping round-trip: Edge ${res.cloudflare}, Gateway ${res.gateway}`, 'success');
     } catch (err: any) {
       onShowToast?.('Ping Failed', err.message || 'ICMP ping timed out', 'error');
     } finally {
@@ -514,9 +411,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
   const handleKillProcess = async (pid: number, signal: 'SIGTERM' | 'SIGKILL') => {
     try {
-      if (liveMode) {
-        await api.systemProcessKill(pid, signal);
-      }
+      await api.systemProcessKill(pid, signal);
       setProcesses(prev => prev.filter(p => p.pid !== pid));
       setProcessToKill(null);
       onShowToast?.(
@@ -532,13 +427,9 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   const handleRestartService = async (unit: string) => {
     onShowToast?.('Service Restarting', `Issued systemctl restart ${unit}`, 'info');
     try {
-      if (liveMode) {
-        await api.systemServiceAction(unit, 'restart');
-        const res = await api.systemServices();
-        if (res && res.items) setServices(res.items);
-      } else {
-        setServices(services.map(s => (s.unit === unit ? { ...s, uptime: '1 second ago' } : s)));
-      }
+      await api.systemServiceAction(unit, 'restart');
+      const res = await api.systemServices();
+      if (res && res.items) setServices(res.items);
       onShowToast?.('Service Restarted', `Service ${unit} restarted successfully.`, 'success');
     } catch (err: any) {
       onShowToast?.('Restart Failed', err.message || `Failed to restart ${unit}`, 'error');
@@ -554,20 +445,9 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
       'info'
     );
     try {
-      if (liveMode) {
-        await api.systemServiceAction(unit, action);
-        const res = await api.systemServices();
-        if (res && res.items) setServices(res.items);
-      } else {
-        setServices(services.map(s => {
-          if (s.unit === unit) {
-            const nextStatus = s.status === 'active' ? 'inactive' : 'active';
-            const nextSub = nextStatus === 'active' ? 'running' : 'dead';
-            return { ...s, status: nextStatus, subState: nextSub };
-          }
-          return s;
-        }));
-      }
+      await api.systemServiceAction(unit, action);
+      const res = await api.systemServices();
+      if (res && res.items) setServices(res.items);
       onShowToast?.(
         action === 'start' ? 'Service Started' : 'Service Stopped',
         `Service ${unit} ${action} succeeded.`,
@@ -601,24 +481,24 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                   ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
                   : 'bg-amber-100 text-amber-800 border-amber-200'
               }`}
-              title={liveMode ? 'Numbers come from the daemon' : 'No daemon reachable: these numbers are generated by the prototype'}
+              title={liveMode ? 'Numbers come from the daemon' : 'No daemon reachable'}
             >
               <span className={`w-2 h-2 rounded-full ${liveMode ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-              {liveMode ? 'Live from daemon' : 'Simulation (mock data)'}
+              {liveMode ? 'Live from daemon' : 'Daemon unreachable'}
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2">
             <span>Hostname: <strong className="text-slate-700 font-mono">{hostInfo?.hostname || 'barepod'}</strong></span>
             <span>•</span>
-            <span>OS: <strong className="text-slate-700">{hostInfo?.distro || 'Debian 12 Bookworm'} ({hostInfo?.arch || 'x86_64'})</strong></span>
+            <span>OS: <strong className="text-slate-700">{hostInfo?.distro || 'Unknown'} ({hostInfo?.arch || 'unknown'})</strong></span>
             <span>•</span>
-            <span>Kernel: <strong className="text-slate-700 font-mono">{hostInfo?.kernel || 'Linux 6.1.0-21-amd64'}</strong></span>
+            <span>Kernel: <strong className="text-slate-700 font-mono">{hostInfo?.kernel || 'Unknown'}</strong></span>
             <span>•</span>
             <span>Uptime: <strong className="text-slate-700">{kpi.uptime}</strong></span>
           </p>
           {!liveMode && (
             <p className="text-[11px] text-amber-700 mt-1">
-              No daemon answering — every number on this page is simulated. Start it with <code className="font-mono">barepod serve</code> for real telemetry.
+              No daemon answering — no metrics, processes or services are shown. Start it with <code className="font-mono">barepod serve</code>.
             </p>
           )}
           {liveMode && liveNote && (
@@ -1092,7 +972,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">Historical Trends</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Aggregated host metrics over the selected time range.{!liveMode && ' (simulated)'}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Aggregated host metrics over the selected time range.{!liveMode && ' (daemon unreachable)'}</p>
                   </div>
                   <span className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg">
                     {hostRangeLabel(hostRange)}

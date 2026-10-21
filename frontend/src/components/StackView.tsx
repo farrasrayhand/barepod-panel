@@ -239,7 +239,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
 
   const install = async (component: string, version?: string) => {
     if (!live) {
-      onShowToast?.('Simulation', 'The daemon is not reachable, so nothing can be installed.', 'info');
+      onShowToast?.('Daemon unreachable', 'Nothing can be installed until the daemon answers.', 'error');
       return;
     }
     setBusy(true);
@@ -384,7 +384,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
 
   const runBundle = async (items: BundleItem[]) => {
     if (!live) {
-      onShowToast?.('Simulation', 'The daemon is not reachable, so nothing can be installed.', 'info');
+      onShowToast?.('Daemon unreachable', 'Nothing can be installed until the daemon answers.', 'error');
       return;
     }
     if (status?.installRunning) {
@@ -420,7 +420,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
 
   const planAndSwitchDatabase = async (component: string, version: string) => {
     if (!live) {
-      onShowToast?.('Simulation', 'The daemon is not reachable, so nothing can be modified.', 'info');
+      onShowToast?.('Daemon unreachable', 'Nothing can be modified until the daemon answers.', 'error');
       return;
     }
     setPlanModal({ component, version, plan: null, loading: true });
@@ -448,7 +448,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
 
   const promptUninstall = (component: string, version: string, label?: string) => {
     if (!live) {
-      onShowToast?.('Simulation', 'The daemon is not reachable, so nothing can be modified.', 'info');
+      onShowToast?.('Daemon unreachable', 'Nothing can be modified until the daemon answers.', 'error');
       return;
     }
     const inUse: string[] = [];

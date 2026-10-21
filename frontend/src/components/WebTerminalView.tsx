@@ -22,7 +22,7 @@ interface WebTerminalViewProps {
   pods?: PodItem[];
   target?: TerminalTarget | null;
   onSelectTarget: (target: TerminalTarget) => void;
-  /** True when the daemon is reachable: use the real PTY instead of the mock. */
+  /** True when the daemon is reachable: use the real PTY. */
   liveMode?: boolean;
   isAdmin?: boolean;
   onOpenHostConsole?: () => void;
@@ -261,7 +261,7 @@ Runtime: ${currentApp.runtime.toUpperCase()} ${currentApp.version}
               </p>
             )}
             {pods.length > 0 && (
-              <p>Container sessions are simulated until the pods module lands (Phase 3); website shells are real.</p>
+              <p>Container shells require the pods module (Phase 3); website shells are real.</p>
             )}
           </div>
         )}

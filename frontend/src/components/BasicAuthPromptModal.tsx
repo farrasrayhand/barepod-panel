@@ -44,7 +44,7 @@ export const BasicAuthPromptModal: React.FC<BasicAuthPromptModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
 
-        {/* Simulated Browser OS Auth Dialog Header */}
+        {/* Browser Auth Dialog Preview */}
         <div className="bg-slate-100 px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center">

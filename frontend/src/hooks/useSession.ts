@@ -1,15 +1,15 @@
 /**
  * Panel session.
  *
- * Three states, and the prototype must survive all of them:
+ * Two live states plus one failure state:
  *   checking — asking the daemon whether it is there
  *   live     — the Go daemon answered and (after sign-in) has a real session
- *   mock     — no daemon reachable: stay in the frontend simulation
+ *   offline  — no daemon reachable; the panel cannot show or change anything
  */
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type PanelUser } from '../api/client';
 
-export type SessionMode = 'checking' | 'live' | 'mock';
+export type SessionMode = 'checking' | 'live' | 'offline';
 
 export interface SessionState {
   mode: SessionMode;
@@ -24,7 +24,6 @@ export interface SessionState {
   daemonVersion: string;
   signIn: (username: string, password: string, totpCode?: string) => Promise<boolean>;
   signOut: () => Promise<void>;
-  useSimulation: () => void;
   can: (capability: string) => boolean;
 }
 
@@ -47,7 +46,10 @@ export function useSession(): SessionState {
         const health = await api.health();
         if (!cancelled) setDaemonVersion(health.version);
       } catch {
-        if (!cancelled) setMode('mock');
+        if (!cancelled) {
+          setError('The BarePod daemon is not reachable. Start it with "barepod serve", then retry.');
+          setMode('offline');
+        }
         return;
       }
 
@@ -108,21 +110,13 @@ export function useSession(): SessionState {
     setTotpRequired(false);
   }, []);
 
-  const useSimulation = useCallback(() => {
-    setMode('mock');
-    setUser(null);
-    setPermissions({});
-    setTotpRequired(false);
-  }, []);
-
   const can = useCallback(
     (capability: string) => {
-      if (mode === 'mock') return true; // the simulation grants everything
       if (user?.role === 'admin' && Object.keys(permissions).length === 0) return true;
       return Boolean(permissions[capability]);
     },
-    [mode, user, permissions],
+    [user, permissions],
   );
 
-  return { mode, user, permissions, elevated, error, busy, totpRequired, daemonVersion, signIn, signOut, useSimulation, can };
+  return { mode, user, permissions, elevated, error, busy, totpRequired, daemonVersion, signIn, signOut, can };
 }

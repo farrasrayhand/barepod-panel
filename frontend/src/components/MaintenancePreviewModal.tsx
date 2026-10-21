@@ -133,7 +133,7 @@ export const MaintenancePreviewModal: React.FC<MaintenancePreviewModalProps> = (
                   </p>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-left font-mono text-[11px] text-slate-600 max-w-md mx-auto">
-                  <p className="text-slate-400 font-sans text-[10px] mb-1 font-semibold uppercase">Simulated Web Application Body:</p>
+                  <p className="text-slate-400 font-sans text-[10px] mb-1 font-semibold uppercase">Preview Web Application Body:</p>
                   <p>HTTP/2 200 OK</p>
                   <p>Server: BarePod High-Performance Web Engine</p>
                   <p>X-Maintenance-Bypass: Granted (Client IP matched)</p>

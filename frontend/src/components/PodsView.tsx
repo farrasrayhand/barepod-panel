@@ -23,8 +23,6 @@ import {
   ArrowDown
 } from 'lucide-react';
 import type { PodItem } from '../types';
-import { BAREPOD_DEMO_PODS } from '../data/demoPods';
-import { DeployPodModal } from './DeployPodModal';
 import { PodConfigModal } from './PodConfigModal';
 import { DangerConfirmModal } from './DangerConfirmModal';
 
@@ -35,11 +33,10 @@ interface PodsViewProps {
 }
 
 export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast, onOpenTerminal }) => {
-  const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
   const [selectedPodForConfig, setSelectedPodForConfig] = useState<PodItem | null>(null);
   const [podToDelete, setPodToDelete] = useState<PodItem | null>(null);
 
-  const [pods, setPods] = useState<PodItem[]>(BAREPOD_DEMO_PODS);
+  const [pods, setPods] = useState<PodItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [sortBy, setSortBy] = useState<'name' | 'owner' | 'status'>('name');
@@ -77,10 +74,7 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
     });
   }, [pods, ownerFilter, searchQuery, sortBy, sortDirection]);
 
-  const handleDeployPod = (newPod: PodItem) => {
-    setPods([newPod, ...pods]);
-    onShowToast?.('Pod Deployed', `Container ${newPod.name} (${newPod.image}) is now active.`, 'success');
-  };
+
 
   const handleUpdatePod = (updatedPod: PodItem) => {
     setPods(pods.map(p => p.id === updatedPod.id ? updatedPod : p));
@@ -129,20 +123,26 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => onShowToast?.('Refreshed', 'Container states synchronized with Docker daemon.', 'info')}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
+            disabled
+            title="The Docker Pods module is not available yet"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-400 bg-white border border-slate-200 rounded-lg cursor-not-allowed shadow-2xs"
           >
             <RefreshCw className="w-4 h-4 text-slate-500" />
             <span>Refresh</span>
           </button>
           <button
-            onClick={() => setIsDeployModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors shadow-sm shadow-purple-500/25"
+            disabled
+            title="The Docker Pods module is not available yet"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-purple-300 rounded-lg cursor-not-allowed shadow-sm"
           >
             <Plus className="w-4 h-4" />
             <span>Deploy Pod</span>
           </button>
         </div>
+      </div>
+
+      <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 text-xs text-amber-900">
+        The Docker Pods module is not implemented yet. No containers are shown or can be deployed from this page.
       </div>
 
       {/* Filter & Search Bar */}
@@ -403,13 +403,6 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
           );
         }))}
       </div>
-
-      {/* Deploy Pod Modal */}
-      <DeployPodModal
-        isOpen={isDeployModalOpen}
-        onClose={() => setIsDeployModalOpen(false)}
-        onDeploy={handleDeployPod}
-      />
 
       {/* Pod Detail & Config Modal */}
       <PodConfigModal

@@ -46,7 +46,6 @@ import {
   type FileEntry as ApiFileEntry,
   uploadFileResumable,
 } from '../api/client';
-import { createZip } from '../utils/zip';
 import { describeError } from '../utils/format';
 import { highlightCode } from '../utils/highlight';
 import { usePanelSize } from '../hooks/usePanelSize';
@@ -417,28 +416,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Mock FS for Simulation fallback
-  const [mockFs, setMockFs] = useState<Record<string, FileEntry[]>>({});
-
-  useEffect(() => {
-    if (!app) return;
-    setMockFs({
-      '/': [
-        { name: '.env', type: 'file', size: '420 B', rawSize: 420, modified: 'Oct 10 16:30', permissions: '0600', mediaType: 'text', content: `APP_NAME="${app.name}"\nAPP_ENV=production\nAPP_KEY=base64:X8fJk88219PqLo01...\nAPP_DEBUG=false\nAPP_URL="https://${app.domain}"\n\nDB_CONNECTION=pgsql\nDB_HOST=127.0.0.1\nDB_PORT=5432\nDB_DATABASE=app_production\nDB_USERNAME=barepod_user\nDB_PASSWORD=secret_password\n\nREDIS_HOST=127.0.0.1\nREDIS_PORT=6379\n` },
-        { name: 'app', type: 'folder', size: '4.0 KB', modified: 'Oct 10 16:20', permissions: '0755' },
-        { name: 'public', type: 'folder', size: '4.0 KB', modified: 'Oct 10 16:25', permissions: '0755' },
-        { name: 'backup-site.zip', type: 'file', size: '1.2 MB', rawSize: 1258291, modified: 'Oct 11 08:30', permissions: '0644', mediaType: 'archive' },
-        { name: 'composer.json', type: 'file', size: '1.8 KB', rawSize: 1840, modified: 'Oct 10 16:05', permissions: '0644', mediaType: 'text', content: `{\n  "name": "barepod/${app.name}",\n  "type": "project",\n  "require": {\n    "php": "^8.2",\n    "laravel/framework": "^11.0"\n  }\n}` },
-        { name: 'package.json', type: 'file', size: '840 B', rawSize: 840, modified: 'Oct 10 16:05', permissions: '0644', mediaType: 'text', content: `{\n  "name": "${app.name}",\n  "private": true,\n  "scripts": {\n    "dev": "vite",\n    "build": "vite build"\n  }\n}` },
-        { name: 'README.md', type: 'file', size: '1.2 KB', rawSize: 1200, modified: 'Oct 10 16:00', permissions: '0644', mediaType: 'text', content: `# ${app.name}\nDeployed on BarePod Panel.` },
-      ],
-      '/public': [
-        { name: 'index.php', type: 'file', size: '1.2 KB', rawSize: 1200, modified: 'Oct 10 16:25', permissions: '0644', mediaType: 'text', content: `<?php\n\ndefine('LARAVEL_START', microtime(true));\n\nrequire __DIR__.'/../vendor/autoload.php';\n` },
-        { name: '.htaccess', type: 'file', size: '520 B', rawSize: 520, modified: 'Oct 10 16:20', permissions: '0644', mediaType: 'text', content: `<IfModule mod_rewrite.c>\n    RewriteEngine On\n    RewriteCond %{REQUEST_FILENAME} !-d\n    RewriteCond %{REQUEST_FILENAME} !-f\n    RewriteRule ^ index.php [L]\n</IfModule>` },
-      ],
-    });
-  }, [app, app?.name, app?.domain]);
-
   useEffect(() => {
     let cancelled = false;
     apiReachable()
@@ -478,10 +455,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     return () => window.removeEventListener('click', handleGlobalClick);
   }, []);
 
-  const rawFiles = useMemo(
-    () => (live ? liveEntries : mockFs[currentPath] || []),
-    [live, liveEntries, mockFs, currentPath],
-  );
+  const rawFiles = useMemo(() => liveEntries, [liveEntries]);
   const currentFiles = useMemo(() => {
     if (!searchFilter.trim()) return rawFiles;
     const q = searchFilter.toLowerCase();
@@ -518,10 +492,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     setEditingFile(file);
     setEditorNote('');
     setEditorEncoding('utf-8');
-    if (!live) {
-      setEditorContent(file.content || `// Content of ${file.name}\n// Path: ${currentPath}/${file.name}\n`);
-      return;
-    }
     setBusy(true);
     try {
       const result = await ops.read(file.apiPath ?? '');
@@ -565,12 +535,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       showToast(`Downloading ${file.name}`);
       return;
     }
-    const content = file.content || `// Content of ${file.name}\n// Exported from BarePod Panel\n`;
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    triggerDownload(url, file.name);
-    URL.revokeObjectURL(url);
-    showToast(`Downloading ${file.name}`);
   };
 
   const handleDownloadSelected = async () => {
@@ -600,20 +564,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    if (chosen.length === 1) {
-      handleDownload(chosen[0]);
-      return;
-    }
-    const blob = createZip(
-      chosen.map((f) => ({
-        name: f.name,
-        content: f.content ?? `// Content of ${f.name}\n// Exported from BarePod Panel\n`,
-      })),
-    );
-    const url = URL.createObjectURL(blob);
-    triggerDownload(url, `${app?.name || 'files'}-export.zip`);
-    URL.revokeObjectURL(url);
-    showToast(`Downloading ${chosen.length} files as a .zip archive`);
   };
 
   const handleSaveFile = async () => {
@@ -633,16 +583,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       }
       return;
     }
-    setMockFs((prev) => {
-      const list = prev[currentPath] || [];
-      return {
-        ...prev,
-        [currentPath]: list.map((f) => (f.name === editingFile.name ? { ...f, content: editorContent } : f)),
-      };
-    });
-    setIsSaved(true);
-    showToast(`Saved ${editingFile.name}`);
-    setTimeout(() => setIsSaved(false), 1500);
   };
 
   const resolveUniqueName = (name: string, taken: string[]): string => {
@@ -696,35 +636,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    const { sourcePath } = clipboard;
-    const movingNames = files.map((f) => f.name);
-
-    setMockFs((prev) => {
-      const currentList = [...(prev[currentPath] || [])];
-      const added: FileEntry[] = [];
-      files.forEach((file) => {
-        const targetName = resolveUniqueName(file.name, [...currentList, ...added].map((f) => f.name));
-        added.push({ ...file, name: targetName, modified: 'Just now' });
-      });
-
-      const next: Record<string, FileEntry[]> = {
-        ...prev,
-        [currentPath]: [...currentList, ...added],
-      };
-
-      if (operation === 'cut') {
-        if (sourcePath === currentPath) {
-          next[currentPath] = next[currentPath].filter((f) => !movingNames.includes(f.name));
-        } else {
-          next[sourcePath] = (prev[sourcePath] || []).filter((f) => !movingNames.includes(f.name));
-        }
-      }
-
-      return next;
-    });
-
-    showToast(operation === 'copy' ? `${files.length} items pasted` : `${files.length} items moved`);
-    if (operation === 'cut') setClipboard(null);
   };
 
   const handleDelete = async (file: FileEntry) => {
@@ -742,14 +653,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       }
       return;
     }
-    setMockFs((prev) => ({
-      ...prev,
-      [currentPath]: (prev[currentPath] || []).filter((f) => f.name !== file.name),
-    }));
-    if (selectedFile?.name === file.name) setSelectedFile(null);
-    if (editingFile?.name === file.name) setEditingFile(null);
-    setSelectedFiles((prev) => prev.filter((n) => n !== file.name));
-    showToast(`Deleted ${file.name}`);
   };
 
   const handleDeleteSelected = async () => {
@@ -776,14 +679,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    setMockFs((prev) => ({
-      ...prev,
-      [currentPath]: (prev[currentPath] || []).filter((f) => !selectedFiles.includes(f.name)),
-    }));
-    if (selectedFile && selectedFiles.includes(selectedFile.name)) setSelectedFile(null);
-    if (editingFile && selectedFiles.includes(editingFile.name)) setEditingFile(null);
-    setSelectedFiles([]);
-    showToast(`${count} items deleted`);
   };
 
   const handleDuplicate = async (file: FileEntry) => {
@@ -803,11 +698,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    setMockFs((prev) => ({
-      ...prev,
-      [currentPath]: [...(prev[currentPath] || []), { ...file, name: newName, modified: 'Just now' }],
-    }));
-    showToast(`Duplicated ${newName}`);
   };
 
   const handleRenameSubmit = async (e: React.FormEvent) => {
@@ -831,12 +721,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    setMockFs((prev) => ({
-      ...prev,
-      [currentPath]: (prev[currentPath] || []).map((f) => (f.name === target.name ? { ...f, name: newName } : f)),
-    }));
-    showToast(`Renamed to ${newName}`);
-    setRenameModal({ isOpen: false, file: null, newName: '' });
   };
 
   const handleCreateFileSubmit = async (e: React.FormEvent) => {
@@ -859,24 +743,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    setMockFs((prev) => ({
-      ...prev,
-      [currentPath]: [
-        ...(prev[currentPath] || []),
-        {
-          name,
-          type: 'file',
-          size: '0 B',
-          rawSize: 0,
-          modified: 'Just now',
-          permissions: '0644',
-          mediaType: detectMediaType(name),
-          content: '',
-        },
-      ],
-    }));
-    setNewFileModal({ isOpen: false, name: '' });
-    showToast(`File ${name} created`);
   };
 
   const handleCreateFolderSubmit = async (e: React.FormEvent) => {
@@ -899,21 +765,6 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       return;
     }
 
-    setMockFs((prev) => ({
-      ...prev,
-      [currentPath]: [
-        ...(prev[currentPath] || []),
-        {
-          name,
-          type: 'folder',
-          size: '4.0 KB',
-          modified: 'Just now',
-          permissions: '0755',
-        },
-      ],
-    }));
-    setNewFolderModal({ isOpen: false, name: '' });
-    showToast(`Folder ${name} created`);
   };
 
   // --- Compress and Extract Action Handlers ---
@@ -1058,17 +909,9 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     const runUpload = async () => {
       try {
         if (!live) {
-          // Simulation upload fallback
-          for (let p = 10; p <= 100; p += 25) {
-            await new Promise((r) => setTimeout(r, 120));
-            setUploadQueue((prev) =>
-              prev.map((it) => (it.id === nextItem.id ? { ...it, progress: p, speedBytesPerSec: 1024 * 1024 * 3 } : it)),
-            );
-          }
           setUploadQueue((prev) =>
-            prev.map((it) => (it.id === nextItem.id ? { ...it, status: 'completed', progress: 100 } : it)),
+            prev.map((it) => (it.id === nextItem.id ? { ...it, status: 'error', error: 'BarePod daemon is not reachable' } : it)),
           );
-          showToast(`Uploaded ${nextItem.name}`);
           return;
         }
 
@@ -1274,7 +1117,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                 )}
                 {live === false && (
                   <span className="text-[10px] bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 rounded font-semibold">
-                    Simulation
+                    Daemon unreachable
                   </span>
                 )}
                 {live === true && readOnlyRoot && (
@@ -1288,7 +1131,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
                   ? scope === 'site'
                     ? 'Host files isolated in tenant environment with fast chunked uploads & extraction'
                     : 'System tree guarded from accidental deletion'
-                  : 'Demonstration environment with mock data'}
+                  : 'The daemon is not reachable, so no files can be shown.'}
               </p>
             </div>
           </div>

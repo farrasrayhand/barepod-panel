@@ -9,7 +9,6 @@ import { WebTerminalView } from './components/WebTerminalView';
 import { DatabasesView } from './components/DatabasesView';
 import { CloudflareTunnelView } from './components/CloudflareTunnelView';
 import { PodsView } from './components/PodsView';
-import { BAREPOD_DEMO_PODS } from './data/demoPods';
 import { UsersView } from './components/UsersView';
 import { OverviewView } from './components/OverviewView';
 import { ServerMonitoringView } from './components/ServerMonitoringView';
@@ -31,9 +30,6 @@ import { api } from './api/client';
 import { toWebApp } from './api/adapters';
 import { siteSupportsShell, siteShellNote } from './utils/siteRuntime';
 import { isNewerVersion } from './version';
-
-// Identity used only while the daemon is unreachable (simulation mode).
-const MOCK_USER = { username: 'farras', role: 'admin' as const };
 
 const TAB_PATHS: Record<NavItem, string> = {
   overview: '/overview',
@@ -85,166 +81,6 @@ const parseRoute = (pathname: string): AppRoute => {
   return { tab: 'web', unmatchedPath: clean };
 };
 
-// Realistic sample web apps used while the daemon is not running.
-const MOCK_APPS: WebApp[] = [
-  {
-    id: 'app-1',
-    name: 'flask-sentiment-api',
-    domain: 'sentiment.barepod.cloud',
-    runtime: 'python',
-    version: '3.12',
-    framework: 'Flask',
-    webServer: 'openlitespeed',
-    tenantUser: 'farras',
-    status: 'running',
-    ssl: true,
-    tunnelEnabled: true,
-    tunnelRoute: 'sentiment.barepod.cloud -> 127.0.0.1:5000',
-    port: 5000,
-    memoryUsage: '42 MB',
-    cpuUsage: '0.3%',
-    createdAt: '2026-10-10',
-    gitRepo: 'https://github.com/farras/flask-sentiment-api',
-    gitBranch: 'main',
-    autoDeploy: true,
-    buildScript: `git pull origin main
-source venv/bin/activate
-pip install -r requirements.txt --quiet
-systemctl restart gunicorn-flask`,
-    lastDeployedAt: '2026-10-10 16:40:12',
-    lastDeployCommit: '7fa901a',
-  },
-  {
-    id: 'app-2',
-    name: 'larastore-commerce',
-    domain: 'larastore.id',
-    runtime: 'php',
-    version: '8.4',
-    framework: 'Laravel 11',
-    webServer: 'openlitespeed',
-    tenantUser: 'farras',
-    status: 'running',
-    ssl: true,
-    tunnelEnabled: true,
-    tunnelRoute: 'larastore.id -> 127.0.0.1:8001',
-    port: 8001,
-    memoryUsage: '54 MB',
-    cpuUsage: '0.2%',
-    createdAt: '2026-10-08',
-    gitRepo: 'https://github.com/farras/larastore-commerce',
-    gitBranch: 'main',
-    autoDeploy: true,
-    buildScript: `git pull origin main
-composer install --no-dev --optimize-autoloader --quiet
-php artisan migrate --force
-php artisan config:cache
-php artisan route:cache
-systemctl reload php8.4-fpm`,
-    lastDeployedAt: '2026-10-10 18:34:12',
-    lastDeployCommit: 'd70a45a',
-  },
-  {
-    id: 'app-3',
-    name: 'billing-backend-api',
-    domain: 'api.mycompany.com',
-    runtime: 'nodejs',
-    version: '22',
-    framework: 'Express + Next.js',
-    webServer: 'caddy',
-    tenantUser: 'tenant_alex',
-    status: 'running',
-    ssl: true,
-    tunnelEnabled: true,
-    tunnelRoute: 'api.mycompany.com -> 127.0.0.1:3000',
-    port: 3000,
-    memoryUsage: '92 MB',
-    cpuUsage: '0.8%',
-    createdAt: '2026-10-09',
-    basicAuthEnabled: true,
-    basicAuthUser: 'admin',
-    basicAuthPassword: 'BarePod$ecure2026!',
-    basicAuthRealm: 'Billing Staging Environment',
-    gitRepo: 'https://github.com/alex/billing-backend',
-    gitBranch: 'production',
-    autoDeploy: true,
-    buildScript: `git pull origin production
-pnpm install --frozen-lockfile
-pnpm run build
-pm2 reload billing-api --update-env`,
-    lastDeployedAt: '2026-10-09 21:15:00',
-    lastDeployCommit: 'c32981f',
-  },
-  {
-    id: 'app-4',
-    name: 'fastapi-ai-service',
-    domain: 'ai.service.net',
-    runtime: 'python',
-    version: '3.12',
-    framework: 'FastAPI',
-    webServer: 'nginx',
-    tenantUser: 'tenant_clientB',
-    status: 'running',
-    ssl: true,
-    tunnelEnabled: true,
-    tunnelRoute: 'ai.service.net -> 127.0.0.1:8080',
-    port: 8080,
-    memoryUsage: '118 MB',
-    cpuUsage: '1.2%',
-    createdAt: '2026-10-09',
-    gitRepo: 'https://github.com/clientB/fastapi-ai-service',
-    gitBranch: 'main',
-    autoDeploy: true,
-    buildScript: `git pull origin main
-source .venv/bin/activate
-pip install -r requirements.txt
-systemctl reload uvicorn-ai`,
-    lastDeployedAt: '2026-10-10 11:20:45',
-    lastDeployCommit: 'e81903b',
-  },
-  {
-    id: 'app-5',
-    name: 'legacy-news-portal',
-    domain: 'portal.oldmedia.co.id',
-    runtime: 'php',
-    version: '8.3',
-    framework: 'WordPress + .htaccess',
-    webServer: 'apache',
-    tenantUser: 'tenant_alex',
-    status: 'stopped',
-    ssl: true,
-    tunnelEnabled: false,
-    port: 8002,
-    memoryUsage: '0 MB',
-    cpuUsage: '0%',
-    createdAt: '2026-10-10',
-    maintenanceMode: true,
-    maintenanceMessage: 'News portal is undergoing scheduled server upgrade maintenance.',
-    maintenanceBypassIps: '127.0.0.1, 103.147.154.82',
-  },
-  {
-    id: 'app-6',
-    name: 'internal-n8n-proxy',
-    domain: 'n8n.workflow.barepod.cloud',
-    runtime: 'proxy',
-    version: 'v1.0',
-    framework: 'Reverse Proxy (Upstream)',
-    webServer: 'nginx',
-    tenantUser: 'farras',
-    status: 'running',
-    ssl: true,
-    tunnelEnabled: true,
-    tunnelRoute: 'n8n.workflow.barepod.cloud -> 127.0.0.1:5678',
-    port: 5678,
-    upstreamUrl: 'http://127.0.0.1:5678',
-    proxyWebsocket: true,
-    proxyPreserveHost: true,
-    proxyRealIp: true,
-    proxyTimeoutSecs: 300,
-    memoryUsage: '14 MB',
-    cpuUsage: '0.1%',
-    createdAt: '2026-10-10',
-  },
-];
 
 export function App() {
   const [route, setRoute] = useState<AppRoute>(() => parseRoute(window.location.pathname));
@@ -258,14 +94,11 @@ export function App() {
   // The deploy whose log is on screen: POST /websites answers 202, so the only honest
   // progress is the daemon's own stream (see DeployLogPanel).
   const [deployWatch, setDeployWatch] = useState<{ slug: string; deployId?: string } | null>(null);
-  const [loggedOut, setLoggedOut] = useState(false);
   const [redirectTo, setRedirectTo] = useState<string | null>(null);
   const [terminalTarget, setTerminalTarget] = useState<{ kind: 'site' | 'pod'; id: string } | null>(null);
 
-  // Session: the daemon answers (live) or the prototype stays on mock data.
   const session = useSession();
-  const currentUser = session.user ?? MOCK_USER;
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = session.user?.role === 'admin';
 
   // Every menu change starts at the top of the page — without this, a component
   // that focuses an input (the terminal, the host console) drags the view down
@@ -509,25 +342,12 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.unmatchedPath]);
 
-  // Realistic sample web apps with OpenLiteSpeed, Nginx, Caddy, Apache & Flask, Laravel, Next.js
-  // The prototype data; restored whenever the daemon is not driving the UI.
-  const [apps, setApps] = useState<WebApp[]>(MOCK_APPS);
-  /**
-   * True once the website list is final (mock data, or the daemon's answer).
-   * Deep links are only validated after that, otherwise a live slug would be
-   * checked against the prototype list and wrongly rejected.
-   */
+  const [apps, setApps] = useState<WebApp[]>([]);
+  /** True once the daemon's website list has arrived, so deep links are only validated after it. */
   const [appsLoaded, setAppsLoaded] = useState(false);
 
-  // Live mode: replace the mock list with the daemon's websites (with their
-  // service metrics). Simulation mode keeps the mock array untouched.
+  // Load the daemon's websites with their latest service metrics.
   useEffect(() => {
-    if (session.mode === 'mock') {
-      // Back to the prototype data, so the two modes never mix.
-      setApps(MOCK_APPS);
-      setAppsLoaded(true);
-      return;
-    }
     if (session.mode !== 'live' || !session.user) return;
     let cancelled = false;
 
@@ -664,7 +484,7 @@ export function App() {
     } : a));
 
     try {
-      if (session.mode === 'live') {
+      {
         const res = await api.websiteAction(target.name, nextAction);
         const resolvedStatus = (res.status as any) || nextStatus;
         showToast(
@@ -677,12 +497,6 @@ export function App() {
           status: resolvedStatus,
           memoryUsage: resolvedStatus === 'running' ? a.memoryUsage : '0 MB',
         } : a));
-      } else {
-        showToast(
-          nextAction === 'start' ? 'Service Started' : 'Service Stopped',
-          `Application ${target.name} is now ${nextStatus} (simulation).`,
-          'info'
-        );
       }
     } catch (err: any) {
       // Revert optimistic update on failure
@@ -717,9 +531,7 @@ export function App() {
 
   const handleDeleteApp = async (slug: string, options?: { databases?: 'keep' | 'delete' }) => {
     try {
-      if (session.mode === 'live') {
-        await api.deleteWebsite(slug, options);
-      }
+      await api.deleteWebsite(slug, options);
       setApps((prev) => prev.filter((a) => a.name !== slug && a.id !== slug));
       showToast('Website Deleted', `Website ${slug} has been permanently deleted.`, 'success');
       if (route.appSlug === slug) {
@@ -742,40 +554,38 @@ export function App() {
     );
   }
 
+  if (session.mode === 'offline') {
+    return (
+      <div className="min-h-dvh flex items-center justify-center bg-slate-100 p-4">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-8 w-full max-w-sm text-center space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center mx-auto">
+            <Server className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">Daemon unreachable</h1>
+            <p className="text-xs text-slate-500 mt-1">{session.error}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="w-full px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (signedOut) {
     return (
       <LoginView
         onSignIn={handleSignIn}
-        onSimulate={session.useSimulation}
         error={session.error}
         busy={session.busy}
-        mode={session.mode}
         totpRequired={session.totpRequired}
         redirectTo={redirectTo ?? undefined}
       />
-    );
-  }
-
-  if (loggedOut) {
-    return (
-      <div className="min-h-dvh flex items-center justify-center bg-slate-100 p-4">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-8 w-full max-w-sm text-center space-y-4">
-          <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center mx-auto shadow-sm shadow-blue-500/25">
-            <Server className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-slate-900">Signed out</h1>
-            <p className="text-xs text-slate-500 mt-1">You have been signed out of BarePod Panel.</p>
-          </div>
-          <button
-            onClick={() => setLoggedOut(false)}
-            className="w-full px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-          >
-            Return to the panel
-          </button>
-          <p className="text-[10px] text-slate-400">Authentication is simulated in this mode.</p>
-        </div>
-      </div>
     );
   }
 
@@ -817,13 +627,7 @@ export function App() {
           currentUser={session.user}
           isAdmin={isAdmin}
           updateInfo={updateInfo}
-          onLogout={() => {
-            if (session.mode === 'live') {
-              void session.signOut();
-            } else {
-              setLoggedOut(true);
-            }
-          }}
+          onLogout={() => { void session.signOut(); }}
         />
 
         {/* Update Notification Banner */}
@@ -922,20 +726,20 @@ export function App() {
           )}
 
           {currentTab === 'tunnels' && (
-            <CloudflareTunnelView onShowToast={showToast} currentUser={currentUser.username} />
+            <CloudflareTunnelView onShowToast={showToast} currentUser={session.user?.username ?? ''} />
           )}
 
           {currentTab === 'terminal' && (
             <WebTerminalView
               apps={apps}
-              pods={BAREPOD_DEMO_PODS}
+              pods={[]}
               target={terminalTarget}
               liveMode={session.mode === 'live'}
               isAdmin={isAdmin}
               onSelectTarget={(next) => {
                 setTerminalTarget(next);
                 const label = next.kind === 'pod'
-                  ? BAREPOD_DEMO_PODS.find((p) => p.id === next.id)?.name
+                  ? undefined
                   : apps.find((a) => a.id === next.id)?.name;
                 if (label) {
                   showToast(
@@ -952,7 +756,7 @@ export function App() {
           {currentTab === 'users' && (
             <UsersView
               onShowToast={showToast}
-              currentUsername={session.user?.username ?? MOCK_USER.username}
+              currentUsername={session.user?.username ?? ''}
             />
           )}
 
@@ -1000,7 +804,7 @@ export function App() {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onAddApp={handleAddApp}
-        currentUsername={currentUser.username}
+        currentUsername={session.user?.username ?? ''}
         isAdmin={isAdmin}
         existingApps={apps}
       />

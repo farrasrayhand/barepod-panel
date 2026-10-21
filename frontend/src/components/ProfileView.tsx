@@ -40,20 +40,13 @@ interface SessionItem {
   current?: boolean;
 }
 
-// Shown only while no daemon answers.
-const MOCK_SESSIONS: SessionItem[] = [
-  { id: 's1', device: 'Chrome · macOS', ip: '103.147.154.82', lastActive: 'Active now', current: true },
-  { id: 's2', device: 'Safari · iPhone', ip: '114.124.180.52', lastActive: '2 hours ago' },
-  { id: 's3', device: 'CLI · barepod-mcp', ip: '45.33.32.156', lastActive: 'Yesterday' },
-];
-
 export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigatePath, currentUser, permissions }) => {
   const [,setPasswordBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  const [sessions, setSessions] = useState<SessionItem[]>(MOCK_SESSIONS);
+  const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [sessionsLive, setSessionsLive] = useState<boolean | null>(null);
   const [sessionsBusy, setSessionsBusy] = useState(false);
 
@@ -252,11 +245,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
     }
   };
 
-  // Real sessions when the daemon answers, the prototype's list otherwise.
   const loadSessions = useCallback(async () => {
     const reachable = await apiReachable();
     setSessionsLive(reachable);
-    if (!reachable) return;
+    if (!reachable) {
+      setSessions([]);
+      return;
+    }
     try {
       const { items, currentId } = await api.sessions();
       setSessions(
@@ -278,21 +273,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
   }, [loadSessions]);
 
   const revokeSession = async (id: string, device: string) => {
-    if (sessionsLive) {
-      setSessionsBusy(true);
-      try {
-        await api.revokeSession(id);
-        await loadSessions();
-        onShowToast?.('Session revoked', `Signed out ${device}.`, 'info');
-      } catch (err) {
-        onShowToast?.('Could not revoke the session', describeError(err), 'error');
-      } finally {
-        setSessionsBusy(false);
-      }
-      return;
+    setSessionsBusy(true);
+    try {
+      await api.revokeSession(id);
+      await loadSessions();
+      onShowToast?.('Session revoked', `Signed out ${device}.`, 'info');
+    } catch (err) {
+      onShowToast?.('Could not revoke the session', describeError(err), 'error');
+    } finally {
+      setSessionsBusy(false);
     }
-    setSessions((prev) => prev.filter((s) => s.id !== id));
-    onShowToast?.('Session Revoked', `Signed out ${device}.`, 'info');
   };
 
   const [sessionPage, setSessionPage] = useState<number>(1);
@@ -320,14 +310,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
 
     setSessionsBusy(true);
     try {
-      if (sessionsLive) {
-        await Promise.allSettled(otherSessions.map((s) => api.revokeSession(s.id)));
-        await loadSessions();
-        onShowToast?.('Sessions Revoked', `Successfully revoked ${otherSessions.length} other session(s).`, 'success');
-      } else {
-        setSessions((prev) => prev.filter((s) => s.current));
-        onShowToast?.('Sessions Revoked', 'Cleared all other sessions.', 'info');
-      }
+      await Promise.allSettled(otherSessions.map((s) => api.revokeSession(s.id)));
+      await loadSessions();
+      onShowToast?.('Sessions Revoked', `Successfully revoked ${otherSessions.length} other session(s).`, 'success');
       setSessionPage(1);
     } catch (err) {
       onShowToast?.('Could not revoke sessions', describeError(err), 'error');
@@ -730,7 +715,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigat
             )}
             {sessionsLive === false && (
               <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded">
-                Simulation (mock data)
+                Daemon unreachable
               </span>
             )}
             {sessionsBusy && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />}

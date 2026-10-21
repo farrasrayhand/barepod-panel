@@ -41,36 +41,6 @@ interface UsersViewProps {
   currentUsername?: string;
 }
 
-// The prototype's rows, kept only for when no daemon answers. Same shape as the API
-// returns, so the tables render identically either way.
-const MOCK_GROUPS: GroupRow[] = [
-  {
-    id: 'g-1',
-    name: 'Unlimited',
-    description: 'Built-in package — every capability, no resource limits.',
-    permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: true, apiTokens: true },
-    limits: { cpuQuotaPercent: 0, cpuWeight: 0, memoryMb: 0, tasksMax: 0, diskQuotaGb: 0, inodeQuota: 0, maxSites: 0, maxDatabases: 0 },
-    members: 1,
-    isDefault: true,
-    isSystem: true,
-  },
-  {
-    id: 'g-2',
-    name: 'Basic',
-    description: 'Deploy and operate websites; no user or token administration.',
-    permissions: { deployApps: true, fileManager: true, terminal: true, databases: true, backups: true, domains: true, cloudflareTunnels: true, monitoring: true, users: false, apiTokens: false },
-    limits: { cpuQuotaPercent: 100, cpuWeight: 100, memoryMb: 1024, tasksMax: 256, diskQuotaGb: 10, inodeQuota: 0, maxSites: 5, maxDatabases: 2 },
-    members: 2,
-    isDefault: true,
-    isSystem: true,
-  },
-];
-
-const MOCK_USERS: ApiUser[] = [
-  { id: 'u-1', username: 'farras', email: 'farras@barepod.cloud', role: 'admin', groupName: 'Unlimited', status: 'active', createdAt: '', home: '/home/farras', osExists: true, sites: { used: 2, max: 0 }, databases: { used: 3, max: 0 }, disk: { usedBytes: 1_500_000_000, maxBytes: 0 } },
-  { id: 'u-2', username: 'tenant_alex', email: 'alex@clientdomain.com', role: 'user', groupName: 'Basic', status: 'active', createdAt: '', home: '/home/tenant_alex', osExists: true, sites: { used: 1, max: 5 }, databases: { used: 1, max: 2 }, disk: { usedBytes: 470_000_000, maxBytes: 10_737_418_240 } },
-  { id: 'u-3', username: 'tenant_clientB', email: 'team@agencypartner.id', role: 'user', groupName: 'Basic', status: 'active', createdAt: '', home: '/home/tenant_clientB', osExists: true, sites: { used: 2, max: 5 }, databases: { used: 1, max: 2 }, disk: { usedBytes: 860_000_000, maxBytes: 10_737_418_240 } },
-];
 
 const fmtCount = (n: number): string => (n > 0 ? String(n) : 'Unlimited');
 const fmtGb = (gb: number): string => (gb > 0 ? `${gb} GB` : 'Unlimited');
@@ -80,7 +50,7 @@ const fmtShare = (weight: number): string => (weight <= 0 ? 'Unlimited' : `${wei
 const permCount = (p?: Record<string, boolean>): number => (p ? Object.values(p).filter(Boolean).length : 0);
 
 export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUsername }) => {
-  const selfUsername = currentUsername ?? 'farras';
+  const selfUsername = currentUsername ?? '';
   const [activeTab, setActiveTab] = useSubRoute<'accounts' | 'groups'>('accounts');
 
   const [live, setLive] = useState<boolean | null>(null);
@@ -119,8 +89,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
       if (cancelled) return;
       setLive(reachable);
       if (!reachable) {
-        setUsers(MOCK_USERS);
-        setGroups(MOCK_GROUPS);
+        setUsers([]);
+        setGroups([]);
         return;
       }
       setLoading(true);
@@ -165,11 +135,6 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
   const groupByName = (name: string) => groups.find((g) => g.name === name);
 
   const createUser = async (payload: CreateUserPayload) => {
-    if (!live) {
-      setUsers((prev) => [...prev, { id: `u-${Date.now()}`, username: payload.username, email: payload.email ?? '', role: payload.groupName === 'Unlimited' ? 'admin' : 'user', groupName: payload.groupName, status: 'active', createdAt: '', home: `/home/${payload.username}`, osExists: false, sites: { used: 0, max: groupByName(payload.groupName)?.limits?.maxSites ?? 0 }, databases: { used: 0, max: groupByName(payload.groupName)?.limits?.maxDatabases ?? 0 } }]);
-      onShowToast?.('User Created', `Account ${payload.username} created (simulation).`, 'success');
-      return;
-    }
     setBusy(true);
     try {
       const created = await api.createUser(payload);
@@ -189,11 +154,6 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
   };
 
   const updateUser = async (id: string, payload: UpdateUserPayload) => {
-    if (!live) {
-      setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...payload } : u)));
-      onShowToast?.('User Updated', 'Account updated (simulation).', 'success');
-      return;
-    }
     setBusy(true);
     try {
       const updated = await api.updateUser(id, payload);
@@ -219,7 +179,6 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
   };
 
   const provisionUser = async (id: string) => {
-    if (!live) return;
     setBusy(true);
     try {
       await api.provisionUser(id);
@@ -233,16 +192,6 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
   };
 
   const submitGroup = async (payload: GroupPayload) => {
-    if (!live) {
-      if (editingGroup) {
-        setGroups((prev) => prev.map((g) => (g.name === payload.name ? { ...g, description: payload.description ?? g.description, permissions: payload.permissions ?? g.permissions, limits: { ...g.limits, ...(payload.limits ?? {}) } } : g)));
-        onShowToast?.('Package updated', `${payload.name} updated (simulation).`, 'success');
-      } else {
-        setGroups((prev) => [...prev, { id: `g-${Date.now()}`, name: payload.name, description: payload.description ?? '', permissions: payload.permissions ?? {}, limits: payload.limits ?? {}, members: 0, isDefault: false, isSystem: false }]);
-        onShowToast?.('Package created', `Package ${payload.name} created (simulation).`, 'success');
-      }
-      return;
-    }
     setBusy(true);
     try {
       if (editingGroup) {
@@ -263,12 +212,6 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
   const performDelete = async () => {
     if (!pendingDelete) return;
     const { kind, id, name } = pendingDelete;
-    if (!live) {
-      if (kind === 'user') setUsers((prev) => prev.filter((u) => u.id !== id));
-      else setGroups((prev) => prev.filter((g) => g.id !== id));
-      onShowToast?.(kind === 'user' ? 'Tenant Removed' : 'Package deleted', `${name} removed (simulation).`, 'info');
-      return;
-    }
     setBusy(true);
     try {
       if (kind === 'user') await api.deleteUser(id);
@@ -322,7 +265,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
               <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">Live</span>
             )}
             {live === false && (
-              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">Simulation (mock data)</span>
+              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">Daemon unreachable</span>
             )}
             {loading && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
           </div>

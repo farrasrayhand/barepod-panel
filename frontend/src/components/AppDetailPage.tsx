@@ -1722,7 +1722,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
           'success'
         );
       } else {
-        onShowToast?.('Runtime Saved', `Configuration updated (simulation mode).`, 'success');
+        onShowToast?.('Daemon unreachable', 'The runtime configuration was not saved.', 'error');
       }
       await loadRuntimeConfig();
     } catch (err) {
@@ -1764,7 +1764,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
           onShowToast?.('Service Restarted', `Process supervisor restarted barepod-app@${app.name}.service.`, 'success');
         }
       } else {
-        onShowToast?.('Service Restarted', `Service restarted for ${app.name} (simulation).`, 'success');
+        onShowToast?.('Daemon unreachable', `The service for ${app.name} was not restarted.`, 'error');
       }
     } catch (err) {
       onShowToast?.('Could not restart service', describeError(err), 'error');

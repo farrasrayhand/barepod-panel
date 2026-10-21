@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
-import { Server, Lock, AlertCircle, FlaskConical, KeyRound, Copy, Check, X, User, Terminal } from 'lucide-react';
+import { Server, Lock, AlertCircle, KeyRound, Copy, Check, X, User, Terminal } from 'lucide-react';
 
 interface LoginViewProps {
   onSignIn: (username: string, password: string, totpCode?: string) => Promise<boolean>;
-  onSimulate: () => void;
   error: string;
   busy: boolean;
-  mode: 'checking' | 'live' | 'mock';
   /** The daemon accepted the password and wants the authenticator code for this account. */
   totpRequired?: boolean;
   /** Path the browser asked for; kept in the URL so signing in lands there. */
@@ -17,11 +15,10 @@ interface LoginViewProps {
  * Sign-in screen for the real daemon.
  *
  * The panel has no built-in account: the operator creates one with
- * `barepod admin create` at install time. That hint — and the escape into the
- * prototype's simulation — is shown only when the daemon is *unreachable*; a live
- * panel already has an account, so neither belongs in front of the operator.
+ * `barepod admin create` at install time. There is no offline/simulation
+ * escape here — without a daemon there is nothing truthful to show.
  */
-export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, error, busy, mode, totpRequired = false, redirectTo }) => {
+export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, error, busy, totpRequired = false, redirectTo }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
@@ -56,9 +53,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
             <Server className="w-6 h-6" />
           </div>
           <h1 className="text-lg font-bold text-slate-900">Sign in to BarePod</h1>
-          <p className="text-xs text-slate-500">
-            {mode === 'checking' ? 'Looking for the daemon…' : 'Enter your panel account.'}
-          </p>
+          <p className="text-xs text-slate-500">Enter your panel account.</p>
           {redirectTo && (
             <p className="text-[11px] text-slate-500">
               Signing in takes you back to <code className="px-1 py-0.5 rounded bg-slate-100 font-mono">{redirectTo}</code>
@@ -134,30 +129,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSignIn, onSimulate, erro
           </button>
         </form>
 
-        {/* Only shown when the daemon is unreachable: a live panel already has an
-            account (it refuses to start without one), so the install hint and the
-            simulation escape would both be misleading. */}
-        {mode === 'mock' && (
-          <div className="pt-3 border-t border-slate-100 space-y-3">
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              No account yet? Create one on the server:
-              <code className="block mt-1 px-2 py-1 rounded bg-slate-900 text-slate-100 font-mono text-[11px]">
-                barepod admin create --username &lt;you&gt;
-              </code>
-            </p>
-            <button
-              type="button"
-              onClick={onSimulate}
-              className="w-full px-4 py-2 text-xs font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <FlaskConical className="w-3.5 h-3.5" />
-              <span>Continue in simulation mode</span>
-            </button>
-            <p className="text-[10px] text-slate-400 text-center">
-              Simulation mode uses the frontend's mock data and never touches a server.
-            </p>
-          </div>
-        )}
       </div>
 
       {/* Forgot Password / Reset Instructions Modal */}

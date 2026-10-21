@@ -360,16 +360,8 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     }
   })();
 
-  const mockPasswords: Record<string, string> = {
-    'db-1': 'bp_pg_98f!aA72#xK',
-    'db-2': 'analytics_sec_89Qv$L1',
-    'db-3': 'mongo_cl_4412$zP9@w',
-    'db-4': 'rd_cache_k9921_xOp8#',
-    'db-5': 'wp_mysql_pass_8829#',
-    'db-6': 'pos_legacy_pwd_771@',
-  };
-
-  const plainPassword = revealedPassword ?? mockPasswords[database.id] ?? 'barepod_secret_key_889#';
+  // Only the daemon can reveal a credential; there is no local fallback.
+  const plainPassword = revealedPassword ?? '';
 
 
   const isPublic = exposure === 'public' && database.type !== 'redis';
@@ -478,25 +470,22 @@ DB_DATABASE=${database.path || `/home/${database.tenantUser ?? 'user'}/web/${dat
       setErrorMsg('Enter your panel account password.');
       return;
     }
-    if (onUnlock) {
-      setBusy(true);
-      setErrorMsg('');
-      try {
-        const res = await onUnlock(panelPassword);
-        setRevealedPassword(res.password);
-        setIsUnlocked(true);
-        setShowPasswordText(true);
-      } catch (err) {
-        setErrorMsg(err instanceof Error ? err.message : 'That password was not accepted.');
-      } finally {
-        setBusy(false);
-      }
+    if (!onUnlock) {
+      setErrorMsg('This panel did not provide a credential bridge, so the password cannot be revealed.');
       return;
     }
-    // Simulation unlocks password
-    setIsUnlocked(true);
-    setShowPasswordText(true);
+    setBusy(true);
     setErrorMsg('');
+    try {
+      const res = await onUnlock(panelPassword);
+      setRevealedPassword(res.password);
+      setIsUnlocked(true);
+      setShowPasswordText(true);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'That password was not accepted.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const getBadge = () => {
@@ -1207,7 +1196,7 @@ DB_DATABASE=${database.path || `/home/${database.tenantUser ?? 'user'}/web/${dat
                   </div>
                   <div className="mt-1 font-mono text-xs font-semibold text-slate-800">
                     {isUnlocked
-                      ? (showPasswordText ? plainPassword : '••••••••••••••••')
+                      ? (plainPassword ? (showPasswordText ? plainPassword : '••••••••••••••••') : 'Unavailable')
                       : '•••••••••••• (Encrypted in Vault)'}
                   </div>
                 </div>
@@ -1230,7 +1219,8 @@ DB_DATABASE=${database.path || `/home/${database.tenantUser ?? 'user'}/web/${dat
                         <span>{showPasswordText ? 'Hide' : 'Show'}</span>
                       </button>
                       <button
-                        onClick={() => handleCopy(plainPassword, 'pwd')}
+                        onClick={() => plainPassword && handleCopy(plainPassword, 'pwd')}
+                        disabled={!plainPassword}
                         className="px-2.5 py-1 text-xs font-semibold text-amber-800 bg-amber-100 border border-amber-300 rounded-lg hover:bg-amber-200 transition-colors flex items-center gap-1"
                       >
                         {copiedKey === 'pwd' ? <Check className="w-3.5 h-3.5 text-emerald-700" /> : <Copy className="w-3.5 h-3.5" />}

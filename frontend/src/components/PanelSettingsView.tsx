@@ -842,9 +842,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Panel Settings & System</h1>
-            <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-100 text-amber-800">
-              Prototype UI • Simulated
-            </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
             Global panel daemon port, security policies, backup destinations, reverse proxy, and system alerts

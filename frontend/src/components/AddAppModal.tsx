@@ -535,7 +535,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   isAdmin = false,
   existingApps = [],
 }) => {
-  const defaultTenant = currentUsername || 'farras';
+  const defaultTenant = currentUsername || '';
   const [appMode, setAppMode] = useState<'standard' | 'proxy' | 'static'>('standard');
   const [stepIndex, setStepIndex] = useState(0);
 
@@ -833,7 +833,6 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   const [dirCheck, setDirCheck] = useState<'idle' | 'checking' | 'ok' | 'created' | 'error'>('idle');
   const [dirPath, setDirPath] = useState<string | null>(null);
   const [dirError, setDirError] = useState('');
-  const KNOWN_EXISTING_APPS = ['flask-sentiment-api', 'larastore-commerce', 'billing-backend-api', 'fastapi-ai-service', 'legacy-news-portal', 'internal-n8n-proxy'];
   const existingPath = `/home/${tenantUser}/web/${name || '<website>'}`;
 
   const applyDetectedFramework = (fw: DetectedFramework) => {
@@ -900,21 +899,13 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
     }
   };
 
-  /**
-   * Tenants have no shell on the server, so the panel creates the directory.
-   * When the daemon is not running the prototype simulates the result.
-   */
+  /** Tenants have no shell on the server, so the panel asks the daemon to create the directory. */
   const ensureDirectory = async () => {
     const slug = name.trim();
     if (!slug) return;
     setDirCheck('checking');
     setDirError('');
     try {
-      if (!(await apiReachable())) {
-        setDirPath(existingPath);
-        setDirCheck(KNOWN_EXISTING_APPS.includes(slug) ? 'ok' : 'created');
-        return;
-      }
       const result = await api.prepareDirectory({ slug, tenantUser });
       setDirPath(result.path);
       setDirCheck(result.existed ? 'ok' : 'created');
@@ -957,7 +948,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    setTenantUser(currentUsername || 'farras');
+    setTenantUser(currentUsername || '');
     void (async () => {
       try {
         if (await apiReachable()) {
@@ -985,8 +976,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
           }
         }
       } catch {
-        // simulation or offline mode fallback
-        setAvailableUsers([{ username: currentUsername || 'farras', role: 'admin' }]);
+        setAvailableUsers([]);
       }
     })();
   }, [isOpen, currentUsername, isAdmin]);
