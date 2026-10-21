@@ -101,7 +101,7 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `POST /profile/password` (change the panel password)
 - `GET /sessions` · `DELETE /sessions/:id` (active sessions, revoke). **Only a hash of each session token is stored** (`sha256`, in `sessions.id`), so a leaked database holds no usable session — the cookie carries the raw token and the daemon hashes it on the way in.
 - `GET /audit?limit=<n>` → `{ items: [{ id, at, userId, username, action, target, ip, detail }], everything }` — the caller's own activity, newest first, or **every account's for an admin** (the same single exception as elsewhere; `everything` says which view you got). `limit` defaults to 50 and is capped at 500. Actions are namespaced: `auth.*` (login, logout, elevate, session_revoke), `terminal.*` (open, close), `files.*` (write, create, mkdir, rename, copy, move, delete, compress, **download**), `website.*` (deploy_start, start, stop, restart, delete, redeploy, secret_reveal, directory_prepare), `group.update`, `system.capacity_exceeded`.
-  - **UI:** the **Activity Log** menu consumes this endpoint unchanged. An admin sees every account and a tenant sees only their own rows (`everything` tells the client which scope it got); the view searches/actions-filters the newest 100/250/500 entries. No new endpoint or permission was added.
+  - **UI:** the **Activity Log** menu consumes this endpoint unchanged. An admin sees every account and a tenant sees only their own rows (`everything` tells the client which scope it got); the view searches, filters by user (admin only) and action, over the newest 100/250/500 entries. No new endpoint or permission was added.
 
 ### 4.2 Websites
 - `GET /websites` · `POST /websites` · `GET|PATCH|DELETE /websites/:slug`
@@ -471,7 +471,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
   Automatically reconnects in browser via standard `EventSource`.
 
 ### 4.8.3 Universal Multi-Tenant Git Providers, Auto-Deploy & Deploy Keys
-> **Implementation status:** Live (v0.4.7). Repository/branch discovery is implemented for **GitHub, GitLab (SaaS/self-hosted), Gitea/Forgejo and Bitbucket**; Custom Git stays a manual URL used through the per-site SSH deploy key.
+> **Implementation status:** Live (v0.4.6). Repository/branch discovery is implemented for **GitHub, GitLab (SaaS/self-hosted), Gitea/Forgejo and Bitbucket**; Custom Git stays a manual URL used through the per-site SSH deploy key.
 - **Multi-Tenant Git Isolation:** All provider tokens are scoped to the authenticated tenant (`user_id`) in `user_git_providers` and encrypted with **AES-256-GCM**. Non-admin tenants cannot view, use, or mutate another tenant's Git connections.
 - **`GET /me/git/providers`** (alias `GET /git/providers`) → `{ items: ApiGitProvider[] }`.
   Returns the authenticated user's configured Git providers:

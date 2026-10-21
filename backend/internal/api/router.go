@@ -32,7 +32,7 @@ import (
 
 // Version is the panel/daemon version matching GitHub release tag.
 // It can be injected at build time using -ldflags="-X 'github.com/farrasrayhand/barepod-panel/backend/internal/api.Version=...'".
-var Version = "0.4.7"
+var Version = "0.4.6"
 
 // Deps are the dependencies the HTTP layer needs.
 type Deps struct {

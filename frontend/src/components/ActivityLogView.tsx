@@ -16,6 +16,7 @@ export const ActivityLogView: React.FC<ActivityLogViewProps> = ({ onShowToast })
   const [limit, setLimit] = useState(250);
   const [query, setQuery] = useState('');
   const [action, setAction] = useState('all');
+  const [userFilter, setUserFilter] = useState('all');
 
   const load = useCallback(async (nextLimit = limit) => {
     setLoading(true);
@@ -38,16 +39,21 @@ export const ActivityLogView: React.FC<ActivityLogViewProps> = ({ onShowToast })
     () => Array.from(new Set(entries.map((entry) => entry.action))).sort(),
     [entries],
   );
+  const users = useMemo(
+    () => Array.from(new Set(entries.map((entry) => entry.username).filter(Boolean))).sort(),
+    [entries],
+  );
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return entries.filter((entry) => {
       if (action !== 'all' && entry.action !== action) return false;
+      if (everything && userFilter !== 'all' && (entry.username || 'system') !== userFilter) return false;
       if (!q) return true;
       return [entry.action, entry.target, entry.detail, entry.ip, entry.username, entry.userId]
         .some((value) => (value || '').toLowerCase().includes(q));
     });
-  }, [entries, action, query]);
+  }, [entries, action, query, userFilter, everything]);
 
   const level = (entry: AuditEntry) => {
     if (entry.action === 'system.capacity_exceeded' || /delete|revoke|refused|failed/.test(entry.action)) {
@@ -106,6 +112,16 @@ export const ActivityLogView: React.FC<ActivityLogViewProps> = ({ onShowToast })
           </div>
           <div className="flex items-center gap-2">
             <Filter className="w-3.5 h-3.5 text-slate-400" />
+            {everything && (
+              <select
+                value={userFilter}
+                onChange={(event) => setUserFilter(event.target.value)}
+                className="px-2.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-700 focus:outline-hidden focus:border-blue-500"
+              >
+                <option value="all">All users</option>
+                {users.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+            )}
             <select
               value={action}
               onChange={(event) => setAction(event.target.value)}
