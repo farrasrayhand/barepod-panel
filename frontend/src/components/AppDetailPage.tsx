@@ -6237,10 +6237,16 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                         <h3 className="text-sm font-bold text-slate-900">
                           Source &amp; Deployment
                         </h3>
-                        <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1 font-mono">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          <span>Persistent in DB</span>
-                        </span>
+                        {hasStoredGit ? (
+                          <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1 font-mono">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <span>Persistent in DB</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 px-2 py-0.5 rounded font-mono">
+                            Not saved yet
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-slate-600 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="font-semibold text-slate-800">{gitBranch || 'main'}</span>
