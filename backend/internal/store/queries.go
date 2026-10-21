@@ -953,6 +953,17 @@ func (s *Store) DeleteDomain(domainID string) error {
 	return nil
 }
 
+// SetWebsiteTunnelEnabled records whether the site's primary hostname is published through
+// the tenant's Cloudflare tunnel. The Domains routing switch keeps it in step with the route.
+func (s *Store) SetWebsiteTunnelEnabled(slug string, enabled bool) error {
+	value := 0
+	if enabled {
+		value = 1
+	}
+	_, err := s.DB.Exec(`UPDATE websites SET tunnel_enabled = ? WHERE slug = ?`, value, slug)
+	return err
+}
+
 // UpdateWebsiteDomain updates the primary domain of a website and syncs the primary row in website_domains.
 func (s *Store) UpdateWebsiteDomain(slug, newDomain string) error {
 	slug = strings.TrimSpace(slug)

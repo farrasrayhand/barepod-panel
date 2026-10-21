@@ -58,6 +58,9 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const [editWebsiteSlug, setEditWebsiteSlug] = useState('');
   const [editSubdomain, setEditSubdomain] = useState('');
   const [editZone, setEditZone] = useState('');
+  const [editZones, setEditZones] = useState<CloudflareZone[]>([]);
+  const [editTunnelConnected, setEditTunnelConnected] = useState(false);
+  const [editRoutingMode, setEditRoutingMode] = useState<'cloudflare' | 'direct'>('direct');
   const [isUpdatingDomain, setIsUpdatingDomain] = useState(false);
 
   // Add Domain Form
@@ -65,6 +68,8 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const [addDomainName, setAddDomainName] = useState('');
   const [addRoutingMode, setAddRoutingMode] = useState<'direct' | 'cloudflare'>('direct');
   const [addCfZone, setAddCfZone] = useState('');
+  const [addZones, setAddZones] = useState<CloudflareZone[]>([]);
+  const [addTunnelConnected, setAddTunnelConnected] = useState(false);
   const [addSubdomain, setAddSubdomain] = useState('');
   const [isValidatingDomain, setIsValidatingDomain] = useState(false);
   const [domainValidation, setDomainValidation] = useState<DomainValidationResult | null>(null);
@@ -80,15 +85,14 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const [customKey, setCustomKey] = useState('');
   const [sslLoading, setSslLoading] = useState(false);
 
-  const isTunnelConnected = Boolean(tunnelStatus?.hasToken && tunnelStatus?.status === 'connected' && cfZones.length > 0);
 
-  const effectiveAddDomain = isTunnelConnected && addRoutingMode === 'cloudflare'
+  const effectiveAddDomain = addTunnelConnected && addRoutingMode === 'cloudflare'
     ? (addSubdomain.trim() ? `${addSubdomain.trim().toLowerCase()}.${addCfZone}` : addCfZone)
     : addDomainName.trim().toLowerCase();
 
   // A domain the panel can place in a Cloudflare zone is edited as subdomain + zone; a direct
   // (IP) domain is edited as one hostname, with no zone offered at all.
-  const effectiveEditDomain = editZone
+  const effectiveEditDomain = editRoutingMode === 'cloudflare' && editZone
     ? (editSubdomain.trim() ? `${editSubdomain.trim().toLowerCase()}.${editZone}` : editZone)
     : newDomainInput.trim().toLowerCase();
 
@@ -124,12 +128,6 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
         setAddCfZone((current) => current || zones[0].name);
       }
 
-      if (tunRes?.hasToken && tunRes?.status === 'connected' && zones.length > 0) {
-        setAddRoutingMode('cloudflare');
-      } else {
-        setAddRoutingMode('direct');
-      }
-
       if (webRes.items && webRes.items.length > 0) {
         setAddWebsiteSlug((current) => current || webRes.items[0].slug);
       }
@@ -163,32 +161,61 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
     return () => clearTimeout(timer);
   }, [effectiveAddDomain, showAddModal]);
 
-  const openEditModal = (dom: ApiDomain) => {
+  const openEditModal = async (dom: ApiDomain) => {
     setEditingDomain(dom);
     setNewDomainInput(dom.domain);
     setEditWebsiteSlug(dom.websiteSlug);
-    // Only a domain the tunnel actually publishes gets zone fields; a direct domain keeps the
-    // single hostname box.
-    const name = dom.domain.toLowerCase();
-    const zone = isTunnelConnected
-      ? cfZones.find((z) => {
-          const zoneName = z.name.toLowerCase();
-          return name === zoneName || name.endsWith('.' + zoneName);
-        })
-      : undefined;
-    if (zone) {
-      const suffix = '.' + zone.name.toLowerCase();
-      setEditZone(zone.name);
-      setEditSubdomain(name.endsWith(suffix) ? dom.domain.slice(0, dom.domain.length - suffix.length) : '');
-    } else {
-      setEditZone('');
-      setEditSubdomain('');
+    setEditZones([]);
+    setEditTunnelConnected(false);
+    setEditZone('');
+    setEditSubdomain('');
+
+    const site = websites.find((w) => w.slug === dom.websiteSlug);
+    const tenant = site?.tenantUser || dom.tenantUser || '';
+    const knownMode = dom.routingMode === 'cloudflare'
+      ? 'cloudflare'
+      : dom.routingMode === 'direct'
+        ? 'direct'
+        : (site?.tunnelEnabled ? 'cloudflare' : 'direct');
+    setEditRoutingMode(knownMode);
+    if (!tenant) return;
+
+    try {
+      const [status, zonesRes] = await Promise.all([
+        api.tunnelStatus(tenant),
+        api.tunnelZones(tenant),
+      ]);
+      const zones = Array.isArray(zonesRes?.zones) ? zonesRes.zones : [];
+      const connected = Boolean(status?.hasToken && status?.status === 'connected' && zones.length > 0);
+      setEditZones(zones);
+      setEditTunnelConnected(connected);
+      if (knownMode === 'cloudflare' && connected) {
+        const name = dom.domain.toLowerCase();
+        const zone = zones
+          .filter((z) => name === z.name.toLowerCase() || name.endsWith('.' + z.name.toLowerCase()))
+          .sort((a, b) => b.name.length - a.name.length)[0];
+        if (zone) {
+          const suffix = '.' + zone.name.toLowerCase();
+          setEditZone(zone.name);
+          setEditSubdomain(name.endsWith(suffix) ? dom.domain.slice(0, dom.domain.length - suffix.length) : '');
+          return;
+        }
+      }
+      // No usable tenant zone: fall back to the direct-address editor instead of showing
+      // an empty zone selector.
+      setEditRoutingMode('direct');
+    } catch {
+      setEditRoutingMode('direct');
     }
   };
 
   const handleSaveEditDomain = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingDomain || !effectiveEditDomain || isValidatingDomain) return;
+    if (editRoutingMode === 'cloudflare' && !editZone) {
+      onShowToast?.('Cloudflare zone unavailable', 'Connect a Cloudflare tunnel for this tenant or choose Direct IP.', 'error');
+      return;
+    }
     const cleaned = effectiveEditDomain;
     const websiteChanged = Boolean(editWebsiteSlug) && editWebsiteSlug !== editingDomain.websiteSlug;
     if (!websiteChanged && cleaned === editingDomain.domain.toLowerCase()) {
@@ -197,7 +224,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
     }
     setIsUpdatingDomain(true);
     try {
-      await api.updateDomain(editingDomain.id, cleaned, websiteChanged ? editWebsiteSlug : undefined);
+      await api.updateDomain(editingDomain.id, cleaned, websiteChanged ? editWebsiteSlug : undefined, editRoutingMode);
       onShowToast?.(
         'Domain Updated',
         websiteChanged
@@ -218,6 +245,41 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
     void fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    if (!showAddModal || !addWebsiteSlug) return;
+    const site = websites.find((w) => w.slug === addWebsiteSlug);
+    const tenant = site?.tenantUser;
+    if (!tenant) {
+      setAddTunnelConnected(false);
+      setAddZones([]);
+      setAddRoutingMode('direct');
+      return;
+    }
+    let alive = true;
+    void Promise.all([api.tunnelStatus(tenant), api.tunnelZones(tenant)])
+      .then(([status, zonesRes]) => {
+        if (!alive) return;
+        const zones = Array.isArray(zonesRes?.zones) ? zonesRes.zones : [];
+        const connected = Boolean(status?.hasToken && status?.status === 'connected' && zones.length > 0);
+        setAddTunnelConnected(connected);
+        setAddZones(zones);
+        if (connected) {
+          setAddRoutingMode('cloudflare');
+          setAddCfZone((current) => current || zones[0].name);
+        } else {
+          setAddRoutingMode('direct');
+          setAddCfZone('');
+        }
+      })
+      .catch(() => {
+        if (!alive) return;
+        setAddTunnelConnected(false);
+        setAddZones([]);
+        setAddRoutingMode('direct');
+      });
+    return () => { alive = false; };
+  }, [showAddModal, addWebsiteSlug, websites]);
+
   const handleAddDomain = async (e: React.FormEvent) => {
     e.preventDefault();
     const effectiveDomain = effectiveAddDomain;
@@ -231,15 +293,8 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
       const newDomain = await api.addDomain({
         websiteSlug: addWebsiteSlug,
         domain: effectiveDomain,
+        routingMode: addRoutingMode,
       });
-
-      if (isTunnelConnected && addRoutingMode === 'cloudflare') {
-        try {
-          await api.addTunnelRoute(effectiveDomain, 'http://127.0.0.1:80', addWebsiteSlug, true);
-        } catch (tErr: any) {
-          console.warn('Could not auto-add tunnel route:', tErr);
-        }
-      }
 
       onShowToast?.('Domain Added', `Domain '${newDomain.domain}' was successfully attached.`, 'success');
       setShowAddModal(false);
@@ -542,7 +597,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 filtered.map((d) => {
                   const targetWeb = websites.find(w => w.slug === d.websiteSlug);
                   const isExpiringSoon = Boolean(d.sslExpiresAt) && nowMs > 0 && (new Date(d.sslExpiresAt).getTime() - nowMs) < 15 * 86400000;
-                  const isCf = isDomainCloudflare(d.domain, d.websiteSlug);
+                  const isCf = d.routingMode ? d.routingMode === 'cloudflare' : isDomainCloudflare(d.domain, d.websiteSlug);
 
                   return (
                     <tr key={d.id} className="hover:bg-slate-50/80 transition-colors">
@@ -667,7 +722,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                           </button>
 
                           <button
-                            onClick={() => openEditModal(d)}
+                            onClick={() => void openEditModal(d)}
                             className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                             title="Edit domain name"
                           >
@@ -735,7 +790,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
               </div>
 
               {/* Routing Mode Segmented Selector - Only displayed if Cloudflare Tunnel is connected */}
-              {isTunnelConnected && (
+              {addTunnelConnected && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
                     Routing Method
@@ -769,7 +824,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 </div>
               )}
 
-              {isTunnelConnected && addRoutingMode === 'cloudflare' ? (
+              {addTunnelConnected && addRoutingMode === 'cloudflare' ? (
                 <div className="space-y-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
@@ -781,7 +836,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                         onChange={(e) => setAddCfZone(e.target.value)}
                         className="w-full px-3 py-2 text-xs bg-slate-50 text-slate-800 rounded-xl border border-slate-200 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-mono cursor-pointer"
                       >
-                        {cfZones.map((z) => (
+                        {addZones.map((z) => (
                           <option key={z.id} value={z.name}>
                             🌐 {z.name}
                           </option>
@@ -866,7 +921,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={addLoading || isValidatingDomain || (isTunnelConnected && addRoutingMode === 'cloudflare' ? !addCfZone : !addDomainName.trim())}
+                  disabled={addLoading || isValidatingDomain || (addTunnelConnected && addRoutingMode === 'cloudflare' ? !addCfZone : !addDomainName.trim())}
                   className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                 >
                   {isValidatingDomain ? (
@@ -880,7 +935,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                       <span>Attaching...</span>
                     </>
                   ) : (
-                    <span>{isTunnelConnected && addRoutingMode === 'cloudflare' ? 'Add Cloudflare Domain' : 'Attach Domain'}</span>
+                    <span>{addTunnelConnected && addRoutingMode === 'cloudflare' ? 'Add Cloudflare Domain' : 'Attach Domain'}</span>
                   )}
                 </button>
               </div>
@@ -1194,8 +1249,45 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                   )}
                 </div>
 
-                {editZone ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Routing Method</label>
+                  <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                    <button
+                      type="button"
+                      onClick={() => setEditRoutingMode('cloudflare')}
+                      disabled={!editTunnelConnected}
+                      title={editTunnelConnected ? 'Use the tenant Cloudflare tunnel' : 'Cloudflare Tunnel is not configured for this tenant'}
+                      className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                        editRoutingMode === 'cloudflare' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <CloudRain className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Cloudflare Tunnel</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditRoutingMode('direct')}
+                      className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        editRoutingMode === 'direct' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      <Server className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Direct Public IP</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Cloudflare zones are read from the tenant that owns this website, not from the admin session.
+                  </p>
+                </div>
+
+                {editRoutingMode === 'cloudflare' && !editZone && (
+                  <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    This tenant has no usable Cloudflare zone. Connect its tunnel in Cloudflare Tunnels or choose Direct Public IP.
+                  </p>
+                )}
+
+                {editRoutingMode === 'cloudflare' ? (
+                  <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${!editZone ? 'opacity-50 pointer-events-none' : ''}`}>
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">Subdomain</label>
                       <input
@@ -1213,7 +1305,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                         onChange={(e) => setEditZone(e.target.value)}
                         className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-medium text-slate-800 focus:outline-hidden focus:border-blue-500"
                       >
-                        {cfZones.map((z) => (
+                        {editZones.map((z) => (
                           <option key={z.name} value={z.name}>{z.name}</option>
                         ))}
                       </select>

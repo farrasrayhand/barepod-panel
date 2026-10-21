@@ -244,6 +244,9 @@ export interface ApiDomain {
   hstsEnabled: boolean;
   autoRenew: boolean;
   createdAt: string;
+  /** Computed: an actual Cloudflare tunnel route exists for this hostname. */
+  routingMode?: 'cloudflare' | 'direct';
+  tenantUser?: string;
 }
 
 export interface DomainValidationResult {
@@ -1148,7 +1151,7 @@ export const api = {
     return request<DomainValidationResult>(`/domains/validate?${q.toString()}`);
   },
 
-  addDomain: (payload: { websiteSlug: string; domain: string }) =>
+  addDomain: (payload: { websiteSlug: string; domain: string; routingMode?: 'cloudflare' | 'direct' }) =>
     request<ApiDomain>('/domains', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -1159,10 +1162,14 @@ export const api = {
       method: 'DELETE',
     }),
 
-  updateDomain: (id: string, domain: string, websiteSlug?: string) =>
+  updateDomain: (id: string, domain: string, websiteSlug?: string, routingMode?: 'cloudflare' | 'direct') =>
     request<ApiDomain>(`/domains/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify(websiteSlug ? { domain, websiteSlug } : { domain }),
+      body: JSON.stringify({
+        domain,
+        ...(websiteSlug ? { websiteSlug } : {}),
+        ...(routingMode ? { routingMode } : {}),
+      }),
     }),
 
   updateWebsiteDomain: (slug: string, domain: string) =>

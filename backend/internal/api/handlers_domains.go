@@ -28,6 +28,7 @@ func (s *Server) handleListDomains(w http.ResponseWriter, r *http.Request, user 
 			writeError(w, http.StatusInternalServerError, "internal", "Failed to list domains")
 			return
 		}
+		s.enrichDomains(items)
 		writeJSON(w, http.StatusOK, map[string]any{"items": items})
 		return
 	}
@@ -42,12 +43,15 @@ func (s *Server) handleListDomains(w http.ResponseWriter, r *http.Request, user 
 		writeError(w, http.StatusInternalServerError, "internal", "Failed to list domains")
 		return
 	}
+	s.enrichDomains(items)
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 type addDomainRequest struct {
 	WebsiteSlug string `json:"websiteSlug"`
 	Domain      string `json:"domain"`
+	// RoutingMode is cloudflare or direct; empty keeps the historical behaviour (no route).
+	RoutingMode string `json:"routingMode,omitempty"`
 }
 
 // handleAddDomain registers an alias domain for a website and updates its web server vhost.
@@ -67,6 +71,11 @@ func (s *Server) handleAddDomain(w http.ResponseWriter, r *http.Request, user *s
 	}
 	if req.Domain == "" || strings.Contains(req.Domain, " ") || strings.Contains(req.Domain, "/") || !strings.Contains(req.Domain, ".") {
 		writeError(w, http.StatusBadRequest, "invalid_domain", "Please provide a valid fully-qualified domain name (e.g. app.example.com)")
+		return
+	}
+	req.RoutingMode = strings.ToLower(strings.TrimSpace(req.RoutingMode))
+	if req.RoutingMode != "" && req.RoutingMode != "cloudflare" && req.RoutingMode != "direct" {
+		writeError(w, http.StatusBadRequest, "invalid_routing_mode", "routingMode must be cloudflare or direct")
 		return
 	}
 
@@ -95,7 +104,17 @@ func (s *Server) handleAddDomain(w http.ResponseWriter, r *http.Request, user *s
 		return
 	}
 
-	_ = s.store.Audit(user.ID, "domain.add", req.Domain, clientIP(r), "site="+site.Slug)
+	if req.RoutingMode != "" {
+		if err := s.applyDomainRouting(r.Context(), site, d.Domain, req.RoutingMode); err != nil {
+			_ = s.store.DeleteDomain(d.ID)
+			_ = s.applyVhost(r, site)
+			writeError(w, http.StatusBadGateway, "routing_sync_failed", err.Error())
+			return
+		}
+	}
+
+	_ = s.store.Audit(user.ID, "domain.add", req.Domain, clientIP(r), "site="+site.Slug+" routing="+req.RoutingMode)
+	s.enrichDomain(d)
 	writeJSON(w, http.StatusCreated, d)
 }
 
@@ -103,6 +122,8 @@ type updateDomainRequest struct {
 	Domain string `json:"domain"`
 	// WebsiteSlug moves the domain to another website; empty keeps it where it is.
 	WebsiteSlug string `json:"websiteSlug,omitempty"`
+	// RoutingMode switches the domain between the tenant's Cloudflare tunnel and a direct address.
+	RoutingMode string `json:"routingMode,omitempty"`
 }
 
 // handleUpdateDomain edits the domain name of an existing domain (primary or alias) and reapplies the vhost.
@@ -123,6 +144,12 @@ func (s *Server) handleUpdateDomain(w http.ResponseWriter, r *http.Request, user
 	var req updateDomainRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json", "Malformed JSON request")
+		return
+	}
+
+	req.RoutingMode = strings.ToLower(strings.TrimSpace(req.RoutingMode))
+	if req.RoutingMode != "" && req.RoutingMode != "cloudflare" && req.RoutingMode != "direct" {
+		writeError(w, http.StatusBadRequest, "invalid_routing_mode", "routingMode must be cloudflare or direct")
 		return
 	}
 
@@ -210,9 +237,21 @@ func (s *Server) handleUpdateDomain(w http.ResponseWriter, r *http.Request, user
 		go s.migrateTunnelRouteForDomain(site.TenantUser, oldDomain, newDomain)
 	}
 
-	_ = s.store.Audit(user.ID, "domain.update", newDomain, clientIP(r), fmt.Sprintf("site=%s old=%s isPrimary=%v movedTo=%s", site.Slug, oldDomain, d.IsPrimary, targetSlug))
+	routingSite := site
+	if websiteChanged && target != nil {
+		routingSite = target
+	}
+	if req.RoutingMode != "" {
+		if err := s.applyDomainRouting(r.Context(), routingSite, newDomain, req.RoutingMode); err != nil {
+			writeError(w, http.StatusBadGateway, "routing_sync_failed", err.Error())
+			return
+		}
+	}
+
+	_ = s.store.Audit(user.ID, "domain.update", newDomain, clientIP(r), fmt.Sprintf("site=%s old=%s isPrimary=%v movedTo=%s routing=%s", site.Slug, oldDomain, d.IsPrimary, targetSlug, req.RoutingMode))
 
 	updated, _ := s.store.GetDomain(id)
+	s.enrichDomain(updated)
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -261,6 +300,68 @@ func (s *Server) migrateTunnelRouteForDomain(tenantUser, oldDomain, newDomain st
 		_ = cf.DeleteHostname(ctx, oldDomain)
 		_ = cf.AddIngressRule(ctx, newDomain, "http://127.0.0.1:80", false)
 	}
+}
+
+// enrichDomain fills API-only fields: the owning tenant and whether an actual Cloudflare
+// tunnel route exists. Keeping this computed avoids a second source of truth in the DB.
+func (s *Server) enrichDomain(d *store.WebsiteDomain) {
+	if d == nil {
+		return
+	}
+	if site, err := s.store.WebsiteBySlug(d.WebsiteSlug); err == nil && site != nil {
+		d.TenantUser = site.TenantUser
+	}
+	routes, err := s.store.ListTunnelRoutesByHostname(d.Domain)
+	if err == nil && len(routes) > 0 {
+		d.RoutingMode = "cloudflare"
+	} else {
+		d.RoutingMode = "direct"
+	}
+}
+
+func (s *Server) enrichDomains(items []*store.WebsiteDomain) {
+	for _, d := range items {
+		s.enrichDomain(d)
+	}
+}
+
+// applyDomainRouting performs the actual Cloudflare work behind the routing switch. A
+// direct domain has no ingress rule or DNS CNAME; a Cloudflare domain is added to the
+// owning tenant's tunnel with the site's edge address.
+func (s *Server) applyDomainRouting(ctx context.Context, site *store.Website, domain, mode string) error {
+	if site == nil {
+		return fmt.Errorf("website not found")
+	}
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case "cloudflare":
+		tunnel, err := s.store.GetCloudflareTunnel(site.TenantUser)
+		if err != nil || tunnel == nil || tunnel.ApiToken == "" || tunnel.AccountID == "" || tunnel.TunnelID == "" {
+			return fmt.Errorf("Cloudflare Tunnel is not configured for tenant %s; connect it first", site.TenantUser)
+		}
+		if _, err := s.store.CreateCloudflareTunnelRoute(site.TenantUser, domain, "http://127.0.0.1:80", site.Slug); err != nil {
+			return fmt.Errorf("save tunnel route: %w", err)
+		}
+		cf := cloudflare.NewClient(tunnel.ApiToken, tunnel.AccountID, tunnel.TunnelID)
+		if err := cf.AddIngressRule(ctx, domain, "http://127.0.0.1:80", false); err != nil {
+			// Do not leave a local route claiming a hostname Cloudflare refused.
+			_ = s.store.DeleteTunnelRoutesByHostname(domain)
+			return fmt.Errorf("sync Cloudflare route: %w", err)
+		}
+	case "direct":
+		_ = s.store.DeleteTunnelRoutesByHostname(domain)
+		if cf := s.cloudflareClientFor(site.TenantUser); cf != nil {
+			_ = cf.DeleteHostname(ctx, domain)
+		}
+	default:
+		return fmt.Errorf("routingMode must be cloudflare or direct")
+	}
+	// The Apps page shows a site-level badge; keep it in step with the primary hostname.
+	if strings.EqualFold(domain, site.Domain) {
+		_ = s.store.SetWebsiteTunnelEnabled(site.Slug, mode == "cloudflare")
+	}
+	return nil
 }
 
 // handleDeleteDomain removes an alias domain and reloads the web server.

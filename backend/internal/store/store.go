@@ -88,6 +88,9 @@ type WebsiteDomain struct {
 	HSTSEnabled  bool   `json:"hstsEnabled"`
 	AutoRenew    bool   `json:"autoRenew"`
 	CreatedAt    string `json:"createdAt"`
+	// RoutingMode and TenantUser are computed for API responses, not stored in website_domains.
+	RoutingMode string `json:"routingMode,omitempty"` // cloudflare | direct
+	TenantUser  string `json:"tenantUser,omitempty"`
 }
 
 // WebsiteSecurity defines the access control, HTTP basic auth, IP rules, and rate limits for a site.
