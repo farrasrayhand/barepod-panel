@@ -21,6 +21,7 @@ import { DomainsView } from './components/DomainsView';
 import { HostFilesView } from './components/HostFilesView';
 import { StackView } from './components/StackView';
 import { BackupMigrationView } from './components/BackupMigrationView';
+import { ActivityLogView } from './components/ActivityLogView';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { LoginView } from './components/LoginView';
@@ -47,6 +48,7 @@ const TAB_PATHS: Record<NavItem, string> = {
   profile: '/profile',
   files: '/files',
   backup: '/backup',
+  activity: '/activity',
 };
 
 interface AppRoute {
@@ -778,6 +780,10 @@ export function App() {
               currentUser={session.user}
               permissions={session.permissions}
             />
+          )}
+
+          {currentTab === 'activity' && (
+            <ActivityLogView onShowToast={showToast} />
           )}
 
           {currentTab === 'backup' && (

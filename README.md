@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 ## 📊 Current Live Status
 
 > [!NOTE]
-> BarePod Panel follows an honest versioning policy: **Live** means verified on a real Linux host (Ubuntu 24.04 in Proxmox LXC), not just compiled. Current snapshot: **v0.4.3 (2026-10-21)**. The single source of truth is documented in [`MASTER_PLAN.md`](./MASTER_PLAN.md).
+> BarePod Panel follows an honest versioning policy: **Live** means verified on a real Linux host (Ubuntu 24.04 in Proxmox LXC), not just compiled. Current snapshot: **v0.4.4 (2026-10-21)**. The single source of truth is documented in [`MASTER_PLAN.md`](./MASTER_PLAN.md).
 
 | Feature / Module | Real Host Status | Description |
 |---|---|---|
@@ -55,9 +55,11 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 | **Metrics History & Retention** | **Live ✅** | Live samples stay in memory; aggregated rollups (1m → 24h, 5m → 30d, 1h → configurable 30/90/365d) are written once a minute to a separate `metrics.db`, so history survives restarts. Daemon RSS, Go heap, goroutines and FDs are recorded in the same rollup tiers and charted on Server Monitoring; heap/goroutine pprof dumps are admin-only. Admin can disable persistence or change retention from Monitoring & Retention. |
 | **Git CI/CD & Auto-Deploy** | **Live ✅** | Per-tenant GitHub, GitLab, Gitea/Forgejo and Bitbucket connections with AES-256-GCM tokens, repo/branch discovery, ED25519 deploy keys, deploy history, and auto-deploy in **webhook / polling / off** modes. Provider hooks are registered, updated and deleted by the daemon. |
 | **Path Routing, Service Logs & Lists** | **Live ✅** | Per-site path prefixes (`/api/` → upstream) rendered into Nginx, Caddy, Apache and OpenLiteSpeed vhosts with hot reload; inline edit/delete; journald service logs; server-side `?owner=&sort_by=&order=` for websites, databases and caches. |
+| **Activity Log** | **Live ✅** | A dedicated menu over the existing audit trail: an admin sees every account, a tenant sees only their own activity, with search, action filter, and newest 100/250/500 rows. |
+| **Capacity Estimate** | **Live ✅** | Server Monitoring and Overview show remaining CPU/RAM/disk against the suggested package, a theoretical user ceiling, a 75%-headroom "comfortable" number, and the current bottleneck. Clearly labelled as an estimate. |
 | **Docker Pods** | **Scheduled 📋** | Container pod orchestration through the Docker SDK (Pod lifecycle, env, volumes, port mapping). |
 
-**Verification for v0.4.3:** on a real Ubuntu 24.04 host, the daemon reported `mode: real` with migrations through V29, the active Caddy config validated, a site returned `200` and matched its remote branch, a real GitHub webhook delivery was answered, a foreign-branch push was ignored, and telemetry aggregation plus SSE were exercised, and metrics rollups were written to the separate metrics.db. Repeatable checks live in [`scripts/verify-v043.sh`](./scripts/verify-v043.sh).
+**Verification for v0.4.4:** on a real Ubuntu 24.04 host, the daemon reported `mode: real` with migrations through V29, the active Caddy config validated, a site returned `200` and matched its remote branch, a real GitHub webhook delivery was answered, a foreign-branch push was ignored, and telemetry aggregation plus SSE were exercised, and metrics rollups were written to the separate metrics.db. Repeatable checks live in [`scripts/verify-v044.sh`](./scripts/verify-v044.sh).
 
 ---
 

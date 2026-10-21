@@ -13,7 +13,8 @@ export type NavItem =
   | 'api'
   | 'profile'
   | 'files'
-  | 'backup';
+  | 'backup'
+  | 'activity';
 
 export type RuntimeType =
   | 'php'

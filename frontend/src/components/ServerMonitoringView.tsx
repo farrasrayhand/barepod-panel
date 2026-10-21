@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSubRoute } from '../hooks/useSubRoute';
 import { MetricHistoryChart } from './MetricHistoryChart';
+import { CapacityEstimateCard } from './CapacityEstimateCard';
 import { HostConsole } from './HostConsole';
 import {
   api,
@@ -857,6 +858,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
         {/* TAB 1: HARDWARE & PERFORMANCE */}
         {activeTab === 'metrics' && (
           <div className="space-y-6">
+            <CapacityEstimateCard enabled={isAdmin} />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
               {/* CPU Breakdown Box */}

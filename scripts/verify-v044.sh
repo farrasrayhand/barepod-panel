@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# verify-v043.sh — host-side checks for the v0.4.3 daemon-telemetry release.
+# verify-v044.sh — host-side checks for the v0.4.4 activity/capacity release.
 #
 # Unit tests prove the renderers and handlers in isolation. This script proves the
 # running daemon and the installed web servers agree with them:
@@ -13,7 +13,7 @@
 #   BAREPOD_URL=https://panel.example.com \
 #   BAREPOD_USER=admin BAREPOD_PASS='...' \
 #   BAREPOD_SLUG=my-site \
-#   ./scripts/verify-v043.sh
+#   ./scripts/verify-v044.sh
 #
 # Optional:
 #   BAREPOD_WEBHOOK_TOKEN=...   exercise the public webhook (fake branch; no deploy)
@@ -91,10 +91,10 @@ api() {
 say "Panel health"
 HEALTH="$(curl -sS ${BAREPOD_CURL_INSECURE:+ -k} "${BASE}/api/v1/health" || true)"
 VERSION="$(printf '%s' "$HEALTH" | jget version)"
-if [[ "$VERSION" == "0.4.3" ]]; then
+if [[ "$VERSION" == "0.4.4" ]]; then
   pass "health reports version $VERSION"
 else
-  warn "health version is '${VERSION:-unreachable}', expected 0.4.3 (was the new bundle rolled out?)"
+  warn "health version is '${VERSION:-unreachable}', expected 0.4.4 (was the new bundle rolled out?)"
 fi
 
 say "Login"
@@ -199,7 +199,7 @@ else
 fi
 
 say "Route → vhost on all four engines"
-ROUTE_BODY="$(python3 -c 'import json,sys; print(json.dumps({"path":sys.argv[1],"upstream":"http://127.0.0.1:65535","description":"v0.4.3 host verification","websocket":True,"stripPrefix":True}))' "$ROUTE_PATH")"
+ROUTE_BODY="$(python3 -c 'import json,sys; print(json.dumps({"path":sys.argv[1],"upstream":"http://127.0.0.1:65535","description":"v0.4.4 host verification","websocket":True,"stripPrefix":True}))' "$ROUTE_PATH")"
 ROUTE="$(api POST "/websites/${SLUG}/routes" "$ROUTE_BODY" || true)"
 ROUTE_ID="$(printf '%s' "$ROUTE" | jget id)"
 STORED_PATH="$(printf '%s' "$ROUTE" | jget path)"

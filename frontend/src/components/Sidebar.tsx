@@ -11,6 +11,7 @@ import {
   Settings,
   Box,
   Activity,
+  History,
   Server,
   RefreshCw,
   Copy,
@@ -98,6 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
   ];
 
   const infraItems: NavGroupItem[] = [
+    { id: 'activity' as NavItem, label: 'Activity Log', icon: History },
     ...(canDo('monitoring') ? [{ id: 'monitoring' as NavItem, label: 'Server Monitoring', icon: Activity }] : []),
     ...(canDo('backups') ? [{ id: 'backup' as NavItem, label: 'Backup & Migration', icon: Archive }] : []),
     ...(canDo('domains') ? [{ id: 'domains' as NavItem, label: 'Domains & SSL', icon: Globe }] : []),

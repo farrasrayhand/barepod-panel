@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import type { NavItem, WebApp } from '../types';
 import { api, apiReachable, type HostMetrics } from '../api/client';
+import { CapacityEstimateCard } from './CapacityEstimateCard';
 import { formatBytes, formatRate, formatUptime } from '../api/adapters';
 import { clockTime, describeAudit, describeDevice, timeAgo } from '../utils/format';
 
@@ -356,6 +357,8 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
           </div>
         </button>
       </div>
+
+      <CapacityEstimateCard />
 
       {/* Main 2-Column Split: Balanced Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
