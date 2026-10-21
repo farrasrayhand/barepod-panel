@@ -793,6 +793,7 @@ export function App() {
               isAdmin={isAdmin}
               onShowToast={showToast}
               onOpenTerminal={() => navigate('terminal')}
+              onNavigatePath={navigatePath}
             />
           )}
 

@@ -42,6 +42,8 @@ interface PanelSettingsViewProps {
   isAdmin?: boolean;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   onOpenTerminal?: () => void;
+  /** SPA navigation for the ingress/certificate shortcuts. */
+  onNavigatePath?: (path: string) => void;
 }
 
 const isPortNumber = (value: string) => /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 65535;
@@ -50,8 +52,13 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   isAdmin = false,
   onShowToast,
   onOpenTerminal: _onOpenTerminal,
+  onNavigatePath,
 }) => {
   const [activeTab, setActiveTab] = useSubRoute<'general' | 'updates' | 'cron' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults'>('general');
+  // The old Reverse Proxy & SSL tab was merged into General; keep its URL working.
+  React.useEffect(() => {
+    if (activeTab === 'proxy') setActiveTab('general');
+  }, [activeTab, setActiveTab]);
   // The address an external client should use. Unlike most of this screen it is real: the daemon
   // stores it and every connection snippet prefers it. It cannot be detected — behind NAT there is
   // no public address to find, and a domain is knowledge only the operator has.
@@ -860,7 +867,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Panel Settings & System</h1>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Global panel daemon port, security policies, backup destinations, reverse proxy, and system alerts
+            Global panel daemon port, security policies, certificates, retention, and system alerts
           </p>
         </div>
       </div>
@@ -876,7 +883,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             { id: 'cron', label: 'Cron & Scheduled Tasks', icon: Clock },
             { id: 'monitoring', label: 'Monitoring & Retention', icon: Activity },
             { id: 'security', label: 'Security & Auth', icon: ShieldCheck },
-            { id: 'proxy', label: 'Reverse Proxy & SSL', icon: Globe },
             { id: 'backups', label: 'Backup Policy', icon: HardDrive },
             { id: 'notifications', label: 'Alerts & Notifications', icon: Bell },
             { id: 'php_defaults', label: 'PHP Tuning & Exts', icon: Cpu },
@@ -898,11 +904,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 {tab.id === 'backups' && (
                   <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
                     Not applied
-                  </span>
-                )}
-                {tab.id === 'proxy' && (
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
-                    Info
                   </span>
                 )}
               </button>
@@ -1174,6 +1175,65 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   Applied to the host with <code className="font-mono">timedatectl set-timezone</code> — the
                   server clock, not just the panel.
                 </p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-slate-500" /> Let's Encrypt admin contact email
+                  </span>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Default contact when a certificate is issued without one in the Domains dialog.
+                  </p>
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={letsEncryptEmail}
+                    onChange={(e) => setLetsEncryptEmail(e.target.value)}
+                    disabled={!isAdmin}
+                    placeholder="admin@example.com"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500 disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void saveLetsEncryptEmail()}
+                    disabled={!isAdmin || letsEncryptSaving}
+                    className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors shrink-0"
+                  >
+                    {letsEncryptSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-3">
+                <div className="flex items-start gap-2.5">
+                  <Globe className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-800">Ingress and certificates live elsewhere</h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                      The ingress engine and installs are managed on the Stack page. Certificates,
+                      aliases and renewals are managed per domain on the Domains page. Host ports
+                      80/443 belong to the web server configuration, not to this panel.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 pl-6">
+                  <button
+                    type="button"
+                    onClick={() => onNavigatePath?.('/stack')}
+                    className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Open Stack — ingress
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onNavigatePath?.('/domains')}
+                    className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Open Domains — certificates
+                  </button>
+                </div>
               </div>
 
             </div>
@@ -1779,74 +1839,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           )}
 
           {/* REVERSE PROXY & SSL */}
-          {activeTab === 'proxy' && (
-            <div className="space-y-6 w-full">
-              <div>
-                <h2 className="text-base font-bold text-slate-900">Reverse Proxy & SSL</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  These are host-level choices; the panel does not keep a second copy of them.
-                </p>
-              </div>
-
-              <div className="p-5 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3">
-                <h3 className="text-sm font-bold text-slate-900">Where each control really lives</h3>
-                <ul className="text-xs text-slate-600 space-y-2">
-                  <li className="flex items-start gap-2">
-                    <Globe className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
-                    <span>
-                      <strong>Ingress engine, installs and switches</strong> &mdash; the
-                      <strong> Stack</strong> page (nginx or Caddy). It is the only place that rewrites
-                      the host's vhosts.
-                    </span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <ShieldCheck className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
-                    <span>
-                      <strong>Certificates, aliases and renewals</strong> &mdash; <strong>Domains</strong>.
-                      Each site's certificate is issued and toggled there, and the
-                      <code className="font-mono"> ssl_renew</code> job renews what is due.
-                    </span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <Server className="w-4 h-4 text-slate-400 mt-0.5 shrink-0" />
-                    <span>
-                      <strong>Host ports 80/443</strong> &mdash; owned by the web server's own
-                      configuration, not by this panel.
-                    </span>
-                  </li>
-                </ul>
-              </div>
-
-              <div className="p-4 rounded-xl border border-slate-200 bg-white space-y-2">
-                <label className="block">
-                  <span className="text-xs font-bold text-slate-800">Let's Encrypt admin contact email</span>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Used as the default contact when a certificate is issued without one in the Domains
-                    dialog.
-                  </p>
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="email"
-                    value={letsEncryptEmail}
-                    onChange={(e) => setLetsEncryptEmail(e.target.value)}
-                    disabled={!isAdmin}
-                    placeholder="admin@example.com"
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500 disabled:opacity-60"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void saveLetsEncryptEmail()}
-                    disabled={!isAdmin || letsEncryptSaving}
-                    className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors shrink-0"
-                  >
-                    {letsEncryptSaving ? 'Saving…' : 'Save'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* 4. BACKUPS & SNAPSHOTS */}
           {activeTab === 'backups' && (
             <div className="space-y-6 w-full">
