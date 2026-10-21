@@ -288,6 +288,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/websites/{slug}", deploy(s.handleDeleteWebsite))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/redeploy", deploy(s.handleRedeployWebsite))
 	mux.HandleFunc("POST /api/v1/websites/{slug}/exec", deploy(s.handleWebsiteExecCommand))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/ping", deploy(s.handlePingWebsite))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy", deploy(s.handleLatestDeploy))
 	// The literal path is more specific than the {id} pattern below; Go's ServeMux routes it first.
 	mux.HandleFunc("GET /api/v1/websites/{slug}/deploy/history", deploy(s.handleDeployHistory))

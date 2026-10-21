@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -389,6 +391,63 @@ func toCacheSpec(p *cachePayload) *deploy.CacheSpec {
 		return nil
 	}
 	return &deploy.CacheSpec{Engine: p.Engine, Version: p.Version}
+}
+
+// handlePingWebsite checks whether the site's upstream answers. The target is derived from the
+// site record (its configured upstream URL, or its loopback port), never from a free-form request
+// body, so a tenant cannot use this as a general-purpose SSRF probe.
+func (s *Server) handlePingWebsite(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	slug := r.PathValue("slug")
+	site, err := s.store.WebsiteBySlug(slug)
+	if err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+
+	target := strings.TrimSpace(site.UpstreamURL)
+	if target == "" {
+		target = fmt.Sprintf("http://127.0.0.1:%d", site.Port)
+	}
+	if !strings.HasPrefix(target, "http://") && !strings.HasPrefix(target, "https://") {
+		target = "http://" + target
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "target": target, "error": err.Error()})
+		return
+	}
+	req.Header.Set("User-Agent", "BarePod-Panel/upstream-ping")
+
+	// A local upstream often presents a self-signed certificate. This request reads no data and
+	// only measures reachability; the browser-facing certificate is a separate concern.
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	started := time.Now()
+	resp, err := client.Do(req)
+	latency := time.Since(started).Milliseconds()
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok": false, "target": target, "latencyMs": latency, "error": err.Error(),
+		})
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+
+	// Any HTTP response means the upstream is reachable; its status is reported as-is.
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"target":     target,
+		"statusCode": resp.StatusCode,
+		"latencyMs":  latency,
+	})
 }
 
 // handleDeployJob returns a job plus its log lines after ?after=<id>.

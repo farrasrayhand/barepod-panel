@@ -194,6 +194,42 @@ func TestGitAutoDeployModeAndDeployHistory(t *testing.T) {
 	}
 }
 
+func TestPingWebsiteUsesStoredUpstream(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+	if err := panel.store.UpdateWebsiteUpstream("admin-site", upstream.URL); err != nil {
+		t.Fatalf("set upstream: %v", err)
+	}
+
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/websites/admin-site/ping", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ping status = %d (%s)", resp.StatusCode, body)
+	}
+	var result struct {
+		OK        bool   `json:"ok"`
+		Status    int    `json:"statusCode"`
+		LatencyMs int64  `json:"latencyMs"`
+		Target    string `json:"target"`
+		Error     string `json:"error"`
+	}
+	_ = json.Unmarshal([]byte(body), &result)
+	if !result.OK || result.Status != http.StatusNoContent || result.Target != upstream.URL {
+		t.Errorf("unexpected ping result: %+v (%s)", result, body)
+	}
+
+	// A tenant must not be able to probe another site's upstream.
+	panel.login(t, "alex")
+	resp, _ = panel.do(t, http.MethodPost, "/api/v1/websites/admin-site/ping", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("cross-tenant ping status = %d, want 404", resp.StatusCode)
+	}
+}
+
 func TestLegacyAutoDeployDoesNotClaimPolling(t *testing.T) {
 	panel := newTestPanel(t)
 	panel.login(t, "admin")

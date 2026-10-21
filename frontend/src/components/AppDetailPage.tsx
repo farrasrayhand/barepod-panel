@@ -359,7 +359,6 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [envRevealOpen, setEnvRevealOpen] = useState(false);
   const [envPassword, setEnvPassword] = useState('');
   const [envRevealBusy, setEnvRevealBusy] = useState(false);
-  const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [telemetry, setTelemetry] = useState<ApiWebsiteTelemetry | null>(null);
   const [realLogs, setRealLogs] = useState<LogItem[] | null>(null);
   const [realNodes, setRealNodes] = useState<ApiTelemetryNode[] | null>(null);
@@ -438,39 +437,6 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
     return () => clearInterval(interval);
   }, [activeTab, fetchTelemetry]);
 
-  const handleExportAppBackup = () => {
-    setIsExportingBackup(true);
-    onShowToast?.('Packaging App Snapshot...', `Packaging ${app.name} codebase, .env, and vhost config...`, 'info');
-    setTimeout(() => {
-      const bundleData = {
-        format: 'BarePod-Application-Bundle',
-        version: '2.4',
-        app: {
-          name: app.name,
-          domain: app.domain,
-          runtime: app.runtime,
-          version: app.version,
-          framework: app.framework,
-          webServer: app.webServer,
-          tenantUser: app.tenantUser,
-          port: app.port,
-        },
-        env: `APP_NAME=${app.name}\nAPP_ENV=production\nAPP_URL=https://${app.domain}\n`,
-        vhostConfig: getReverseProxyConfigSnippet(),
-        createdAt: new Date().toISOString(),
-      };
-      const blob = new Blob([JSON.stringify(bundleData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `barepod-${app.name}-${new Date().toISOString().slice(0, 10)}.bpod`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setIsExportingBackup(false);
-      onShowToast?.('Backup Downloaded', `Bundle barepod-${app.name}.bpod is ready for cross-server migration.`, 'success');
-    }, 1200);
-  };
-
   // Persistent Deploy & Build Script per App
   const getDefaultBuildScript = (runtime?: string, hasGit = false, branch = 'main') => {
     const gitPull = hasGit ? `git pull origin ${branch}\n` : '';
@@ -525,6 +491,8 @@ npm run build`;
   const [isDeployingNow, setIsDeployingNow] = useState(false);
   const [copiedDeployWebhook, setCopiedDeployWebhook] = useState(false);
   const [deployLogs, setDeployLogs] = useState<string[]>([]);
+  // Vercel-style: the source card is visible, the shell/build details are one click away.
+  const [showAdvancedDeploy, setShowAdvancedDeploy] = useState(false);
   const [isLoadingDeployLogs, setIsLoadingDeployLogs] = useState(false);
   const deployLogContainerRef = useRef<HTMLDivElement>(null);
 
@@ -836,26 +804,17 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
   // Reverse Proxy Specific Interactive State
   const [currentUpstream, setCurrentUpstream] = useState(app.upstreamUrl || `http://127.0.0.1:${app.port}`);
   const [isPingingUpstream, setIsPingingUpstream] = useState(false);
-  const [pingStatus, setPingStatus] = useState<{ ok: boolean; latency: string; code: number } | null>(null);
+  const [pingStatus, setPingStatus] = useState<{
+    ok: boolean;
+    latency: string;
+    code: number;
+    target?: string;
+    error?: string;
+  } | null>(null);
   const [wsEnabled, setWsEnabled] = useState(app.proxyWebsocket ?? true);
   const [preserveHost, setPreserveHost] = useState(app.proxyPreserveHost ?? true);
   const [realIp, setRealIp] = useState(app.proxyRealIp ?? true);
   const [proxyTimeout, setProxyTimeout] = useState(app.proxyTimeoutSecs ?? 60);
-  const [copiedVhost, setCopiedVhost] = useState(false);
-  const [routes, setRoutes] = useState<Array<{ path: string; upstream: string; target: string; cache: string; websocket?: boolean }>>([
-    {
-      path: '/',
-      upstream: app.upstreamUrl || (app.runtime === 'php' ? 'unix:/run/php/php8.4-fpm.sock' : `http://127.0.0.1:${app.port}`),
-      target: app.runtime === 'proxy' ? 'Primary Upstream Target' : `${(app.framework || app.runtime).toUpperCase()} Primary`,
-      cache: 'Bypass / Realtime',
-      websocket: true,
-    },
-  ]);
-  const [showAddRoute, setShowAddRoute] = useState(false);
-  const [newRoutePath, setNewRoutePath] = useState('');
-  const [newRouteUpstream, setNewRouteUpstream] = useState('');
-  const [newRouteTarget, setNewRouteTarget] = useState('');
-
   // Maintenance Mode & HTTP Basic Auth State
   const [maintenanceMode, setMaintenanceMode] = useState(app.maintenanceMode ?? false);
   const [maintenanceMessage, setMaintenanceMessage] = useState(
@@ -1162,16 +1121,33 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
     onShowToast?.('Command Copied', 'cURL command copied to clipboard.', 'info');
   };
 
-  const handlePingUpstream = () => {
+  // A real request from the daemon to this site's upstream/loopback port. The old version invented
+  // a 200 and a random latency, which made a dead upstream look healthy.
+  const handlePingUpstream = async () => {
     setIsPingingUpstream(true);
-    setTimeout(() => {
-      setIsPingingUpstream(false);
+    setPingStatus(null);
+    try {
+      const res = await api.pingWebsite(app.name);
       setPingStatus({
-        ok: true,
-        latency: (Math.random() * 2 + 1.2).toFixed(1) + 'ms',
-        code: 200,
+        ok: res.ok,
+        latency: `${res.latencyMs}ms`,
+        code: res.statusCode ?? 0,
+        target: res.target,
+        error: res.error,
       });
-    }, 600);
+      onShowToast?.(
+        res.ok ? 'Upstream reachable' : 'Upstream unreachable',
+        res.ok
+          ? `${res.target} answered ${res.statusCode} in ${res.latencyMs}ms.`
+          : res.error || `No response from ${res.target}.`,
+        res.ok ? 'success' : 'error',
+      );
+    } catch (err) {
+      setPingStatus({ ok: false, latency: '—', code: 0, error: err instanceof Error ? err.message : 'Unknown error' });
+      onShowToast?.('Ping failed', err instanceof Error ? err.message : 'Unknown error', 'error');
+    } finally {
+      setIsPingingUpstream(false);
+    }
   };
 
   const [isSavingGateway, setIsSavingGateway] = useState(false);
@@ -1454,191 +1430,6 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
       onShowToast?.('Deployment Error', msg, 'error');
       onUpdateApp?.({ ...app, status: 'error', deployStatus: 'failed' });
     }
-  };
-
-  const handleAddCustomRoute = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newRoutePath || !newRouteUpstream) return;
-    const cleanPath = newRoutePath.startsWith('/') ? newRoutePath : `/${newRoutePath}`;
-    setRoutes([
-      ...routes,
-      {
-        path: cleanPath,
-        upstream: newRouteUpstream,
-        target: newRouteTarget || 'Custom Upstream Route',
-        cache: 'Bypass Cache',
-        websocket: true,
-      }
-    ]);
-    setNewRoutePath('');
-    setNewRouteUpstream('');
-    setNewRouteTarget('');
-    setShowAddRoute(false);
-    onShowToast?.('Route Added', `Route ${cleanPath} -> ${newRouteUpstream} added to the routing table.`, 'success');
-  };
-
-  const handleDeleteRoute = (pathToDelete: string) => {
-    if (pathToDelete === '/') {
-      onShowToast?.('Primary Route', 'The root route (/) is the main gateway and cannot be deleted.', 'info');
-      return;
-    }
-    setRoutes(prev => prev.filter(r => r.path !== pathToDelete));
-    onShowToast?.('Route Deleted', `Route ${pathToDelete} removed from the routing table.`, 'success');
-  };
-
-  const getReverseProxyConfigSnippet = () => {
-    const dName = app.domain;
-    const upTarget = currentUpstream || 'http://127.0.0.1:8080';
-    const cleanUpstream = (url: string) => url.replace(/^https?:\/\//, '');
-    const cleanPath = (p: string) => p.replace(/\*$/, '');
-    const upTargetClean = cleanUpstream(upTarget);
-    const ws = app.webServer;
-    const customRoutes = routes.filter(r => r.path !== '/');
-
-    if (ws === 'openlitespeed') {
-      const extProcessors = [
-        `extprocessor upstream_root {
-    type                    proxy
-    address                 ${upTargetClean}
-    maxConns                200
-    initTimeout             ${proxyTimeout}
-    retryTimeout            0
-    respBuffer              0
-}`
-      ];
-
-      const contexts = [
-        `context / {
-    type                    proxy
-    handler                 upstream_root
-    addDefaultCharset       off
-}`
-      ];
-
-      customRoutes.forEach((r, idx) => {
-        const handlerName = `upstream_route_${idx + 1}`;
-        const cleanUp = cleanUpstream(r.upstream);
-        const ctxPath = cleanPath(r.path);
-        if (!r.upstream.startsWith('Direct')) {
-          extProcessors.push(`extprocessor ${handlerName} {
-    type                    proxy
-    address                 ${cleanUp}
-    maxConns                100
-    initTimeout             ${proxyTimeout}
-    retryTimeout            0
-    respBuffer              0
-}`);
-          contexts.push(`context ${ctxPath} {
-    type                    proxy
-    handler                 ${handlerName}
-    addDefaultCharset       off
-}`);
-        } else {
-          contexts.push(`context ${ctxPath} {
-    type                    static
-    expiresByType           image/*=A31536000, text/css=A31536000, application/javascript=A31536000
-}`);
-        }
-      });
-
-      return `# ==============================================================================
-# OpenLiteSpeed VirtualHost Reverse Proxy Configuration
-# Domain: ${dName} | Generated by BarePod Panel Daemon
-# ==============================================================================
-docRoot                   $VH_ROOT/public_html
-vhDomain                  ${dName}
-adminEmails               admin@${dName}
-enableGzip                1
-
-# Upstream Backend Processors (External Processors)
-${extProcessors.join('\n\n')}
-
-# Path Context Routing
-${contexts.join('\n\n')}
-
-# WebSocket Upgrade & Header Forwarding
-rewrite  {
-    enable                1
-    autoLoadHtaccess      1
-${wsEnabled ? '    # WebSocket Upgrade Support\n    RewriteCond %{HTTP:UPGRADE} ^WebSocket$ [NC]\n    RewriteRule ^/(.*) WS://upstream_root/$1 [P,L]\n' : ''}${preserveHost ? `    # Preserve Host Header\n    RewriteRule ^/(.*) HTTP://upstream_root/$1 [P,E=Proxy-Host:${dName},L]\n` : '    RewriteRule ^/(.*) HTTP://upstream_root/$1 [P,L]\n'}}`;
-    }
-
-    if (ws === 'caddy') {
-      return `# ==============================================================================
-# Caddyfile Reverse Proxy Configuration
-# Domain: ${dName} | Generated by BarePod Panel Daemon
-# ==============================================================================
-${dName} {
-    tls {
-        issuer lets_encrypt
-    }
-    encode zstd gzip
-
-${customRoutes.map(r => `    # Route: ${r.path} -> ${r.target}
-    handle ${r.path} {
-        ${r.upstream.startsWith('Direct') ? 'file_server' : `reverse_proxy ${cleanUpstream(r.upstream)}`}
-    }`).join('\n\n')}
-
-    # Default Root Reverse Proxy
-    handle {
-        reverse_proxy ${upTargetClean} {
-${preserveHost ? '            header_up Host {host}\n' : ''}${realIp ? '            header_up X-Real-IP {remote_host}\n            header_up X-Forwarded-For {remote_host}\n            header_up X-Forwarded-Proto {scheme}\n' : ''}        }
-    }
-}`;
-    }
-
-    if (ws === 'apache') {
-      return `# ==============================================================================
-# Apache 2.4 VirtualHost Reverse Proxy Configuration
-# Domain: ${dName} | Generated by BarePod Panel Daemon
-# ==============================================================================
-<VirtualHost *:80 *:443>
-    ServerName ${dName}
-    ProxyPreserveHost ${preserveHost ? 'On' : 'Off'}
-    ProxyRequests Off
-    Timeout ${proxyTimeout}
-
-${customRoutes.filter(r => !r.upstream.startsWith('Direct')).map(r => `    <Location ${cleanPath(r.path)}>
-        ProxyPass ${r.upstream.startsWith('http') ? r.upstream : `http://${r.upstream}`}/
-        ProxyPassReverse ${r.upstream.startsWith('http') ? r.upstream : `http://${r.upstream}`}/
-    </Location>`).join('\n\n')}
-
-    <Location />
-        ${wsEnabled ? `RewriteEngine on
-        RewriteCond %{HTTP:Upgrade} websocket [NC]
-        RewriteCond %{HTTP:Connection} upgrade [NC]
-        RewriteRule .* "ws://${upTargetClean}%{REQUEST_URI}" [P,L]\n` : ''}
-        ProxyPass ${upTarget}/
-        ProxyPassReverse ${upTarget}/
-    </Location>
-</VirtualHost>`;
-    }
-
-    // Default Nginx
-    return `# ==============================================================================
-# Nginx Reverse Proxy Configuration
-# Domain: ${dName} | Generated by BarePod Panel Daemon
-# ==============================================================================
-server {
-    listen 80;
-    listen 443 ssl http2;
-    server_name ${dName};
-
-    ssl_certificate /etc/letsencrypt/live/${dName}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${dName}/privkey.pem;
-
-    client_max_body_size 100M;
-
-    location / {
-        proxy_pass ${upTarget};
-        proxy_http_version 1.1;
-${wsEnabled ? '        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection "upgrade";\n' : ''}${preserveHost ? '        proxy_set_header Host $host;\n' : ''}${realIp ? '        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n' : ''}        proxy_read_timeout ${proxyTimeout}s;
-    }
-
-${customRoutes.map(r => `    location ${cleanPath(r.path)} {
-        ${r.upstream.startsWith('Direct') ? 'root /var/www/static;\n        expires 365d;' : `proxy_pass ${r.upstream};\n        proxy_set_header Host $host;`}
-    }`).join('\n\n')}
-}`;
   };
 
   const handleResetToAdminDefault = () => {
@@ -2609,13 +2400,14 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
             )}
 
             <button
-              onClick={handleExportAppBackup}
-              disabled={isExportingBackup}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
-              title="Download portable backup archive (.bpod) for migration"
+              type="button"
+              disabled
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-500 bg-slate-50 border border-slate-200 rounded-xl opacity-70 cursor-not-allowed"
+              title="Not applied: the Backup & Migration module is not built yet."
             >
-              <Archive className={`w-3.5 h-3.5 text-blue-600 ${isExportingBackup ? 'animate-spin' : ''}`} />
-              <span>{isExportingBackup ? 'Packaging...' : 'Backup (.bpod)'}</span>
+              <Archive className="w-3.5 h-3.5 text-slate-400" />
+              <span>Backup (.bpod)</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">Not applied</span>
             </button>
 
             {app.runtime !== 'proxy' ? (
@@ -4351,16 +4143,6 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddRoute(!showAddRoute)}
-                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm shadow-blue-500/25"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Path Route</span>
-                </button>
-              </div>
             </div>
 
             {/* Primary Upstream Target Card (Especially prominent for Proxy Apps) */}
@@ -4403,12 +4185,27 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                     </button>
                   </div>
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Ping only tests connectivity (it does not save config). Fields in this card render directly into the vhost below.
+                    The daemon sends a real HTTP request to this upstream (5s timeout) and does not save config.
                   </p>
                   {pingStatus && (
-                    <div className="inline-flex items-center gap-1.5 mt-1.5 px-2.5 py-1 text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg">
-                      <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>{pingStatus.code} OK ({pingStatus.latency})</span>
+                    <div
+                      className={`inline-flex items-center gap-1.5 mt-1.5 px-2.5 py-1 text-xs font-mono font-bold border rounded-lg ${
+                        pingStatus.ok
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                      }`}
+                      title={pingStatus.error || pingStatus.target || ''}
+                    >
+                      {pingStatus.ok ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                      )}
+                      <span>
+                        {pingStatus.ok
+                          ? `${pingStatus.code} OK (${pingStatus.latency})`
+                          : `Unreachable (${pingStatus.latency})${pingStatus.error ? ` — ${pingStatus.error}` : ''}`}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -6102,15 +5899,27 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                     <div>
                       <div className="flex items-center gap-2">
                         <h3 className="text-sm font-bold text-slate-900">
-                          Deploy & Build Script Saved Per App
+                          Source &amp; Deployment
                         </h3>
                         <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1 font-mono">
                           <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                           <span>Persistent in DB</span>
                         </span>
                       </div>
-                      <p className="text-xs text-slate-600 mt-0.5">
-                        Whenever a commit is pushed to your Git remote or the webhook is invoked, BarePod automatically runs the build script inside <code>{appPath}</code>.
+                      <p className="text-xs text-slate-600 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="font-semibold text-slate-800">{gitBranch || 'main'}</span>
+                        <span className="text-slate-400">·</span>
+                        <span>
+                          {autoDeploy
+                            ? gitStatus?.autoDeployMode === 'webhook'
+                              ? 'Webhook auto-deploy'
+                              : gitStatus?.autoDeployMode === 'poll'
+                                ? `Polling every ${Math.max(1, Math.round((gitStatus?.autoDeployPollSec || 300) / 60))}m`
+                                : 'Manual webhook only'
+                            : 'Auto-deploy off'}
+                        </span>
+                        <span className="text-slate-400">·</span>
+                        <span className="truncate">{gitRepo || 'Local files'}</span>
                       </p>
                     </div>
                   </div>
@@ -6137,6 +5946,61 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                   </div>
                 </div>
 
+                <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] text-slate-600">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={autoDeploy}
+                      onChange={(e) => void handleAutoDeployModeChange(e.target.checked ? 'auto' : 'none')}
+                      disabled={isSavingAutoDeployMode || !hasGitRepository}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+                    />
+                    <span className="font-bold text-slate-800">Auto-deploy</span>
+                  </label>
+                  <select
+                    value={gitStatus?.autoDeployMode === 'webhook' ? 'webhook' : gitStatus?.autoDeployMode === 'poll' ? 'poll' : 'none'}
+                    onChange={(e) => void handleAutoDeployModeChange(e.target.value as 'auto' | 'webhook' | 'poll' | 'none')}
+                    disabled={isSavingAutoDeployMode || !hasGitRepository}
+                    className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg disabled:opacity-50"
+                  >
+                    <option value="none">Off — manual deploy only</option>
+                    <option value="auto">Auto (webhook, fallback poll)</option>
+                    <option value="webhook">Webhook only</option>
+                    <option value="poll">Polling only</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleCheckGitNow()}
+                    disabled={isCheckingGit || !hasGitRepository}
+                    className="px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer disabled:opacity-50"
+                  >
+                    {isCheckingGit ? 'Checking…' : 'Check now'}
+                  </button>
+                  <span className="text-slate-500">
+                    {gitStatus?.lastGitPollAt
+                      ? `Last checked ${new Date(gitStatus.lastGitPollAt).toLocaleString()}`
+                      : 'Not checked yet'}
+                  </span>
+                </div>
+
+                {/* Advanced settings stay closed so the common path is just source + history. */}
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedDeploy((v) => !v)}
+                  className="w-full flex items-center justify-between gap-3 p-3.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer"
+                  aria-expanded={showAdvancedDeploy}
+                >
+                  <span className="flex items-center gap-2 text-left">
+                    <Sliders className="w-4 h-4 text-slate-500 shrink-0" />
+                    <span>
+                      <span className="block text-xs font-bold text-slate-900">Advanced Build &amp; Shell Settings</span>
+                      <span className="block text-[11px] text-slate-500">Repository, branch, deploy key, webhook URL and build script</span>
+                    </span>
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-slate-500 shrink-0 transition-transform ${showAdvancedDeploy ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showAdvancedDeploy && (<>
                 {/* Git Repo & Branch Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="md:col-span-2 p-4 bg-white rounded-xl border border-slate-200 space-y-2">
@@ -6250,50 +6114,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                               : 'Manual webhook only'}
                       </span>
                     </div>
-                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={autoDeploy}
-                        onChange={(e) => void handleAutoDeployModeChange(e.target.checked ? 'auto' : 'none')}
-                        disabled={isSavingAutoDeployMode || !hasGitRepository}
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
-                      />
-                      <span className="font-bold text-slate-900">Enable Auto Redeploy on Git Push</span>
-                    </label>
                   </div>
-
-                  {/* Mode + on-demand check: the badge above says what is active, this row lets
-                      the operator change it and see when the watcher last looked. */}
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
-                    <span className="font-semibold">Mode</span>
-                    <select
-                      value={gitStatus?.autoDeployMode === 'webhook' ? 'webhook' : gitStatus?.autoDeployMode === 'poll' ? 'poll' : 'none'}
-                      onChange={(e) =>
-                        void handleAutoDeployModeChange(e.target.value as 'auto' | 'webhook' | 'poll' | 'none')
-                      }
-                      disabled={isSavingAutoDeployMode || !hasGitRepository}
-                      className="px-2 py-1 text-[11px] bg-white border border-slate-200 rounded-lg disabled:opacity-50"
-                    >
-                      <option value="none">Off — manual deploy only</option>
-                      <option value="auto">Auto (webhook, fallback poll)</option>
-                      <option value="webhook">Webhook only</option>
-                      <option value="poll">Polling only</option>
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => void handleCheckGitNow()}
-                      disabled={isCheckingGit || !hasGitRepository}
-                      className="px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer disabled:opacity-50"
-                    >
-                      {isCheckingGit ? 'Checking…' : 'Check now'}
-                    </button>
-                    <span className="text-slate-500">
-                      {gitStatus?.lastGitPollAt
-                        ? `Last checked ${new Date(gitStatus.lastGitPollAt).toLocaleString()}`
-                        : 'Not checked yet'}
-                    </span>
-                  </div>
-
                   <div className="flex gap-2">
                     <input
                       type="text"
@@ -6330,9 +6151,11 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                     </p>
                   </div>
                 </div>
-              </>
+                  </>)}
+            </>
             )}
 
+            {showAdvancedDeploy && (<>
             {/* Build Script Editor Card */}
             <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
@@ -6466,6 +6289,7 @@ ${customRoutes.map(r => `    location ${cleanPath(r.path)} {
                 </div>
               </div>
             </div>
+            </>)}
 
             {/* Deployment Live Log Terminal */}
             <div id="deploy-log-terminal" className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">

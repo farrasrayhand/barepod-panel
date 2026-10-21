@@ -152,6 +152,7 @@ This is the main rework risk — the UI currently stores some values as presenta
 - `GET|PUT /websites/:slug/env`
 - **Not served yet (planned):** `GET /websites/:slug/logs?range=` (the Logs tab reads `telemetry`), `GET|POST|DELETE /websites/:slug/routes` (multi-engine path routing), and `POST /websites/:slug/backup` (per-website `.bpod`; the Backup module is still mock).
 - **`POST /websites/:slug/exec`** `{ command: string }` → `200 { ok: boolean, command: string, output: string, durationMs: number }`. Executes an operational command inside the site directory (`/home/<tenant>/web/<slug>`) as the tenant user with timeout protection.
+- **`POST /websites/:slug/ping`** → `200 { ok, target, statusCode?, latencyMs, error? }`. Sends one real HTTP GET (5-second timeout) to the site's own upstream: `upstreamUrl` when set, otherwise `http://127.0.0.1:<port>`. Any HTTP response means `ok: true` and reports its status; a connection/TLS failure reports `ok: false` with the error. The target comes from the site record, never from the request body, so it cannot be used as a general SSRF probe. Same ownership and `deployApps` capability as the other site endpoints.
 
 ### 4.2.1 Site Types and What They Expose
 Normative: a client must not offer a control the site type cannot use, and the server must refuse such a request rather than half-serve it.

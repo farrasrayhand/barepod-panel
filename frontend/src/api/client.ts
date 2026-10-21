@@ -899,6 +899,12 @@ export const api = {
       { method: 'POST' },
     ),
 
+  /** Check the site's own upstream/loopback port from the daemon (real HTTP request). */
+  pingWebsite: (slug: string) =>
+    request<{ ok: boolean; target: string; statusCode?: number; latencyMs: number; error?: string }>(
+      `/websites/${slug}/ping`,
+      { method: 'POST' },
+    ),
   /** Run a framework CLI command in the website directory (e.g. php artisan, manage.py). */
   execWebsiteCommand: (slug: string, command: string) =>
     request<{ ok: boolean; command: string; output: string; durationMs: number }>(
