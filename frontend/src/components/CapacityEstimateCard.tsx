@@ -22,6 +22,7 @@ const pct = (value: number) => `${Math.round(value * 100)}%`;
 export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enabled = true }) => {
   const [data, setData] = useState<CapacityPayload | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState('suggested');
 
   const load = useCallback(async () => {
     if (!enabled) return;
@@ -41,6 +42,12 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (data && selectedPackage !== 'suggested' && !(data.packages || []).some((pkg) => `pkg:${pkg.name}` === selectedPackage)) {
+      setSelectedPackage('suggested');
+    }
+  }, [data, selectedPackage]);
+
   if (!enabled || !data) return null;
 
   // Go serialises a nil slice as null. Every one of these must be normalised before
@@ -51,9 +58,22 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
   const overcommit = data.overcommit || { cpu: false, ram: false, disk: false };
   const exceeds = data.exceeds || [];
   const packages = data.packages || [];
-  const cpuPer = Number(suggested.cpuQuotaPercent) || 100;
-  const ramPer = Number(suggested.memoryMb) || 1024;
-  const diskPer = Number(suggested.diskQuotaGb) || 10;
+  const packageOptions = [
+    { key: 'suggested', name: 'Suggested', members: 0, limits: suggested },
+    ...packages.map((pkg) => ({
+      key: `pkg:${pkg.name}`,
+      name: pkg.name,
+      members: pkg.members,
+      limits: pkg.limits || {},
+    })),
+  ];
+  const activePackage = packageOptions.find((pkg) => pkg.key === selectedPackage) || packageOptions[0];
+  const packageLimits = activePackage.limits;
+  // A missing value falls back to the suggested default; an explicit zero means
+  // unlimited, which is a real package choice.
+  const cpuPer = packageLimits.cpuQuotaPercent === undefined ? 100 : Number(packageLimits.cpuQuotaPercent) || 0;
+  const ramPer = packageLimits.memoryMb === undefined ? 1024 : Number(packageLimits.memoryMb) || 0;
+  const diskPer = packageLimits.diskQuotaGb === undefined ? 10 : Number(packageLimits.diskQuotaGb) || 0;
 
   // Shared resources are deliberately allowed to exceed their reservations. For
   // those the usable headroom is the physical capacity, not "capacity - claims";
@@ -69,23 +89,28 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
     ? data.capacity.diskFreeGb
     : Math.max(0, data.capacity.diskGb - Number(allocation.diskQuotaGb || 0));
 
-  const byCpu = Math.floor(cpuRemaining / cpuPer);
-  const byRam = Math.floor(ramRemaining / ramPer);
-  const byDisk = Math.floor(diskRemaining / diskPer);
+  const byCpu = cpuPer > 0 ? Math.floor(cpuRemaining / cpuPer) : Infinity;
+  const byRam = ramPer > 0 ? Math.floor(ramRemaining / ramPer) : Infinity;
+  const byDisk = diskPer > 0 ? Math.floor(diskRemaining / diskPer) : Infinity;
   const addable = Math.max(0, Math.min(byCpu, byRam, byDisk));
-  const comfortable = Math.max(0, Math.floor(addable * 0.75));
+  const comfortable = Number.isFinite(addable) ? Math.max(0, Math.floor(addable * 0.75)) : Infinity;
+  const addableLabel = Number.isFinite(addable) ? String(addable) : '∞';
+  const comfortableLabel = Number.isFinite(comfortable) ? String(comfortable) : '∞';
 
-  const bottleneck = byCpu <= byRam && byCpu <= byDisk
-    ? 'CPU quota'
-    : byRam <= byDisk
-      ? 'RAM'
-      : 'disk';
+  const finiteResources = [
+    { label: 'CPU', value: byCpu },
+    { label: 'RAM', value: byRam },
+    { label: 'disk', value: byDisk },
+  ].filter((item) => Number.isFinite(item.value));
+  const bottleneck = finiteResources.length > 0
+    ? finiteResources.sort((a, b) => a.value - b.value)[0].label
+    : 'no resource';
 
   const sharedResources = [
     overcommit.cpu ? 'CPU' : '',
     overcommit.ram ? 'RAM' : '',
   ].filter(Boolean);
-  const bottleneckLabel = bottleneck === 'CPU quota' ? 'CPU' : bottleneck;
+  const bottleneckLabel = bottleneck;
 
   const resource = (
     label: string,
@@ -131,25 +156,39 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
             <p className="text-xs text-slate-500">A practical guide to how many more users this host can take.</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-          title="Refresh capacity"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedPackage}
+            onChange={(event) => setSelectedPackage(event.target.value)}
+            className="max-w-44 px-2.5 py-1.5 text-[11px] bg-slate-50 border border-slate-200 rounded-lg text-slate-700 font-semibold focus:outline-hidden focus:border-blue-500"
+            title="Estimate for a different package"
+          >
+            {packageOptions.map((pkg) => (
+              <option key={pkg.key} value={pkg.key}>
+                {pkg.name}{pkg.members ? ` · ${pkg.members} member${pkg.members === 1 ? '' : 's'}` : ''}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+            title="Refresh capacity"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 flex items-start gap-3">
-        <div className="text-3xl font-bold leading-none text-indigo-800 font-mono">{comfortable}</div>
+        <div className="text-3xl font-bold leading-none text-indigo-800 font-mono">{comfortableLabel}</div>
         <div className="min-w-0">
           <div className="text-sm font-bold text-indigo-900">
             {comfortable > 0 ? `more user${comfortable === 1 ? '' : 's'} can be added safely` : 'no safe headroom at this package size'}
           </div>
           <p className="text-[11px] text-indigo-700 mt-1">
-            Maximum {addable} at the suggested package. {addable > 0 ? `${bottleneckLabel} is the first limit.` : 'Free CPU, RAM, or disk first.'}
+            Maximum {addableLabel} on the <strong>{activePackage.name}</strong> package. {addable > 0 ? `${bottleneckLabel === 'no resource' ? 'No package resource is limiting' : `${bottleneckLabel} is the first limit.`}` : 'Free CPU, RAM, or disk first.'}
           </p>
         </div>
       </div>
@@ -200,13 +239,13 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
       </div>
 
       <div className="text-[10px] text-slate-400 leading-relaxed">
-        Assumes <strong className="text-slate-500">{cpuPer}% CPU, {ramPer} MB RAM, {diskPer} GB disk</strong> per user,
+        Assumes <strong className="text-slate-500">{cpuPer > 0 ? `${cpuPer}% CPU` : 'unlimited CPU'}, {ramPer > 0 ? `${ramPer} MB RAM` : 'unlimited RAM'}, {diskPer > 0 ? `${diskPer} GB disk` : 'unlimited disk'}</strong> per user,
         with 25% headroom for the OS, panel, database, and traffic spikes. Actual capacity depends on the apps' workloads.
       </div>
 
       <div className="flex items-center gap-2 text-[10px] text-slate-400">
         <Server className="w-3.5 h-3.5" />
-        Suggested package: {cpuPer}% CPU · {ramPer} MB RAM · {diskPer} GB disk
+        Selected package: {activePackage.name} · {cpuPer > 0 ? `${cpuPer}% CPU` : 'unlimited CPU'} · {ramPer > 0 ? `${ramPer} MB RAM` : 'unlimited RAM'} · {diskPer > 0 ? `${diskPer} GB disk` : 'unlimited disk'}
         <Boxes className="w-3.5 h-3.5 ml-2" />
         {packages.length} active package{packages.length === 1 ? '' : 's'}
       </div>
