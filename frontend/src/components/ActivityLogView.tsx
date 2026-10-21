@@ -136,7 +136,7 @@ export const ActivityLogView: React.FC<ActivityLogViewProps> = ({ onShowToast })
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[900px] text-left text-xs">
               <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
                 <tr>
                   <th className="px-4 py-3 font-semibold">When</th>
@@ -174,7 +174,7 @@ export const ActivityLogView: React.FC<ActivityLogViewProps> = ({ onShowToast })
                         <p className="text-[10px] text-slate-400 font-mono mt-0.5 break-all">{entry.detail}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-slate-600 font-mono text-[11px] break-all">{entry.target || '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 font-mono text-[11px] whitespace-nowrap">{entry.target || '—'}</td>
                     <td className="px-4 py-3 text-slate-500 font-mono text-[11px] whitespace-nowrap">{entry.ip || '—'}</td>
                   </tr>
                 ))}
