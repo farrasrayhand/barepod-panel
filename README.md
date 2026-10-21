@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 ## 📊 Current Live Status
 
 > [!NOTE]
-> BarePod Panel follows an honest versioning policy: **Live** means verified on a real Linux host (Ubuntu 24.04 in Proxmox LXC), not just compiled. Current snapshot: **v0.4.4 (2026-10-21)**. The single source of truth is documented in [`MASTER_PLAN.md`](./MASTER_PLAN.md).
+> BarePod Panel follows an honest versioning policy: **Live** means verified on a real Linux host (Ubuntu 24.04 in Proxmox LXC), not just compiled. Current snapshot: **v0.4.5 (2026-10-21)**. The single source of truth is documented in [`MASTER_PLAN.md`](./MASTER_PLAN.md).
 
 | Feature / Module | Real Host Status | Description |
 |---|---|---|
@@ -59,7 +59,7 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 | **Capacity Estimate** | **Live ✅** | Server Monitoring and Overview show remaining CPU/RAM/disk against the suggested package, a theoretical user ceiling, a 75%-headroom "comfortable" number, and the current bottleneck. Clearly labelled as an estimate. |
 | **Docker Pods** | **Scheduled 📋** | Container pod orchestration through the Docker SDK (Pod lifecycle, env, volumes, port mapping). |
 
-**Verification for v0.4.4:** on a real Ubuntu 24.04 host, the daemon reported `mode: real` with migrations through V29, the active Caddy config validated, a site returned `200` and matched its remote branch, a real GitHub webhook delivery was answered, a foreign-branch push was ignored, and telemetry aggregation plus SSE were exercised, and metrics rollups were written to the separate metrics.db. Repeatable checks live in [`scripts/verify-v044.sh`](./scripts/verify-v044.sh).
+**Verification for v0.4.5:** on a real Ubuntu 24.04 host, the daemon reported `mode: real` with migrations through V29, the active Caddy config validated, a site returned `200` and matched its remote branch, a real GitHub webhook delivery was answered, a foreign-branch push was ignored, and telemetry aggregation plus SSE were exercised, and metrics rollups were written to the separate metrics.db. Repeatable checks live in [`scripts/verify-v045.sh`](./scripts/verify-v045.sh).
 
 ---
 

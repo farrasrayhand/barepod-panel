@@ -42,14 +42,20 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
 
   if (!enabled || !data) return null;
 
+  // Go serialises a nil slice as null. Every one of these must be normalised before
+  // render: a single `.length` on null used to take the whole app blank.
   const suggested = data.suggested || {};
+  const allocation = data.allocation || {};
+  const usage = data.usage || { cpu: 0, ram: 0, disk: 0 };
+  const exceeds = data.exceeds || [];
+  const packages = data.packages || [];
   const cpuPer = Number(suggested.cpuQuotaPercent) || 100;
   const ramPer = Number(suggested.memoryMb) || 1024;
   const diskPer = Number(suggested.diskQuotaGb) || 10;
 
-  const cpuRemaining = Math.max(0, data.capacity.cpuCores * 100 - Number(data.allocation.cpuQuotaPercent || 0));
-  const ramRemaining = Math.max(0, data.capacity.memoryMb - Number(data.allocation.memoryMb || 0));
-  const diskRemaining = Math.max(0, data.capacity.diskGb - Number(data.allocation.diskQuotaGb || 0));
+  const cpuRemaining = Math.max(0, data.capacity.cpuCores * 100 - Number(allocation.cpuQuotaPercent || 0));
+  const ramRemaining = Math.max(0, data.capacity.memoryMb - Number(allocation.memoryMb || 0));
+  const diskRemaining = Math.max(0, data.capacity.diskGb - Number(allocation.diskQuotaGb || 0));
 
   const byCpu = Math.floor(cpuRemaining / cpuPer);
   const byRam = Math.floor(ramRemaining / ramPer);
@@ -105,12 +111,12 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
         <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
           <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">CPU</div>
           <div className="font-mono font-bold text-slate-800 text-sm mt-0.5">{data.capacity.cpuCores} vCPU</div>
-          <div className="text-[10px] text-slate-500 mt-0.5">{pct(data.usage.cpu)} allocated</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">{pct(usage.cpu)} allocated</div>
         </div>
         <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
           <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">RAM</div>
           <div className="font-mono font-bold text-slate-800 text-sm mt-0.5">{(data.capacity.memoryMb / 1024).toFixed(1)} GB</div>
-          <div className="text-[10px] text-slate-500 mt-0.5">{pct(data.usage.ram)} allocated</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">{pct(usage.ram)} allocated</div>
         </div>
         <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
           <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Disk</div>
@@ -125,9 +131,9 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {bar('CPU claim', Number(data.allocation.cpuQuotaPercent || 0), data.capacity.cpuCores * 100, 'bg-blue-600')}
-        {bar('RAM claim', Number(data.allocation.memoryMb || 0), data.capacity.memoryMb, 'bg-emerald-600')}
-        {bar('Disk claim', Number(data.allocation.diskQuotaGb || 0), data.capacity.diskGb, 'bg-violet-600')}
+        {bar('CPU claim', Number(allocation.cpuQuotaPercent || 0), data.capacity.cpuCores * 100, 'bg-blue-600')}
+        {bar('RAM claim', Number(allocation.memoryMb || 0), data.capacity.memoryMb, 'bg-emerald-600')}
+        {bar('Disk claim', Number(allocation.diskQuotaGb || 0), data.capacity.diskGb, 'bg-violet-600')}
       </div>
 
       <div className={`rounded-xl border p-3 text-[11px] leading-relaxed ${data.fits ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
@@ -135,8 +141,8 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
           {data.fits ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />}
           <div>
             <strong>{data.fits ? 'Current allocation fits.' : 'Current allocation exceeds the host.'}</strong>{' '}
-            {data.exceeds.length > 0
-              ? data.exceeds.join(' ')
+            {exceeds.length > 0
+              ? exceeds.join(' ')
               : `Bottleneck for new users: ${bottleneck}.`}
             <div className="mt-1 text-[10px] opacity-80">
               Estimate assumes the suggested package: {cpuPer}% CPU, {ramPer} MB RAM, {diskPer} GB disk per user,
@@ -150,7 +156,7 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
         <Server className="w-3.5 h-3.5" />
         Suggested package: {cpuPer}% CPU · {ramPer} MB RAM · {diskPer} GB disk
         <Boxes className="w-3.5 h-3.5 ml-2" />
-        {data.packages.length} active package{data.packages.length === 1 ? '' : 's'}
+        {packages.length} active package{packages.length === 1 ? '' : 's'}
       </div>
     </div>
   );

@@ -76,6 +76,10 @@ export const describeAudit = (action: string, target: string, detail: string, us
       return `${who} re-authenticated for a sensitive action`;
     case 'auth.session_revoke':
       return `${who} revoked a session`;
+    case 'system.cron_run':
+      return `Scheduled job${at} ran`;
+    case 'system.cron_update':
+      return `Scheduled job${at} was updated`;
     case 'website.deploy_start':
       return `${who} started a deploy for${at}`;
     case 'website.start':

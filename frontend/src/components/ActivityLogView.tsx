@@ -60,7 +60,7 @@ export const ActivityLogView: React.FC<ActivityLogViewProps> = ({ onShowToast })
   };
 
   return (
-    <div className="space-y-5">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-slate-900 flex items-center gap-2">
@@ -77,6 +77,9 @@ export const ActivityLogView: React.FC<ActivityLogViewProps> = ({ onShowToast })
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border border-slate-200 bg-white text-slate-600">
             {everything ? <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> : <User className="w-3.5 h-3.5 text-slate-500" />}
             {everything ? 'Admin scope' : 'Your account only'}
+          </span>
+          <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-mono border border-slate-200 bg-white text-slate-500">
+            {visible.length} / {entries.length} events
           </span>
           <button
             type="button"
