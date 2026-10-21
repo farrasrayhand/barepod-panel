@@ -175,9 +175,9 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
       return;
     }
     let alive = true;
+    setIsValidatingEdit(true);
     const timer = setTimeout(() => {
       const site = websites.find((w) => w.slug === editWebsiteSlug);
-      setIsValidatingEdit(true);
       void api.validateDomain({
         domain: effectiveEditDomain,
         currentDomainId: editingDomain.id,
@@ -1111,23 +1111,6 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                     </label>
                   </div>
 
-                  {isValidatingEdit ? (
-                  <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-slate-500 text-xs flex items-center gap-2">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
-                    <span>Validating domain…</span>
-                  </div>
-                ) : editValidation?.available ? (
-                  <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>Domain is available for routing</span>
-                  </div>
-                ) : editValidation ? (
-                  <div className="p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-                    <span>{editValidation.message || 'This domain cannot be used here.'}</span>
-                  </div>
-                ) : null}
-
                 <div className="flex items-center justify-end gap-2 pt-2">
                     <button
                       type="button"
@@ -1383,6 +1366,23 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 )}
               </div>
 
+              {isValidatingEdit ? (
+                <div className="mx-5 mb-3 p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-slate-500 text-xs flex items-center gap-2 animate-in fade-in duration-150">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                  <span>Validating domain…</span>
+                </div>
+              ) : editValidation?.available ? (
+                <div className="mx-5 mb-3 p-2.5 bg-emerald-50 rounded-xl border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-in fade-in duration-150">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>Domain is available for routing</span>
+                </div>
+              ) : editValidation ? (
+                <div className="mx-5 mb-3 p-2.5 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs flex items-start gap-2 animate-in fade-in duration-150">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                  <span>{editValidation.message || 'This domain cannot be used here.'}</span>
+                </div>
+              ) : null}
+
               <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2.5">
                 <button
                   type="button"
@@ -1393,7 +1393,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isUpdatingDomain || !newDomainInput.trim()}
+                  disabled={isUpdatingDomain || isValidatingEdit || !effectiveEditDomain.trim() || (editRoutingMode === 'cloudflare' && !editZone) || Boolean(editValidation && !editValidation.available)}
                   className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-sm shadow-blue-500/25 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
                   {isUpdatingDomain ? (

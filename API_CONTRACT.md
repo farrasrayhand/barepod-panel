@@ -469,7 +469,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
   Automatically reconnects in browser via standard `EventSource`.
 
 ### 4.8.3 Universal Multi-Tenant Git Providers, Auto-Deploy & Deploy Keys
-> **Implementation status:** Live (v0.4.1). Repository/branch discovery is implemented for **GitHub, GitLab (SaaS/self-hosted), Gitea/Forgejo and Bitbucket**; Custom Git stays a manual URL used through the per-site SSH deploy key.
+> **Implementation status:** Live (v0.4.2). Repository/branch discovery is implemented for **GitHub, GitLab (SaaS/self-hosted), Gitea/Forgejo and Bitbucket**; Custom Git stays a manual URL used through the per-site SSH deploy key.
 - **Multi-Tenant Git Isolation:** All provider tokens are scoped to the authenticated tenant (`user_id`) in `user_git_providers` and encrypted with **AES-256-GCM**. Non-admin tenants cannot view, use, or mutate another tenant's Git connections.
 - **`GET /me/git/providers`** (alias `GET /git/providers`) → `{ items: ApiGitProvider[] }`.
   Returns the authenticated user's configured Git providers:

@@ -160,6 +160,24 @@ export const AppsView: React.FC<AppsViewProps> = ({
     return Array.from(set).sort();
   }, [apps]);
 
+  // Keep the server-sorted copy in step with optimistic Start/Stop updates from the parent.
+  // Without this, an admin row keeps the old icon until a full page refresh.
+  useEffect(() => {
+    setServerApps((prev) => {
+      if (!prev) return prev;
+      return prev.map((serverApp) => {
+        const local = apps.find((a) => a.id === serverApp.id || a.name === serverApp.name);
+        if (!local) return serverApp;
+        return {
+          ...serverApp,
+          status: local.status,
+          memoryUsage: local.memoryUsage,
+          deployStatus: local.deployStatus,
+        };
+      });
+    });
+  }, [apps]);
+
   const sourceApps = serverApps ?? apps;
   const filteredApps = sourceApps.filter((app) => {
     const matchesFilter = filterType === 'all' || app.runtime === filterType || app.webServer === filterType;
