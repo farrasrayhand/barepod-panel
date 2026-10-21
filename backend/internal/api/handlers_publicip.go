@@ -75,10 +75,37 @@ func (s *Server) resolvePublicIP(ctx context.Context, force bool) (publicIPResul
 // interface (a real VPS), then asks fixed, well-known echo services for the
 // egress address (a host behind NAT). No user input reaches these URLs.
 func detectPublicIP(ctx context.Context) (string, string, error) {
-	if ip := interfacePublicIP(); ip != "" {
-		return ip, "interface", nil
+	interfaceIP := interfacePublicIP()
+	egressIP, egressErr := lookupEgressIP(ctx)
+	if egressErr == nil {
+		ip, source := resolvePublicIP(interfaceIP, egressIP)
+		return ip, source, nil
 	}
+	if interfaceIP != "" {
+		// The echo service is unreachable, so the interface is the only evidence.
+		return interfaceIP, "interface", nil
+	}
+	return "", "", egressErr
+}
 
+// resolvePublicIP prefers egress whenever it is available: an address that is
+// globally routable by flags can still be provider-internal (for example
+// 192.10.5.60 in a private cloud). Only when egress equals the interface address
+// is the host directly addressed and inbound.
+func resolvePublicIP(interfaceIP, egressIP string) (string, string) {
+	if egressIP != "" {
+		if interfaceIP == egressIP {
+			return interfaceIP, "interface"
+		}
+		return egressIP, "egress"
+	}
+	if interfaceIP != "" {
+		return interfaceIP, "interface"
+	}
+	return "", ""
+}
+
+func lookupEgressIP(ctx context.Context) (string, error) {
 	client := &http.Client{Timeout: 4 * time.Second}
 	endpoints := []struct {
 		url   string
@@ -113,14 +140,14 @@ func detectPublicIP(ctx context.Context) (string, string, error) {
 			candidate = traceIP(candidate)
 		}
 		if ip := net.ParseIP(candidate); ip != nil && isPublicIP(ip) {
-			return ip.String(), "egress", nil
+			return ip.String(), nil
 		}
 		lastErr = fmt.Errorf("%s did not return a public IP", endpoint.url)
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("no public IP detected")
 	}
-	return "", "", lastErr
+	return "", lastErr
 }
 
 func interfacePublicIP() string {

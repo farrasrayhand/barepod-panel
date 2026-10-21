@@ -29,3 +29,20 @@ func TestTraceIP(t *testing.T) {
 		t.Fatalf("traceIP without a line = %q", got)
 	}
 }
+
+func TestResolvePublicIPPrefersMatchingInterface(t *testing.T) {
+	// A global flag is not proof of inbound reachability: this provider-internal
+	// address must yield the egress address instead.
+	if ip, source := resolvePublicIP("192.10.5.60", "180.247.244.20"); ip != "180.247.244.20" || source != "egress" {
+		t.Fatalf("mismatched interface = (%q, %q), want egress", ip, source)
+	}
+	if ip, source := resolvePublicIP("203.0.113.9", "203.0.113.9"); ip != "203.0.113.9" || source != "interface" {
+		t.Fatalf("matching interface = (%q, %q), want interface", ip, source)
+	}
+	if ip, source := resolvePublicIP("203.0.113.9", ""); ip != "203.0.113.9" || source != "interface" {
+		t.Fatalf("interface fallback = (%q, %q)", ip, source)
+	}
+	if ip, source := resolvePublicIP("", ""); ip != "" || source != "" {
+		t.Fatalf("empty = (%q, %q)", ip, source)
+	}
+}
