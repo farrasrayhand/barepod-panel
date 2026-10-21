@@ -516,7 +516,7 @@ var registry = []Job{
 	{
 		ID: "smart_test", Label: "S.M.A.R.T. short self-test", Category: "system",
 		Desc:            "Weekly disk health self-test on each physical drive.",
-		DefaultSchedule: "0 1 * * 0", DefaultEnabled: true, Implemented: true,
+		DefaultSchedule: "0 1 * * 0", DefaultEnabled: false, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			if !env.Caps.Smart {
 				return "smartctl is not available on this host (or it is a container); skipping", nil
@@ -527,7 +527,7 @@ var registry = []Job{
 	{
 		ID: "fstrim", Label: "SSD TRIM (fstrim)", Category: "system",
 		Desc:            "Discard unused blocks to keep NVMe/SSD performance.",
-		DefaultSchedule: "0 2 * * 0", DefaultEnabled: true, Implemented: true,
+		DefaultSchedule: "30 2 * * 0", DefaultEnabled: true, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			if !env.Caps.Fstrim {
 				return "fstrim is not available on this host (container without discard support); skipping", nil
@@ -539,7 +539,7 @@ var registry = []Job{
 	{
 		ID: "docker_prune", Label: "Docker system prune", Category: "docker",
 		Desc:            "Dangling images, stopped containers, and build cache.",
-		DefaultSchedule: "30 4 * * *", DefaultEnabled: false, Implemented: true,
+		DefaultSchedule: "30 4 * * 0", DefaultEnabled: false, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			if !env.Caps.Docker {
 				return "docker is not installed; nothing to prune", nil
@@ -551,7 +551,7 @@ var registry = []Job{
 	{
 		ID: "system_junk", Label: "System junk cleanup", Category: "maintenance",
 		Desc:            "Clear /tmp files and journal entries older than the retention window.",
-		DefaultSchedule: "0 4 * * *", DefaultEnabled: false, Implemented: true,
+		DefaultSchedule: "0 4 * * *", DefaultEnabled: true, Implemented: true,
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			out, err := env.Host.Run(ctx, []string{
 				"find", "/tmp", "-xdev", "-mindepth", "1", "-maxdepth", "1", "-mtime", "+7",
@@ -567,7 +567,7 @@ var registry = []Job{
 	{
 		ID: "security_updates", Label: "Security OS updates", Category: "security",
 		Desc:            "Install pending security upgrades (apt unattended-upgrades).",
-		DefaultSchedule: "0 5 * * *", DefaultEnabled: false, Implemented: true,
+		DefaultSchedule: "0 5 * * *", DefaultEnabled: true, Implemented: true,
 		// A package upgrade is not a five-minute job: give it room so a slow mirror or a local
 		// rebuild cannot be killed halfway and leave dpkg wanting repair.
 		Timeout: 60 * time.Minute,
@@ -598,7 +598,7 @@ var registry = []Job{
 	{
 		ID: "package_updates", Label: "All package updates", Category: "system",
 		Desc:            "Install every available apt package upgrade, not only security updates.",
-		DefaultSchedule: "0 6 * * *", DefaultEnabled: false, Implemented: true,
+		DefaultSchedule: "0 6 * * 0", DefaultEnabled: false, Implemented: true,
 		// Same ceiling as the security-only job: a slow mirror or local rebuild must not
 		// be killed halfway through dpkg.
 		Timeout: 60 * time.Minute,
@@ -632,7 +632,7 @@ var registry = []Job{
 	{
 		ID: "db_maintenance", Label: "Database maintenance", Category: "database",
 		Desc:            "PostgreSQL VACUUM ANALYZE & MariaDB/MySQL table optimize on every managed database.",
-		DefaultSchedule: "0 3 * * 0", DefaultEnabled: false, Implemented: true,
+		DefaultSchedule: "30 3 * * 0", DefaultEnabled: false, Implemented: true,
 		Timeout: 30 * time.Minute,
 		Run:     runDatabaseMaintenance,
 	},

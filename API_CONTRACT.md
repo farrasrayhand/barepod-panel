@@ -471,7 +471,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
   Automatically reconnects in browser via standard `EventSource`.
 
 ### 4.8.3 Universal Multi-Tenant Git Providers, Auto-Deploy & Deploy Keys
-> **Implementation status:** Live (v0.4.5). Repository/branch discovery is implemented for **GitHub, GitLab (SaaS/self-hosted), Gitea/Forgejo and Bitbucket**; Custom Git stays a manual URL used through the per-site SSH deploy key.
+> **Implementation status:** Live (v0.4.6). Repository/branch discovery is implemented for **GitHub, GitLab (SaaS/self-hosted), Gitea/Forgejo and Bitbucket**; Custom Git stays a manual URL used through the per-site SSH deploy key.
 - **Multi-Tenant Git Isolation:** All provider tokens are scoped to the authenticated tenant (`user_id`) in `user_git_providers` and encrypted with **AES-256-GCM**. Non-admin tenants cannot view, use, or mutate another tenant's Git connections.
 - **`GET /me/git/providers`** (alias `GET /git/providers`) → `{ items: ApiGitProvider[] }`.
   Returns the authenticated user's configured Git providers:
@@ -593,6 +593,26 @@ Normative: a client must not offer a control the site type cannot use, and the s
 - **Acceptance:** create/start/stop/delete a pod, enforce cgroup limits, stream logs, support a container shell, and leave no orphan containers after delete.
 
 ### 4.15 Unified Cron Jobs & Scheduled Tasks (Settings & Website Modules)
+**Default built-in schedules (host timezone; this host is `Asia/Makassar`):**
+
+| Job | Schedule | Default | Runs |
+|---|---|---|---|
+| `service_watchdog` | `*/5 * * * *` | ON | every 5 minutes |
+| `git_commit_watcher` | `*/5 * * * *` | ON | every 5 minutes (poll-mode git sites only) |
+| `disk_alert` | `*/15 * * * *` | ON | every 15 minutes |
+| `ssl_renew` | `0 0,12 * * *` | ON | 00:00 and 12:00 daily |
+| `logrotate` | `0 2 * * *` | ON | 02:00 daily |
+| `fstrim` | `30 2 * * 0` | ON | Sunday 02:30 |
+| `metrics_prune` | `0 3 * * *` | ON | 03:00 daily |
+| `system_junk` | `0 4 * * *` | ON | 04:00 daily |
+| `security_updates` | `0 5 * * *` | ON | 05:00 daily |
+| `smart_test` | `0 1 * * 0` | OFF | Sunday 01:00 when enabled (bare metal) |
+| `db_maintenance` | `30 3 * * 0` | OFF | Sunday 03:30 when enabled |
+| `docker_prune` | `30 4 * * 0` | OFF | Sunday 04:30 when enabled |
+| `package_updates` | `0 6 * * 0` | OFF | Sunday 06:00 when enabled |
+
+The ON set is safe to leave unattended; the OFF set is opt-in because SMART is unavailable in many containers, Docker prune can remove stopped containers, full apt upgrades can change unrelated packages, and DB optimize can lock tables. `INSERT OR IGNORE` seeding means an update never silently re-enables a job an operator disabled. Successful automatic runs are still recorded by the scheduler; manual runs are audited as `system.cron_run`.
+
 - **`GET /cron/jobs`** → `{ items: ApiCronJob[], systemJobs: SystemCronJob[] }`
   Returns all website-scoped scheduled tasks (filtered by tenant for non-admins) as well as the daemon's **built-in maintenance jobs** (`systemJobs`) with their real, stored state: `{ id, label, desc, schedule, enabled, category, implemented, lastRunAt?, lastStatus?, lastOutput? }`. The jobs are seeded into `system_cron_jobs` from the daemon's own registry and executed by an in-daemon scheduler (no host systemd timers); a job's `enabled` flag and `schedule` survive restarts, and seeding is `INSERT OR IGNORE`, so a reinstall/update never re-enables a job an operator turned off. Every listed job is implemented today (`implemented: true`); the flag is kept so a future entry can be listed before its executor exists. Each job has its own timeout (default 15m; `security_updates` 60m, `db_maintenance` 30m). Jobs that free or change disk state seed as disabled.
 - **`POST /cron/jobs`** → Body `{ websiteSlug: string, name: string, schedule: string, command: string, enabled?: boolean, timeoutSec?: number }` → `201 ApiCronJob`.
