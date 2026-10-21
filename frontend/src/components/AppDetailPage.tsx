@@ -1,35 +1,29 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { siteSupportsShell, siteSupportsFiles, siteSupportsCI, siteHasGit, siteShellNote, siteFilesNote, siteCINote, siteTabSupport, type SiteTabSupport } from '../utils/siteRuntime';
-import { 
-  ArrowLeft, 
-  Activity, 
-  Terminal, 
-  FileText, 
-  Cpu, 
-  HardDrive, 
-  Globe, 
-  Server, 
-  CloudRain, 
-  ShieldCheck, 
-  Play, 
-  Square, 
-  RotateCw, 
-  Folder, 
-  FolderGit2, 
-  ExternalLink, 
-  CheckCircle2, 
-  AlertCircle, 
-  Info,
-  Search, 
-  Download, 
-  Trash2, 
-  Layers, 
+import { siteSupportsShell, siteSupportsFiles, siteSupportsCI, siteHasGit, siteShellNote, siteFilesNote, siteTabSupport, type SiteTabSupport } from '../utils/siteRuntime';
+import {
+  ArrowLeft,
+  Activity,
+  Terminal,
+  Globe,
+  Server,
+  CloudRain,
+  ShieldCheck,
+  Play,
+  Square,
+  RotateCw,
+  Folder,
+  FolderGit2,
+  ExternalLink,
+  CheckCircle2,
+  AlertCircle,
+  Search,
+  Trash2,
+  Layers,
   Pencil,
-  Zap, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  Clock, 
-  Check, 
+  Zap,
+  ArrowUpRight,
+  Clock,
+  Check,
   Copy,
   Lock,
   GitBranch,
@@ -41,12 +35,7 @@ import {
   Code2,
   Plus,
   Sliders,
-  Settings,
   Boxes,
-  FileCode,
-  ToggleLeft,
-  ToggleRight,
-  Package,
   Shield,
   AlertTriangle,
   Key,
@@ -362,7 +351,7 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
   const [telemetry, setTelemetry] = useState<ApiWebsiteTelemetry | null>(null);
   const [realLogs, setRealLogs] = useState<LogItem[] | null>(null);
   const [realNodes, setRealNodes] = useState<ApiTelemetryNode[] | null>(null);
-  const [isLiveStreaming, setIsLiveStreaming] = useState(false);
+  const [,setIsLiveStreaming] = useState(false);
 
   const fetchTelemetry = useCallback(async () => {
     try {
@@ -596,15 +585,15 @@ npm run build`;
   }, [deployLogs.length]);
 
   const [gitStatus, setGitStatus] = useState<ApiWebsiteGitStatus | null>(null);
-  const [loadingGitStatus, setLoadingGitStatus] = useState(false);
+  const [,setLoadingGitStatus] = useState(false);
   const [deployKeyInfo, setDeployKeyInfo] = useState<ApiDeployKey | null>(null);
   const [copiedDeployKey, setCopiedDeployKey] = useState(false);
   const [isRotatingDeployKey, setIsRotatingDeployKey] = useState(false);
   const [showConnectGit, setShowConnectGit] = useState(false);
 
   const isGitConnected = Boolean(
-    (gitRepo && gitRepo.trim() !== '') || 
-    (app.gitRepo && app.gitRepo.trim() !== '') || 
+    (gitRepo && gitRepo.trim() !== '') ||
+    (app.gitRepo && app.gitRepo.trim() !== '') ||
     app.sourceKind === 'github' ||
     (gitStatus && gitStatus.detected && Boolean(gitStatus.repo?.trim()))
   );
@@ -676,7 +665,7 @@ npm run build`;
         if (res.ok && res.framework) {
           setDetectedFramework(res.framework);
           const fwKey = res.framework.name.toLowerCase();
-          
+
           // Auto-set build script if empty or if still the generic default
           setBuildScript((prev) => {
             const trimmed = prev.trim();
@@ -684,7 +673,7 @@ npm run build`;
             const genericDefault = getDefaultBuildScript(app.runtime, isGitConnected, targetBranch).trim();
             const genericNoGit = getDefaultBuildScript(app.runtime, false, targetBranch).trim();
             const isDefault = !app.buildScript || trimmed === '' || trimmed === genericDefault || trimmed === genericNoGit;
-            
+
             if (isDefault && fwKey === 'laravel') {
               const gitPull = isGitConnected ? `git pull origin ${targetBranch}\n` : '';
               return `${gitPull}composer install --no-dev --optimize-autoloader --quiet
@@ -702,7 +691,14 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
         }
       })
       .catch(() => {});
-  }, [app.name]);
+  }, [
+	app.name,
+	app.buildScript,
+	app.gitBranch,
+	app.runtime,
+	gitBranch,
+	isGitConnected
+]);
 
   const handleUpdateFramework = async (targetFw: string) => {
     setIsUpdatingFramework(true);
@@ -722,8 +718,8 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
 
   const effectiveFwName = (detectedFramework?.name || gitStatus?.framework?.name || app.framework || '').toLowerCase();
   const effectiveFwVer = detectedFramework?.frameworkVersion || app.frameworkVersion || '';
-  const effectiveFwTitle = detectedFramework?.title || gitStatus?.framework?.title || (app.framework && app.framework.toLowerCase() !== 'generic' ? app.framework : '');
-  
+
+
   // Clean, descriptive framework label (e.g. "Laravel 12" or "Laravel 12 (v12.70.0)")
   const effectiveFrameworkLabel = detectedFramework?.title
     ? (detectedFramework.frameworkVersion && !detectedFramework.title.includes(detectedFramework.frameworkVersion)
@@ -750,7 +746,7 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
     return true;
   };
 
-  const getRuntimeTabTitle = () => 'Runtime Settings';
+
 
   // Extension counts come from the panel below, which reads them from the host.
   const [extensionCounts, setExtensionCounts] = useState({ enabled: 0, total: 0 });
@@ -762,7 +758,7 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
   const [maxExecutionTime, setMaxExecutionTime] = useState('300');
   const [maxInputVars, setMaxInputVars] = useState('5000');
   const [displayErrors, setDisplayErrors] = useState(false);
-  const [opcacheEnabled, setOpcacheEnabled] = useState(true);
+  const [,_setOpcacheEnabled] = useState(true);
   const [isReloadingFpm, setIsReloadingFpm] = useState(false);
   const [phpMaxChildren, setPhpMaxChildren] = useState(5);
   const [phpIdleTimeout, setPhpIdleTimeout] = useState('10s');
@@ -770,7 +766,7 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
 
   // Polyglot Studio States
   const [runtimeConfigData, setRuntimeConfigData] = useState<any>(null);
-  const [isLoadingRuntimeConfig, setIsLoadingRuntimeConfig] = useState(false);
+  const [,setIsLoadingRuntimeConfig] = useState(false);
   const [isSavingRuntimeConfig, setIsSavingRuntimeConfig] = useState(false);
   const [isSwitchingVersion, setIsSwitchingVersion] = useState(false);
 
@@ -1432,13 +1428,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
     }
   };
 
-  const handleResetToAdminDefault = () => {
-    onShowToast?.(
-      'Reset to Admin Blueprint',
-      "This app's extension configuration was restored to the global admin default. PHP-FPM pool reloaded.",
-      'info'
-    );
-  };
+
 
   const loadRuntimeConfig = useCallback(async () => {
     setIsLoadingRuntimeConfig(true);
@@ -1653,10 +1643,10 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
     }
   };
 
-  const handleSavePhpIni = handleSaveRuntimeConfig;
-  const handleRestartFpmPool = handleRestartService;
 
-  const phpVersion = app.runtime === 'php' ? app.version : '8.4';
+
+
+
   const AppIcon = frameworkIcon(app.framework) ?? runtimeIcon[app.runtime] ?? Server;
 
   const isDeployFailed = app.status === 'error' || app.deployStatus === 'failed';
@@ -1701,7 +1691,13 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [app.name]);
+  }, [
+	app.name,
+	onUpdateApp,
+	app,
+	app.deployStatus,
+	app.status
+]);
 
   // Domains & SSL Subtab State
   const [siteDomains, setSiteDomains] = useState<ApiDomain[]>([]);
@@ -1785,7 +1781,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
     return cfZones.some((z) => lower === z.name.toLowerCase() || lower.endsWith('.' + z.name.toLowerCase()));
   };
 
-  const fetchSiteDomains = async () => {
+  const fetchSiteDomains = useCallback(async () => {
     try {
       setLoadingDomains(true);
       const res = await api.domains();
@@ -1798,11 +1794,11 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
     } finally {
       setLoadingDomains(false);
     }
-  };
+  }, [app.name]);
 
   useEffect(() => {
-    fetchSiteDomains();
-  }, [app.name]);
+    void fetchSiteDomains();
+  }, [fetchSiteDomains]);
 
   const effectiveAliasDomain = (isTunnelAutoSync && aliasDnsMode === 'cloudflare' && aliasCfZone && aliasCfZone !== 'custom')
     ? (aliasSubdomain.trim() ? `${aliasSubdomain.trim()}.${aliasCfZone}`.toLowerCase() : aliasCfZone.toLowerCase())
@@ -2114,11 +2110,13 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
   const pct2xx = logs.length > 0 ? Math.round((count2xx / accessTotal) * 100) : (isRunning ? 100 : 0);
   const pct4xx = logs.length > 0 ? Math.round((count4xx / accessTotal) * 100) : 0;
   const pct5xx = logs.length > 0 ? Math.round((count5xx / accessTotal) * 100) : 0;
-  const latestLatency = useMemo(() => {
+  // A linear scan over a bounded log list; memoising it required `logs` in the dependency array,
+  // and dropping that array to silence the linter returned a stale latency.
+  const latestLatency = (() => {
     const logWithLat = logs.find(l => l.type === 'access' && l.latency && l.latency !== '—');
     if (logWithLat?.latency) return logWithLat.latency;
     return isRunning ? '< 1 ms' : '—';
-  }, [logs, isRunning]);
+  })();
   const responseLatency = latestLatency;
 
   const filteredLogs = logs.filter(log => {
@@ -2156,7 +2154,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-200">
-      
+
       {/* Top Breadcrumb & Back Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -2167,9 +2165,9 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
             <ArrowLeft className="w-4 h-4 text-slate-500 group-hover:-translate-x-0.5 transition-transform" />
             <span>Back to All Websites</span>
           </button>
-          
+
           <span className="text-slate-300 font-mono">/</span>
-          
+
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-slate-500">Apps</span>
             <span className="text-slate-300 font-mono">/</span>
@@ -2319,8 +2317,8 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                   type="button"
                   onClick={handleToggleMaintenance}
                   className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer shadow-2xs ${
-                    maintenanceMode 
-                      ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200' 
+                    maintenanceMode
+                      ? 'bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                   title="Click to toggle HTTP 503 Maintenance Mode"
@@ -3097,8 +3095,8 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                     type="button"
                     onClick={() => setWrapLogText(!wrapLogText)}
                     className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-lg border font-medium transition-colors cursor-pointer ${
-                      wrapLogText 
-                        ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold' 
+                      wrapLogText
+                        ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold'
                         : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                     }`}
                     title="Wrap text so paths and user-agents are not cut off"
@@ -3194,7 +3192,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                 {filteredLogs.map((log, idx) => (
                   logFormat === 'structured' ? (
                     <div key={idx} className="flex flex-col mb-1.5 w-full">
-                      <div 
+                      <div
                         onClick={() => setExpandedLogIdx(expandedLogIdx === idx ? null : idx)}
                         className={`flex items-center gap-2 py-1.5 px-2.5 rounded-lg border transition-all cursor-pointer w-full ${
                           expandedLogIdx === idx
@@ -3212,7 +3210,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                         {/* Visitor Client IP Badge */}
                         <div className="w-[185px] shrink-0 flex items-center gap-1 overflow-hidden min-w-0">
                           {log.ip ? (
-                            <span 
+                            <span
                               className={`inline-flex items-center gap-1 font-mono font-bold text-[10px] px-1.5 py-0.5 rounded shadow-2xs max-w-full overflow-hidden border ${
                                 logTheme === 'light'
                                   ? 'bg-amber-50 text-amber-900 border-amber-300'
@@ -3255,11 +3253,11 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
                           {log.status ? (
                             <span className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded font-mono border ${
-                              log.status < 300 
+                              log.status < 300
                                 ? (logTheme === 'light' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-emerald-950 text-emerald-300 border-emerald-800/50')
-                                : log.status < 400 
+                                : log.status < 400
                                 ? (logTheme === 'light' ? 'bg-blue-50 text-blue-800 border-blue-300' : 'bg-blue-950 text-blue-300 border-blue-800/50')
-                                : log.status < 500 
+                                : log.status < 500
                                 ? (logTheme === 'light' ? 'bg-amber-50 text-amber-900 border-amber-300' : 'bg-amber-950 text-amber-300 border-amber-800/50')
                                 : (logTheme === 'light' ? 'bg-rose-50 text-rose-800 border-rose-300' : 'bg-rose-950 text-rose-300 border-rose-800/50')
                             }`}>
@@ -3270,7 +3268,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
                         {/* Path Request (Takes all remaining width) */}
                         <div className="flex-1 min-w-0 overflow-hidden">
-                          <span 
+                          <span
                             className={`text-[11px] font-mono font-bold truncate block ${
                               logTheme === 'light' ? 'text-slate-900' : 'text-slate-100'
                             }`}
@@ -3401,8 +3399,8 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                     </div>
                   ) : (
                     /* Raw Combined Log View */
-                    <div 
-                      key={idx} 
+                    <div
+                      key={idx}
                       className={`font-mono text-[11px] p-2 rounded transition-colors break-all flex flex-wrap items-baseline gap-1.5 mb-1 ${
                         logTheme === 'light'
                           ? 'text-slate-800 hover:bg-slate-100 border border-transparent hover:border-slate-200'
@@ -3524,8 +3522,8 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                     {visitorCountryNodes.map((node) => {
                       const isSelected = selectedCountryFilter === node.country;
                       return (
-                        <g 
-                          key={node.country} 
+                        <g
+                          key={node.country}
                           className="cursor-pointer group"
                           onClick={() => setSelectedCountryFilter(isSelected ? null : node.country)}
                           onMouseEnter={() => setHoveredMapPin({ ...node, name: node.countryName })}
@@ -4137,8 +4135,8 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  {app.runtime === 'proxy' 
-                    ? `Domain ${app.domain} securely forwards all HTTP/WebSocket traffic to the internal backend upstream.` 
+                  {app.runtime === 'proxy'
+                    ? `Domain ${app.domain} securely forwards all HTTP/WebSocket traffic to the internal backend upstream.`
                     : `The hybrid architecture lets one domain split traffic across multiple runtimes (PHP-FPM, Node.js, Python, & Static).`}
                 </p>
               </div>
@@ -5241,16 +5239,16 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
               <div className="flex items-center gap-2">
                 <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5 ${
-                  maintenanceMode 
-                    ? 'bg-amber-100 text-amber-900 border-amber-300' 
+                  maintenanceMode
+                    ? 'bg-amber-100 text-amber-900 border-amber-300'
                     : 'bg-slate-100 text-slate-600 border-slate-200'
                 }`}>
                   <AlertTriangle className="w-3.5 h-3.5" />
                   <span>Maintenance: {maintenanceMode ? '503 ACTIVE' : 'OFF'}</span>
                 </span>
                 <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5 ${
-                  basicAuthEnabled 
-                    ? 'bg-purple-100 text-purple-900 border-purple-300' 
+                  basicAuthEnabled
+                    ? 'bg-purple-100 text-purple-900 border-purple-300'
                     : 'bg-slate-100 text-slate-600 border-slate-200'
                 }`}>
                   <Lock className="w-3.5 h-3.5" />
@@ -5260,7 +5258,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              
+
               {/* CARD 1: MAINTENANCE MODE */}
               <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col justify-between">
                 <div className="p-5 space-y-4">
@@ -5295,8 +5293,8 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                   </div>
 
                   <div className={`p-3 rounded-xl border text-xs ${
-                    maintenanceMode 
-                      ? 'bg-amber-50/80 border-amber-200 text-amber-900' 
+                    maintenanceMode
+                      ? 'bg-amber-50/80 border-amber-200 text-amber-900'
                       : 'bg-slate-50 border-slate-200 text-slate-600'
                   }`}>
                     {maintenanceMode ? (
@@ -5512,8 +5510,8 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                   </div>
 
                   <div className={`p-3 rounded-xl border text-xs ${
-                    basicAuthEnabled 
-                      ? 'bg-purple-50/80 border-purple-200 text-purple-900' 
+                    basicAuthEnabled
+                      ? 'bg-purple-50/80 border-purple-200 text-purple-900'
                       : 'bg-slate-50 border-slate-200 text-slate-600'
                   }`}>
                     {basicAuthEnabled ? (

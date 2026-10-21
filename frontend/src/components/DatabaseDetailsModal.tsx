@@ -1,22 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  X, 
-  Database, 
-  Key, 
-  Server, 
-  Copy, 
-  Check, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  ExternalLink, 
-  Zap, 
-  ShieldCheck, 
-  Code2, 
+import {
+  X,
+  Database,
+  Server,
+  Copy,
+  Check,
+  Lock,
+  Eye,
+  EyeOff,
+  ExternalLink,
+  Zap,
+  ShieldCheck,
+  Code2,
   Sparkles,
   Link2,
   Terminal,
-  Layers,
   Trash2,
   Download,
   Loader2,
@@ -93,7 +91,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   const [errorMsg, setErrorMsg] = useState('');
   const [showPasswordText, setShowPasswordText] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'params' | 'env'>('params');
+  const [,_setActiveTab] = useState<'params' | 'env'>('params');
   const [isEditingMaxConn, setIsEditingMaxConn] = useState(false);
   const [selectedMaxConn, setSelectedMaxConn] = useState<number>(database?.maxConnections || 25);
   const [autoLockSeconds, setAutoLockSeconds] = useState(60);
@@ -348,7 +346,9 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
     database.type === 'mysql' ||
     database.type === 'mariadb';
   const createTableTemplate = (() => {
-    const name = `notes_${Date.now().toString().slice(-4)}`;
+    // Derive the sample suffix from the record instead of calling Date during render.
+    const suffix = database.id.replace(/[^a-zA-Z0-9]/g, '').slice(-4) || '0000';
+    const name = `notes_${suffix}`;
     switch (database.type) {
       case 'postgres':
         return `CREATE TABLE IF NOT EXISTS "${name}" (\n  id serial PRIMARY KEY,\n  title text NOT NULL,\n  created_at timestamptz DEFAULT now()\n);`;
@@ -370,7 +370,7 @@ export const DatabaseDetailsModal: React.FC<DatabaseDetailsModalProps> = ({
   };
 
   const plainPassword = revealedPassword ?? mockPasswords[database.id] ?? 'barepod_secret_key_889#';
-  const effectivePassword = isUnlocked ? plainPassword : '••••••••••••';
+
 
   const isPublic = exposure === 'public' && database.type !== 'redis';
   // The operator's answer wins where it applies — when the database is public, because that is when a
@@ -1206,7 +1206,7 @@ DB_DATABASE=${database.path || `/home/${database.tenantUser ?? 'user'}/web/${dat
                     </span>
                   </div>
                   <div className="mt-1 font-mono text-xs font-semibold text-slate-800">
-                    {isUnlocked 
+                    {isUnlocked
                       ? (showPasswordText ? plainPassword : '••••••••••••••••')
                       : '•••••••••••• (Encrypted in Vault)'}
                   </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Database, Key, ShieldCheck, Sparkles, Check, Server, Lock, Cpu, Folder } from 'lucide-react';
+import { X, Database, Server, Folder } from 'lucide-react';
 import type { DatabaseEngine, DatabaseItem } from '../types';
 import { dbIcon } from '../utils/brandIcons';
 import { ENGINE_LABELS, hostEngineOptions, hostEngineRow } from '../data/databaseEngines';
@@ -34,12 +34,14 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
   onShowToast,
   websites,
 }) => {
-  const [busy, setBusy] = useState(false);
+  const [,setBusy] = useState(false);
   const [name, setName] = useState('');
   const [type, setType] = useState<DatabaseEngine>('postgres');
   const [selectedVersionIndex, setSelectedVersionIndex] = useState<number>(0);
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('bp_sec_' + Math.random().toString(36).substring(2, 9));
+  // Empty means "let the daemon generate it"; the old Math.random default was both impure during
+  // render and a weaker password than the server's generator.
+  const [password, setPassword] = useState('');
   const [maxConnections, setMaxConnections] = useState<number>(25);
   const [websiteSlug, setWebsiteSlug] = useState('');
 
@@ -54,7 +56,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
   const engineRow = engines?.find(
     (row) => row.engine === (API_ENGINE[type] ?? type) && row.kind === (type === 'redis' ? 'cache' : 'database'),
   );
-  const engineBlocked = engineRow ? !engineRow.available : false;
+
   const currentVersionList = engineRow
     ? engineRow.versions.map((version) => ({
         version,
@@ -358,7 +360,7 @@ export const CreateDatabaseModal: React.FC<CreateDatabaseModalProps> = ({
               <input
                 type="text"
                 readOnly
-                value={password}
+                value={password || 'Generated securely by the daemon on create'}
                 className="w-full px-3 py-2 text-xs bg-slate-100 border border-slate-200 rounded-lg font-mono text-slate-700"
               />
             </div>

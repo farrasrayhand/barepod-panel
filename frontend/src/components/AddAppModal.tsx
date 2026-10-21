@@ -3,7 +3,6 @@ import {
   X,
   Layers,
   Globe,
-  Terminal,
   CloudRain,
   ShieldCheck,
   Database,
@@ -32,7 +31,6 @@ import {
   Sparkles,
   Loader2,
   CheckCircle2,
-  ExternalLink,
 } from 'lucide-react';
 import type { RuntimeType, WebApp, WebServerType, DatabaseEngine } from '../types';
 import { runtimeIcon, dbIcon } from '../utils/brandIcons';
@@ -76,7 +74,7 @@ export interface ScaffoldPreset {
   cacheEngine?: string;
 }
 
-export const POPULAR_SCAFFOLDS: ScaffoldPreset[] = [
+const POPULAR_SCAFFOLDS: ScaffoldPreset[] = [
   {
     id: 'laravel',
     name: 'Laravel',
@@ -228,7 +226,7 @@ export interface RuntimeCompatibilityResult {
   note?: string;
 }
 
-export const getCompatibleRuntimeVersions = (
+const getCompatibleRuntimeVersions = (
   runtime: RuntimeType,
   framework: string,
   frameworkVersion: string,
@@ -406,7 +404,7 @@ export interface SupportedDbEngine {
   recommended?: boolean;
 }
 
-export const getSupportedDbEngines = (runtime: RuntimeType, framework: string): SupportedDbEngine[] => {
+const getSupportedDbEngines = (runtime: RuntimeType, framework: string): SupportedDbEngine[] => {
   const fw = (framework || '').toLowerCase();
 
   // CMSs strictly requiring MySQL / MariaDB (or SQLite via drop-in)
@@ -452,7 +450,7 @@ export const getSupportedDbEngines = (runtime: RuntimeType, framework: string): 
   ];
 };
 
-export const supportsCacheFor = (runtime: RuntimeType, framework: string): boolean => {
+const supportsCacheFor = (runtime: RuntimeType, framework: string): boolean => {
   const fw = (framework || '').toLowerCase();
 
   // Static sites never use cache
@@ -548,12 +546,12 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   const [availableUsers, setAvailableUsers] = useState<Array<{ username: string; role: string; groupName?: string }>>([]);
   const [tunnelEnabled, setTunnelEnabled] = useState(false);
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusResponse | null>(null);
-  const [hasTunnelConfigured, setHasTunnelConfigured] = useState(false);
+  const [,setHasTunnelConfigured] = useState(false);
   const [checkingTunnel, setCheckingTunnel] = useState(false);
 
   // Cloudflare Zones state
   const [cfZones, setCfZones] = useState<CloudflareZone[]>([]);
-  const [loadingCfZones, setLoadingCfZones] = useState(false);
+  const [,setLoadingCfZones] = useState(false);
   const [selectedCfZone, setSelectedCfZone] = useState<string>('');
   const [subdomain, setSubdomain] = useState<string>('');
   const [userEditedSubdomain, setUserEditedSubdomain] = useState(false);
@@ -940,7 +938,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   const [showDbPassword, setShowDbPassword] = useState(false);
   const [maxConnections, setMaxConnections] = useState(25);
   const [createCache, setCreateCache] = useState(true);
-  const [cacheVersionIndex, setCacheVersionIndex] = useState(0);
+  const [cacheVersionIndex] = useState(0);
   const [cachePassword, setCachePassword] = useState('bp_' + Math.random().toString(36).slice(2, 12));
   const [showCachePassword, setShowCachePassword] = useState(false);
   const [autoEnv, setAutoEnv] = useState(true);
@@ -1080,7 +1078,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
     () => getSupportedDbEngines(runtime, framework),
     [runtime, framework],
   );
-  const selectedEngineMeta = supportedDbEngines.find((e) => e.engine === dbType);
+
 
   const hasCacheSupport = supportsCacheFor(runtime, framework);
   const effectiveCreateCache = hasCacheSupport && createCache;

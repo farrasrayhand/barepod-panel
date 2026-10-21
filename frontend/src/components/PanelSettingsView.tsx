@@ -1,30 +1,23 @@
 import { api, type CloudflareZone, type NotificationConfig, type PanelTunnelStatus, type PhpDefaultsConfig } from '../api/client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { GuardCard } from './GuardCard';
-import { 
-  Settings, 
-  ShieldCheck, 
-  Globe, 
-  HardDrive, 
-  Bell, 
-  Database, 
-  Key, 
-  Lock, 
-  RotateCw, 
-  Save, 
-  Check, 
-  Copy, 
-  Server, 
-  AlertTriangle, 
-  CloudRain, 
-  Sliders, 
-  Eye, 
-  EyeOff, 
-  Mail, 
-  MessageSquare, 
+import {
+  Settings,
+  ShieldCheck,
+  Globe,
+  HardDrive,
+  Bell,
+  RotateCw,
+  Save,
+  Check,
+  Server,
+  AlertTriangle,
+  Sliders,
+  Eye,
+  EyeOff,
+  Mail,
   Send,
   Zap,
-  Terminal,
   RefreshCw,
   Activity,
   Cpu,
@@ -56,7 +49,7 @@ const isPortNumber = (value: string) => /^\d+$/.test(value) && Number(value) >= 
 export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   isAdmin = false,
   onShowToast,
-  onOpenTerminal,
+  onOpenTerminal: _onOpenTerminal,
 }) => {
   const [activeTab, setActiveTab] = useSubRoute<'general' | 'updates' | 'cron' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults'>('general');
   // The address an external client should use. Unlike most of this screen it is real: the daemon
@@ -123,7 +116,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState(false);
 
-  const checkUpdates = async (silent = false) => {
+  const checkUpdates = useCallback(async (silent = false) => {
     setCheckingUpdate(true);
     try {
       const res = await api.checkUpdates();
@@ -144,14 +137,19 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     } finally {
       setCheckingUpdate(false);
     }
-  };
+  }, [onShowToast]);
 
   // Automatically check updates when entering the updates tab or on initial load
   useEffect(() => {
     if (activeTab === 'updates' && !updateInfo && !checkingUpdate) {
       void checkUpdates(true);
     }
-  }, [activeTab]);
+  }, [
+	activeTab,
+	checkingUpdate,
+	checkUpdates,
+	updateInfo
+]);
 
   // After the swap the daemon restarts, so reloading on a timer lands on a port that is not
   // answering yet — an error page the operator has to refresh a second time. Poll the health
@@ -598,7 +596,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [pruneResult, setPruneResult] = useState<{ ok: boolean; output: string } | null>(null);
 
   // 1. General Settings
-  const [panelPort, setPanelPort] = useState(8443);
+  const [,_setPanelPort] = useState(8443);
   // The panel's own hostname as detected from the admin's Cloudflare account: whether publishing is
   // possible, and the zones (domains) to pick from.
   const [panelTunnel, setPanelTunnel] = useState<PanelTunnelStatus | null>(null);
@@ -710,7 +708,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   };
 
   // 2. Security Settings
-  const [forceHttps, setForceHttps] = useState(true);
+  const [,_setForceHttps] = useState(true);
   const [sessionTimeoutHours, setSessionTimeoutHours] = useState(24);
   const [securitySaving, setSecuritySaving] = useState(false);
   // A feature this panel does not have yet: kept as the plan it is, marked so nobody relies on it.
@@ -773,7 +771,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     return () => {
       alive = false;
     };
-  }, [activeTab]);
+  }, [activeTab, onShowToast]);
 
   const saveAlerts = async () => {
     if (!alerts || alertsSaving) return;
@@ -838,7 +836,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-200">
-      
+
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -856,7 +854,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
       {/* Main Container with Top Navigation Tabs */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-        
+
         {/* Settings Navigation Tabs Header */}
         <div className="border-b border-slate-200 bg-slate-50/70 px-4 pt-2 flex items-center gap-1.5 overflow-x-auto">
           {[
@@ -891,7 +889,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
 
         {/* Tab Content Form */}
         <div className="p-4 sm:p-6 lg:p-8">
-          
+
           {/* 1. GENERAL SETTINGS */}
           {activeTab === 'general' && (
             <div className="space-y-6 w-full">

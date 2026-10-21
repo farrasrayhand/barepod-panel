@@ -1,18 +1,15 @@
-import { describeAddress } from '../utils/address';
 import React, { useState, useEffect } from 'react';
 import { api, type TunnelStatusResponse } from '../api/client';
-import { 
-  LayoutDashboard, 
-  Layers, 
-  Database, 
-  Terminal, 
-  Globe, 
-  CloudRain, 
-  Users, 
-  Settings, 
-  Box, 
-  ChevronRight,
-  ShieldCheck,
+import {
+  LayoutDashboard,
+  Layers,
+  Database,
+  Terminal,
+  Globe,
+  CloudRain,
+  Users,
+  Settings,
+  Box,
   Activity,
   Server,
   Copy,
@@ -58,7 +55,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
   // The address this panel is being used on — the only one the panel can honestly name. Behind NAT
   // the public address is not discoverable from inside, and the sidebar used to hardcode one.
   const panelAddress = typeof window !== 'undefined' ? window.location.hostname : '';
-  const panelAddressKind = describeAddress(panelAddress);
+
 
   const canDo = (perm: string) => isAdmin || (can ? can(perm) : false);
 
@@ -70,7 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
         if (mounted) {
           setTunnelStatus(res);
         }
-      } catch (err) {
+      } catch  {
         // Silently ignore if not authorized or network unavailable
       }
     };
@@ -225,7 +222,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
           </div>
 
           {/* Cloudflare Tunnel Status */}
-          <div 
+          <div
             onClick={() => onSelectTab('tunnels')}
             className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-200/60 cursor-pointer group"
             title="Manage Cloudflare Tunnels"

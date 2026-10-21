@@ -1,19 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  Database, 
-  Plus, 
-  RefreshCw, 
-  Copy, 
-  Check, 
-  ExternalLink, 
-  Key, 
+import {
+  Database,
+  Plus,
+  RefreshCw,
+  Key,
   Server,
   Lock,
-  Eye,
   ShieldCheck,
   Trash2,
   Zap,
-  Globe,
   Folder,
   Download,
   Search,
@@ -54,7 +49,7 @@ const ENGINE_TO_ITEM: Record<string, DatabaseEngine> = {
 // A SQL daemon engine, as opposed to a document or key-value store: a charset, a
 // GRANT and a connection quota only mean something for these.
 /** A database kept when its website was deleted: the file moved into the tenant's home. */
-const isDetached = (db: DatabaseItem): boolean => !!db.detachedAt;
+const _isDetached = (db: DatabaseItem): boolean => !!db.detachedAt;
 
 const isSqlEngine = (type: DatabaseEngine): boolean =>
   type === 'postgres' || type === 'mysql' || type === 'mariadb';
@@ -137,7 +132,7 @@ const TOOL_TO_API: Record<string, string> = {
 
 export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, onShowToast }) => {
   const [activeTab, setActiveTab] = useSubRoute<'all' | DatabaseEngine | 'caches' | 'trash'>('all');
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [,_setCopiedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [sortBy, setSortBy] = useState<'name' | 'owner' | 'engine' | 'size'>('name');
@@ -231,8 +226,8 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
     setSelectedDbForDetails(updated);
     if (onShowToast) {
       onShowToast(
-        'Max Connection Quota Updated', 
-        `Connection limit for ${updated.username} changed to ${updated.maxConnections || 25} connections (ALTER ROLE/USER executed).`, 
+        'Max Connection Quota Updated',
+        `Connection limit for ${updated.username} changed to ${updated.maxConnections || 25} connections (ALTER ROLE/USER executed).`,
         'success'
       );
     }
@@ -443,33 +438,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
     }
   };
 
-  const handleCopyUri = (db: DatabaseItem) => {
-    let uri = '';
-    switch (db.type) {
-      case 'postgres':
-        uri = `postgresql://${db.username}:••••••••@${db.host || '127.0.0.1'}:${db.port || 5432}/${db.name}`;
-        break;
-      case 'mysql':
-      case 'mariadb':
-        uri = `mysql://${db.username}:••••••••@${db.host || '127.0.0.1'}:${db.port || 3306}/${db.name}`;
-        break;
-      case 'mongodb':
-        uri = `mongodb://${db.username}:••••••••@${db.host || '127.0.0.1'}:${db.port || 27017}/${db.name}?authSource=admin`;
-        break;
-      case 'redis':
-        uri = `redis://${db.username && db.username !== 'default (auth key)' ? db.username : ''}:••••••••@${db.host || '127.0.0.1'}:${db.port || 6379}/0`;
-        break;
-      case 'sqlite':
-        uri = db.path ? `sqlite://${db.path}` : `sqlite:///home/${db.tenantUser ?? 'user'}/web/${db.name}.sqlite`;
-        break;
-    }
-    navigator.clipboard?.writeText(uri);
-    setCopiedId(db.id);
-    setTimeout(() => setCopiedId(null), 1500);
-    if (onShowToast) {
-      onShowToast('URI Copied', 'Masked connection URI copied to clipboard.', 'info');
-    }
-  };
+
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
@@ -492,7 +461,7 @@ export const DatabasesView: React.FC<DatabasesViewProps> = ({ isAdmin = false, o
               <span>Empty Recycle Bin</span>
             </button>
           )}
-          <button 
+          <button
             onClick={() => onShowToast?.('Refreshed', 'Database connection pools synchronized.', 'info')}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer whitespace-nowrap shrink-0"
           >

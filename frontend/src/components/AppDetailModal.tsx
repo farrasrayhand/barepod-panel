@@ -1,39 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  X, 
-  Activity, 
-  Terminal, 
-  FileText, 
-  Cpu, 
-  HardDrive, 
-  Globe, 
-  Server, 
-  CloudRain, 
-  ShieldCheck, 
-  Play, 
-  Square, 
-  RefreshCw, 
-  Folder, 
-  FolderGit2, 
-  ExternalLink, 
-  CheckCircle2, 
-  AlertCircle, 
-  Search, 
-  Download, 
-  Trash2, 
-  Layers, 
-  Zap, 
-  ArrowUpRight, 
-  ArrowDownLeft, 
-  Clock, 
-  Check, 
+import {
+  X,
+  Activity,
+  Terminal,
+  FileText,
+  Cpu,
+  HardDrive,
+  Globe,
+  Server,
+  Play,
+  Square,
+  RefreshCw,
+  Folder,
+  FolderGit2,
+  ExternalLink,
+  CheckCircle2,
+  Search,
+  Layers,
+  Zap,
+  Check,
   Copy,
   Lock,
-  GitBranch,
   Filter
 } from 'lucide-react';
-import type { WebApp, WebServerType } from '../types';
-import { siteSupportsFiles, siteSupportsCI, siteSupportsShell, siteHasGit } from '../utils/siteRuntime';
+import type { WebApp } from '../types';
+import { siteSupportsCI, siteHasGit } from '../utils/siteRuntime';
 
 interface AppDetailModalProps {
   isOpen: boolean;
@@ -57,7 +48,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   const [activeTab, setActiveTab] = useState<'overview' | 'monitoring' | 'logs' | 'routing' | 'env'>('monitoring');
   const [logType, setLogType] = useState<'all' | 'access' | 'error' | 'deploy'>('all');
   const [logSearch, setLogSearch] = useState('');
-  const [autoScroll, setAutoScroll] = useState(true);
+  const [,_setAutoScroll] = useState(true);
   const [copiedEnv, setCopiedEnv] = useState(false);
   const [isRefreshingLogs, setIsRefreshingLogs] = useState(false);
 
@@ -105,65 +96,66 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   }
 
   const getMockLogs = (): LogItem[] => {
-    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    // Fixed sample time: calling Date during render is impure, and this is demo data anyway.
+    const timestamp = '2026-10-10 16:40:12';
     const commonLogs: LogItem[] = [
-      { 
-        time: `${timestamp} [ACCESS]`, 
-        type: 'access', 
-        ip: '114.124.180.52', 
-        country: 'ID', 
-        method: 'GET', 
-        path: '/', 
-        status: 200, 
-        latency: '14ms', 
+      {
+        time: `${timestamp} [ACCESS]`,
+        type: 'access',
+        ip: '114.124.180.52',
+        country: 'ID',
+        method: 'GET',
+        path: '/',
+        status: 200,
+        latency: '14ms',
         size: '1.4 KB',
-        msg: `GET / 200 OK - 14ms (Chrome/128 MacOS)` 
+        msg: `GET / 200 OK - 14ms (Chrome/128 MacOS)`
       },
-      { 
-        time: `${timestamp} [ACCESS]`, 
-        type: 'access', 
-        ip: '114.124.180.52', 
-        country: 'ID', 
-        method: 'GET', 
-        path: '/assets/app.css', 
-        status: 304, 
-        latency: '2ms', 
+      {
+        time: `${timestamp} [ACCESS]`,
+        type: 'access',
+        ip: '114.124.180.52',
+        country: 'ID',
+        method: 'GET',
+        path: '/assets/app.css',
+        status: 304,
+        latency: '2ms',
         size: '0 B',
-        msg: `GET /assets/app.css 304 Not Modified - 2ms` 
+        msg: `GET /assets/app.css 304 Not Modified - 2ms`
       },
-      { 
-        time: `${timestamp} [ACCESS]`, 
-        type: 'access', 
-        ip: '180.252.164.22', 
-        country: 'ID', 
-        method: 'POST', 
-        path: '/api/v1/telemetry', 
-        status: 201, 
-        latency: '22ms', 
+      {
+        time: `${timestamp} [ACCESS]`,
+        type: 'access',
+        ip: '180.252.164.22',
+        country: 'ID',
+        method: 'POST',
+        path: '/api/v1/telemetry',
+        status: 201,
+        latency: '22ms',
         size: '340 B',
-        msg: `POST /api/v1/telemetry 201 Created - 22ms` 
+        msg: `POST /api/v1/telemetry 201 Created - 22ms`
       },
-      { 
-        time: `${timestamp} [WAF]`, 
-        type: 'error', 
-        ip: '198.51.100.41', 
-        country: 'US', 
-        method: 'GET', 
-        path: '/wp-login.php', 
-        status: 404, 
-        latency: '3ms', 
+      {
+        time: `${timestamp} [WAF]`,
+        type: 'error',
+        ip: '198.51.100.41',
+        country: 'US',
+        method: 'GET',
+        path: '/wp-login.php',
+        status: 404,
+        latency: '3ms',
         size: '140 B',
-        msg: `GET /wp-login.php 404 Not Found - [Blocked by WAF Rule #104]` 
+        msg: `GET /wp-login.php 404 Not Found - [Blocked by WAF Rule #104]`
       },
-      { 
-        time: `${timestamp} [INFO]`, 
-        type: 'deploy', 
-        msg: `[Deploy Runner] git pull origin main - HEAD is at commit 7fa901` 
+      {
+        time: `${timestamp} [INFO]`,
+        type: 'deploy',
+        msg: `[Deploy Runner] git pull origin main - HEAD is at commit 7fa901`
       },
-      { 
-        time: `${timestamp} [INFO]`, 
-        type: 'deploy', 
-        msg: `[Process Supervisor] Worker process PID 41289 healthy. Memory: ${app.memoryUsage}` 
+      {
+        time: `${timestamp} [INFO]`,
+        type: 'deploy',
+        msg: `[Process Supervisor] Worker process PID 41289 healthy. Memory: ${app.memoryUsage}`
       },
     ];
 
@@ -202,7 +194,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-5 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-5xl w-full h-[92dvh] flex flex-col overflow-hidden">
-        
+
         {/* Top Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0 bg-slate-50/70">
           <div className="flex items-center gap-3">
@@ -223,9 +215,9 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 </span>
               </div>
               <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
-                <a 
-                  href={`https://${app.domain}`} 
-                  target="_blank" 
+                <a
+                  href={`https://${app.domain}`}
+                  target="_blank"
                   rel="noreferrer"
                   className="hover:text-blue-600 hover:underline flex items-center gap-1 text-blue-600 font-semibold"
                 >
@@ -336,7 +328,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     <span className="text-xs text-emerald-600 font-semibold">Normal</span>
                   </div>
                   <div className="w-full bg-slate-100 h-2 rounded-full mt-3 overflow-hidden">
-                    <div 
+                    <div
                       className="bg-blue-600 h-full rounded-full transition-all duration-500"
                       style={{ width: `${Math.min(liveMetrics.cpu * 20, 100)}%` }}
                     />
@@ -355,7 +347,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     <span className="text-xs text-slate-400">/ 512 MB</span>
                   </div>
                   <div className="w-full bg-slate-100 h-2 rounded-full mt-3 overflow-hidden">
-                    <div 
+                    <div
                       className="bg-amber-500 h-full rounded-full transition-all duration-500"
                       style={{ width: `${(liveMetrics.memory / 512) * 100}%` }}
                     />
@@ -374,7 +366,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     <span className="text-xs text-emerald-600 font-semibold">Lightning Fast</span>
                   </div>
                   <div className="w-full bg-slate-100 h-2 rounded-full mt-3 overflow-hidden">
-                    <div 
+                    <div
                       className="bg-emerald-500 h-full rounded-full transition-all duration-500"
                       style={{ width: `${Math.min(liveMetrics.latency * 3, 100)}%` }}
                     />
@@ -492,8 +484,8 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
                 <div className="flex-1 overflow-y-auto space-y-1.5 pr-2 select-text font-mono text-[11px] leading-relaxed">
                   {filteredLogs.map((item, idx) => (
-                    <div 
-                      key={idx} 
+                    <div
+                      key={idx}
                       className={`py-1 px-2 rounded hover:bg-slate-900 transition-colors flex flex-wrap items-baseline gap-2 ${
                         item.type === 'error' ? 'bg-rose-950/20 text-rose-300' :
                         item.type === 'deploy' ? 'bg-purple-950/20 text-indigo-300' : 'text-slate-300'
@@ -503,7 +495,7 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
 
                       {/* Visitor Client IP Badge */}
                       {item.ip ? (
-                        <span 
+                        <span
                           className="shrink-0 text-[10px] font-mono font-bold text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/50 flex items-center gap-1"
                           title={`Visitor IP: ${item.ip} (${item.country || 'Global'})`}
                         >

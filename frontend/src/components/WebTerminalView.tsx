@@ -1,13 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Terminal as TerminalIcon, 
-  ShieldCheck, 
-  Cpu, 
-  RefreshCw, 
-  Maximize2, 
-  Copy, 
+import {
+  Terminal as TerminalIcon,
+  ShieldCheck,
   Trash2,
-  Info,
   ChevronRight
 } from 'lucide-react';
 import type { WebApp, PodItem } from '../types';
@@ -48,7 +43,7 @@ export const WebTerminalView: React.FC<WebTerminalViewProps> = ({
   const selectedSite = target?.kind === 'site' ? shellApps.find((a) => a.id === target.id) : undefined;
   const selectedPod = target?.kind === 'pod' ? pods.find((p) => p.id === target.id) : undefined;
   const currentApp = selectedSite ?? (selectedPod ? undefined : shellApps[0]);
-  const isPod = Boolean(selectedPod);
+
   // The prompt tells you where you are: a container root, or the tenant shell.
   const prompt = selectedPod
     ? `root@${selectedPod.name}:/#`
@@ -99,7 +94,16 @@ Runtime: ${currentApp.runtime.toUpperCase()} ${currentApp.version}
         },
       ]);
     }
-  }, [selectedPod, currentApp?.id]);
+  }, [
+    selectedPod,
+    currentApp?.id,
+    currentApp?.runtime,
+    currentApp?.name,
+    currentApp?.tenantUser,
+    currentApp?.path,
+    currentApp?.version,
+    currentApp,
+  ]);
 
   // Scroll the terminal pane itself: `scrollIntoView` also scrolls the page,
   // which made the whole view jump down when a session opened.

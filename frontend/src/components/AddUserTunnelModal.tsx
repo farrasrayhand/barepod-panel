@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, CloudRain, Key, ShieldCheck, Sparkles } from 'lucide-react';
+import { X, CloudRain, Key } from 'lucide-react';
 import type { UserTunnel } from '../types';
 
 interface AddUserTunnelModalProps {

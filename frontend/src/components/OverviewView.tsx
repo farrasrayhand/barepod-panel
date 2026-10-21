@@ -1,13 +1,12 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { 
-  Server, 
-  Cpu, 
-  HardDrive, 
-  Activity, 
-  ShieldCheck, 
-  Layers, 
-  Database, 
-  Terminal, 
+import {
+  Server,
+  Cpu,
+  HardDrive,
+  Activity,
+  ShieldCheck,
+  Layers,
+  Database,
   ArrowUpRight,
   ArrowUp,
   ArrowDown,
@@ -19,9 +18,6 @@ import {
   Monitor,
   LogIn,
   Loader2,
-  RefreshCw,
-  ExternalLink,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -52,7 +48,7 @@ interface SessionLine {
 
 export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, onSelectApp, onOpenAddModal }) => {
   const runningApps = apps.filter((a) => a.status === 'running').length;
-  const runningPct = apps.length ? Math.round((runningApps / apps.length) * 100) : 0;
+
 
   const [events, setEvents] = useState<ActivityLine[]>([]);
   const [sessions, setSessions] = useState<SessionLine[]>([]);
@@ -168,7 +164,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
   const cpuPct = metrics ? Math.round(metrics.cpuPercent * 10) / 10 : 0;
   const cpuCores = metrics?.cpuCores ?? 1;
   const loadStr = metrics ? `${metrics.load1.toFixed(2)}, ${metrics.load5.toFixed(2)}, ${metrics.load15.toFixed(2)}` : '—';
-  
+
   const ramUsedBytes = metrics?.memoryUsedBytes ?? 0;
   const ramTotalBytes = metrics?.memoryTotalBytes ?? 1;
   const ramPct = ramTotalBytes > 0 ? Math.round((ramUsedBytes / ramTotalBytes) * 100) : 0;
@@ -236,11 +232,11 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
           </div>
           <div className="mt-2 text-2xl font-extrabold text-slate-900">{cpuPct}%</div>
           <div className="mt-3 w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-            <div 
+            <div
               className={`h-1.5 rounded-full transition-all duration-500 ${
                 cpuPct > 80 ? 'bg-rose-500' : cpuPct > 50 ? 'bg-amber-500' : 'bg-blue-600'
-              }`} 
-              style={{ width: `${Math.min(100, Math.max(2, cpuPct))}%` }} 
+              }`}
+              style={{ width: `${Math.min(100, Math.max(2, cpuPct))}%` }}
             />
           </div>
           <span className="text-[11px] text-slate-500 mt-2 block font-medium">
@@ -256,11 +252,11 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
           </div>
           <div className="mt-2 text-2xl font-extrabold text-slate-900">{ramUsedGb} / {ramTotalGb} GB</div>
           <div className="mt-3 w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-            <div 
+            <div
               className={`h-1.5 rounded-full transition-all duration-500 ${
                 ramPct > 85 ? 'bg-rose-500' : 'bg-emerald-500'
-              }`} 
-              style={{ width: `${Math.min(100, Math.max(2, ramPct))}%` }} 
+              }`}
+              style={{ width: `${Math.min(100, Math.max(2, ramPct))}%` }}
             />
           </div>
           <span className="text-[11px] text-slate-500 mt-2 block font-medium">
@@ -276,11 +272,11 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
           </div>
           <div className="mt-2 text-2xl font-extrabold text-slate-900">{diskUsedGb} / {diskTotalGb} GB</div>
           <div className="mt-3 w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-            <div 
+            <div
               className={`h-1.5 rounded-full transition-all duration-500 ${
                 diskPct > 85 ? 'bg-rose-500' : 'bg-purple-500'
-              }`} 
-              style={{ width: `${Math.min(100, Math.max(2, diskPct))}%` }} 
+              }`}
+              style={{ width: `${Math.min(100, Math.max(2, diskPct))}%` }}
             />
           </div>
           <span className="text-[11px] text-slate-500 mt-2 block font-medium">
@@ -383,7 +379,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>
-            
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50/75 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-[10px]">
@@ -425,11 +421,11 @@ export const OverviewView: React.FC<OverviewViewProps> = ({ apps, onNavigate, on
                         <td className="py-3 px-5 font-mono text-slate-500">{app.port || '—'}</td>
                         <td className="py-3 px-5 text-right">
                           <span className={`inline-flex items-center gap-1.5 font-medium px-2 py-0.5 rounded text-[11px] ${
-                            app.status === 'suspended' ? 'bg-amber-50 text-amber-700' : 
+                            app.status === 'suspended' ? 'bg-amber-50 text-amber-700' :
                             app.status === 'running' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'
                           }`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${
-                              app.status === 'suspended' ? 'bg-amber-500' : 
+                              app.status === 'suspended' ? 'bg-amber-500' :
                               app.status === 'running' ? 'bg-emerald-500' : 'bg-slate-400'
                             }`} />
                             {app.status === 'suspended' ? 'Suspended' : app.status === 'running' ? 'Active' : 'Stopped'}

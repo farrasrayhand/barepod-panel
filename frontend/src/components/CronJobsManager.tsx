@@ -1,20 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Clock, 
-  Play, 
-  Plus, 
-  Trash2, 
-  CheckCircle2, 
-  XCircle, 
-  Terminal, 
-  RotateCw, 
-  Search, 
-  Filter, 
-  Sparkles, 
-  Server, 
-  Globe, 
-  Calendar,
-  AlertCircle,
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Clock,
+  Play,
+  Plus,
+  Trash2,
+  CheckCircle2,
+  XCircle,
+  Terminal,
+  RotateCw,
+  Search,
+  Sparkles,
+  Server,
+  Globe,
   X,
   Check,
   Copy
@@ -67,7 +64,7 @@ export const CronJobsManager: React.FC<CronJobsManagerProps> = ({
   } | null>(null);
   const [copiedOutput, setCopiedOutput] = useState(false);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [cronRes, sitesRes] = await Promise.all([
@@ -77,19 +74,21 @@ export const CronJobsManager: React.FC<CronJobsManagerProps> = ({
       setSystemJobs(cronRes.systemJobs || []);
       setWebsiteJobs(cronRes.websiteJobs || []);
       setWebsites(sitesRes.items || []);
-      if (sitesRes.items?.length > 0 && !formSite) {
-        setFormSite(defaultWebsiteSlug || sitesRes.items[0].slug);
+      if (sitesRes.items?.length > 0) {
+        // Functional update: reading `formSite` here would make loadData change on every edit and
+        // the effect would refetch the whole list while the operator types.
+        setFormSite((current) => current || defaultWebsiteSlug || sitesRes.items[0].slug);
       }
     } catch (err) {
       onShowToast?.('Failed to load cron jobs', err instanceof Error ? err.message : 'Unknown error', 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [defaultWebsiteSlug, onShowToast]);
 
   useEffect(() => {
-    loadData();
-  }, [defaultWebsiteSlug]);
+    void loadData();
+  }, [loadData]);
 
   const handleOpenCreateModal = () => {
     setModalMode('create');

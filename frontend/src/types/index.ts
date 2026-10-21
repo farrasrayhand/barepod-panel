@@ -1,4 +1,4 @@
-export type NavItem = 
+export type NavItem =
   | 'overview'
   | 'monitoring'
   | 'web'
@@ -15,15 +15,15 @@ export type NavItem =
   | 'files'
   | 'backup';
 
-export type RuntimeType = 
-  | 'php' 
-  | 'nodejs' 
-  | 'python' 
-  | 'go' 
-  | 'rust' 
-  | 'ruby' 
-  | 'docker' 
-  | 'static' 
+export type RuntimeType =
+  | 'php'
+  | 'nodejs'
+  | 'python'
+  | 'go'
+  | 'rust'
+  | 'ruby'
+  | 'docker'
+  | 'static'
   | 'proxy';
 
 export type WebServerType = 'caddy' | 'nginx' | 'openlitespeed' | 'apache';

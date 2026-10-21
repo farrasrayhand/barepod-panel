@@ -1989,9 +1989,9 @@ export async function uploadFileResumable(options: ResumableUploadOptions): Prom
     }
     form.append('chunk', chunkBlob, file.name);
 
-    const chunkStartTime = Date.now();
+    const _chunkStartTime = Date.now();
     const res = await uploadChunkFn(form);
-    const chunkDuration = (Date.now() - chunkStartTime) / 1000;
+
 
     bytesUploaded += chunkBlob.size;
     uploadedSinceStart += chunkBlob.size;

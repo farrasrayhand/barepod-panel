@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { 
-  Box, 
-  Plus, 
-  RefreshCw, 
-  Play, 
-  Square, 
-  Terminal, 
-  ExternalLink, 
+import {
+  Box,
+  Plus,
+  RefreshCw,
+  Play,
+  Square,
+  Terminal,
+  ExternalLink,
   Trash2,
   Globe,
   Sliders,
@@ -23,6 +23,7 @@ import {
   ArrowDown
 } from 'lucide-react';
 import type { PodItem } from '../types';
+import { BAREPOD_DEMO_PODS } from '../data/demoPods';
 import { DeployPodModal } from './DeployPodModal';
 import { PodConfigModal } from './PodConfigModal';
 import { DangerConfirmModal } from './DangerConfirmModal';
@@ -32,88 +33,6 @@ interface PodsViewProps {
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   onOpenTerminal?: (podId: string) => void;
 }
-
-export const BAREPOD_DEMO_PODS: PodItem[] = [
-  {
-    id: 'pod-1',
-    name: 'redis-cache-cluster',
-    tenantUser: 'admin',
-    sourceType: 'image',
-    image: 'redis:7.2-alpine',
-    status: 'running',
-    ports: '6379:6379',
-    cpu: '0.4%',
-    memory: '28 MB',
-    restartPolicy: 'unless-stopped',
-    isWebApp: false,
-    volumes: [
-      { hostPath: 'redis_cache_data', containerPath: '/data', readOnly: false }
-    ],
-    envVars: [
-      { key: 'REDIS_MAXMEMORY', value: '256mb', isSecret: false }
-    ],
-    memoryLimit: '512 MB',
-    cpuLimit: '0.5 core',
-  },
-  {
-    id: 'pod-2',
-    name: 'typesense-search',
-    tenantUser: 'suprion7',
-    sourceType: 'image',
-    image: 'typesense/typesense:26.0',
-    status: 'running',
-    ports: '8108:8108',
-    cpu: '1.2%',
-    memory: '180 MB',
-    restartPolicy: 'always',
-    isWebApp: true,
-    webDomain: 'typesense.demo.barepod.cloud',
-    webPort: 8108,
-    sslEnabled: true,
-    volumes: [
-      { hostPath: 'typesense_data', containerPath: '/data', readOnly: false }
-    ],
-    envVars: [
-      { key: 'TYPESENSE_API_KEY', value: 'xyz_search_secret_key_prod', isSecret: true },
-      { key: 'TYPESENSE_DATA_DIR', value: '/data', isSecret: false }
-    ],
-    memoryLimit: '1 GB',
-    cpuLimit: '1.0 core',
-  },
-  {
-    id: 'pod-3',
-    name: 'n8n-workflow-automation',
-    tenantUser: 'admin',
-    sourceType: 'compose',
-    image: 'n8nio/n8n:latest',
-    status: 'running',
-    ports: '5678:5678',
-    cpu: '2.5%',
-    memory: '310 MB',
-    restartPolicy: 'unless-stopped',
-    isWebApp: true,
-    webDomain: 'n8n.workflow.barepod.cloud',
-    webPort: 5678,
-    sslEnabled: true,
-    useCloudflareTunnel: true,
-    volumes: [
-      { hostPath: 'n8n_storage', containerPath: '/home/node/.n8n', readOnly: false }
-    ],
-    envVars: [
-      { key: 'N8N_HOST', value: 'n8n.workflow.barepod.cloud', isSecret: false },
-      { key: 'N8N_PORT', value: '5678', isSecret: false },
-      { key: 'N8N_PROTOCOL', value: 'https', isSecret: false },
-      { key: 'NODE_ENV', value: 'production', isSecret: false },
-      { key: 'WEBHOOK_URL', value: 'https://n8n.workflow.barepod.cloud/', isSecret: false }
-    ],
-    memoryLimit: '2 GB',
-    cpuLimit: '2.0 cores',
-    basicAuthEnabled: true,
-    basicAuthUser: 'admin',
-    basicAuthPassword: 'N8nSecurePass2026!',
-    basicAuthRealm: 'n8n Automation Engine',
-  },
-];
 
 export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast, onOpenTerminal }) => {
   const [isDeployModalOpen, setIsDeployModalOpen] = useState(false);
@@ -209,7 +128,7 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
         </div>
 
         <div className="flex items-center gap-3">
-          <button 
+          <button
             onClick={() => onShowToast?.('Refreshed', 'Container states synchronized with Docker daemon.', 'info')}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs"
           >
@@ -300,8 +219,8 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
             const isWeb = pod.isWebApp && pod.webDomain;
 
             return (
-              <div 
-                key={pod.id} 
+              <div
+                key={pod.id}
                 className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between hover:shadow-md hover:border-slate-300 transition-all group"
               >
                 <div>
@@ -335,8 +254,8 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
                     </div>
 
                   <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                    isRunning 
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                    isRunning
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                       : 'bg-slate-100 text-slate-600 border-slate-200'
                   }`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-emerald-500' : 'bg-slate-400'}`} />
@@ -347,7 +266,7 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
                 {/* Name & Image */}
                 <div className="mt-3">
                   <div className="flex items-center justify-between">
-                    <h3 
+                    <h3
                       onClick={() => setSelectedPodForConfig(pod)}
                       className="font-bold text-slate-900 text-sm hover:text-purple-600 cursor-pointer truncate"
                       title={pod.name}
@@ -442,7 +361,7 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
 
                 <div className="flex items-center gap-1">
                   {isWeb && (
-                    <a 
+                    <a
                       href={`https://${pod.webDomain}`}
                       target="_blank"
                       rel="noreferrer"
@@ -453,7 +372,7 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
                     </a>
                   )}
 
-                  <button 
+                  <button
                     onClick={() => onOpenTerminal?.(pod.id)}
                     className="p-1.5 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100"
                     title="Open a shell inside this container"
@@ -461,7 +380,7 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
                     <Terminal className="w-3.5 h-3.5" />
                   </button>
 
-                  <button 
+                  <button
                     onClick={() => handleTogglePod(pod.id)}
                     className={`p-1.5 rounded transition-colors ${
                       isRunning ? 'text-amber-600 hover:bg-amber-50' : 'text-emerald-600 hover:bg-emerald-50'
@@ -471,7 +390,7 @@ export const PodsView: React.FC<PodsViewProps> = ({ isAdmin = false, onShowToast
                     {isRunning ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                   </button>
 
-                  <button 
+                  <button
                     onClick={() => setPodToDelete(pod)}
                     className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
                     title="Delete Pod"

@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Users,
   Plus,
   ShieldCheck,
   HardDrive,
@@ -108,7 +107,10 @@ export const UsersView: React.FC<UsersViewProps> = ({ onShowToast, currentUserna
   const [resetTarget, setResetTarget] = useState<ApiUser | null>(null);
 
   const onShowToastRef = React.useRef(onShowToast);
-  onShowToastRef.current = onShowToast;
+  // Same reason as elsewhere: keep the latest callback without writing the ref during render.
+  useEffect(() => {
+    onShowToastRef.current = onShowToast;
+  }, [onShowToast]);
 
   useEffect(() => {
     let cancelled = false;

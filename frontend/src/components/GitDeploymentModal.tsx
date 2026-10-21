@@ -1,21 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  GitBranch, 
-  Play, 
-  RotateCw, 
-  CheckCircle2, 
-  Copy, 
-  Check, 
-  X, 
-  Terminal, 
-  ExternalLink, 
-  Radio, 
-  ShieldCheck,
+import {
+  GitBranch,
+  RotateCw,
+  CheckCircle2,
+  Copy,
+  Check,
+  X,
+  Terminal,
+  Radio,
   Zap,
   FolderGit2,
   Save,
   Code2,
-  Sparkles,
   Key,
   RefreshCw
 } from 'lucide-react';

@@ -1,25 +1,22 @@
 import React, { useState } from 'react';
-import { 
-  X, 
-  Box, 
-  Globe, 
-  ExternalLink, 
-  Sliders, 
-  HardDrive, 
-  Cpu, 
-  Terminal, 
-  Play, 
-  Square, 
-  RotateCw, 
-  Copy, 
-  Check, 
-  ShieldCheck, 
-  Eye, 
-  EyeOff, 
-  Plus, 
-  Trash2, 
-  FileText, 
-  Layers, 
+import {
+  X,
+  Box,
+  Globe,
+  ExternalLink,
+  Sliders,
+  HardDrive,
+  Terminal,
+  Play,
+  Square,
+  RotateCw,
+  Copy,
+  Check,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  Plus,
+  Trash2,
   FileCode,
   Cloud,
   Lock,
@@ -51,7 +48,7 @@ export const PodConfigModal: React.FC<PodConfigModalProps> = (props) => {
 };
 
 const PodConfigModalInner: React.FC<PodConfigModalProps & { pod: PodItem }> = ({
-  isOpen,
+  isOpen: _isOpen,
   onClose,
   pod,
   onSaveConfig,
@@ -61,7 +58,7 @@ const PodConfigModalInner: React.FC<PodConfigModalProps & { pod: PodItem }> = ({
 }) => {
 
   const [activeTab, setActiveTab] = useState<'overview' | 'web' | 'env' | 'storage' | 'yaml' | 'logs'>('overview');
-  
+
   // Local editable state
   const [name, setName] = useState(pod.name);
   const [isWebApp, setIsWebApp] = useState(pod.isWebApp ?? !!pod.webDomain);
@@ -71,8 +68,8 @@ const PodConfigModalInner: React.FC<PodConfigModalProps & { pod: PodItem }> = ({
   const [useCloudflareTunnel, setUseCloudflareTunnel] = useState(pod.useCloudflareTunnel ?? false);
   const [ports, setPorts] = useState(pod.ports);
   const [restartPolicy, setRestartPolicy] = useState(pod.restartPolicy);
-  const [memoryLimit, setMemoryLimit] = useState(pod.memoryLimit || '512 MB');
-  const [cpuLimit, setCpuLimit] = useState(pod.cpuLimit || '1.0 core');
+  const [memoryLimit] = useState(pod.memoryLimit || '512 MB');
+  const [cpuLimit] = useState(pod.cpuLimit || '1.0 core');
 
   // Maintenance & Basic Auth State for Web Container
   const [maintenanceMode, setMaintenanceMode] = useState(pod.maintenanceMode ?? false);
@@ -84,7 +81,7 @@ const PodConfigModalInner: React.FC<PodConfigModalProps & { pod: PodItem }> = ({
   const [basicAuthUser, setBasicAuthUser] = useState(pod.basicAuthUser || 'admin');
   const [basicAuthPassword, setBasicAuthPassword] = useState(pod.basicAuthPassword || 'Pod$ecure2026!');
   const [basicAuthRealm, setBasicAuthRealm] = useState(pod.basicAuthRealm || `${pod.name} - Protected Container`);
-  const [basicAuthBypassIps, setBasicAuthBypassIps] = useState(pod.basicAuthBypassIps || '');
+  const [basicAuthBypassIps] = useState(pod.basicAuthBypassIps || '');
   const [showBasicAuthPassword, setShowBasicAuthPassword] = useState(false);
   const [isPreviewMaintenanceOpen, setIsPreviewMaintenanceOpen] = useState(false);
   const [isTestBasicAuthOpen, setIsTestBasicAuthOpen] = useState(false);
@@ -208,7 +205,7 @@ ${isWebApp ? `    labels:
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-3xl w-full flex flex-col max-h-[92dvh] overflow-hidden">
-        
+
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
           <div className="flex items-center gap-3">
@@ -219,8 +216,8 @@ ${isWebApp ? `    labels:
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-slate-900">{pod.name}</h2>
                 <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                  isRunning 
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                  isRunning
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                     : 'bg-slate-100 text-slate-600 border-slate-200'
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-emerald-500' : 'bg-slate-400'}`} />
@@ -342,7 +339,7 @@ ${isWebApp ? `    labels:
 
         {/* Body Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          
+
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-5">
@@ -378,8 +375,8 @@ ${isWebApp ? `    labels:
                   <button
                     onClick={() => onToggleStatus(pod.id)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
-                      isRunning 
-                        ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' 
+                      isRunning
+                        ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
                         : 'bg-emerald-600 text-white hover:bg-emerald-700'
                     }`}
                   >

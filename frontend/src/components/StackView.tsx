@@ -537,18 +537,7 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
     );
   };
 
-  const webBadge = (installed: boolean, running: boolean, version?: string) => (
-    <span className="flex items-center gap-1.5 text-[11px]">
-      <span className={`w-1.5 h-1.5 rounded-full ${running ? 'bg-emerald-500' : installed ? 'bg-amber-500' : 'bg-slate-300'}`} />
-      {/* Caddy prints its version as "v2.11.7" and nginx as "1.31.6", so the "v" is added
-          only when it is not already there — "vv2.11.7" was the two of them colliding. */}
-      {running
-        ? `running${version ? ' · ' + (version.startsWith('v') ? version : 'v' + version) : ''}`
-        : installed
-          ? 'installed, stopped'
-          : 'not installed'}
-    </span>
-  );
+
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-6">

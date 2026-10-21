@@ -15,7 +15,6 @@ import {
   Check,
   Edit3,
   Archive,
-  Terminal,
   ShieldCheck,
   Maximize2,
   Minimize2,
@@ -24,12 +23,10 @@ import {
   Copy,
   Scissors,
   Clipboard,
-  Move,
   Eye,
   FolderPlus,
   ZoomIn,
   ZoomOut,
-  ExternalLink,
   Loader2,
   TriangleAlert,
   Lock,
@@ -38,11 +35,7 @@ import {
   Play,
   Layers,
   Info,
-  Clock,
-  HardDrive,
-  KeyRound,
   FileArchive,
-  ChevronDown,
   CornerLeftUp,
 } from 'lucide-react';
 import type { WebApp } from '../types';
@@ -143,7 +136,7 @@ const buildFileOps = (scope: 'site' | 'host' | 'tenant', target: string): FileOp
     move: (from, to) => scoped.move(fileScope, from, to),
     remove: (paths) => scoped.remove(fileScope, paths),
     compress: (paths, destination, format) => scoped.compress(fileScope, paths, destination, format),
-    extract: (path, destination, stripTopLevel) => scoped.extract(fileScope, path, destination),
+    extract: (path, destination, _stripTopLevel) => scoped.extract(fileScope, path, destination),
     extractStream: (path, destination, stripTopLevel, onProgress) =>
       scoped.extractStream(fileScope, path, destination, stripTopLevel, onProgress),
     upload: (path, files, autoExtract) => scoped.uploadFiles(fileScope, path, files, autoExtract),
@@ -188,7 +181,7 @@ export interface UploadQueueItem {
   controller?: AbortController;
 }
 
-export const isArchiveName = (fileName: string): boolean => {
+const isArchiveName = (fileName: string): boolean => {
   const lower = fileName.toLowerCase();
   return (
     lower.endsWith('.zip') ||
@@ -313,7 +306,7 @@ async function getFilesFromDataTransfer(items: DataTransferItemList): Promise<Fi
 }
 
 export const FileManagerModal: React.FC<FileManagerModalProps> = ({
-  isOpen,
+  isOpen: _isOpen,
   onClose,
   app,
   inline = false,
@@ -444,7 +437,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
         { name: '.htaccess', type: 'file', size: '520 B', rawSize: 520, modified: 'Oct 10 16:20', permissions: '0644', mediaType: 'text', content: `<IfModule mod_rewrite.c>\n    RewriteEngine On\n    RewriteCond %{REQUEST_FILENAME} !-d\n    RewriteCond %{REQUEST_FILENAME} !-f\n    RewriteRule ^ index.php [L]\n</IfModule>` },
       ],
     });
-  }, [app?.name]);
+  }, [app, app?.name, app?.domain]);
 
   useEffect(() => {
     let cancelled = false;
@@ -470,7 +463,14 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
       .catch((err) => { if (!cancelled) setError(describeError(err)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [live, scopeTarget, ops, currentPath, reloadKey]);
+  }, [
+	live,
+	scopeTarget,
+	ops,
+	currentPath,
+	reloadKey,
+	scope
+]);
 
   useEffect(() => {
     const handleGlobalClick = () => setContextMenu(null);
@@ -478,7 +478,10 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     return () => window.removeEventListener('click', handleGlobalClick);
   }, []);
 
-  const rawFiles = live ? liveEntries : mockFs[currentPath] || [];
+  const rawFiles = useMemo(
+    () => (live ? liveEntries : mockFs[currentPath] || []),
+    [live, liveEntries, mockFs, currentPath],
+  );
   const currentFiles = useMemo(() => {
     if (!searchFilter.trim()) return rawFiles;
     const q = searchFilter.toLowerCase();
@@ -1014,7 +1017,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     if (extractModal.progress) {
       extractLogEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [extractModal.progress?.logs.length]);
+  }, [extractModal.progress?.logs.length, extractModal.progress]);
 
   // --- Resumable Chunked Upload Engine ---
   const enqueueUploads = (fileList: File[]) => {
@@ -1045,7 +1048,7 @@ export const FileManagerModal: React.FC<FileManagerModalProps> = ({
     const nextItem = uploadQueue.find((item) => item.status === 'queued');
     if (!nextItem) return;
 
-    let isAborted = false;
+
     const controller = new AbortController();
 
     setUploadQueue((prev) =>

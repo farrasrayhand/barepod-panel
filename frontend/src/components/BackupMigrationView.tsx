@@ -1,30 +1,17 @@
 import React, { useState } from 'react';
-import { 
-  Archive, 
-  ArrowRightLeft, 
-  Download, 
-  Upload, 
-  Cloud, 
-  ShieldCheck, 
-  CheckCircle2, 
-  RotateCw, 
-  Play, 
-  Copy, 
-  Check, 
-  Trash2, 
-  Clock, 
-  Server, 
-  Database, 
-  Layers, 
-  FileCode, 
-  HardDrive, 
-  AlertCircle, 
-  ArrowUpRight, 
-  Search,
-  ExternalLink,
+import {
+  Archive,
+  ArrowRightLeft,
+  Download,
+  Upload,
+  Cloud,
+  CheckCircle2,
+  RotateCw,
+  Play,
+  Copy,
+  Check,
+  Clock,
   Zap,
-  Key,
-  Shield,
   FileArchive
 } from 'lucide-react';
 import type { WebApp } from '../types';
@@ -52,7 +39,7 @@ interface BackupSnapshotItem {
 export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
   apps,
   onShowToast,
-  onOpenTerminal,
+  onOpenTerminal: _onOpenTerminal,
 }) => {
   const [activeTab, setActiveTab] = useSubRoute<'migration' | 'snapshots' | 'restore' | 'cloud_sync'>('migration');
   const [copiedKey, setCopiedKey] = useState(false);
@@ -73,7 +60,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
   const [syncDatabases, setSyncDatabases] = useState(true);
   const [syncVhosts, setSyncVhosts] = useState(true);
   const [syncTunnels, setSyncTunnels] = useState(true);
-  const [syncUsers, setSyncUsers] = useState(true);
+  const [,_setSyncUsers] = useState(true);
 
   // Snapshot State
   const [isCreatingSnapshot, setIsCreatingSnapshot] = useState(false);
@@ -779,8 +766,8 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
               }
             }}
             className={`p-8 border-2 border-dashed rounded-2xl text-center transition-all ${
-              dragActive 
-                ? 'border-blue-500 bg-blue-50/50' 
+              dragActive
+                ? 'border-blue-500 bg-blue-50/50'
                 : 'border-slate-300 hover:border-slate-400 bg-slate-50/50'
             }`}
           >
@@ -835,7 +822,7 @@ export const BackupMigrationView: React.FC<BackupMigrationViewProps> = ({
                     <span>{restoreProgress}%</span>
                   </div>
                   <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <div 
+                    <div
                       className="h-full bg-blue-600 transition-all duration-300"
                       style={{ width: `${restoreProgress}%` }}
                     />

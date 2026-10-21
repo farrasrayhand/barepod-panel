@@ -1,20 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  CloudRain, 
-  CheckCircle2, 
-  Key, 
-  RefreshCw, 
-  ExternalLink, 
-  ShieldCheck, 
-  Plus, 
-  Globe, 
+import {
+  CloudRain,
+  CheckCircle2,
+  Key,
+  RefreshCw,
+  ExternalLink,
+  ShieldCheck,
+  Plus,
+  Globe,
   Zap,
   Radio,
-  Lock,
   Eye,
   EyeOff,
-  Cpu,
-  Layers,
   Sparkles,
   Server,
   UserCheck,
@@ -22,14 +19,11 @@ import {
   AlertCircle,
   Loader2,
   ArrowDownToLine,
-  HelpCircle,
   Pencil,
   BookOpen,
   ChevronDown,
   ChevronUp,
-  Copy,
   Info,
-  ArrowRight,
   Unlink,
   Trash2
 } from 'lucide-react';
@@ -49,7 +43,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
 
   // Cloudflare Zones State
   const [zones, setZones] = useState<CloudflareZone[]>([]);
-  const [loadingZones, setLoadingZones] = useState(false);
+  const [,setLoadingZones] = useState(false);
   const [selectedZone, setSelectedZone] = useState<string>(''); // zone domain or 'custom'
   const [subdomain, setSubdomain] = useState<string>('');
 
@@ -78,14 +72,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
   // Interactive Tutorial / Guide State
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialTab, setTutorialTab] = useState<'connector' | 'apiToken' | 'workflow'>('connector');
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [,_setCopiedKey] = useState<string | null>(null);
 
-  const handleCopyText = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(label);
-    setTimeout(() => setCopiedKey(null), 2000);
-    onShowToast?.('Copied to Clipboard', label, 'info');
-  };
+
 
   // Fetch tunnel status from real backend
   const fetchTunnel = useCallback(async (user: string, isSilent = false) => {
@@ -186,8 +175,8 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
 
     try {
       const updated = await api.saveTunnelToken(
-        cleanedToken, 
-        inputApiToken.trim() || undefined, 
+        cleanedToken,
+        inputApiToken.trim() || undefined,
         activeUser
       );
       setTunnelData(updated);
@@ -198,7 +187,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
       setTimeout(() => setIsTokenSaved(false), 2500);
       onShowToast?.(
         'Cloudflare Configuration Saved',
-        updated.autoSync 
+        updated.autoSync
           ? `Connected to Cloudflare! Auto-sync is active for @${activeUser}.`
           : `Connector token saved. Daemon cloudflared@${activeUser} is active.`,
         'success'
@@ -520,8 +509,8 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
           <div className="flex items-center gap-3">
             <div className={`w-11 h-11 rounded-xl flex items-center justify-center border shrink-0 ${
-              isConnected 
-                ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
+              isConnected
+                ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
                 : 'bg-slate-50 text-slate-500 border-slate-200'
             }`}>
               <CloudRain className="w-6 h-6" />
@@ -531,7 +520,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                 <span className="text-base font-bold text-slate-900">
                   {tunnelData?.tunnelName || `${activeUser}-tunnel`}
                 </span>
-                
+
                 {isConnected ? (
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1 border border-emerald-200/50">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -915,10 +904,10 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   </span>
                 )}
               </div>
-              <a 
-                href="https://one.dash.cloudflare.com" 
-                target="_blank" 
-                rel="noreferrer" 
+              <a
+                href="https://one.dash.cloudflare.com"
+                target="_blank"
+                rel="noreferrer"
                 className="text-[11px] text-blue-600 hover:underline flex items-center gap-1"
               >
                 <span>Cloudflare Zero Trust → Networks → Tunnels</span>
@@ -963,10 +952,10 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   </span>
                 )}
               </div>
-              <a 
-                href="https://dash.cloudflare.com/profile/api-tokens" 
-                target="_blank" 
-                rel="noreferrer" 
+              <a
+                href="https://dash.cloudflare.com/profile/api-tokens"
+                target="_blank"
+                rel="noreferrer"
                 className="text-[11px] text-blue-600 hover:underline flex items-center gap-1"
               >
                 <span>Get API Token (Zone.DNS + Account.Tunnel)</span>
@@ -1101,9 +1090,9 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2">
                       <Globe className="w-4 h-4 text-blue-500 shrink-0" />
-                      <a 
-                        href={`https://${route.hostname}`} 
-                        target="_blank" 
+                      <a
+                        href={`https://${route.hostname}`}
+                        target="_blank"
                         rel="noreferrer"
                         className="font-semibold text-slate-800 hover:text-blue-600 hover:underline flex items-center gap-1 font-mono"
                       >
@@ -1333,7 +1322,7 @@ export const CloudflareTunnelView: React.FC<CloudflareTunnelViewProps> = ({ onSh
 
                 {/* Modern Preset Cards */}
                 <div className={`grid grid-cols-1 ${
-                  selectedAppSlug && tunnelData?.availableApps?.find(a => a.slug === selectedAppSlug)?.targetUrl && 
+                  selectedAppSlug && tunnelData?.availableApps?.find(a => a.slug === selectedAppSlug)?.targetUrl &&
                   !['http://127.0.0.1:80', 'https://127.0.0.1:443'].includes(tunnelData?.availableApps?.find(a => a.slug === selectedAppSlug)?.targetUrl || '')
                     ? 'sm:grid-cols-3'
                     : 'sm:grid-cols-2'

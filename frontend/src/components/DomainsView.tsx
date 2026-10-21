@@ -1,12 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Globe,
   ShieldCheck,
   ShieldAlert,
   Plus,
   RefreshCw,
-  ExternalLink,
-  Check,
   Lock,
   Unlock,
   AlertCircle,
@@ -15,16 +13,13 @@ import {
   ArrowUpRight,
   Trash2,
   Key,
-  FileCode,
-  Sliders,
   X,
   CheckCircle2,
   Sparkles,
   Info,
   Pencil,
   Loader2,
-  CloudRain,
-  AlertTriangle
+  CloudRain
 } from 'lucide-react';
 import {
   api,
@@ -47,6 +42,8 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusResponse | null>(null);
   const [cfZones, setCfZones] = useState<CloudflareZone[]>([]);
   const [loading, setLoading] = useState(true);
+  // Computed once per refresh instead of calling Date.now() inside the row render.
+  const [nowMs, setNowMs] = useState(0);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'primary' | 'alias' | 'ssl' | 'no-ssl'>('all');
 
@@ -100,7 +97,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
     return cfZones.some(z => domName.toLowerCase() === z.name.toLowerCase() || domName.toLowerCase().endsWith('.' + z.name.toLowerCase()));
   };
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const [domRes, webRes, tunRes, zoneRes] = await Promise.all([
@@ -112,11 +109,14 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
       setDomains(domRes.items || []);
       setWebsites(webRes.items || []);
       setTunnelStatus(tunRes);
+      setNowMs(Date.now());
 
       const zones = zoneRes?.zones && Array.isArray(zoneRes.zones) ? zoneRes.zones : [];
       setCfZones(zones);
-      if (zones.length > 0 && !addCfZone) {
-        setAddCfZone(zones[0].name);
+      // Functional updates keep this callback stable: reading the draft fields here would make it
+      // change on every keystroke and refetch the whole screen.
+      if (zones.length > 0) {
+        setAddCfZone((current) => current || zones[0].name);
       }
 
       if (tunRes?.hasToken && tunRes?.status === 'connected' && zones.length > 0) {
@@ -125,15 +125,15 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
         setAddRoutingMode('direct');
       }
 
-      if (webRes.items && webRes.items.length > 0 && !addWebsiteSlug) {
-        setAddWebsiteSlug(webRes.items[0].slug);
+      if (webRes.items && webRes.items.length > 0) {
+        setAddWebsiteSlug((current) => current || webRes.items[0].slug);
       }
     } catch (err: any) {
       onShowToast?.('Fetch Error', err?.message || 'Failed to load domains', 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [onShowToast]);
 
   // Debounced live domain validation with Cloudflare
   useEffect(() => {
@@ -210,8 +210,8 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    void fetchData();
+  }, [fetchData]);
 
   const handleAddDomain = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -536,7 +536,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({ onShowToast }) => {
               ) : (
                 filtered.map((d) => {
                   const targetWeb = websites.find(w => w.slug === d.websiteSlug);
-                  const isExpiringSoon = d.sslExpiresAt && (new Date(d.sslExpiresAt).getTime() - Date.now()) < 15 * 86400000;
+                  const isExpiringSoon = Boolean(d.sslExpiresAt) && nowMs > 0 && (new Date(d.sslExpiresAt).getTime() - nowMs) < 15 * 86400000;
                   const isCf = isDomainCloudflare(d.domain);
 
                   return (

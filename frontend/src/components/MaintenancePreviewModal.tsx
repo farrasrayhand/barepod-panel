@@ -23,13 +23,13 @@ export const MaintenancePreviewModal: React.FC<MaintenancePreviewModalProps> = (
 
   if (!isOpen) return null;
 
-  const displayMessage = message?.trim() || 
+  const displayMessage = message?.trim() ||
     'We are performing scheduled infrastructure maintenance and system updates. Service will be back online shortly.';
 
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90dvh] flex flex-col overflow-hidden">
-        
+
         {/* Modal Window Top Bar */}
         <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -101,7 +101,7 @@ export const MaintenancePreviewModal: React.FC<MaintenancePreviewModalProps> = (
               </span>
             )}
           </div>
-          <button 
+          <button
             onClick={() => {}}
             className="p-1 text-slate-500 hover:text-slate-800 rounded hover:bg-slate-200"
             title="Reload"
@@ -113,8 +113,8 @@ export const MaintenancePreviewModal: React.FC<MaintenancePreviewModalProps> = (
         {/* Browser Viewport */}
         <div className="flex-1 overflow-y-auto bg-slate-50 p-6 flex items-center justify-center">
           <div className={`transition-all duration-300 ${
-            deviceView === 'mobile' 
-              ? 'w-[360px] min-h-[580px] bg-white rounded-3xl border-8 border-slate-800 shadow-xl overflow-hidden flex flex-col' 
+            deviceView === 'mobile'
+              ? 'w-[360px] min-h-[580px] bg-white rounded-3xl border-8 border-slate-800 shadow-xl overflow-hidden flex flex-col'
               : 'w-full max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden'
           }`}>
             {simulateBypass ? (

@@ -1,26 +1,21 @@
 import React, { useState, useRef } from 'react';
-import { 
-  X, 
-  Box, 
-  Globe, 
-  Layers, 
-  FileCode, 
-  Terminal, 
-  Plus, 
-  Trash2, 
-  ShieldCheck, 
-  HardDrive, 
-  Cpu, 
-  Sliders, 
-  Code, 
-  HelpCircle,
+import {
+  X,
+  Box,
+  Globe,
+  Layers,
+  FileCode,
+  Plus,
+  Trash2,
+  ShieldCheck,
+  HardDrive,
+  Cpu,
+  Sliders,
   Cloud,
   Check,
   Upload,
   FileUp,
   FileCheck,
-  RotateCw,
-  FileText
 } from 'lucide-react';
 import type { PodItem, PodSourceType, PodEnvVar, PodVolumeMount } from '../types';
 
@@ -187,7 +182,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
   const [image, setImage] = useState('');
   const [dockerfileContent, setDockerfileContent] = useState(DOCKERFILE_TEMPLATES['node']);
   const [composeContent, setComposeContent] = useState(COMPOSE_TEMPLATES['n8n']);
-  
+
   // File upload metadata state
   const [uploadedFile, setUploadedFile] = useState<{ name: string; size: string; target: string } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -230,8 +225,8 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
 
   // File Upload Processor
   const processUploadedFile = (file: File, target: 'dockerfile' | 'compose' | 'env') => {
-    const sizeStr = file.size > 1024 * 1024 
-      ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` 
+    const sizeStr = file.size > 1024 * 1024
+      ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
       : `${(file.size / 1024).toFixed(1)} KB`;
 
     const reader = new FileReader();
@@ -318,10 +313,10 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
       finalImage = `compose-stack/${name.toLowerCase()}`;
     }
 
-    const finalPorts = ports.trim() 
-      ? ports.trim() 
-      : isWebApp 
-        ? `${webPort || 80}:${webPort || 80}` 
+    const finalPorts = ports.trim()
+      ? ports.trim()
+      : isWebApp
+        ? `${webPort || 80}:${webPort || 80}`
         : '8080:80';
 
     const newPod: PodItem = {
@@ -354,37 +349,37 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full flex flex-col max-h-[92dvh] overflow-hidden">
-        
+
         {/* Hidden File Inputs */}
-        <input 
-          type="file" 
-          ref={dockerfileInputRef} 
+        <input
+          type="file"
+          ref={dockerfileInputRef}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) processUploadedFile(f, 'dockerfile');
           }}
           accept=".dockerfile,Dockerfile,text/plain"
-          className="hidden" 
+          className="hidden"
         />
-        <input 
-          type="file" 
-          ref={composeInputRef} 
+        <input
+          type="file"
+          ref={composeInputRef}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) processUploadedFile(f, 'compose');
           }}
           accept=".yml,.yaml,docker-compose.yml,docker-compose.yaml,text/plain"
-          className="hidden" 
+          className="hidden"
         />
-        <input 
-          type="file" 
-          ref={envInputRef} 
+        <input
+          type="file"
+          ref={envInputRef}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) processUploadedFile(f, 'env');
           }}
           accept=".env,text/plain"
-          className="hidden" 
+          className="hidden"
         />
 
         {/* Modal Header */}
@@ -485,7 +480,7 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
 
         {/* Modal Body Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-5">
-          
+
           {/* TAB 1: SOURCE & BASE */}
           {configTab === 'source' && (
             <div className="space-y-4 animate-in fade-in duration-150">
@@ -687,8 +682,8 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                       if (f) processUploadedFile(f, 'dockerfile');
                     }}
                     className={`relative rounded-xl border transition-all ${
-                      isDragging 
-                        ? 'border-purple-500 ring-2 ring-purple-300' 
+                      isDragging
+                        ? 'border-purple-500 ring-2 ring-purple-300'
                         : 'border-slate-800'
                     }`}
                   >
@@ -789,8 +784,8 @@ export const DeployPodModal: React.FC<DeployPodModalProps> = ({
                       if (f) processUploadedFile(f, 'compose');
                     }}
                     className={`relative rounded-xl border transition-all ${
-                      isDragging 
-                        ? 'border-purple-500 ring-2 ring-purple-300' 
+                      isDragging
+                        ? 'border-purple-500 ring-2 ring-purple-300'
                         : 'border-slate-800'
                     }`}
                   >

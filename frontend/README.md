@@ -39,6 +39,21 @@ expected to reflow. Match these conventions rather than inventing a new one.
 - **The shell closes itself**: `App.tsx` dismisses the drawer on any navigation and
   on Escape, and locks body scroll while it is open.
 
+## Linting
+
+`npm run lint` (oxlint) is expected to finish with **0 errors and 0 warnings**.
+
+- **`react/set-state-in-effect` and `react/immutability` are off** in
+  `.oxlintrc.json`. They are React Compiler diagnostics that flag deliberate
+  patterns in this codebase: a modal resetting its draft state when it opens, and
+  the `alive` flag captured by an async effect so a late response is ignored.
+  Re-enabling them means refactoring those screens, not adding a suppression.
+- The rest stay on. `rules-of-hooks`, `exhaustive-deps`, `no-unused-vars`,
+  `react/purity`, `react/refs` and `only-export-components` are enforced; the
+  zero-warning sweep removed unused imports/bindings, moved non-component exports
+  (`BAREPOD_DEMO_PODS`, scaffold helpers) out of component files, and fixed stale
+  memo/effect dependencies.
+
 ## Known issues & deferred
 
 - **Deferred — modal overlays are still vertically centred.** Every overlay is
@@ -47,7 +62,3 @@ expected to reflow. Match these conventions rather than inventing a new one.
   call sites to `items-start sm:items-center` (plus `overflow-y-auto`) was judged
   not worth the churn. Do it if a short landscape screen ever cuts off a modal's
   header or footer. Recorded in `MASTER_PLAN.md` §4.2 as well.
-- **`PodConfigModal.tsx` violates rules-of-hooks.** An early
-  `if (!isOpen || !pod) return null;` sits before its `useState` calls, which is
-  what makes `npm run lint` fail. It predates the responsive work and is unrelated
-  to layout — the parent mounts the modal conditionally, so it does not bite today.

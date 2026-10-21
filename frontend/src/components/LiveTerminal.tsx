@@ -24,11 +24,11 @@ interface LiveTerminalProps {
  * token never appears in the URL. Binary frames are stdin/stdout, text frames are
  * control messages (`resize` uses pty.Setsize so vim/top fit the pane).
  */
-export const LiveTerminal: React.FC<LiveTerminalProps> = ({ 
-  slug, 
-  title, 
-  subtitle, 
-  isHost, 
+export const LiveTerminal: React.FC<LiveTerminalProps> = ({
+  slug,
+  title,
+  subtitle,
+  isHost,
   height,
   showSizeControl = true,
 }) => {

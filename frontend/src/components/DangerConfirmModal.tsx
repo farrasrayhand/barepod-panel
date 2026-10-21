@@ -81,7 +81,7 @@ export const DangerConfirmModal: React.FC<DangerConfirmModalProps> = ({
                   Warning: This action is PERMANENT and cannot be undone!
                 </p>
                 <p className="text-[11px] text-rose-800">
-                  {warningDescription || 
+                  {warningDescription ||
                     `All data, tables, schema, configuration, and files related to this ${itemType.toLowerCase()} will be permanently deleted from the server.`}
                 </p>
               </div>

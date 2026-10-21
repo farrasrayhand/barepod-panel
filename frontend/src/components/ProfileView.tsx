@@ -17,7 +17,6 @@ import {
   GitBranch,
   ExternalLink,
   CheckCircle2,
-  AlertCircle,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { PERMISSION_MATRIX } from '../data/permissions';
@@ -49,7 +48,7 @@ const MOCK_SESSIONS: SessionItem[] = [
 ];
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ onShowToast, onNavigatePath, currentUser, permissions }) => {
-  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [,setPasswordBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');

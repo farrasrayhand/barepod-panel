@@ -17,10 +17,10 @@ interface HostFilesViewProps {
  * For administrators: spans the entire host and every tenant home.
  * For regular users: strictly jailed to /home/<username>.
  */
-export const HostFilesView: React.FC<HostFilesViewProps> = ({ 
-  onShowToast, 
+export const HostFilesView: React.FC<HostFilesViewProps> = ({
+  onShowToast: _onShowToast,
   isAdmin = false,
-  currentUser 
+  currentUser
 }) => {
   const effectiveScope: ScopeKind = isAdmin ? 'host' : 'tenant';
   const effectiveTenant = isAdmin ? '' : (currentUser?.username || '');
@@ -70,7 +70,7 @@ export const HostFilesView: React.FC<HostFilesViewProps> = ({
             {isAdmin ? 'Host Files' : 'File Manager'}
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {isAdmin 
+            {isAdmin
               ? 'Every file on the machine, including the space websites are not using. System paths stay read-only.'
               : `Manage your isolated home files at /home/${tenant || currentUser?.username}. Securely jailed to your account.`}
           </p>

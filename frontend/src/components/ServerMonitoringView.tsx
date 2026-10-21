@@ -2,16 +2,12 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSubRoute } from '../hooks/useSubRoute';
 import { MetricHistoryChart } from './MetricHistoryChart';
 import { HostConsole } from './HostConsole';
-import { 
-  api, 
-  apiReachable, 
+import {
+  api,
+  apiReachable,
   type HostMetrics,
   type SystemStorageResponse,
   type SystemNetworkResponse,
-  type StorageMount,
-  type StorageDisk,
-  type NetInterface,
-  type SocketPort,
 } from '../api/client';
 import { formatUptime } from '../api/adapters';
 
@@ -23,29 +19,23 @@ interface LiveSeries {
   disk: number[];
   stamps: string[];
 }
-import { 
-  Activity, 
-  Cpu, 
-  HardDrive, 
-  Server, 
-  RotateCw, 
-  Search, 
-  Play, 
-  Square, 
-  Terminal, 
-  FileText, 
-  ShieldCheck, 
-  Wifi, 
-  Clock, 
-  Zap, 
-  Sliders, 
-  X, 
-  Check, 
+import {
+  Activity,
+  Cpu,
+  HardDrive,
+  Server,
+  RotateCw,
+  Search,
+  Terminal,
+  FileText,
+  ShieldCheck,
+  Wifi,
+  Clock,
+  Sliders,
+  X,
   AlertTriangle,
   ArrowDown,
   ArrowUp,
-  Filter,
-  Thermometer,
   Disc,
   Radio,
   CheckCircle2,
@@ -86,9 +76,9 @@ interface ServerMonitoringViewProps {
   isAdmin?: boolean;
 }
 
-export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({ 
+export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   onShowToast,
-  onOpenTerminal,
+  onOpenTerminal: _onOpenTerminal,
   isAdmin = false,
 }) => {
   const [activeTab, setActiveTab] = useSubRoute<'metrics' | 'processes' | 'services' | 'storage' | 'network' | 'console'>('metrics');
@@ -118,7 +108,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
   // Live Metrics State
   const [cpuUsage, setCpuUsage] = useState(14.2);
-  const [cpuHistory, setCpuHistory] = useState<number[]>([12, 14, 18, 15, 13, 16, 22, 19, 14, 15, 17, 14]);
+  const [,setCpuHistory] = useState<number[]>([12, 14, 18, 15, 13, 16, 22, 19, 14, 15, 17, 14]);
   const [perCore, setPerCore] = useState([16.4, 12.1, 18.0, 10.5]);
 
   // Host telemetry time range + synthetic history series
@@ -314,7 +304,15 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [liveMode, hostRange, isAutoRefresh, refreshInterval, activeTab]);
+  }, [
+	liveMode,
+	hostRange,
+	isAutoRefresh,
+	refreshInterval,
+	activeTab,
+	networkData,
+	storageData
+]);
 
   // Service Log Drawer State
   const [activeServiceLogs, setActiveServiceLogs] = useState<ServiceItem | null>(null);
@@ -351,13 +349,13 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   const [diskWriteMb, setDiskWriteMb] = useState(22.4);
 
   // S.M.A.R.T. Disk Health State
-  const [selectedDriveIdx, setSelectedDriveIdx] = useState(0);
+  const [,_setSelectedDriveIdx] = useState(0);
   const [isTestingSmart, setIsTestingSmart] = useState(false);
   const [smartTestProgress, setSmartTestProgress] = useState(0);
   const [smartTestResult, setSmartTestResult] = useState<string | null>(null);
 
   // Network Diagnostic & Filter State
-  const [selectedNetIface, setSelectedNetIface] = useState<string>('all');
+  const [,_setSelectedNetIface] = useState<string>('all');
   const [isPingingNet, setIsPingingNet] = useState(false);
   const [pingLatencyResults, setPingLatencyResults] = useState<{ cloudflare: string; google: string; gateway: string } | null>(null);
 
@@ -582,8 +580,8 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
   // Filter processes
   const filteredProcesses = processes.filter(p => {
-    const matchSearch = p.command.toLowerCase().includes(processSearch.toLowerCase()) || 
-      p.user.toLowerCase().includes(processSearch.toLowerCase()) || 
+    const matchSearch = p.command.toLowerCase().includes(processSearch.toLowerCase()) ||
+      p.user.toLowerCase().includes(processSearch.toLowerCase()) ||
       String(p.pid).includes(processSearch);
     const matchCategory = processCategory === 'all' || p.category === processCategory;
     return matchSearch && matchCategory;
@@ -591,7 +589,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
-      
+
       {/* Header & Server Hardware Specs Banner */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -709,7 +707,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
       {/* Primary Telemetry Cards (CPU, RAM, Disk I/O, Network) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        
+
         {/* Card 1: CPU Usage */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
           <div className="flex items-center justify-between text-xs text-slate-400">
@@ -718,7 +716,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
             </span>
             <span className="font-mono text-slate-600">{kpi.cores} vCPUs</span>
           </div>
-          
+
           <div className="flex items-baseline justify-between">
             <span className="text-3xl font-extrabold text-slate-900">{kpi.cpu.toFixed(1)}%</span>
             <span className="text-xs text-slate-400 font-mono">Load: {kpi.load}</span>
@@ -727,7 +725,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           {/* Sparkline Visual Graph */}
           <div className="h-8 flex items-end gap-1 pt-1">
             {chart.cpu.slice(-16).map((val, idx) => (
-              <div 
+              <div
                 key={idx}
                 className="flex-1 bg-blue-500/80 hover:bg-blue-600 rounded-xs transition-all duration-300"
                 style={{ height: `${Math.max(15, (val / 100) * 100)}%` }}
@@ -950,12 +948,12 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
 
       {/* TAB CONTENT */}
       <div className="bg-white rounded-b-xl border border-t-0 border-slate-200 p-6 shadow-2xs">
-        
+
         {/* TAB 1: HARDWARE & PERFORMANCE */}
         {activeTab === 'metrics' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
+
               {/* CPU Breakdown Box */}
               <div className="p-5 rounded-xl border border-slate-200 bg-slate-50/50 space-y-4">
                 <div className="flex items-center justify-between">
@@ -975,11 +973,11 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                       <span className="font-mono font-bold text-slate-800">{kpi.cpu.toFixed(1)}%</span>
                     </div>
                     <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                      <div 
+                      <div
                         className={`h-1.5 rounded-full transition-all duration-300 ${
                           kpi.cpu > 80 ? 'bg-rose-500' : kpi.cpu > 50 ? 'bg-amber-500' : 'bg-blue-600'
-                        }`} 
-                        style={{ width: `${Math.min(100, Math.max(1, kpi.cpu))}%` }} 
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(1, kpi.cpu))}%` }}
                       />
                     </div>
                   </div>
@@ -990,9 +988,9 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                       <span className="font-mono font-bold text-slate-800">{kpi.load}</span>
                     </div>
                     <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-                      <div 
-                        className="bg-indigo-600 h-1.5 rounded-full transition-all duration-300" 
-                        style={{ width: `${Math.min(100, Math.max(2, (Number(kpi.load.split(',')[0]) / Math.max(1, kpi.cores)) * 100))}%` }} 
+                      <div
+                        className="bg-indigo-600 h-1.5 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(100, Math.max(2, (Number(kpi.load.split(',')[0]) / Math.max(1, kpi.cores)) * 100))}%` }}
                       />
                     </div>
                   </div>
@@ -1076,9 +1074,9 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                       </span>
                     </div>
                     <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                      <div 
-                        className="bg-purple-500 h-1.5 transition-all duration-300" 
-                        style={{ width: `${kpi.swapTotalGb > 0 ? Math.min(100, (kpi.swapUsedGb / kpi.swapTotalGb) * 100) : 0}%` }} 
+                      <div
+                        className="bg-purple-500 h-1.5 transition-all duration-300"
+                        style={{ width: `${kpi.swapTotalGb > 0 ? Math.min(100, (kpi.swapUsedGb / kpi.swapTotalGb) * 100) : 0}%` }}
                       />
                     </div>
                   </div>
@@ -1224,7 +1222,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                   )}
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {isAdmin 
+                  {isAdmin
                     ? 'Control core server daemons, reverse proxies, runtimes, and databases.'
                     : 'System service health and process states (read-only monitoring for regular users).'}
                 </p>
@@ -1252,8 +1250,8 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                           <span className="text-[10px] text-slate-400 font-mono block mt-0.5">{svc.unit}</span>
                         </div>
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          isActive 
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                          isActive
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                             : 'bg-slate-100 text-slate-500'
                         }`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-400'}`} />
@@ -1289,8 +1287,8 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                             <button
                               onClick={() => handleToggleService(svc.unit)}
                               className={`px-2.5 py-1 text-xs font-bold rounded cursor-pointer ${
-                                isActive 
-                                  ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200' 
+                                isActive
+                                  ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
                                   : 'bg-emerald-600 text-white hover:bg-emerald-700'
                               }`}
                             >
@@ -1352,7 +1350,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span><strong>Storage diagnostic result:</strong> {smartTestResult}</span>
                 </div>
-                <button 
+                <button
                   onClick={() => setSmartTestResult(null)}
                   className="text-emerald-700 hover:text-emerald-900 font-bold p-1"
                 >
@@ -1421,7 +1419,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                   {storageData?.mounts?.length || 0} filesystem(s)
                 </span>
               </div>
-              
+
               <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-2xs">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
@@ -1449,9 +1447,9 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                           <td className="py-3 px-3">
                             <div className="flex items-center gap-2">
                               <div className="w-20 bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                                <div 
-                                  className={`h-1.5 rounded-full ${m.usagePercent > 85 ? 'bg-rose-500' : m.usagePercent > 70 ? 'bg-amber-500' : 'bg-purple-600'}`} 
-                                  style={{ width: `${Math.min(100, m.usagePercent)}%` }} 
+                                <div
+                                  className={`h-1.5 rounded-full ${m.usagePercent > 85 ? 'bg-rose-500' : m.usagePercent > 70 ? 'bg-amber-500' : 'bg-purple-600'}`}
+                                  style={{ width: `${Math.min(100, m.usagePercent)}%` }}
                                 />
                               </div>
                               <span className="text-[11px] font-semibold text-slate-700">{m.usagePercent}%</span>
@@ -1498,7 +1496,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                     const pct = Math.min(100, Math.max(15, (val / max) * 100));
                     return (
                       <div key={idx} className="flex-1 bg-emerald-100 rounded-t h-full flex items-end">
-                        <div 
+                        <div
                           className="w-full bg-emerald-500 rounded-t transition-all duration-300"
                           style={{ height: `${pct}%` }}
                         />
@@ -1529,7 +1527,7 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                     const pct = Math.min(100, Math.max(15, (val / max) * 100));
                     return (
                       <div key={idx} className="flex-1 bg-purple-100 rounded-t h-full flex items-end">
-                        <div 
+                        <div
                           className="w-full bg-purple-600 rounded-t transition-all duration-300"
                           style={{ height: `${pct}%` }}
                         />

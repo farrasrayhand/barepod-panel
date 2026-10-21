@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { 
-  ShieldAlert, 
-  X, 
-  Key, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  Copy, 
-  Check, 
+import {
+  ShieldAlert,
+  X,
+  Key,
+  Lock,
+  Eye,
+  EyeOff,
+  Copy,
+  Check,
   AlertCircle,
   Clock
 } from 'lucide-react';
@@ -266,7 +266,7 @@ export const CredentialRevealModal: React.FC<CredentialRevealModalProps> = ({
               <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
                 <div className="flex items-center justify-between text-[10px] text-slate-400 font-semibold uppercase">
                   <span>Database Password</span>
-                  <button 
+                  <button
                     onClick={() => setShowPasswordText(!showPasswordText)}
                     className="text-slate-500 hover:text-slate-800 inline-flex items-center gap-1 font-normal"
                   >

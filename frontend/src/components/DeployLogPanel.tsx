@@ -28,7 +28,11 @@ export const DeployLogPanel: React.FC<DeployLogPanelProps> = ({ slug, deployId, 
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const finished = useRef(onFinished);
-  finished.current = onFinished;
+  // Assigning a ref during render is flagged by React Compiler; the callback only needs to be
+  // current when a deploy actually finishes, which is after this effect has run.
+  useEffect(() => {
+    finished.current = onFinished;
+  }, [onFinished]);
 
   useEffect(() => {
     const stop = subscribeDeploy(

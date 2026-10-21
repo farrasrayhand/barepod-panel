@@ -1,22 +1,19 @@
 import React, { useState } from 'react';
-import { 
-  RefreshCw, 
-  Plus, 
-  Globe, 
-  Terminal, 
-  Settings, 
-  Play, 
-  Square, 
-  ExternalLink, 
-  CloudRain, 
-  ShieldCheck, 
+import {
+  RefreshCw,
+  Plus,
+  Globe,
+  Terminal,
+  Play,
+  Square,
+  ExternalLink,
+  CloudRain,
+  ShieldCheck,
   Search,
   CheckCircle2,
   Layers,
-  Server,
   Folder,
   FolderGit2,
-  Activity,
   Sliders,
   ArrowRightLeft,
   AlertTriangle,
@@ -134,7 +131,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
   const filteredApps = apps.filter((app) => {
     const matchesFilter = filterType === 'all' || app.runtime === filterType || app.webServer === filterType;
     const matchesOwner = ownerFilter === 'all' || app.tenantUser === ownerFilter;
-    const matchesSearch = app.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    const matchesSearch = app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           app.domain.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           app.tenantUser.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           (app.framework && app.framework.toLowerCase().includes(searchQuery.toLowerCase()));
@@ -397,17 +394,17 @@ export const AppsView: React.FC<AppsViewProps> = ({
                       {/* Name & Domain */}
                       <td className="py-3.5 px-4">
                         <div className="flex flex-col">
-                          <button 
+                          <button
                             onClick={() => onSelectApp?.(app.name)}
                             className="text-left font-semibold text-slate-900 text-sm hover:text-blue-600 transition-colors cursor-pointer"
                           >
                             {app.name}
                           </button>
                           <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                            <a 
-                              href={`https://${app.domain}`} 
-                              target="_blank" 
-                              rel="noreferrer" 
+                            <a
+                              href={`https://${app.domain}`}
+                              target="_blank"
+                              rel="noreferrer"
                               className="text-slate-500 hover:text-blue-600 inline-flex items-center gap-1 text-xs"
                             >
                               <span>{app.domain}</span>
@@ -532,7 +529,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                               <span>Port {app.port}</span>
                             </span>
                           )}
-                          <span 
+                          <span
                             className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200"
                             title="Auto SSL Certificate Active"
                           >

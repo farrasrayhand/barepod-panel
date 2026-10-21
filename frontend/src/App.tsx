@@ -8,7 +8,8 @@ import { AddAppModal } from './components/AddAppModal';
 import { WebTerminalView } from './components/WebTerminalView';
 import { DatabasesView } from './components/DatabasesView';
 import { CloudflareTunnelView } from './components/CloudflareTunnelView';
-import { PodsView, BAREPOD_DEMO_PODS } from './components/PodsView';
+import { PodsView } from './components/PodsView';
+import { BAREPOD_DEMO_PODS } from './data/demoPods';
 import { UsersView } from './components/UsersView';
 import { OverviewView } from './components/OverviewView';
 import { ServerMonitoringView } from './components/ServerMonitoringView';
@@ -27,7 +28,7 @@ import { LoginView } from './components/LoginView';
 import { useSession } from './hooks/useSession';
 import { useIsDesktop } from './hooks/useIsDesktop';
 import { api } from './api/client';
-import { toWebApp, formatBytes } from './api/adapters';
+import { toWebApp } from './api/adapters';
 import { siteSupportsShell, siteShellNote } from './utils/siteRuntime';
 import { isNewerVersion } from './version';
 
@@ -484,7 +485,15 @@ export function App() {
       showToast('Access restricted', 'Panel settings are restricted to administrators.', 'info');
       setCurrentTab('web');
     }
-  }, [route.tab, session.mode, session.user, isAdmin, session.can]);
+  }, [
+	route.tab,
+	session.mode,
+	session.user,
+	isAdmin,
+	session.can,
+	session,
+	showToast
+]);
 
   // A path that is not a panel route is corrected to a real one, so the address
   // bar always matches what is on screen instead of silently rendering Websites
@@ -858,10 +867,10 @@ export function App() {
           )}
 
           {currentTab === 'files' && (
-            <HostFilesView 
-              isAdmin={isAdmin} 
-              currentUser={session.user} 
-              onShowToast={showToast} 
+            <HostFilesView
+              isAdmin={isAdmin}
+              currentUser={session.user}
+              onShowToast={showToast}
             />
           )}
           {currentTab === 'stack' && isAdmin && <StackView onShowToast={showToast} />}
