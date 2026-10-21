@@ -6186,6 +6186,15 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
                     <button
                       type="button"
+                      onClick={() => setShowAdvancedDeploy(true)}
+                      className="px-4 py-2.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
+                    >
+                      <Code2 className="w-4 h-4 text-slate-500" />
+                      <span>Edit deploy script</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => setShowConnectGit(true)}
                       className="px-4 py-2.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl transition-colors flex items-center gap-2 shrink-0 cursor-pointer"
                     >
@@ -6547,6 +6556,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                     </optgroup>
                   </select>
 
+                  {isGitConnected && (<>
                   {/* Quick toggle git pull */}
                   <button
                     type="button"
@@ -6561,6 +6571,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                     <GitBranch className="w-3.5 h-3.5" />
                     <span>{buildScript.includes('git pull') ? 'git pull: ON' : '+ git pull'}</span>
                   </button>
+                  </>)}
                 </div>
               </div>
 
