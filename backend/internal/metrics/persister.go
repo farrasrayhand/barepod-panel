@@ -99,6 +99,9 @@ func (p *Persister) flush(now time.Time) {
 			}
 		}
 	}
+	if err := p.db.WriteDaemon("1m", bucket, SampleDaemon()); err != nil {
+		log.Printf("metrics: write daemon rollup: %v", err)
+	}
 
 	// Coarse tiers are derived from the minute rows. Re-running is safe because
 	// the write is INSERT OR REPLACE and the newest bucket is still open.
@@ -110,12 +113,18 @@ func (p *Persister) flush(now time.Time) {
 		if err := p.db.RollupSite("1m", "5m", 300, now.Add(-48*time.Hour)); err != nil {
 			log.Printf("metrics: roll up site 5m: %v", err)
 		}
+		if err := p.db.RollupDaemon("1m", "5m", 300, now.Add(-48*time.Hour)); err != nil {
+			log.Printf("metrics: roll up daemon 5m: %v", err)
+		}
 		// The hourly tier is built from the freshly written 5m rows above.
 		if err := p.db.RollupHost("5m", "1h", 3600, now.Add(-40*24*time.Hour)); err != nil {
 			log.Printf("metrics: roll up host 1h: %v", err)
 		}
 		if err := p.db.RollupSite("5m", "1h", 3600, now.Add(-40*24*time.Hour)); err != nil {
 			log.Printf("metrics: roll up site 1h: %v", err)
+		}
+		if err := p.db.RollupDaemon("5m", "1h", 3600, now.Add(-40*24*time.Hour)); err != nil {
+			log.Printf("metrics: roll up daemon 1h: %v", err)
 		}
 	}
 	if now.Sub(p.lastPrune) >= time.Hour {

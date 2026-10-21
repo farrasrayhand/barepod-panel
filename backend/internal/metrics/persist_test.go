@@ -80,3 +80,51 @@ func TestPersistenceRollupsQueriesAndPrune(t *testing.T) {
 		t.Fatal("SizeBytes should report the database file")
 	}
 }
+
+func TestDaemonPersistenceAndSample(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metrics.db")
+	db, err := OpenPersistence(path)
+	if err != nil {
+		t.Fatalf("open persistence: %v", err)
+	}
+	defer db.Close()
+
+	base := time.Date(2026, 10, 21, 10, 0, 0, 0, time.UTC)
+	for i, rss := range []uint64{40 << 20, 60 << 20} {
+		at := base.Add(time.Duration(i) * time.Minute)
+		if err := db.WriteDaemon("1m", at, DaemonSnapshot{
+			RSSBytes:       rss,
+			HeapAllocBytes: 10 << 20,
+			Goroutines:     20 + i,
+			FDs:            14,
+		}); err != nil {
+			t.Fatalf("write daemon: %v", err)
+		}
+	}
+
+	rows, err := db.QueryDaemon("1m", base.Add(-time.Minute))
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("daemon 1m query = %d rows, err %v", len(rows), err)
+	}
+	if rows[1].RSSBytes != 60<<20 || rows[1].Goroutines != 21 {
+		t.Fatalf("daemon row = %+v", rows[1])
+	}
+	if err := db.RollupDaemon("1m", "5m", 300, base.Add(-time.Hour)); err != nil {
+		t.Fatalf("roll up daemon: %v", err)
+	}
+	rows5, err := db.QueryDaemon("5m", base.Add(-time.Hour))
+	if err != nil || len(rows5) != 1 || rows5[0].RSSBytes != 50<<20 {
+		t.Fatalf("daemon 5m query = %+v, err %v", rows5, err)
+	}
+	if err := db.Prune(base.Add(2*time.Hour), time.Hour, 30*24*time.Hour, 365*24*time.Hour); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if rows, _ := db.QueryDaemon("1m", base.Add(-24*time.Hour)); len(rows) != 0 {
+		t.Fatalf("pruned daemon rows still present: %d", len(rows))
+	}
+
+	sample := SampleDaemon()
+	if sample.Goroutines <= 0 || sample.HeapAllocBytes == 0 {
+		t.Fatalf("unexpected daemon sample: %+v", sample)
+	}
+}

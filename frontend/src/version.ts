@@ -7,7 +7,7 @@
  * when one is running (`GET /health`), falling back to this constant in
  * offline state.
  */
-export const PANEL_VERSION = '0.4.2';
+export const PANEL_VERSION = '0.4.3';
 
 /** Short label for the UI: "v0.3.4". */
 export const PANEL_VERSION_LABEL = `v${PANEL_VERSION}`;

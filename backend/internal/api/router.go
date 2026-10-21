@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,7 +32,7 @@ import (
 
 // Version is the panel/daemon version matching GitHub release tag.
 // It can be injected at build time using -ldflags="-X 'github.com/farrasrayhand/barepod-panel/backend/internal/api.Version=...'".
-var Version = "0.4.2"
+var Version = "0.4.3"
 
 // Deps are the dependencies the HTTP layer needs.
 type Deps struct {
@@ -263,6 +264,7 @@ func New(d Deps) http.Handler {
 	// System — "monitoring" capability
 	mux.HandleFunc("GET /api/v1/system/capabilities", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleCapabilities)))
 	mux.HandleFunc("GET /api/v1/system/metrics", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemMetrics)))
+	mux.HandleFunc("GET /api/v1/system/metrics/daemon", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleDaemonMetrics)))
 	mux.HandleFunc("GET /api/v1/system/processes", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemProcesses)))
 	mux.HandleFunc("POST /api/v1/system/processes/{pid}/kill", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSystemProcessKill)))
 	mux.HandleFunc("GET /api/v1/system/services", s.requireAuth(s.requireCapability(rbac.CapMonitoring, s.handleSystemServices)))
@@ -523,6 +525,24 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/panel/tunnel", s.requireAuth(s.handlePanelTunnelStatus))
 	mux.HandleFunc("POST /api/v1/panel/tunnel/publish", s.requireAuth(s.handlePublishPanel))
 	mux.HandleFunc("POST /api/v1/panel/tunnel/unpublish", s.requireAuth(s.handleUnpublishPanel))
+
+	// Runtime profiles are for operators only: a heap or goroutine dump exposes
+	// internal paths and memory contents. There is intentionally no UI link.
+	pprofAdmin := func(h http.Handler) http.HandlerFunc {
+		return s.requireAuth(s.requireCapability(rbac.CapUsers, func(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
+			h.ServeHTTP(w, r)
+		}))
+	}
+	mux.HandleFunc("GET /debug/pprof/", pprofAdmin(http.HandlerFunc(pprof.Index)))
+	mux.HandleFunc("GET /debug/pprof/cmdline", pprofAdmin(http.HandlerFunc(pprof.Cmdline)))
+	mux.HandleFunc("GET /debug/pprof/profile", pprofAdmin(http.HandlerFunc(pprof.Profile)))
+	mux.HandleFunc("GET /debug/pprof/symbol", pprofAdmin(http.HandlerFunc(pprof.Symbol)))
+	mux.HandleFunc("POST /debug/pprof/symbol", pprofAdmin(http.HandlerFunc(pprof.Symbol)))
+	mux.HandleFunc("GET /debug/pprof/trace", pprofAdmin(http.HandlerFunc(pprof.Trace)))
+	for _, name := range []string{"allocs", "block", "goroutine", "heap", "mutex", "threadcreate"} {
+		name := name
+		mux.HandleFunc("GET /debug/pprof/"+name, pprofAdmin(pprof.Handler(name)))
+	}
 
 	// Everything else: SPA (path-based routes need index.html fallback).
 	mux.HandleFunc("/", s.handleSPA)

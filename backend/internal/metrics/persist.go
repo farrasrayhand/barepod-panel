@@ -58,6 +58,19 @@ CREATE TABLE IF NOT EXISTS site_rollups (
   PRIMARY KEY (resolution, slug, ts)
 );
 CREATE INDEX IF NOT EXISTS idx_site_rollups_res_slug_ts ON site_rollups(resolution, slug, ts);
+
+CREATE TABLE IF NOT EXISTS daemon_rollups (
+  resolution        TEXT NOT NULL,
+  ts                INTEGER NOT NULL,
+  rss_bytes         INTEGER NOT NULL,
+  heap_alloc_bytes  INTEGER NOT NULL,
+  heap_inuse_bytes  INTEGER NOT NULL,
+  heap_sys_bytes    INTEGER NOT NULL,
+  goroutines        INTEGER NOT NULL,
+  fds               INTEGER NOT NULL,
+  PRIMARY KEY (resolution, ts)
+);
+CREATE INDEX IF NOT EXISTS idx_daemon_rollups_res_ts ON daemon_rollups(resolution, ts);
 `
 
 // OpenPersistence opens (creating if needed) the metrics database.
@@ -201,6 +214,58 @@ FROM site_rollups WHERE slug = ? AND resolution = ? AND ts >= ? ORDER BY ts`,
 	return out, rows.Err()
 }
 
+// WriteDaemon stores one aggregated panel-process bucket.
+func (p *Persistence) WriteDaemon(resolution string, at time.Time, s DaemonSnapshot) error {
+	_, err := p.db.Exec(`
+INSERT OR REPLACE INTO daemon_rollups
+ (resolution, ts, rss_bytes, heap_alloc_bytes, heap_inuse_bytes, heap_sys_bytes, goroutines, fds)
+ VALUES (?,?,?,?,?,?,?,?)`,
+		resolution, at.UTC().Unix(), s.RSSBytes, s.HeapAllocBytes, s.HeapInuseBytes,
+		s.HeapSysBytes, s.Goroutines, s.FDs)
+	return err
+}
+
+// QueryDaemon returns panel-process buckets at the given resolution.
+func (p *Persistence) QueryDaemon(resolution string, since time.Time) ([]DaemonSnapshot, error) {
+	rows, err := p.db.Query(`
+SELECT ts, rss_bytes, heap_alloc_bytes, heap_inuse_bytes, heap_sys_bytes, goroutines, fds
+FROM daemon_rollups WHERE resolution = ? AND ts >= ? ORDER BY ts`,
+		resolution, since.UTC().Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []DaemonSnapshot{}
+	for rows.Next() {
+		var (
+			ts int64
+			s  DaemonSnapshot
+		)
+		if err := rows.Scan(&ts, &s.RSSBytes, &s.HeapAllocBytes, &s.HeapInuseBytes,
+			&s.HeapSysBytes, &s.Goroutines, &s.FDs); err != nil {
+			return nil, err
+		}
+		s.TS = time.Unix(ts, 0).UTC().Format(time.RFC3339)
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+// RollupDaemon averages panel-process buckets into a coarser tier.
+func (p *Persistence) RollupDaemon(from, to string, bucketSeconds int64, since time.Time) error {
+	_, err := p.db.Exec(`
+INSERT OR REPLACE INTO daemon_rollups
+ (resolution, ts, rss_bytes, heap_alloc_bytes, heap_inuse_bytes, heap_sys_bytes, goroutines, fds)
+SELECT ?, (ts / ?) * ?, CAST(AVG(rss_bytes) AS INTEGER), CAST(AVG(heap_alloc_bytes) AS INTEGER),
+       CAST(AVG(heap_inuse_bytes) AS INTEGER), CAST(AVG(heap_sys_bytes) AS INTEGER),
+       CAST(AVG(goroutines) AS INTEGER), MAX(fds)
+FROM daemon_rollups WHERE resolution = ? AND ts >= ?
+GROUP BY ts / ?`,
+		to, bucketSeconds, bucketSeconds, from, since.UTC().Unix(), bucketSeconds)
+	return err
+}
+
 // RollupHost averages one resolution into a coarser one. INSERT OR REPLACE makes a
 // repeated pass idempotent, which matters because the newest bucket is still open.
 func (p *Persistence) RollupHost(from, to string, bucketSeconds int64, since time.Time) error {
@@ -251,6 +316,9 @@ func (p *Persistence) Prune(now time.Time, oneMinute, fiveMinute, hourly time.Du
 			return err
 		}
 		if _, err := p.db.Exec(`DELETE FROM site_rollups WHERE resolution = ? AND ts < ?`, spec.resolution, spec.cutoff); err != nil {
+			return err
+		}
+		if _, err := p.db.Exec(`DELETE FROM daemon_rollups WHERE resolution = ? AND ts < ?`, spec.resolution, spec.cutoff); err != nil {
 			return err
 		}
 	}

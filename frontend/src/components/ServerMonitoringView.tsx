@@ -6,6 +6,7 @@ import {
   api,
   apiReachable,
   type HostMetrics,
+  type DaemonMetrics,
   type SystemStorageResponse,
   type SystemNetworkResponse,
 } from '../api/client';
@@ -132,6 +133,13 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
   const [liveMode, setLiveMode] = useState(false);
   const [live, setLive] = useState<HostMetrics | null>(null);
   const [liveSeries, setLiveSeries] = useState<LiveSeries | null>(null);
+  const [daemonSeries, setDaemonSeries] = useState<{
+    latest: DaemonMetrics;
+    rss: number[];
+    heap: number[];
+    goroutines: number[];
+    stamps: string[];
+  } | null>(null);
   const [liveNote, setLiveNote] = useState('');
   const [hostInfo, setHostInfo] = useState<{ kernel: string; distro: string; arch: string; hostname?: string } | null>(null);
   const [storageData, setStorageData] = useState<SystemStorageResponse | null>(null);
@@ -217,6 +225,21 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
           disk: series.items.map((s) => (s.diskReadBps + s.diskWriteBps) / 1e6), // MB/s
           stamps: series.items.map((s) => s.ts),
         });
+
+        try {
+          const daemon = await api.systemDaemonMetrics(apiRangeFor(hostRange));
+          if (!cancelled) {
+            setDaemonSeries({
+              latest: daemon.latest,
+              rss: daemon.items.map((s) => s.rssBytes / 2 ** 20),
+              heap: daemon.items.map((s) => s.heapAllocBytes / 2 ** 20),
+              goroutines: daemon.items.map((s) => s.goroutines),
+              stamps: daemon.items.map((s) => s.ts),
+            });
+          }
+        } catch {
+          if (!cancelled) setDaemonSeries(null);
+        }
 
         const requestedSeconds =
           hostRange === '7d' ? 7 * 86400
@@ -986,6 +1009,39 @@ export const ServerMonitoringView: React.FC<ServerMonitoringViewProps> = ({
                   <MetricHistoryChart title="Network I/O" unit=" Mbps" data={chart.net} timestamps={chart.stamps} color="#0ea5e9" height={220} ticks={hostRangeTicks(hostRange)} />
                   <MetricHistoryChart title="Disk I/O" unit=" MB/s" data={chart.disk} timestamps={chart.stamps} color="#a855f7" height={220} ticks={hostRangeTicks(hostRange)} />
                 </div>
+              </div>
+
+              <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Panel Daemon Runtime</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      RSS, Go heap, goroutines, and open file descriptors for the panel process itself.
+                    </p>
+                  </div>
+                  {daemonSeries?.latest && (
+                    <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
+                      <span className="px-2 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-700">RSS {formatBytes(daemonSeries.latest.rssBytes)}</span>
+                      <span className="px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700">Heap {formatBytes(daemonSeries.latest.heapAllocBytes)}</span>
+                      <span className="px-2 py-1 rounded-lg bg-violet-50 border border-violet-200 text-violet-700">{daemonSeries.latest.goroutines} goroutines</span>
+                      <span className="px-2 py-1 rounded-lg bg-slate-50 border border-slate-200 text-slate-600">{daemonSeries.latest.fds} FDs</span>
+                    </div>
+                  )}
+                </div>
+                {daemonSeries && daemonSeries.stamps.length > 0 ? (
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <MetricHistoryChart title="Daemon RSS" unit=" MB" data={daemonSeries.rss} timestamps={daemonSeries.stamps} color="#2563eb" height={200} ticks={hostRangeTicks(hostRange)} />
+                    <MetricHistoryChart title="Go Heap Alloc" unit=" MB" data={daemonSeries.heap} timestamps={daemonSeries.stamps} color="#10b981" height={200} ticks={hostRangeTicks(hostRange)} />
+                    <MetricHistoryChart title="Goroutines" unit="" data={daemonSeries.goroutines} timestamps={daemonSeries.stamps} color="#8b5cf6" height={200} ticks={hostRangeTicks(hostRange)} />
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400">
+                    Waiting for the first daemon telemetry bucket (written once a minute to metrics.db).
+                  </p>
+                )}
+                <p className="text-[10px] text-slate-400">
+                  Heap and goroutine dumps are available to admins at <code className="font-mono">/debug/pprof/heap</code> and <code className="font-mono">/debug/pprof/goroutine</code>.
+                </p>
               </div>
 
             </div>

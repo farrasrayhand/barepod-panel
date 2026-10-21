@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 ## 📊 Current Live Status
 
 > [!NOTE]
-> BarePod Panel follows an honest versioning policy: **Live** means verified on a real Linux host (Ubuntu 24.04 in Proxmox LXC), not just compiled. Current snapshot: **v0.4.2 (2026-10-21)**. The single source of truth is documented in [`MASTER_PLAN.md`](./MASTER_PLAN.md).
+> BarePod Panel follows an honest versioning policy: **Live** means verified on a real Linux host (Ubuntu 24.04 in Proxmox LXC), not just compiled. Current snapshot: **v0.4.3 (2026-10-21)**. The single source of truth is documented in [`MASTER_PLAN.md`](./MASTER_PLAN.md).
 
 | Feature / Module | Real Host Status | Description |
 |---|---|---|
@@ -52,12 +52,12 @@ curl -fsSL https://raw.githubusercontent.com/farrasrayhand/barepod-panel/main/sc
 | **Anti-Brute Force Watchdog** | **Live ✅** | Kernel-level nftables enforcement reading 6 independent sources (Postgres, MariaDB, Mongo, Redis ACL, SSH, and Panel logins). |
 | **File Manager Pro** | **Live ✅** | Path-jail protected file manager running under tenant UID/GID (`barepod fs-exec`) with chunked uploads, batch zip, in-browser editor, and media previewers. |
 | **Traffic Telemetry & Map** | **Live ✅** | Reads the active vhost's access log (Caddy JSON, Nginx/Apache combined CLF), resolves country/city/ISP/coordinates via `ip-api.com`, maps RFC1918/loopback peers to **Local Network**, flags threat probes, and streams new hits over SSE. Verified on a real host with live traffic. |
-| **Metrics History & Retention** | **Live ✅** | Live samples stay in memory; aggregated rollups (1m → 24h, 5m → 30d, 1h → configurable 30/90/365d) are written once a minute to a separate `metrics.db`, so history survives restarts. Admin can disable persistence or change retention from Monitoring & Retention. |
+| **Metrics History & Retention** | **Live ✅** | Live samples stay in memory; aggregated rollups (1m → 24h, 5m → 30d, 1h → configurable 30/90/365d) are written once a minute to a separate `metrics.db`, so history survives restarts. Daemon RSS, Go heap, goroutines and FDs are recorded in the same rollup tiers and charted on Server Monitoring; heap/goroutine pprof dumps are admin-only. Admin can disable persistence or change retention from Monitoring & Retention. |
 | **Git CI/CD & Auto-Deploy** | **Live ✅** | Per-tenant GitHub, GitLab, Gitea/Forgejo and Bitbucket connections with AES-256-GCM tokens, repo/branch discovery, ED25519 deploy keys, deploy history, and auto-deploy in **webhook / polling / off** modes. Provider hooks are registered, updated and deleted by the daemon. |
 | **Path Routing, Service Logs & Lists** | **Live ✅** | Per-site path prefixes (`/api/` → upstream) rendered into Nginx, Caddy, Apache and OpenLiteSpeed vhosts with hot reload; inline edit/delete; journald service logs; server-side `?owner=&sort_by=&order=` for websites, databases and caches. |
 | **Docker Pods** | **Scheduled 📋** | Container pod orchestration through the Docker SDK (Pod lifecycle, env, volumes, port mapping). |
 
-**Verification for v0.4.2:** on a real Ubuntu 24.04 host, the daemon reported `mode: real` with migrations through V29, the active Caddy config validated, a site returned `200` and matched its remote branch, a real GitHub webhook delivery was answered, a foreign-branch push was ignored, and telemetry aggregation plus SSE were exercised, and metrics rollups were written to the separate metrics.db. Repeatable checks live in [`scripts/verify-v042.sh`](./scripts/verify-v042.sh).
+**Verification for v0.4.3:** on a real Ubuntu 24.04 host, the daemon reported `mode: real` with migrations through V29, the active Caddy config validated, a site returned `200` and matched its remote branch, a real GitHub webhook delivery was answered, a foreign-branch push was ignored, and telemetry aggregation plus SSE were exercised, and metrics rollups were written to the separate metrics.db. Repeatable checks live in [`scripts/verify-v043.sh`](./scripts/verify-v043.sh).
 
 ---
 

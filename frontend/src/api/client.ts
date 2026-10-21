@@ -466,6 +466,16 @@ export interface HostMetrics {
   reason?: string;
 }
 
+export interface DaemonMetrics {
+  ts: string;
+  rssBytes: number;
+  heapAllocBytes: number;
+  heapInuseBytes: number;
+  heapSysBytes: number;
+  goroutines: number;
+  fds: number;
+}
+
 export interface SiteMetrics {
   ts: string;
   slug: string;
@@ -1477,6 +1487,9 @@ export const api = {
 
   systemMetrics: (range = '1h') =>
     request<MetricSeries<HostMetrics>>(`/system/metrics?range=${encodeURIComponent(range)}`),
+
+  systemDaemonMetrics: (range = '1h') =>
+    request<MetricSeries<DaemonMetrics>>(`/system/metrics/daemon?range=${encodeURIComponent(range)}`),
 
   systemProcesses: () =>
     request<{ items: any[]; total: number; checkedAt: string }>('/system/processes'),

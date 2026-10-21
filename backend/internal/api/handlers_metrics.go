@@ -134,3 +134,42 @@ func (s *Server) metricsDBSize() int64 {
 	}
 	return s.metricsDB.SizeBytes()
 }
+
+// handleDaemonMetrics returns the panel process's own RSS, heap, goroutine and
+// file-descriptor history. The latest point is read live; older points come
+// from the separate metrics.db, so this survives a daemon restart.
+//
+//	GET /system/metrics/daemon?range=24h
+//	GET /system/metrics/daemon?live=1
+func (s *Server) handleDaemonMetrics(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
+	rangeKey := r.URL.Query().Get("range")
+	window := metrics.ParseRange(rangeKey, time.Hour)
+	latest := metrics.SampleDaemon()
+
+	items := []metrics.DaemonSnapshot{}
+	storage := "none"
+	maxRange := time.Duration(0)
+	resolution := resolutionFor(window)
+	if s.metricsDB != nil {
+		maxRange = s.persistedMaxRange()
+		if r.URL.Query().Get("live") != "1" {
+			if persisted, err := s.metricsDB.QueryDaemon(resolution, time.Now().Add(-window)); err == nil && len(persisted) > 0 {
+				items = persisted
+				storage = "sqlite"
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"latest":          latest,
+		"items":           items,
+		"range":           rangeKey,
+		"resolution":      resolution,
+		"storage":         storage,
+		"windowSeconds":   int(window.Seconds()),
+		"intervalSeconds": 60,
+		"maxRangeSeconds": int(maxRange.Seconds()),
+		"metricsDbBytes":  s.metricsDBSize(),
+		"checkedAt":       time.Now().UTC().Format(time.RFC3339),
+	})
+}

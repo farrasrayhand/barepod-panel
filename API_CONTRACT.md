@@ -469,7 +469,7 @@ Normative: a client must not offer a control the site type cannot use, and the s
   Automatically reconnects in browser via standard `EventSource`.
 
 ### 4.8.3 Universal Multi-Tenant Git Providers, Auto-Deploy & Deploy Keys
-> **Implementation status:** Live (v0.4.2). Repository/branch discovery is implemented for **GitHub, GitLab (SaaS/self-hosted), Gitea/Forgejo and Bitbucket**; Custom Git stays a manual URL used through the per-site SSH deploy key.
+> **Implementation status:** Live (v0.4.3). Repository/branch discovery is implemented for **GitHub, GitLab (SaaS/self-hosted), Gitea/Forgejo and Bitbucket**; Custom Git stays a manual URL used through the per-site SSH deploy key.
 - **Multi-Tenant Git Isolation:** All provider tokens are scoped to the authenticated tenant (`user_id`) in `user_git_providers` and encrypted with **AES-256-GCM**. Non-admin tenants cannot view, use, or mutate another tenant's Git connections.
 - **`GET /me/git/providers`** (alias `GET /git/providers`) → `{ items: ApiGitProvider[] }`.
   Returns the authenticated user's configured Git providers:
@@ -538,6 +538,8 @@ Normative: a client must not offer a control the site type cannot use, and the s
 
 ### 4.10 System Monitoring
 - `GET /system/metrics?range=` + `WS: system-metrics`
+- `GET /system/metrics/daemon?range=` → `{ latest, items, resolution, storage, maxRangeSeconds, metricsDbBytes }`. `latest` is sampled live; `items` are 1m/5m/1h rollups of the panel process (`rssBytes`, `heapAllocBytes`, `heapInuseBytes`, `heapSysBytes`, `goroutines`, `fds`) from the separate `metrics.db`.
+- `GET /debug/pprof/{heap,goroutine,allocs,block,mutex,threadcreate}` · `/debug/pprof/profile` · `/debug/pprof/trace` — admin-only (`users` capability); no UI link. Heap/goroutine dumps expose internal paths and must not be public.
 - `GET /system/processes` · `POST /system/processes/:pid/kill` (SIGTERM/SIGKILL)
 - `GET /system/services` · `POST /system/services/:unit/{start,stop,restart,reload}` · `GET /system/services/:unit/logs` (journald)
 - `GET /system/disks` · `POST /system/disks/:dev/smart-test` (+ `WS: smart-test`)
