@@ -736,15 +736,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [letsEncryptEmail, setLetsEncryptEmail] = useState('');
   const [letsEncryptSaving, setLetsEncryptSaving] = useState(false);
 
-  // 4. Backups
-  const [backupSchedule, setBackupSchedule] = useState<'daily' | 'weekly' | 'disabled'>('daily');
-  const [backupRetentionDays, setBackupRetentionDays] = useState(14);
-  const [backupStorageType, setBackupStorageType] = useState<'local' | 's3' | 'r2' | 'gcs'>('local');
-  const [backupPath, setBackupPath] = useState('/var/backups/barepod');
-  const [s3Bucket, setS3Bucket] = useState('');
-  const [s3Endpoint, setS3Endpoint] = useState('');
-  const [isBackingUp, setIsBackingUp] = useState(false);
-
   // 5. Notifications — real now: the config is stored by the daemon and the maintenance jobs (notably
   // disk_alert) deliver through it. Secrets are write-only: the panel never reads them back.
   const [alerts, setAlerts] = useState<NotificationConfig | null>(null);
@@ -752,15 +743,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   const [alertsSaving, setAlertsSaving] = useState(false);
   const [alertSecrets, setAlertSecrets] = useState({ telegramBotToken: '', discordWebhookUrl: '', smtpPassword: '' });
 
-
-  const handleTestBackup = () => {
-    setIsBackingUp(true);
-    onShowToast?.('Backup Initiated', 'Creating snapshot of databases and web configurations...', 'info');
-    setTimeout(() => {
-      setIsBackingUp(false);
-      onShowToast?.('Backup Completed', 'Snapshot saved to /var/backups/barepod/snapshot_20261010_1910.tar.gz (1.2 GB)', 'success');
-    }, 2500);
-  };
 
   // Alerts are loaded when the tab is opened, so the panel never holds a secret it is not showing.
   useEffect(() => {
@@ -892,11 +874,11 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
             { id: 'general', label: 'General & Defaults', icon: Settings },
             { id: 'updates', label: 'System & Updates', icon: ArrowUpCircle },
             { id: 'cron', label: 'Cron & Scheduled Tasks', icon: Clock },
-            { id: 'monitoring', label: 'Monitoring Policy', icon: Activity },
+            { id: 'monitoring', label: 'Monitoring & Retention', icon: Activity },
             { id: 'security', label: 'Security & Auth', icon: ShieldCheck },
             { id: 'proxy', label: 'Reverse Proxy & SSL', icon: Globe },
             { id: 'backups', label: 'Backup Policy', icon: HardDrive },
-            { id: 'notifications', label: 'Alerts & Webhooks', icon: Bell },
+            { id: 'notifications', label: 'Alerts & Notifications', icon: Bell },
             { id: 'php_defaults', label: 'PHP Tuning & Exts', icon: Cpu },
           ].map((tab) => {
             const Icon = tab.icon;
@@ -913,6 +895,16 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
               >
                 <Icon className={`w-4 h-4 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
                 <span>{tab.label}</span>
+                {tab.id === 'backups' && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                    Not applied
+                  </span>
+                )}
+                {tab.id === 'proxy' && (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                    Info
+                  </span>
+                )}
               </button>
             );
           })}
@@ -1858,118 +1850,47 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           {/* 4. BACKUPS & SNAPSHOTS */}
           {activeTab === 'backups' && (
             <div className="space-y-6 w-full">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-bold text-slate-900">Automated Backups & Storage</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Back up all websites, databases, and panel configuration.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleTestBackup}
-                  disabled={isBackingUp}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 transition-colors shadow-2xs"
-                >
-                  <RotateCw className={`w-3.5 h-3.5 ${isBackingUp ? 'animate-spin' : ''}`} />
-                  <span>{isBackingUp ? 'Processing Snapshot...' : 'Create Snapshot Now'}</span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Automatic Backup Schedule
-                  </label>
-                  <select
-                    value={backupSchedule}
-                    onChange={(e) => setBackupSchedule(e.target.value as any)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-semibold"
-                  >
-                    <option value="daily">Daily (02:00 WIB)</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="disabled">Disable Automatic</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Backup Retention Period
-                  </label>
-                  <select
-                    value={backupRetentionDays}
-                    onChange={(e) => setBackupRetentionDays(Number(e.target.value))}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-medium"
-                  >
-                    <option value={7}>Keep Last 7 Days</option>
-                    <option value={14}>Keep Last 14 Days</option>
-                    <option value={30}>Keep Last 30 Days</option>
-                  </select>
-                </div>
-              </div>
-
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Target Storage (Destination)
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {(['local', 's3', 'r2'] as const).map(dest => (
-                    <button
-                      key={dest}
-                      type="button"
-                      onClick={() => setBackupStorageType(dest)}
-                      className={`p-3 rounded-xl border text-left text-xs font-bold capitalize transition-all ${
-                        backupStorageType === dest
-                          ? 'border-blue-600 bg-blue-50 text-blue-900 ring-1 ring-blue-600'
-                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      {dest === 'local' && 'Local VPS Disk'}
-                      {dest === 's3' && 'AWS S3 Compatible'}
-                      {dest === 'r2' && 'Cloudflare R2'}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base font-bold text-slate-900">Backup & Migration</h2>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                    Not applied
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  This module is planned, not implemented in the daemon yet.
+                </p>
+              </div>
+
+              <div className="p-5 rounded-2xl border border-amber-200 bg-amber-50 space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                    <HardDrive className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-amber-950">No backup is created yet</h3>
+                    <p className="text-[11px] text-amber-900/80 leading-relaxed mt-1">
+                      The previous snapshot button, schedule, retention and S3/R2 fields were
+                      removed because they had no backend: clicking them only showed a fake success
+                      message and nothing was saved. The page stays visible so the gap is explicit.
+                    </p>
+                  </div>
+                </div>
+                <div className="pl-12">
+                  <p className="text-[11px] font-semibold text-amber-900">Planned when the module ships:</p>
+                  <ul className="mt-1.5 space-y-1 text-[11px] text-amber-900/80 list-disc list-inside">
+                    <li>Local, S3-compatible and Cloudflare R2 destinations</li>
+                    <li>Daily/weekly schedule and retention pruning</li>
+                    <li>Website, database and panel-configuration snapshots</li>
+                    <li>Restore and server-to-server migration from one archive</li>
+                  </ul>
                 </div>
               </div>
 
-              {backupStorageType === 'local' ? (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Local Host Backup Directory
-                  </label>
-                  <input
-                    type="text"
-                    value={backupPath}
-                    onChange={(e) => setBackupPath(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono"
-                  />
-                </div>
-              ) : (
-                <div className="space-y-3 p-4 rounded-xl border border-slate-200 bg-slate-50">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Bucket Name
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. my-panel-backups"
-                      value={s3Bucket}
-                      onChange={(e) => setS3Bucket(e.target.value)}
-                      className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Endpoint URL
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. https://<account_id>.r2.cloudflarestorage.com"
-                      value={s3Endpoint}
-                      onChange={(e) => setS3Endpoint(e.target.value)}
-                      className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg font-mono"
-                    />
-                  </div>
-                </div>
-              )}
+              <p className="text-[11px] text-slate-500">
+                Until then, use the host's own snapshot tooling or the per-database export in
+                <strong> Databases</strong>. No panel control on this tab writes anything.
+              </p>
             </div>
           )}
 
