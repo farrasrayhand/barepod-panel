@@ -640,6 +640,13 @@ npm run build`;
     (gitStatus && gitStatus.detected && Boolean(gitStatus.repo?.trim()))
   );
 
+  // What is already saved, as opposed to the draft the operator is typing.
+  const hasStoredGit = Boolean(
+    (app.gitRepo && app.gitRepo.trim() !== '') ||
+    ['github', 'gitlab', 'bitbucket', 'gitea', 'forgejo', 'custom', 'git'].includes((app.sourceKind || '').toLowerCase()) ||
+    (gitStatus?.detected && Boolean(gitStatus.repo?.trim())),
+  );
+
   const handleBranchChange = (newBranch: string) => {
     setGitBranch(newBranch);
     const trimmed = newBranch.trim();
@@ -1387,6 +1394,14 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
     );
   };
 
+  const cancelConnectGit = () => {
+    setGitRepo(app.gitRepo || '');
+    setGitBranch(app.gitBranch || 'main');
+    setShowConnectGit(false);
+    setShowAdvancedDeploy(false);
+    setShowScriptEditor(false);
+  };
+
   const handleSaveDeployScript = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setIsSavingDeployScript(true);
@@ -1426,7 +1441,6 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
         buildScript,
       };
       onUpdateApp?.(updated);
-      if (gitRepo.trim()) setShowConnectGit(false);
       onShowToast?.('Settings Saved', `Git configuration and deploy script for '${app.name}' saved to server.${autoNote}`, 'success');
       api.websiteGitStatus(app.name).then(res => setGitStatus(res)).catch(() => {});
       loadDeployHistory();
@@ -6247,24 +6261,47 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleSaveDeployScript}
-                      disabled={isSavingDeployScript}
-                      className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
-                    >
-                      <Save className={`w-3.5 h-3.5 ${isSavingDeployScript ? 'animate-spin' : 'text-blue-600'}`} />
-                      <span>{isSavingDeployScript ? 'Saving...' : 'Save Git Config'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleTriggerDirectDeploy}
-                      disabled={isDeployingNow}
-                      className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center gap-2 shadow-sm shadow-blue-500/25 disabled:opacity-50 cursor-pointer"
-                    >
-                      <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
-                      <span>{isDeployingNow ? 'Deploying...' : 'Redeploy Now'}</span>
-                    </button>
+                    {hasStoredGit ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleSaveDeployScript}
+                          disabled={isSavingDeployScript}
+                          className="px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                        >
+                          <Save className={`w-3.5 h-3.5 ${isSavingDeployScript ? 'animate-spin' : 'text-blue-600'}`} />
+                          <span>{isSavingDeployScript ? 'Saving...' : 'Save Git Config'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleTriggerDirectDeploy}
+                          disabled={isDeployingNow}
+                          className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors flex items-center gap-2 shadow-sm shadow-blue-500/25 disabled:opacity-50 cursor-pointer"
+                        >
+                          <RotateCw className={`w-3.5 h-3.5 ${isDeployingNow ? 'animate-spin' : ''}`} />
+                          <span>{isDeployingNow ? 'Deploying...' : 'Redeploy Now'}</span>
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={cancelConnectGit}
+                          className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:underline cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveDeployScript}
+                          disabled={isSavingDeployScript || !gitRepo.trim()}
+                          className="px-4 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 rounded-xl transition-colors flex items-center gap-2 shadow-sm cursor-pointer"
+                        >
+                          <Save className={`w-3.5 h-3.5 ${isSavingDeployScript ? 'animate-spin' : ''}`} />
+                          <span>{isSavingDeployScript ? 'Saving...' : 'Save & Connect'}</span>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
 
