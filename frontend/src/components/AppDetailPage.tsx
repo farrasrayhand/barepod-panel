@@ -369,7 +369,7 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, app.runtime, app.id]);
-  const [logType, setLogType] = useState<'all' | 'access' | 'error' | 'deploy'>('all');
+  const [logType, setLogType] = useState<'all' | 'access' | 'error'>('all');
   const [logSearch, setLogSearch] = useState('');
   const [logFormat, setLogFormat] = useState<'structured' | 'raw'>('structured');
   const [logTheme, setLogTheme] = useState<'light' | 'dark'>('light'); // Default to light mode as requested!
@@ -3345,7 +3345,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
               {/* Log Category Tabs */}
               <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100 overflow-x-auto">
-                {(['all', 'access', 'error', 'deploy'] as const).map(type => (
+                {(['all', 'access', 'error'] as const).map(type => (
                   <button
                     key={type}
                     onClick={() => setLogType(type)}
@@ -3355,7 +3355,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                     }`}
                   >
-                    {type === 'all' ? 'All Logs' : type === 'access' ? 'Access Logs' : type === 'error' ? 'Errors / WAF' : 'Deploy Logs'}
+                    {type === 'all' ? 'All Logs' : type === 'access' ? 'Access Logs' : 'Errors / WAF'}
                   </button>
                 ))}
               </div>
@@ -6307,6 +6307,18 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                   <ChevronDown className={`w-4 h-4 text-slate-500 shrink-0 transition-transform ${showAdvancedDeploy ? 'rotate-180' : ''}`} />
                 </button>
 
+                {!showAdvancedDeploy && (
+                  <div className="flex justify-end -mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvancedDeploy(true)}
+                      className="text-[11px] font-semibold text-blue-700 hover:text-blue-800 hover:underline cursor-pointer"
+                    >
+                      Edit deploy script
+                    </button>
+                  </div>
+                )}
+
                 {showAdvancedDeploy && (<>
                 {/* Git Repo & Branch Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -6464,7 +6476,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
             {showAdvancedDeploy && (<>
             {/* Build Script Editor Card */}
-            <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+            <div id="deploy-script-editor" className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-100 pb-3">
                 <div>
                   <div className="flex items-center gap-2">
