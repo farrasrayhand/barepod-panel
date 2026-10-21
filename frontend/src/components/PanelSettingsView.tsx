@@ -463,20 +463,21 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }
   };
 
-  const saveExternalAddress = async () => {
+  const refreshExternalAddress = async () => {
+    if (externalSaving) return;
+    const info = await publicIP.refresh(true);
+    if (!info?.ip) return;
     setExternalSaving(true);
     try {
-      const saved = await api.savePanelSettings({ externalAddress: externalAddress.trim() });
-      setExternalAddress(saved.externalAddress || '');
+      await api.savePanelSettings({ externalAddress: info.ip });
+      setExternalAddress(info.ip);
       onShowToast?.(
-        saved.externalAddress ? 'External address saved' : 'External address cleared',
-        saved.externalAddress
-          ? 'Connection snippets and the sidebar will use it from now on.'
-          : 'The panel will name the address it is being used on.',
+        'Public IP refreshed',
+        `External address set to ${info.ip}${info.source === 'egress' ? ' (egress; confirm it accepts inbound connections)' : ''}.`,
         'success',
       );
     } catch (err) {
-      onShowToast?.('Could not save', err instanceof Error ? err.message : 'unknown error', 'error');
+      onShowToast?.('Could not save the detected IP', err instanceof Error ? err.message : 'unknown error', 'error');
     } finally {
       setExternalSaving(false);
     }
@@ -946,56 +947,33 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 <label className="block">
                   <span className="text-xs font-bold text-slate-800">External address (what clients use)</span>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    A bare hostname or public IP — no scheme, no port. The daemon cannot detect it:
-                    behind NAT there is no public address to find, and a domain proxied by a CDN cannot
-                    carry a database port. Leave it empty and the panel names the address it is being
-                    used on.
+                    This is detected by the daemon, not typed by hand. It prefers a globally routable
+                    interface address and otherwise uses the egress address. Refresh re-detects it and
+                    updates the address used by database connection snippets.
                   </p>
                 </label>
                 <div className="flex gap-2">
                   <input
-                    value={externalAddress}
-                    onChange={(e) => setExternalAddress(e.target.value)}
-                    disabled={!isAdmin}
-                    placeholder={publicIP.ip || 'db.example.com or 203.0.113.10'}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500 disabled:opacity-60"
+                    value={publicIP.ip || externalAddress || ''}
+                    readOnly
+                    placeholder={publicIP.loading ? 'Detecting public IP…' : 'No public IP detected'}
+                    className="w-full px-3 py-2 text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-mono cursor-default"
                   />
                   <button
                     type="button"
-                    onClick={() => void saveExternalAddress()}
-                    disabled={!isAdmin || externalSaving}
-                    className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors shrink-0"
+                    onClick={() => void refreshExternalAddress()}
+                    disabled={!isAdmin || publicIP.loading || externalSaving}
+                    className="px-3.5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 rounded-lg transition-colors shrink-0 inline-flex items-center gap-1.5"
                   >
-                    {externalSaving ? 'Saving…' : 'Save'}
+                    <RefreshCw className={`w-3.5 h-3.5 ${publicIP.loading || externalSaving ? 'animate-spin' : ''}`} />
+                    {publicIP.loading || externalSaving ? 'Refreshing…' : 'Refresh public IP'}
                   </button>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
-                  <span>
-                    Detected public IP:{' '}
-                    <code className="font-mono text-slate-700">
-                      {publicIP.ip || (publicIP.loading ? 'detecting…' : 'unavailable')}
-                    </code>
-                    {publicIP.info?.source === 'egress' ? ' (egress)' : ''}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void publicIP.refresh(true)}
-                    disabled={publicIP.loading}
-                    className="font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50 cursor-pointer inline-flex items-center gap-1"
-                  >
-                    <RefreshCw className={`w-3 h-3 ${publicIP.loading ? 'animate-spin' : ''}`} />
-                    Refresh public IP
-                  </button>
-                  {publicIP.ip && isAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => setExternalAddress(publicIP.ip)}
-                      className="font-semibold text-slate-700 hover:text-slate-900 cursor-pointer"
-                    >
-                      Use detected IP
-                    </button>
-                  )}
-                </div>
+                <p className="text-[10px] text-slate-500">
+                  {publicIP.info?.source === 'egress'
+                    ? 'Detected as an egress address. Behind NAT or a tunnel it may not accept inbound connections; refresh updates the address used by connection snippets.'
+                    : 'Detected from a globally routable interface address. Refresh updates the address used by connection snippets.'}
+                </p>
                 {publicIP.error && <p className="text-[10px] text-amber-700">{publicIP.error}</p>}
               </div>
 
