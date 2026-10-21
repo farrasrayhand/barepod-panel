@@ -236,3 +236,52 @@ func TestDetectCachedAndInvalidation(t *testing.T) {
 	}
 }
 
+// scriptRunner answers only the systemctl probes databaseUnit needs.
+type scriptRunner struct {
+	active    map[string]string
+	installed map[string]bool
+}
+
+func (r scriptRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
+	if name == "systemctl" && len(args) >= 2 {
+		unit := args[1]
+		switch args[0] {
+		case "is-active":
+			return r.active[unit], nil
+		case "status":
+			if r.installed[unit] {
+				return "loaded", nil
+			}
+			return "Unit " + unit + ".service could not be found.", os.ErrNotExist
+		}
+	}
+	return "", nil
+}
+func (r scriptRunner) RunAs(context.Context, string, string, string, ...string) (string, error) {
+	return "", nil
+}
+func (r scriptRunner) RunEnv(context.Context, string, []string, string, ...string) (string, error) {
+	return "", nil
+}
+func (r scriptRunner) Mode() string { return "test" }
+
+func TestDatabaseUnitHandlesMySQLAndMariaDB(t *testing.T) {
+	mysql := scriptRunner{active: map[string]string{"mysql": "active", "mariadb": ""}, installed: map[string]bool{"mysql": true}}
+	if unit, active, installed := databaseUnit(context.Background(), mysql); unit != "mysql" || !active || !installed {
+		t.Fatalf("mysql host = (%q, %v, %v), want (mysql, true, true)", unit, active, installed)
+	}
+	maria := scriptRunner{active: map[string]string{"mysql": "", "mariadb": "active"}, installed: map[string]bool{"mariadb": true}}
+	if unit, active, installed := databaseUnit(context.Background(), maria); unit != "mariadb" || !active || !installed {
+		t.Fatalf("mariadb host = (%q, %v, %v), want (mariadb, true, true)", unit, active, installed)
+	}
+	// Installed but stopped: the caller must be able to start the right unit.
+	stopped := scriptRunner{active: map[string]string{"mysql": "inactive"}, installed: map[string]bool{"mysql": true}}
+	if unit, active, installed := databaseUnit(context.Background(), stopped); unit != "mysql" || active || !installed {
+		t.Fatalf("stopped mysql = (%q, %v, %v), want (mysql, false, true)", unit, active, installed)
+	}
+	// Neither unit: do not claim a repair.
+	none := scriptRunner{active: map[string]string{}, installed: map[string]bool{}}
+	if _, active, installed := databaseUnit(context.Background(), none); active || installed {
+		t.Fatalf("absent database = active=%v installed=%v, want false/false", active, installed)
+	}
+}

@@ -69,10 +69,9 @@ pkill -f "php -S 127.0.0.1:8791" || true
 	_ = cmd.Run()
 }
 
-// EnsurePhpMyAdmin checks if phpMyAdmin is installed in dbtoolsDir/phpmyadmin/index.php.
-// If not installed, it downloads and extracts the official phpMyAdmin archive automatically,
-// and ensures php-cli and required extensions (mysqli, mbstring, etc.) are installed and active.
-func EnsurePhpMyAdmin(dbtoolsDir string) error {
+// EnsurePhpMyAdmin installs phpMyAdmin when it is missing. changed is false when it
+// was already present, so a watchdog does not report a repair on every tick.
+func EnsurePhpMyAdmin(dbtoolsDir string) (changed bool, err error) {
 	installMu.Lock()
 	defer installMu.Unlock()
 
@@ -82,7 +81,7 @@ func EnsurePhpMyAdmin(dbtoolsDir string) error {
 	EnsurePhpExtensions()
 
 	if _, err := os.Stat(indexPath); err == nil {
-		return nil
+		return false, nil
 	}
 
 	_ = os.MkdirAll(dbtoolsDir, 0755)
@@ -91,16 +90,16 @@ func EnsurePhpMyAdmin(dbtoolsDir string) error {
 	client := &http.Client{Timeout: 90 * time.Second}
 	resp, err := client.Get(url)
 	if err != nil {
-		return fmt.Errorf("download phpmyadmin: %w", err)
+		return false, fmt.Errorf("download phpmyadmin: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download phpmyadmin failed with HTTP %d", resp.StatusCode)
+		return false, fmt.Errorf("download phpmyadmin failed with HTTP %d", resp.StatusCode)
 	}
 
 	gzr, err := gzip.NewReader(resp.Body)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer gzr.Close()
 
@@ -109,7 +108,7 @@ func EnsurePhpMyAdmin(dbtoolsDir string) error {
 
 	tmpDir, err := os.MkdirTemp(dbtoolsDir, "pma_tmp_*")
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer os.RemoveAll(tmpDir)
 
@@ -119,7 +118,7 @@ func EnsurePhpMyAdmin(dbtoolsDir string) error {
 			break
 		}
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		clean := filepath.Clean(header.Name)
@@ -149,10 +148,10 @@ func EnsurePhpMyAdmin(dbtoolsDir string) error {
 
 	_ = os.RemoveAll(pmaDir)
 	if err := os.Rename(tmpDir, pmaDir); err != nil {
-		return err
+		return false, err
 	}
 	_ = os.Chmod(pmaDir, 0755)
-	return nil
+	return true, nil
 }
 
 // EnsurePgweb checks if pgweb binary exists in /usr/local/bin/pgweb.
@@ -225,4 +224,3 @@ func EnsurePgweb() error {
 	}
 	return nil
 }
-

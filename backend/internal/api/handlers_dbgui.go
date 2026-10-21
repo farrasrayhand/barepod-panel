@@ -305,7 +305,7 @@ func (s *Server) guiToolAvailability(kind string, record *store.Database, tool g
 	if sub := guiToolInstallDir(tool.name); sub != "" {
 		if _, err := os.Stat(filepath.Join(s.cfg.DbtoolsDir, sub, "index.php")); err != nil {
 			if tool.name == "phpmyadmin" {
-				if err := dbtools.EnsurePhpMyAdmin(s.cfg.DbtoolsDir); err != nil {
+				if _, err := dbtools.EnsurePhpMyAdmin(s.cfg.DbtoolsDir); err != nil {
 					return "", false, fmt.Sprintf("auto-installing %s failed: %v", tool.name, err)
 				}
 			} else {
@@ -340,7 +340,7 @@ func (s *Server) guiToolRunnable(spec dbtools.Spec) (string, bool) {
 		if spec.Name == "pgweb" {
 			_ = dbtools.EnsurePgweb()
 		} else if spec.Name == "phpmyadmin" {
-			_ = dbtools.EnsurePhpMyAdmin(s.cfg.DbtoolsDir)
+			_, _ = dbtools.EnsurePhpMyAdmin(s.cfg.DbtoolsDir)
 		}
 		if _, ok := dbtools.Available(spec, s.lookPath); !ok {
 			return fmt.Sprintf("%s is not installed on this host", spec.Binary), false
@@ -915,7 +915,7 @@ func guiConnectionString(record store.Database, password string) string {
 // phpMyAdmin sees its own root but must still generate the panel's URLs.
 func (s *Server) preparePhpMyAdmin(record *store.Database, password, mount string, r *http.Request) (string, error) {
 	dir := filepath.Join(s.cfg.DbtoolsDir, "phpmyadmin")
-	if err := dbtools.EnsurePhpMyAdmin(s.cfg.DbtoolsDir); err != nil {
+	if _, err := dbtools.EnsurePhpMyAdmin(s.cfg.DbtoolsDir); err != nil {
 		return "", fmt.Errorf("phpMyAdmin auto-installation failed: %w", err)
 	}
 	scheme := requestScheme(r)

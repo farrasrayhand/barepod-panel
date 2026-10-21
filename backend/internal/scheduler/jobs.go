@@ -436,7 +436,7 @@ var registry = []Job{
 				return "", err
 			}
 			vacuumJournal(ctx, env, 14)
-			return fmt.Sprintf("pruned %d retained job record(s); live metrics are held in memory and need no pruning", pruned), nil
+			return fmt.Sprintf("pruned %d retained job record(s); metric rollups are pruned by the metrics persister", pruned), nil
 		},
 	},
 	{
@@ -574,6 +574,11 @@ var registry = []Job{
 		Run: func(ctx context.Context, env *Env) (string, error) {
 			if !hasBinary("apt-get") {
 				return "apt-get is not available on this host; nothing to update", nil
+			}
+			// Refresh the package lists first; without this the job can run daily against
+			// stale metadata and honestly report "no packages" while updates are pending.
+			if out, err := env.Host.Run(ctx, []string{"apt-get", "-o", "DPkg::Lock::Timeout=600", "update", "-qq"}); err != nil {
+				return strings.TrimSpace(out), fmt.Errorf("apt-get update: %w", err)
 			}
 			// unattended-upgrade is the security-only path when the host has it configured.
 			if hasBinary("unattended-upgrade") {

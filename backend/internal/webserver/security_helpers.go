@@ -130,12 +130,19 @@ func SyncAllMaintenancePages() int {
 		indexPath := filepath.Join(MaintenanceDir, slug, "index.html")
 		content, _ := os.ReadFile(indexPath)
 		isStopped := strings.Contains(string(content), "Stopped") || strings.Contains(string(content), "stopped")
+		title, message := "Maintenance Mode", "We are currently performing scheduled maintenance. Please check back shortly."
+		expected := RenderMaintenanceHTML(title, message)
 		if isStopped {
-			_, _ = WriteMaintenancePage(slug, StoppedTitle, "This website has been stopped by the site owner in the control panel.")
-		} else {
-			_, _ = WriteMaintenancePage(slug, "Maintenance Mode", "We are currently performing scheduled maintenance. Please check back shortly.")
+			title = StoppedTitle
+			message = "This website has been stopped by the site owner in the control panel."
+			expected = RenderStoppedHTML(title, message)
 		}
-		count++
+		if string(content) == expected {
+			continue
+		}
+		if _, err := WriteMaintenancePage(slug, title, message); err == nil {
+			count++
+		}
 	}
 	return count
 }

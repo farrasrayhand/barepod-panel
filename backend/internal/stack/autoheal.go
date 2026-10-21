@@ -40,35 +40,43 @@ func needsStart(state string) bool {
 func AutoHeal(ctx context.Context, runner host.Runner, activeEngine string) []string {
 	var actions []string
 
-	// 1. MariaDB / MySQL Auto-Heal
-	if isBinaryInstalled("mariadb") || isBinaryInstalled("mysqld") {
-		// Ensure systemctl enable
-		_, _ = runner.Run(ctx, "", "systemctl", "enable", "mariadb")
+	// 1. MariaDB / MySQL Auto-Heal. A host may run either unit (or a standalone
+	// mysqld); hard-coding "mariadb" made a healthy MySQL install look broken and
+	// produced a repair on every watchdog tick.
+	if isBinaryInstalled("mariadb") || isBinaryInstalled("mysqld") || isBinaryInstalled("mysql") {
+		unit, active, installed := databaseUnit(ctx, runner)
+		if installed {
+			_, _ = runner.Run(ctx, "", "systemctl", "enable", unit)
 
-		// Heal incompatible provider configs if running MariaDB 10.x
-		providerFiles, _ := filepath.Glob("/etc/mysql/mariadb.conf.d/provider_*.cnf")
-		if len(providerFiles) > 0 {
-			verOut, _ := runner.Run(ctx, "", "mariadb", "--version")
-			if strings.Contains(verOut, "10.") {
-				_ = os.MkdirAll("/etc/mysql/mariadb.conf.d/disabled_providers", 0755)
-				for _, f := range providerFiles {
-					dest := filepath.Join("/etc/mysql/mariadb.conf.d/disabled_providers", filepath.Base(f))
-					_ = os.Rename(f, dest)
-					actions = append(actions, fmt.Sprintf("mariadb: isolated incompatible config %s", filepath.Base(f)))
+			// Provider configs are a MariaDB 10.x problem; never move files on a
+			// MySQL host just because the directory exists.
+			if unit == "mariadb" && !active {
+				providerFiles, _ := filepath.Glob("/etc/mysql/mariadb.conf.d/provider_*.cnf")
+				if len(providerFiles) > 0 {
+					verOut, _ := runner.Run(ctx, "", "mariadb", "--version")
+					if strings.Contains(verOut, "10.") {
+						_ = os.MkdirAll("/etc/mysql/mariadb.conf.d/disabled_providers", 0755)
+						for _, f := range providerFiles {
+							dest := filepath.Join("/etc/mysql/mariadb.conf.d/disabled_providers", filepath.Base(f))
+							_ = os.Rename(f, dest)
+							actions = append(actions, fmt.Sprintf("mariadb: isolated incompatible config %s", filepath.Base(f)))
+						}
+					}
 				}
 			}
-		}
 
-		// Check status. A service systemd is already starting (crash recovery) or stopping is
-		// left alone; only a unit that is genuinely down is started.
-		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "mariadb")
-		if needsStart(strings.TrimSpace(activeOut)) {
-			// Clean stale pid if process is dead
-			_ = os.Remove("/var/run/mysqld/mysqld.pid")
-			_ = os.Remove("/run/mysqld/mysqld.pid")
-			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "mariadb")
-			_, _ = runner.Run(ctx, "", "systemctl", "start", "mariadb")
-			actions = append(actions, "mariadb: repaired & started service")
+			if !active {
+				// Clean stale pid if the process is dead.
+				_ = os.Remove("/var/run/mysqld/mysqld.pid")
+				_ = os.Remove("/run/mysqld/mysqld.pid")
+				_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", unit)
+				out, err := runner.Run(ctx, "", "systemctl", "start", unit)
+				if err != nil {
+					actions = append(actions, fmt.Sprintf("%s: start failed: %s", unit, strings.TrimSpace(out)))
+				} else {
+					actions = append(actions, fmt.Sprintf("%s: repaired & started service", unit))
+				}
+			}
 		}
 	}
 
@@ -140,12 +148,12 @@ func AutoHeal(ctx context.Context, runner host.Runner, activeEngine string) []st
 		_ = os.MkdirAll("/etc/caddy/sites", 0755)
 
 		activeOut, _ := runner.Run(ctx, "", "systemctl", "is-active", "caddy")
-		testOut, testErr := runner.Run(ctx, "", "caddy", "validate", "--config", "/etc/caddy/Caddyfile")
+		_, testErr := runner.Run(ctx, "", "caddy", "validate", "--config", "/etc/caddy/Caddyfile")
 		state := strings.TrimSpace(activeOut)
 
 		// An invalid config always needs a rewrite; otherwise only a unit that is down is
 		// touched — a reload or a start already in flight is left to finish.
-		if testErr != nil || strings.Contains(testOut, "error") || needsStart(state) {
+		if testErr != nil || needsStart(state) {
 			_ = webserver.WriteCaddyConfig("/etc/caddy/Caddyfile", "/etc/caddy/sites", caddyIsBackend)
 			_, _ = runner.Run(ctx, "", "systemctl", "reset-failed", "caddy")
 			_, _ = runner.Run(ctx, "", "systemctl", "restart", "caddy")
@@ -222,8 +230,8 @@ if changed:
 	// 7. DB Tools (phpMyAdmin, pgweb) Auto-Heal
 	dbtoolsDir := "/var/lib/barepod/dbtools"
 	if isBinaryInstalled("mariadb") || isBinaryInstalled("mysqld") || isBinaryInstalled("mysql") || isDir("/etc/mysql") {
-		if err := dbtools.EnsurePhpMyAdmin(dbtoolsDir); err == nil {
-			actions = append(actions, "dbtools: verified phpMyAdmin & php extensions")
+		if changed, err := dbtools.EnsurePhpMyAdmin(dbtoolsDir); err == nil && changed {
+			actions = append(actions, "dbtools: installed phpMyAdmin")
 		}
 	}
 	if isBinaryInstalled("psql") || isDir("/etc/postgresql") {
@@ -270,6 +278,23 @@ func StartAutoHealWatchdog(ctx context.Context, runner host.Runner, interval tim
 			}
 		}
 	}()
+}
+
+// databaseUnit returns the unit the host actually uses. MySQL and MariaDB share
+// the same client/server layout but not the unit name; checking only "mariadb"
+// treated every healthy MySQL host as down.
+func databaseUnit(ctx context.Context, runner host.Runner) (unit string, active, installed bool) {
+	for _, candidate := range []string{"mysql", "mariadb"} {
+		out, _ := runner.Run(ctx, "", "systemctl", "is-active", candidate)
+		switch strings.TrimSpace(out) {
+		case "active", "activating", "reloading", "deactivating":
+			return candidate, true, true
+		}
+		if isServiceInstalled(ctx, runner, candidate) {
+			return candidate, false, true
+		}
+	}
+	return "", false, false
 }
 
 func isBinaryInstalled(name string) bool {
