@@ -13,6 +13,8 @@ import {
   Activity,
   Server,
   RefreshCw,
+  Copy,
+  Check,
   Archive,
   Webhook,
   X
@@ -52,6 +54,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
   const compact = collapsed && isDesktop;
 
   const publicIP = usePublicIP();
+  const [copiedPublicIP, setCopiedPublicIP] = useState(false);
+
+  const copyPublicIP = async () => {
+    if (!publicIP.ip) return;
+    try {
+      await navigator.clipboard.writeText(publicIP.ip);
+      setCopiedPublicIP(true);
+      setTimeout(() => setCopiedPublicIP(false), 1600);
+    } catch {
+      // Clipboard denied: the address stays visible.
+    }
+  };
 
   const canDo = (perm: string) => isAdmin || (can ? can(perm) : false);
 
@@ -197,15 +211,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
                 Public IP:
               </span>
             </span>
-            <button
-              onClick={() => void publicIP.refresh(true)}
-              disabled={publicIP.loading}
-              className="group flex items-center gap-1 font-mono font-bold text-slate-800 text-[11px] bg-white hover:bg-blue-50 px-2 py-0.5 rounded border border-slate-200 hover:border-blue-300 transition-colors shadow-2xs disabled:opacity-60 cursor-pointer"
-              title={publicIP.error || (publicIP.info?.source === 'egress' ? 'Egress address — not necessarily inbound (NAT/tunnel)' : 'Refresh public IP')}
-            >
-              <span>{publicIP.ip || (publicIP.loading ? 'Detecting…' : 'Unavailable')}</span>
-              <RefreshCw className={`w-3 h-3 text-slate-400 group-hover:text-blue-600 ${publicIP.loading ? 'animate-spin' : ''}`} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => void copyPublicIP()}
+                disabled={!publicIP.ip}
+                className="group flex items-center gap-1 font-mono font-bold text-slate-800 text-[11px] bg-white hover:bg-blue-50 px-2 py-0.5 rounded border border-slate-200 hover:border-blue-300 transition-colors shadow-2xs disabled:opacity-60 cursor-pointer"
+                title={publicIP.ip ? 'Click to copy the public IP' : (publicIP.error || 'Public IP unavailable')}
+              >
+                <span>{publicIP.ip || (publicIP.loading ? 'Detecting…' : 'Unavailable')}</span>
+                {copiedPublicIP ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3 text-slate-400 group-hover:text-blue-600" />}
+              </button>
+              <button
+                onClick={() => void publicIP.refresh(true)}
+                disabled={publicIP.loading}
+                className="p-1 rounded border border-slate-200 bg-white hover:bg-blue-50 text-slate-500 hover:text-blue-600 transition-colors shadow-2xs disabled:opacity-60 cursor-pointer"
+                title={publicIP.error || (publicIP.info?.source === 'egress' ? 'Egress address — not necessarily inbound (NAT/tunnel); click to refresh' : 'Refresh public IP')}
+              >
+                <RefreshCw className={`w-3 h-3 ${publicIP.loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           </div>
 
           {/* Cloudflare Tunnel Status */}

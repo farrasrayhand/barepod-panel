@@ -463,6 +463,17 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
     }
   };
 
+  const copyExternalAddress = async () => {
+    const value = publicIP.ip || externalAddress;
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      onShowToast?.('Public IP copied', `${value} is on the clipboard.`, 'success');
+    } catch {
+      onShowToast?.('Could not copy', 'The browser denied clipboard access.', 'error');
+    }
+  };
+
   const refreshExternalAddress = async () => {
     if (externalSaving) return;
     const info = await publicIP.refresh(true);
@@ -956,8 +967,10 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   <input
                     value={publicIP.ip || externalAddress || ''}
                     readOnly
+                    onClick={() => void copyExternalAddress()}
                     placeholder={publicIP.loading ? 'Detecting public IP…' : 'No public IP detected'}
-                    className="w-full px-3 py-2 text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-mono cursor-default"
+                    title="Click to copy the public IP"
+                    className="w-full px-3 py-2 text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-mono cursor-copy"
                   />
                   <button
                     type="button"

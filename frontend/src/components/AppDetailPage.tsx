@@ -1865,6 +1865,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
   const publicIP = usePublicIP();
   const serverIp = publicIP.ip;
+  const [copiedServerIp, setCopiedServerIp] = useState(false);
   const isTunnelAutoSync = Boolean(
     tunnelStatus?.hasToken &&
     tunnelStatus?.status === 'connected' &&
@@ -3894,9 +3895,22 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                   </p>
                 )}
                 <div className="flex items-center gap-2 pt-0.5">
-                  <code className="px-2.5 py-1 text-xs font-mono font-bold bg-slate-50 text-slate-900 border border-slate-200 rounded-lg flex-1">
-                    {serverIp || (publicIP.loading ? 'Detecting…' : 'Unavailable')}
-                  </code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!serverIp) return;
+                      void navigator.clipboard.writeText(serverIp);
+                      setCopiedServerIp(true);
+                      onShowToast?.('Public IP copied', `${serverIp} is on the clipboard.`, 'success');
+                      setTimeout(() => setCopiedServerIp(false), 1600);
+                    }}
+                    disabled={!serverIp}
+                    className={`px-2.5 py-1 text-xs font-mono font-bold bg-slate-50 hover:bg-blue-50 text-slate-900 border border-slate-200 rounded-lg flex-1 flex items-center justify-between gap-2 text-left transition-colors ${serverIp ? 'cursor-pointer' : 'cursor-default'}`}
+                    title={serverIp ? 'Click to copy the public IP' : (publicIP.error || 'Public IP unavailable')}
+                  >
+                    <span>{serverIp || (publicIP.loading ? 'Detecting…' : 'Unavailable')}</span>
+                    {serverIp && (copiedServerIp ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />)}
+                  </button>
                   <button
                     type="button"
                     onClick={() => void publicIP.refresh(true)}
