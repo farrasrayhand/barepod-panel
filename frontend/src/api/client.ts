@@ -430,6 +430,17 @@ export interface Limitation {
 }
 
 /** Raw host numbers — formatting happens in the UI. */
+/** The server's public address, detected by the daemon (interface first, egress fallback). */
+export interface PublicIPInfo {
+  ip: string;
+  source: 'interface' | 'egress';
+  inbound: boolean;
+  checkedAt: string;
+  cached: boolean;
+  stale?: boolean;
+  message?: string;
+}
+
 export interface HostMetrics {
   ts: string;
   cpuPercent: number;
@@ -1454,6 +1465,9 @@ export const api = {
     }),
 
   // --- metrics & host operations ------------------------------------------
+  publicIP: (refresh = false) =>
+    request<PublicIPInfo>(`/system/public-ip${refresh ? '?refresh=1' : ''}`),
+
   systemMetrics: (range = '1h') =>
     request<MetricSeries<HostMetrics>>(`/system/metrics?range=${encodeURIComponent(range)}`),
 

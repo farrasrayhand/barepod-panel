@@ -58,15 +58,20 @@ type Deps struct {
 
 // Server holds the handler dependencies.
 type Server struct {
-	cfg            config.Config
-	store          *store.Store
-	key            []byte
-	host           *host.Host
-	deploy         *deploy.Manager
-	tenants        *tenant.Manager
-	metrics        *metrics.Sampler
-	siteMetrics    *metrics.SiteSampler
-	metricsDB      *metrics.Persistence
+	cfg         config.Config
+	store       *store.Store
+	key         []byte
+	host        *host.Host
+	deploy      *deploy.Manager
+	tenants     *tenant.Manager
+	metrics     *metrics.Sampler
+	siteMetrics *metrics.SiteSampler
+	metricsDB   *metrics.Persistence
+	// publicIP is cached so the sidebar and settings do not call an echo service on every render.
+	publicIPMu     sync.Mutex
+	publicIP       string
+	publicIPSource string
+	publicIPAt     time.Time
 	tickets        *ticketStore
 	maxUploadBytes int64
 	// engines is the single-flight orchestrator for containerised engines.
@@ -224,6 +229,7 @@ func New(d Deps) http.Handler {
 	// Panel-wide settings. The one that matters today is the address an external client should use:
 	// the daemon cannot detect it (behind NAT there is nothing to detect), so the operator sets it
 	// and every snippet prefers it.
+	mux.HandleFunc("GET /api/v1/system/public-ip", s.requireAuth(s.handlePublicIP))
 	mux.HandleFunc("GET /api/v1/system/settings", s.requireAuth(s.handlePanelSettings))
 	mux.HandleFunc("PATCH /api/v1/system/settings", s.requireAuth(s.requireCapability(rbac.CapUsers, s.handleSavePanelSettings)))
 	mux.HandleFunc("GET /api/v1/system/settings/php-defaults", s.requireAuth(s.handleGetPhpDefaults))

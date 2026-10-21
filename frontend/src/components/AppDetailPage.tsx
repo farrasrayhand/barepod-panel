@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { siteSupportsShell, siteSupportsFiles, siteSupportsCI, siteHasGit, siteShellNote, siteFilesNote, siteTabSupport, type SiteTabSupport } from '../utils/siteRuntime';
+import { usePublicIP } from '../hooks/usePublicIP';
 import {
   ArrowLeft,
   Activity,
@@ -1841,7 +1842,6 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusResponse | null>(null);
   const [cfZones, setCfZones] = useState<CloudflareZone[]>([]);
   const [loadingCf, setLoadingCf] = useState(false);
-  const [copiedServerIp, setCopiedServerIp] = useState(false);
 
   // Add Alias state & validation
   const [aliasDnsMode, setAliasDnsMode] = useState<'cloudflare' | 'direct'>('direct');
@@ -1863,7 +1863,8 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
   // DNS Setup Instructions Modal state
   const [dnsModalDomain, setDnsModalDomain] = useState<ApiDomain | null>(null);
 
-  const serverIp = typeof window !== 'undefined' ? window.location.hostname : '';
+  const publicIP = usePublicIP();
+  const serverIp = publicIP.ip;
   const isTunnelAutoSync = Boolean(
     tunnelStatus?.hasToken &&
     tunnelStatus?.status === 'connected' &&
@@ -3886,24 +3887,25 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                 <p className="text-[11px] text-slate-500 leading-relaxed">
                   For domains routed directly to this host without Cloudflare Tunnel, create an <strong>A Record</strong> pointing to:
                 </p>
+                {publicIP.info?.source === 'egress' && (
+                  <p className="text-[10px] text-amber-700 leading-relaxed">
+                    Detected as an egress address. Behind NAT or a tunnel it may not accept inbound traffic;
+                    use Cloudflare Tunnel or confirm the address with your provider before creating the A record.
+                  </p>
+                )}
                 <div className="flex items-center gap-2 pt-0.5">
                   <code className="px-2.5 py-1 text-xs font-mono font-bold bg-slate-50 text-slate-900 border border-slate-200 rounded-lg flex-1">
-                    {serverIp || 'Host Public IP'}
+                    {serverIp || (publicIP.loading ? 'Detecting…' : 'Unavailable')}
                   </code>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (serverIp) {
-                        void navigator.clipboard.writeText(serverIp);
-                        setCopiedServerIp(true);
-                        setTimeout(() => setCopiedServerIp(false), 2000);
-                      }
-                    }}
-                    className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
-                    title="Copy server IP"
+                    onClick={() => void publicIP.refresh(true)}
+                    disabled={publicIP.loading}
+                    className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-60"
+                    title={publicIP.error || 'Refresh the detected public IP'}
                   >
-                    {copiedServerIp ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedServerIp ? 'Copied' : 'Copy IP'}</span>
+                    <RefreshCw className={`w-3.5 h-3.5 ${publicIP.loading ? 'animate-spin' : ''}`} />
+                    <span>{publicIP.loading ? 'Refreshing…' : 'Refresh public IP'}</span>
                   </button>
                 </div>
               </div>

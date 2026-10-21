@@ -12,8 +12,7 @@ import {
   Box,
   Activity,
   Server,
-  Copy,
-  Check,
+  RefreshCw,
   Archive,
   Webhook,
   X
@@ -22,6 +21,7 @@ import { FolderTree } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { NavItem, UpdateInfo } from '../types';
 import { useIsDesktop } from '../hooks/useIsDesktop';
+import { usePublicIP } from '../hooks/usePublicIP';
 
 interface SidebarProps {
   currentTab: NavItem;
@@ -44,7 +44,6 @@ interface NavGroupItem {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, collapsed, mobileOpen = false, onClose, isAdmin = false, can, updateInfo }) => {
-  const [copiedIp, setCopiedIp] = useState(false);
   const [tunnelStatus, setTunnelStatus] = useState<TunnelStatusResponse | null>(null);
 
   // The collapse is a desktop idea: in the drawer the labels must always be there, whatever the
@@ -52,10 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
   const isDesktop = useIsDesktop();
   const compact = collapsed && isDesktop;
 
-  // The address this panel is being used on — the only one the panel can honestly name. Behind NAT
-  // the public address is not discoverable from inside, and the sidebar used to hardcode one.
-  const panelAddress = typeof window !== 'undefined' ? window.location.hostname : '';
-
+  const publicIP = usePublicIP();
 
   const canDo = (perm: string) => isAdmin || (can ? can(perm) : false);
 
@@ -80,12 +76,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
     };
   }, []);
 
-  const handleCopyIp = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(panelAddress);
-    setCopiedIp(true);
-    setTimeout(() => setCopiedIp(false), 2000);
-  };
 
   const serviceItems: NavGroupItem[] = [
     { id: 'web', label: 'Websites', icon: Layers },
@@ -203,21 +193,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, colla
           <div className="flex items-center justify-between text-xs">
             <span className="flex items-center gap-1.5 text-slate-500 font-medium">
               <Globe className="w-3.5 h-3.5 text-blue-600" />
-              <span title="The address you reached this panel on. The host does not report a public address to the panel — behind NAT there is none to report.">
-                Panel address:
+              <span title="Public address detected by the daemon: a global interface address when the host has one, otherwise the egress address. Behind NAT the egress address may not accept inbound connections.">
+                Public IP:
               </span>
             </span>
             <button
-              onClick={handleCopyIp}
-              className="group flex items-center gap-1 font-mono font-bold text-slate-800 text-[11px] bg-white hover:bg-blue-50 px-2 py-0.5 rounded border border-slate-200 hover:border-blue-300 transition-colors shadow-2xs"
-              title="Click to copy this address"
+              onClick={() => void publicIP.refresh(true)}
+              disabled={publicIP.loading}
+              className="group flex items-center gap-1 font-mono font-bold text-slate-800 text-[11px] bg-white hover:bg-blue-50 px-2 py-0.5 rounded border border-slate-200 hover:border-blue-300 transition-colors shadow-2xs disabled:opacity-60 cursor-pointer"
+              title={publicIP.error || (publicIP.info?.source === 'egress' ? 'Egress address — not necessarily inbound (NAT/tunnel)' : 'Refresh public IP')}
             >
-              <span>{panelAddress}</span>
-              {copiedIp ? (
-                <Check className="w-3 h-3 text-emerald-600" />
-              ) : (
-                <Copy className="w-3 h-3 text-slate-400 group-hover:text-blue-600" />
-              )}
+              <span>{publicIP.ip || (publicIP.loading ? 'Detecting…' : 'Unavailable')}</span>
+              <RefreshCw className={`w-3 h-3 text-slate-400 group-hover:text-blue-600 ${publicIP.loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
 

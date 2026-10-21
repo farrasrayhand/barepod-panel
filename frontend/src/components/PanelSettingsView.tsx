@@ -29,6 +29,7 @@ import {
   Download
 } from 'lucide-react';
 import { useSubRoute } from '../hooks/useSubRoute';
+import { usePublicIP } from '../hooks/usePublicIP';
 import { describeError } from '../utils/format';
 import { PhpExtensionsPanel } from './PhpExtensionsPanel';
 import { CronJobsManager } from './CronJobsManager';
@@ -51,6 +52,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   onOpenTerminal: _onOpenTerminal,
 }) => {
   const [activeTab, setActiveTab] = useSubRoute<'general' | 'updates' | 'cron' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults'>('general');
+  const publicIP = usePublicIP();
   // The old Reverse Proxy & SSL tab was merged into General; keep its URL working.
   React.useEffect(() => {
     if (activeTab === 'proxy') setActiveTab('general');
@@ -635,7 +637,27 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
           const res = await api.tunnelZones();
           if (alive && res.zones && Array.isArray(res.zones)) {
             setPanelZones(res.zones);
-            if (res.zones.length > 0) setPanelZone(res.zones[0].name);
+            // Pick the zone that actually owns the saved FQDN. Taking zones[0] silently
+            // displayed and republished barepod.digitalumkm.site while the tunnel still
+            // pointed at barepod.tjkt-project.my.id.
+            const fqdn = (status.fqdn || '').toLowerCase();
+            const matched = res.zones
+              .filter((zone) => {
+                const name = zone.name.toLowerCase();
+                return fqdn === name || fqdn.endsWith(`.${name}`);
+              })
+              .sort((a, b) => b.name.length - a.name.length)[0];
+            if (matched) {
+              setPanelZone(matched.name);
+              const prefix = fqdn.slice(0, fqdn.length - matched.name.length - 1);
+              setPanelSubdomain(prefix);
+            } else if (fqdn) {
+              // The saved hostname is outside every zone this token can see. Keep it
+              // visible instead of replacing it with an unrelated first zone.
+              setPanelZone('custom');
+            } else if (res.zones.length > 0) {
+              setPanelZone(res.zones[0].name);
+            }
           }
         }
       } catch {
@@ -935,7 +957,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     value={externalAddress}
                     onChange={(e) => setExternalAddress(e.target.value)}
                     disabled={!isAdmin}
-                    placeholder="db.example.com or 203.0.113.10"
+                    placeholder={publicIP.ip || 'db.example.com or 203.0.113.10'}
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500 disabled:opacity-60"
                   />
                   <button
@@ -947,6 +969,34 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                     {externalSaving ? 'Saving…' : 'Save'}
                   </button>
                 </div>
+                <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+                  <span>
+                    Detected public IP:{' '}
+                    <code className="font-mono text-slate-700">
+                      {publicIP.ip || (publicIP.loading ? 'detecting…' : 'unavailable')}
+                    </code>
+                    {publicIP.info?.source === 'egress' ? ' (egress)' : ''}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void publicIP.refresh(true)}
+                    disabled={publicIP.loading}
+                    className="font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50 cursor-pointer inline-flex items-center gap-1"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${publicIP.loading ? 'animate-spin' : ''}`} />
+                    Refresh public IP
+                  </button>
+                  {publicIP.ip && isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setExternalAddress(publicIP.ip)}
+                      className="font-semibold text-slate-700 hover:text-slate-900 cursor-pointer"
+                    >
+                      Use detected IP
+                    </button>
+                  )}
+                </div>
+                {publicIP.error && <p className="text-[10px] text-amber-700">{publicIP.error}</p>}
               </div>
 
               {/* A policy, not a measurement: what a shared resource does is decided by the daemon. */}
@@ -1001,18 +1051,30 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                   {isAdmin && useCloudflare && panelTunnel?.configured ? (
                     <div className="space-y-2">
                       <div className="flex gap-2">
-                        <input
-                          value={panelSubdomain}
-                          onChange={(e) => setPanelSubdomain(e.target.value)}
-                          placeholder="barepod"
-                          className="w-36 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
-                        />
+                        {panelZone === 'custom' ? (
+                          <input
+                            value={panelFqdn}
+                            readOnly
+                            className="w-36 px-3 py-2 text-xs bg-slate-100 border border-slate-200 rounded-lg font-mono text-slate-500"
+                            title="Published hostname outside the zones this token can see"
+                          />
+                        ) : (
+                          <input
+                            value={panelSubdomain}
+                            onChange={(e) => setPanelSubdomain(e.target.value)}
+                            placeholder="barepod"
+                            className="w-36 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
+                          />
+                        )}
                         {panelZones.length > 0 ? (
                           <select
                             value={panelZone}
                             onChange={(e) => setPanelZone(e.target.value)}
                             className="flex-1 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg font-mono focus:border-blue-500"
                           >
+                            {panelZone === 'custom' && (
+                              <option value="custom">Keep current: {panelFqdn}</option>
+                            )}
                             {panelZones.map((z) => (
                               <option key={z.id} value={z.name}>{z.name}</option>
                             ))}
