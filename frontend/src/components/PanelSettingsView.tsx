@@ -4,7 +4,6 @@ import { GuardCard } from './GuardCard';
 import {
   Settings,
   ShieldCheck,
-  Globe,
   HardDrive,
   Bell,
   RotateCw,
@@ -42,8 +41,6 @@ interface PanelSettingsViewProps {
   isAdmin?: boolean;
   onShowToast?: (title: string, message?: string, type?: 'success' | 'error' | 'info') => void;
   onOpenTerminal?: () => void;
-  /** SPA navigation for the ingress/certificate shortcuts. */
-  onNavigatePath?: (path: string) => void;
 }
 
 const isPortNumber = (value: string) => /^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 65535;
@@ -52,7 +49,6 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
   isAdmin = false,
   onShowToast,
   onOpenTerminal: _onOpenTerminal,
-  onNavigatePath,
 }) => {
   const [activeTab, setActiveTab] = useSubRoute<'general' | 'updates' | 'cron' | 'monitoring' | 'security' | 'proxy' | 'backups' | 'notifications' | 'php_defaults'>('general');
   // The old Reverse Proxy & SSL tab was merged into General; keep its URL working.
@@ -1206,35 +1202,7 @@ export const PanelSettingsView: React.FC<PanelSettingsViewProps> = ({
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-3">
-                <div className="flex items-start gap-2.5">
-                  <Globe className="w-4 h-4 text-slate-500 mt-0.5 shrink-0" />
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-800">Ingress and certificates live elsewhere</h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
-                      The ingress engine and installs are managed on the Stack page. Certificates,
-                      aliases and renewals are managed per domain on the Domains page. Host ports
-                      80/443 belong to the web server configuration, not to this panel.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2 pl-6">
-                  <button
-                    type="button"
-                    onClick={() => onNavigatePath?.('/stack')}
-                    className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors cursor-pointer"
-                  >
-                    Open Stack — ingress
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onNavigatePath?.('/domains')}
-                    className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg transition-colors cursor-pointer"
-                  >
-                    Open Domains — certificates
-                  </button>
-                </div>
-              </div>
+
 
             </div>
           )}
