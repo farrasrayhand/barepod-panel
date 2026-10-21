@@ -34,6 +34,10 @@ type Scheduler struct {
 
 	mu       sync.Mutex
 	lastSlot map[string]string // job id -> the minute it last ran, so one slot runs once
+
+	// gitETags caches GitHub commit lookups across ticks. Conditional requests that answer 304 do
+	// not consume the REST rate limit, so a stable repository costs almost nothing to poll.
+	gitETags sync.Map // "owner/repo@branch" -> githubCacheEntry
 }
 
 // Run ticks until the context is cancelled.
@@ -135,7 +139,11 @@ func NewEnv(st *store.Store, h *host.Host, dep *deploy.Manager, key []byte, caps
 	return &Env{Store: st, Host: h, Deploy: dep, Key: key, Caps: caps, Logf: logf}
 }
 
-func (s *Scheduler) env() *Env { return NewEnv(s.Store, s.Host, s.Deploy, s.Key, s.Caps, s.Logf) }
+func (s *Scheduler) env() *Env {
+	e := NewEnv(s.Store, s.Host, s.Deploy, s.Key, s.Caps, s.Logf)
+	e.GitCache = &s.gitETags
+	return e
+}
 
 func (s *Scheduler) logf(format string, args ...any) {
 	if s.Logf != nil {

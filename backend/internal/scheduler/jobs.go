@@ -3,8 +3,10 @@ package scheduler
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -17,6 +19,7 @@ import (
 	"github.com/farrasrayhand/barepod-panel/backend/internal/enginedb"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/notify"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/secrets"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/stack"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/store"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/sysinfo"
@@ -27,7 +30,9 @@ type Env struct {
 	Store *store.Store
 	Host  *host.Host
 	// Deploy is required by git_commit_watcher; other jobs leave it nil.
-	Deploy        *deploy.Manager
+	Deploy *deploy.Manager
+	// GitCache holds GitHub ETag/SHA pairs across scheduler ticks; nil disables the API fast path.
+	GitCache      *sync.Map
 	Key           []byte
 	Caps          sysinfo.Capabilities
 	Notify        *notify.Dispatcher
@@ -174,7 +179,13 @@ func watchGitCommits(ctx context.Context, env *Env) (string, error) {
 			for _, idx := range g.members {
 				site := candidates[idx].site
 				checkCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-				remote, err := env.Host.RemoteGitHead(checkCtx, site.TenantUser, site.Slug, g.repo, g.branch)
+				// GitHub over HTTPS with a stored PAT is both cheaper and ETag-friendly. When the
+				// repository is not GitHub, the token is missing, or the API refuses, fall back to
+				// the SSH/HTTPS ls-remote path below.
+				remote, err := githubRemoteHead(checkCtx, env, site)
+				if err != nil {
+					remote, err = env.Host.RemoteGitHead(checkCtx, site.TenantUser, site.Slug, g.repo, g.branch)
+				}
 				cancel()
 				if err == nil {
 					mu.Lock()
@@ -249,6 +260,121 @@ func watchGitCommits(ctx context.Context, env *Env) (string, error) {
 		msg += "\n" + strings.Join(notes, "\n")
 	}
 	return msg, nil
+}
+
+// githubCacheEntry is one repository branch's last answer: the ETag to send back and the SHA it
+// described.
+type githubCacheEntry struct {
+	ETag string
+	SHA  string
+}
+
+// githubAPIBaseURL is a variable so a future test can point it at a local server.
+var githubAPIBaseURL = "https://api.github.com"
+
+// githubRemoteHead asks the GitHub REST API for the branch tip. It is preferable to `git ls-remote`
+// for HTTPS repositories because it uses the tenant's stored PAT (private repositories work without
+// SSH) and conditional requests (If-None-Match) that answer 304 do not count against the rate limit.
+func githubRemoteHead(ctx context.Context, env *Env, site store.Website) (string, error) {
+	owner, repo, ok := parseGitHubRepo(site.SourceRepo)
+	if !ok {
+		return "", errors.New("not a GitHub repository")
+	}
+	if env.GitCache == nil || len(env.Key) == 0 {
+		return "", errors.New("no GitHub cache or panel key")
+	}
+	ownerUser, err := env.Store.UserByUsername(site.TenantUser)
+	if err != nil {
+		return "", err
+	}
+	providers, err := env.Store.ListUserGitProviders(ownerUser.ID)
+	if err != nil {
+		return "", err
+	}
+	token := ""
+	for _, provider := range providers {
+		if !strings.EqualFold(provider.Provider, "github") || provider.TokenCipher == "" {
+			continue
+		}
+		if decrypted, err := secrets.Decrypt(env.Key, provider.TokenCipher); err == nil {
+			token = decrypted
+			break
+		}
+	}
+	if token == "" {
+		return "", errors.New("no GitHub token connected")
+	}
+
+	branch := strings.TrimSpace(site.SourceBranch)
+	if branch == "" {
+		branch = "main"
+	}
+	cacheKey := owner + "/" + repo + "@" + branch
+	headers := map[string]string{
+		"Authorization": "Bearer " + token,
+		"Accept":        "application/vnd.github+json",
+	}
+	if cached, ok := env.GitCache.Load(cacheKey); ok {
+		if entry, ok := cached.(githubCacheEntry); ok && entry.ETag != "" {
+			headers["If-None-Match"] = entry.ETag
+		}
+	}
+
+	endpoint := githubAPIBaseURL + "/repos/" + owner + "/" + repo + "/commits/" + branch
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	req.Header.Set("User-Agent", "BarePod-Panel")
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotModified {
+		if cached, ok := env.GitCache.Load(cacheKey); ok {
+			if entry, ok := cached.(githubCacheEntry); ok && entry.SHA != "" {
+				return entry.SHA, nil
+			}
+		}
+		return "", errors.New("GitHub answered 304 without a cached SHA")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GitHub returned HTTP %d", resp.StatusCode)
+	}
+	var payload struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return "", err
+	}
+	if payload.SHA == "" {
+		return "", errors.New("GitHub returned no commit SHA")
+	}
+	env.GitCache.Store(cacheKey, githubCacheEntry{ETag: resp.Header.Get("ETag"), SHA: payload.SHA})
+	return payload.SHA, nil
+}
+
+// parseGitHubRepo extracts owner/repository from the URL forms the wizard accepts.
+func parseGitHubRepo(repo string) (owner, name string, ok bool) {
+	repo = strings.TrimSuffix(strings.TrimSpace(repo), ".git")
+	if repo == "" {
+		return "", "", false
+	}
+	if i := strings.Index(repo, "github.com:"); i >= 0 {
+		repo = repo[i+len("github.com:"):]
+	} else if i := strings.Index(repo, "github.com/"); i >= 0 {
+		repo = repo[i+len("github.com/"):]
+	}
+	parts := strings.Split(strings.Trim(repo, "/"), "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }
 
 // isGitKind mirrors the deploy pipeline's list of source kinds that carry a repository.

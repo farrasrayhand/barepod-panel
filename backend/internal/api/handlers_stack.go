@@ -214,6 +214,7 @@ func (s *Server) handleSetWebServer(w http.ResponseWriter, r *http.Request, user
 		if sec, err := s.store.GetWebsiteSecurity(site.Slug); err == nil && sec != nil {
 			spec = spec.WithSecurity(s.buildSecuritySpec(sec))
 		}
+		spec = spec.WithRoutes(s.routeSpecsFor(site.Slug))
 		path := webserver.Path(engine, dir, site.Slug)
 		prev, readErr := os.ReadFile(path)
 		undos = append(undos, undo{path: path, prev: prev, existed: readErr == nil})

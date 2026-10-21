@@ -61,7 +61,7 @@ import { FileManagerModal } from './FileManagerModal';
 import { MaintenancePreviewModal } from './MaintenancePreviewModal';
 import { BasicAuthPromptModal } from './BasicAuthPromptModal';
 import { DangerConfirmModal } from './DangerConfirmModal';
-import { api, apiReachable, subscribeDeploy, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey, type DeployJob, type DetectedFramework, type CloudflareZone, type TunnelStatusResponse, type DomainValidationResult } from '../api/client';
+import { api, apiReachable, subscribeDeploy, type ApiDomain, type ApiWebsiteTelemetry, type ApiTelemetryNode, type ApiWebsiteGitStatus, type ApiDeployKey, type ApiWebsiteRoute, type DeployJob, type DetectedFramework, type CloudflareZone, type TunnelStatusResponse, type DomainValidationResult } from '../api/client';
 import { describeError } from '../utils/format';
 
 export type AppDetailTab =
@@ -77,6 +77,7 @@ export type AppDetailTab =
   | 'runtime'
   | 'security'
   | 'deploy'
+  | 'service-logs'
   // Group aliases accepted from a URL; normalised to a concrete view below.
   | 'observability';
 
@@ -93,7 +94,8 @@ interface TabGroupDef {
 
 const OBSERVABILITY_TABS: { view: AppDetailTab; label: string }[] = [
   { view: 'monitoring', label: 'Metrics' },
-  { view: 'logs', label: 'Logs' },
+  { view: 'logs', label: 'Access & WAF' },
+  { view: 'service-logs', label: 'Service Logs' },
   { view: 'map', label: 'Traffic Map' },
 ];
 
@@ -111,8 +113,8 @@ function normalizeDetailTab(tab: string | undefined, proxy: boolean): AppDetailT
     case 'overview':
       return proxy ? 'routing' : 'overview';
     case 'routing':
-      // A normal site has no routing view until the path-route API exists.
-      return proxy ? 'routing' : 'runtime';
+      // Path routes are real now: the view is available to normal sites too.
+      return 'routing';
     case undefined:
     case '':
       return proxy ? 'routing' : 'overview';
@@ -147,9 +149,14 @@ function tabGroupsFor(app: WebApp, support: SiteTabSupport): TabGroupDef[] {
   const deployViews: AppDetailTab[] = support.env ? ['deploy', 'env'] : ['deploy'];
   const groups: TabGroupDef[] = [
     { id: 'overview', label: 'Overview', icon: Server, views: ['overview'], accent: 'blue' },
-    // Routing/path-splitting has no backend yet (`/websites/:slug/routes` is planned), so a normal
-    // site does not get a mock tab. A proxy keeps its real Gateway view below.
-    { id: 'runtime', label: 'Runtime', icon: Layers, views: ['runtime'], accent: 'purple' },
+    {
+      id: 'runtime', label: 'Runtime', icon: Layers,
+      views: ['runtime', 'routing'], accent: 'purple',
+      subTabs: [
+        { view: 'runtime', label: 'Runtime Configuration' },
+        { view: 'routing', label: 'Proxy & Routing' },
+      ],
+    },
     {
       id: 'deploy', label: 'Deploy', icon: FolderGit2,
       views: deployViews, accent: 'blue',
@@ -278,6 +285,31 @@ export const AppDetailPage: React.FC<AppDetailPageProps> = ({
       })
       .catch(() => setAssociatedDbs([]));
   }, [showDeleteModal, app.name, app.id]);
+
+  // Service journal (journalctl) is a different source from the access/WAF telemetry stream.
+  const [serviceLogs, setServiceLogs] = useState<string[]>([]);
+  const [serviceLogMeta, setServiceLogMeta] = useState<{ unit: string; mode: string; note?: string } | null>(null);
+  const [isLoadingServiceLogs, setIsLoadingServiceLogs] = useState(false);
+  const loadServiceLogs = useCallback(async () => {
+    setIsLoadingServiceLogs(true);
+    try {
+      const res = await api.websiteLogs(app.name, 300);
+      setServiceLogs(res.lines || []);
+      setServiceLogMeta({ unit: res.unit, mode: res.mode, note: res.note });
+    } catch (err) {
+      setServiceLogs([]);
+      setServiceLogMeta({
+        unit: `barepod-app@${app.name}.service`,
+        mode: 'unavailable',
+        note: err instanceof Error ? err.message : 'Could not read the journal',
+      });
+    } finally {
+      setIsLoadingServiceLogs(false);
+    }
+  }, [app.name]);
+  useEffect(() => {
+    if (activeTab === 'service-logs') void loadServiceLogs();
+  }, [activeTab, loadServiceLogs]);
 
   const tabSupport = siteTabSupport(app);
   const tabGroups = tabGroupsFor(app, tabSupport);
@@ -811,6 +843,17 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
   const [preserveHost, setPreserveHost] = useState(app.proxyPreserveHost ?? true);
   const [realIp, setRealIp] = useState(app.proxyRealIp ?? true);
   const [proxyTimeout, setProxyTimeout] = useState(app.proxyTimeoutSecs ?? 60);
+
+  // Real path routes: stored by the daemon and rendered into every engine's vhost.
+  const [siteRoutes, setSiteRoutes] = useState<ApiWebsiteRoute[]>([]);
+  const [isLoadingRoutes, setIsLoadingRoutes] = useState(false);
+  const [isSavingRoute, setIsSavingRoute] = useState(false);
+  const [showAddRoute, setShowAddRoute] = useState(false);
+  const [newRoutePath, setNewRoutePath] = useState('');
+  const [newRouteUpstream, setNewRouteUpstream] = useState('');
+  const [newRouteDescription, setNewRouteDescription] = useState('');
+  const [newRouteWebsocket, setNewRouteWebsocket] = useState(true);
+  const [newRouteStripPrefix, setNewRouteStripPrefix] = useState(true);
   // Maintenance Mode & HTTP Basic Auth State
   const [maintenanceMode, setMaintenanceMode] = useState(app.maintenanceMode ?? false);
   const [maintenanceMessage, setMaintenanceMessage] = useState(
@@ -1164,6 +1207,60 @@ systemctl reload php8.4-fpm 2>/dev/null || systemctl reload php8.3-fpm 2>/dev/nu
       onShowToast?.('Could not save gateway', err instanceof Error ? err.message : 'Unknown error', 'error');
     } finally {
       setIsSavingGateway(false);
+    }
+  };
+
+  const loadRoutes = useCallback(async () => {
+    setIsLoadingRoutes(true);
+    try {
+      const res = await api.websiteRoutes(app.name);
+      setSiteRoutes(res.items || []);
+    } catch (err) {
+      onShowToast?.('Could not load routes', err instanceof Error ? err.message : 'Unknown error', 'error');
+    } finally {
+      setIsLoadingRoutes(false);
+    }
+  }, [app.name, onShowToast]);
+
+  useEffect(() => {
+    if (activeTab === 'routing') void loadRoutes();
+  }, [activeTab, loadRoutes]);
+
+  const handleAddRoute = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRoutePath.trim() || !newRouteUpstream.trim()) return;
+    setIsSavingRoute(true);
+    try {
+      await api.createWebsiteRoute(app.name, {
+        path: newRoutePath.trim(),
+        upstream: newRouteUpstream.trim(),
+        description: newRouteDescription.trim(),
+        websocket: newRouteWebsocket,
+        stripPrefix: newRouteStripPrefix,
+      });
+      setNewRoutePath('');
+      setNewRouteUpstream('');
+      setNewRouteDescription('');
+      setShowAddRoute(false);
+      onShowToast?.('Route added', 'The vhost was rewritten with the new path route.', 'success');
+      await loadRoutes();
+      void loadVhostPreview();
+    } catch (err) {
+      onShowToast?.('Could not add route', err instanceof Error ? err.message : 'Unknown error', 'error');
+    } finally {
+      setIsSavingRoute(false);
+    }
+  };
+
+  const handleDeleteRoute = async (route: ApiWebsiteRoute) => {
+    if (!confirm(`Delete route ${route.path} -> ${route.upstream}?`)) return;
+    try {
+      await api.deleteWebsiteRoute(app.name, route.id);
+      onShowToast?.('Route deleted', 'The vhost was rewritten without this path.', 'info');
+      await loadRoutes();
+      void loadVhostPreview();
+    } catch (err) {
+      onShowToast?.('Could not delete route', err instanceof Error ? err.message : 'Unknown error', 'error');
     }
   };
 
@@ -3021,6 +3118,64 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
         )}
 
         {/* TAB 2: STREAMING LOGS CONSOLE */}
+        {/* Service logs: the unit's own journal, separate from access/WAF telemetry. */}
+        {activeTab === 'service-logs' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-blue-600" /> Service Journal
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Output of <code className="font-mono bg-slate-100 px-1 rounded">{serviceLogMeta?.unit || `barepod-app@${app.name}.service`}</code>{' '}
+                  from journald — the application's own stdout/stderr, not the web-server access log.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {serviceLogMeta && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-mono">
+                    {serviceLogMeta.mode}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void loadServiceLogs()}
+                  disabled={isLoadingServiceLogs}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingServiceLogs ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {serviceLogMeta?.note && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900">
+                {serviceLogMeta.note}
+              </div>
+            )}
+
+            <div className="bg-slate-950 rounded-2xl border border-slate-800 p-4 font-mono text-xs text-slate-200 min-h-[220px] max-h-[520px] overflow-y-auto space-y-1 shadow-inner">
+              {isLoadingServiceLogs && serviceLogs.length === 0 ? (
+                <div className="flex items-center gap-2 text-slate-400">
+                  <RefreshCw className="w-4 h-4 animate-spin text-blue-400" /> Reading the journal…
+                </div>
+              ) : serviceLogs.length === 0 ? (
+                <div className="text-slate-500 py-8 text-center">
+                  No journal lines for this unit. A site that has never run has nothing to log.
+                </div>
+              ) : (
+                serviceLogs.map((line, i) => (
+                  <div key={i} className="whitespace-pre-wrap break-words text-slate-300">
+                    <span className="text-slate-600 select-none mr-2">{String(i + 1).padStart(3, '0')}</span>
+                    {line}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'logs' && (
           <div className="space-y-4">
             {/* Real-IP Ingress Banner */}
@@ -4143,6 +4298,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
             </div>
 
+            {app.runtime === 'proxy' && (<>
             {/* Primary Upstream Target Card (Especially prominent for Proxy Apps) */}
             <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
               <div className="flex items-center gap-2.5">
@@ -4280,8 +4436,8 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-[11px] text-slate-500">
-                Only the upstream URL and WebSocket toggle are applied by the daemon today; timeout
-                and header controls above are display-only until the vhost writer exposes them.
+                The upstream URL, WebSocket toggle and path routes are stored and rendered into the
+                vhost. Timeout and header controls above are display-only until the renderer exposes them.
               </p>
               <button
                 type="button"
@@ -4291,6 +4447,102 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
               >
                 {isSavingGateway ? 'Saving…' : 'Save Gateway'}
               </button>
+            </div>
+
+            </>)}
+
+            <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Path Routes</h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Prefixes forwarded to their own upstream, written into the vhost. <code className="font-mono">/</code> stays the site's primary upstream.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddRoute((v) => !v)}
+                  className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add Path Route
+                </button>
+              </div>
+
+              {showAddRoute && (
+                <form onSubmit={handleAddRoute} className="p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Path prefix</label>
+                      <input value={newRoutePath} onChange={(e) => setNewRoutePath(e.target.value)} placeholder="/api" required
+                        className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-lg" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Upstream</label>
+                      <input value={newRouteUpstream} onChange={(e) => setNewRouteUpstream(e.target.value)} placeholder="http://127.0.0.1:9000" required
+                        className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-lg" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">Description (optional)</label>
+                      <input value={newRouteDescription} onChange={(e) => setNewRouteDescription(e.target.value)} placeholder="API service"
+                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg" />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 pt-5 text-[11px] text-slate-700">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={newRouteWebsocket} onChange={(e) => setNewRouteWebsocket(e.target.checked)} className="rounded" />
+                        WebSocket
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" checked={newRouteStripPrefix} onChange={(e) => setNewRouteStripPrefix(e.target.checked)} className="rounded" />
+                        Strip prefix
+                      </label>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button type="button" onClick={() => setShowAddRoute(false)} className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:underline cursor-pointer">Cancel</button>
+                    <button type="submit" disabled={isSavingRoute} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 cursor-pointer">
+                      {isSavingRoute ? 'Saving…' : 'Save route'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {isLoadingRoutes ? (
+                <div className="text-xs text-slate-500 py-3 flex items-center gap-2"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Loading routes…</div>
+              ) : siteRoutes.length === 0 ? (
+                <div className="text-xs text-slate-500 py-3">No path routes yet. All traffic uses the primary upstream above.</div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
+                      <tr>
+                        <th className="py-2 px-3">Path</th>
+                        <th className="py-2 px-3">Upstream</th>
+                        <th className="py-2 px-3">Options</th>
+                        <th className="py-2 px-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {siteRoutes.map((route) => (
+                        <tr key={route.id} className="hover:bg-slate-50/60">
+                          <td className="py-2 px-3 font-mono font-bold text-slate-800">{route.path}</td>
+                          <td className="py-2 px-3 font-mono text-purple-900">{route.upstream}</td>
+                          <td className="py-2 px-3 text-[10px] text-slate-500">
+                            {route.websocket ? 'WebSocket' : 'HTTP'}{route.stripPrefix ? ' · strip prefix' : ' · keep prefix'}
+                            {route.description ? ` · ${route.description}` : ''}
+                          </td>
+                          <td className="py-2 px-3 text-right">
+                            <button type="button" onClick={() => void handleDeleteRoute(route)} className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer" title="Delete route">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             <VhostPreviewCard

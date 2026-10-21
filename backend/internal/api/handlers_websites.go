@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/framework"
@@ -56,6 +57,17 @@ func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request, user
 		}
 	}
 
+	query := parseListQuery(r)
+	if !query.validFor(websiteSortFields) {
+		writeError(w, http.StatusBadRequest, "validation_error",
+			"sort_by must be one of owner, name, status, runtime or engine for websites")
+		return
+	}
+	if user.Role == "admin" {
+		items = filterWebsitesByOwner(items, query.Owner)
+	}
+	sortWebsites(items, query)
+
 	response := map[string]any{"items": items}
 	// An account under a package limit is told what it is, so a create that will be
 	// refused can say "2 of 2 used" beforehand (the same hint the databases list gives).
@@ -64,6 +76,54 @@ func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request, user
 			response["quota"] = map[string]int{"maxSites": limits.MaxSites, "usedSites": used}
 		}
 	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+// handleWebsiteLogs returns the service's journal, not the web-server access log. The Logs tab
+// used to show only telemetry; when an application fails to start, the unit's own output is the
+// thing that says why.
+func (s *Server) handleWebsiteLogs(w http.ResponseWriter, r *http.Request, user *store.User, _ *store.Session) {
+	slug := r.PathValue("slug")
+	site, err := s.store.WebsiteBySlug(slug)
+	if err != nil || !canManageSite(user, site) {
+		writeError(w, http.StatusNotFound, "not_found", "Website not found")
+		return
+	}
+
+	lines := 200
+	if raw := r.URL.Query().Get("lines"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 1000 {
+			lines = n
+		}
+	}
+	unit := "barepod-app@" + site.Slug + ".service"
+	response := map[string]any{
+		"unit":  unit,
+		"mode":  s.host.Mode(),
+		"lines": []string{},
+	}
+	if !s.host.Materialises() {
+		response["note"] = "dry-run: the service unit is not running on this machine, so there is no journal to read"
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+
+	out, err := s.host.Run(r.Context(), []string{
+		"journalctl", "-u", unit, "--no-pager", "-n", strconv.Itoa(lines), "-o", "short-iso",
+	})
+	if err != nil {
+		response["note"] = "journalctl could not read this unit: " + err.Error()
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+	collected := []string{}
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		collected = append(collected, line)
+	}
+	response["lines"] = collected
 	writeJSON(w, http.StatusOK, response)
 }
 

@@ -282,6 +282,12 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/websites/{slug}", deploy(s.handleGetWebsite))
 	// The site's real .env (secrets masked): what the application actually connects to.
 	mux.HandleFunc("GET /api/v1/websites/{slug}/env", deploy(s.handleWebsiteEnv))
+	mux.HandleFunc("GET /api/v1/websites/{slug}/logs", deploy(s.handleWebsiteLogs))
+	// Path routes: real vhost entries, not a client-side mock.
+	mux.HandleFunc("GET /api/v1/websites/{slug}/routes", deploy(s.handleListWebsiteRoutes))
+	mux.HandleFunc("POST /api/v1/websites/{slug}/routes", deploy(s.handleCreateWebsiteRoute))
+	mux.HandleFunc("PUT /api/v1/websites/{slug}/routes/{id}", deploy(s.handleUpdateWebsiteRoute))
+	mux.HandleFunc("DELETE /api/v1/websites/{slug}/routes/{id}", deploy(s.handleDeleteWebsiteRoute))
 	mux.HandleFunc("GET /api/v1/websites/{slug}/detect-framework", deploy(s.handleDetectWebsiteFramework))
 	mux.HandleFunc("PUT /api/v1/websites/{slug}/framework", deploy(s.handleUpdateWebsiteFramework))
 	mux.HandleFunc("POST /api/v1/websites/detect-framework", deploy(s.handleDetectFrameworkFromSource))

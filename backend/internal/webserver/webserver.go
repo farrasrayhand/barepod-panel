@@ -116,6 +116,24 @@ type Spec struct {
 	ForceHTTPS  bool
 	HSTS        bool
 	Security    SecuritySpec
+	// Routes are path prefixes forwarded to their own upstreams, rendered before the site's
+	// primary location. "/" is not a route: the website row already owns it.
+	Routes []RouteSpec
+}
+
+// RouteSpec is one path route. StripPrefix removes the matched path before forwarding, which is
+// what an application mounted at "/" expects.
+type RouteSpec struct {
+	Path        string
+	Upstream    string
+	Websocket   bool
+	StripPrefix bool
+}
+
+// WithRoutes returns a copy with the site's path routes attached.
+func (s Spec) WithRoutes(routes []RouteSpec) Spec {
+	s.Routes = routes
+	return s
 }
 
 // SecuritySpec describes per-app access control, maintenance, basic auth, and rate limits.
@@ -385,6 +403,33 @@ func nginxTuningDirectives(b *strings.Builder, s Spec) {
 }
 
 func nginxLocations(b *strings.Builder, s Spec) {
+	// Path routes come first: nginx picks the longest matching prefix, so they win over "location /".
+	for _, route := range s.Routes {
+		path := strings.TrimSpace(strings.TrimSuffix(route.Path, "*"))
+		if path == "" || path == "/" {
+			continue
+		}
+		target := strings.TrimRight(strings.TrimSpace(route.Upstream), "/")
+		fmt.Fprintf(b, "    location ^~ %s {\n", path)
+		if route.StripPrefix {
+			fmt.Fprintf(b, "        proxy_pass %s/;\n", target)
+		} else {
+			fmt.Fprintf(b, "        proxy_pass %s;\n", target)
+		}
+		b.WriteString("        proxy_http_version 1.1;\n")
+		b.WriteString("        proxy_set_header Host $host;\n")
+		b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
+		b.WriteString("        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n")
+		b.WriteString("        proxy_set_header X-Forwarded-Proto $scheme;\n")
+		if route.Websocket {
+			b.WriteString("        proxy_set_header Upgrade $http_upgrade;\n")
+			b.WriteString("        proxy_set_header Connection \"upgrade\";\n")
+		}
+		b.WriteString("        proxy_read_timeout 3600s;\n")
+		b.WriteString("        proxy_send_timeout 3600s;\n")
+		b.WriteString("    }\n\n")
+	}
+
 	slugSafe := sanitizeSlug(s.Slug)
 	maintCheck := ""
 	if s.Security.MaintenanceMode {
@@ -561,6 +606,22 @@ func nginxVhost(s Spec) string {
 // --- Caddy ---
 
 func caddyAppLocations(b *strings.Builder, s Spec, indent string) {
+	for _, route := range s.Routes {
+		// Caddy appends "/*"; a stored path ending in "/" would produce "//*".
+		path := strings.TrimRight(strings.TrimSpace(strings.TrimSuffix(route.Path, "*")), "/")
+		if path == "" || path == "/" {
+			continue
+		}
+		target := strings.TrimRight(strings.TrimSpace(route.Upstream), "/")
+		directive := "handle"
+		if route.StripPrefix {
+			directive = "handle_path"
+		}
+		fmt.Fprintf(b, "%s%s %s/* {\n", indent, directive, path)
+		fmt.Fprintf(b, "%s\treverse_proxy %s\n", indent, target)
+		fmt.Fprintf(b, "%s}\n", indent)
+	}
+
 	switch s.Kind {
 	case "php":
 		fmt.Fprintf(b, "%sroot * %s\n", indent, s.DocRoot)
@@ -811,6 +872,23 @@ func apacheVhost(s Spec) string {
 	b.WriteString("        Require all denied\n")
 	b.WriteString("    </LocationMatch>\n\n")
 
+	for _, route := range s.Routes {
+		path := strings.TrimSpace(strings.TrimSuffix(route.Path, "*"))
+		if path == "" || path == "/" {
+			continue
+		}
+		target := strings.TrimRight(strings.TrimSpace(route.Upstream), "/")
+		fmt.Fprintf(&b, "    <Location \"%s\">\n", path)
+		if route.StripPrefix {
+			fmt.Fprintf(&b, "        ProxyPass %s/\n", target)
+			fmt.Fprintf(&b, "        ProxyPassReverse %s/\n", target)
+		} else {
+			fmt.Fprintf(&b, "        ProxyPass %s\n", target)
+			fmt.Fprintf(&b, "        ProxyPassReverse %s\n", target)
+		}
+		fmt.Fprintf(&b, "    </Location>\n\n")
+	}
+
 	switch s.Kind {
 	case "php":
 		b.WriteString("    <FilesMatch \\.php$>\n")
@@ -867,6 +945,20 @@ func openlitespeedVhost(s Spec) string {
 		b.WriteString("accessControl {\n")
 		fmt.Fprintf(&b, "    deny                    %s\n", strings.Join(s.Security.IPRestrictionList, ", "))
 		b.WriteString("}\n\n")
+	}
+
+	for i, route := range s.Routes {
+		path := strings.TrimSpace(strings.TrimSuffix(route.Path, "*"))
+		if path == "" || path == "/" {
+			continue
+		}
+		target := strings.TrimRight(strings.TrimSpace(route.Upstream), "/")
+		handler := fmt.Sprintf("route_%s_%d", sanitizeSlug(s.Slug), i+1)
+		fmt.Fprintf(&b, "extprocessor %s {\n", handler)
+		b.WriteString("    type                    proxy\n")
+		fmt.Fprintf(&b, "    address                 %s\n", strings.TrimPrefix(strings.TrimPrefix(target, "http://"), "https://"))
+		b.WriteString("    maxConns                100\n    initTimeout             60\n    retryTimeout            0\n}\n")
+		fmt.Fprintf(&b, "context %s {\n    type                    proxy\n    handler                 %s\n    addDefaultCharset       off\n}\n\n", path, handler)
 	}
 
 	switch s.Kind {
@@ -1247,4 +1339,3 @@ func EnsureNginxRealIP(confDDir string) error {
 	}
 	return os.WriteFile(filepath.Join(confDDir, "barepod-realip.conf"), []byte(NginxRealIPConfig), 0o644)
 }
-

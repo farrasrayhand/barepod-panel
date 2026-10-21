@@ -36,7 +36,26 @@ var migrations = []migration{
 	{version: 26, statements: schemaV26},
 	{version: 27, statements: schemaV27},
 	{version: 28, statements: schemaV28},
+	{version: 29, statements: schemaV29},
 }
+
+// schemaV29 stores the per-website path routes. A route is a path prefix forwarded to its own
+// upstream, written into the site's vhost; `/` stays reserved for the site's primary upstream.
+const schemaV29 = `
+CREATE TABLE IF NOT EXISTS website_routes (
+  id           TEXT PRIMARY KEY,
+  website_slug TEXT NOT NULL,
+  path         TEXT NOT NULL,
+  upstream     TEXT NOT NULL,
+  description  TEXT NOT NULL DEFAULT '',
+  websocket    INTEGER NOT NULL DEFAULT 1,
+  strip_prefix INTEGER NOT NULL DEFAULT 1,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL DEFAULT '',
+  UNIQUE(website_slug, path)
+);
+CREATE INDEX IF NOT EXISTS idx_website_routes_site ON website_routes(website_slug);
+`
 
 // schemaV28 makes the new auto-deploy watcher safe for existing installations.
 //

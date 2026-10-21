@@ -595,9 +595,23 @@ func (s *Server) handleListDatabases(kind string) authedHandler {
 			s.markUnreferenced(items)
 			s.markEngineState(items)
 		}
-		sort.SliceStable(items, func(i, j int) bool { return items[i].Alias < items[j].Alias })
+		query := parseListQuery(r)
+		if !query.validFor(databaseSortFields) {
+			writeError(w, http.StatusBadRequest, "validation_error",
+				"sort_by must be one of owner, name, status, engine or size for databases")
+			return
+		}
+		if databaseScope(user) == "" {
+			items = filterDatabasesByOwner(items, query.Owner)
+		}
+		items = s.withLiveEngineMetadata(r.Context(), items)
+		if query.SortBy == "" {
+			sort.SliceStable(items, func(i, j int) bool { return items[i].Alias < items[j].Alias })
+		} else {
+			sortDatabases(items, query)
+		}
 		response := map[string]any{
-			"items":         s.withLiveEngineMetadata(r.Context(), items),
+			"items":         items,
 			"bin":           binned,
 			"retentionDays": 30,
 		}

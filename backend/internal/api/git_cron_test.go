@@ -194,6 +194,118 @@ func TestGitAutoDeployModeAndDeployHistory(t *testing.T) {
 	}
 }
 
+func TestWebsiteRoutesLifecycleRendersVhost(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	resp, body := panel.do(t, http.MethodPost, "/api/v1/websites/admin-site/routes", map[string]any{
+		"path": "/api", "upstream": "http://127.0.0.1:9000",
+		"description": "API service", "websocket": true, "stripPrefix": true,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create route status = %d (%s)", resp.StatusCode, body)
+	}
+	var route store.WebsiteRoute
+	_ = json.Unmarshal([]byte(body), &route)
+	if route.ID == "" || route.Path != "/api" {
+		t.Fatalf("unexpected route: %+v", route)
+	}
+
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/websites/admin-site/routes", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list routes status = %d (%s)", resp.StatusCode, body)
+	}
+	var list struct {
+		Items []store.WebsiteRoute `json:"items"`
+	}
+	_ = json.Unmarshal([]byte(body), &list)
+	if len(list.Items) != 1 {
+		t.Fatalf("expected one route, got %+v", list.Items)
+	}
+
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/websites/admin-site/vhost/preview?engine=nginx", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("vhost preview status = %d (%s)", resp.StatusCode, body)
+	}
+	var preview struct {
+		Config string `json:"config"`
+	}
+	_ = json.Unmarshal([]byte(body), &preview)
+	if !strings.Contains(preview.Config, "location ^~ /api {") || !strings.Contains(preview.Config, "127.0.0.1:9000") {
+		t.Errorf("route is missing from the rendered vhost:\n%s", preview.Config)
+	}
+
+	resp, body = panel.do(t, http.MethodDelete, "/api/v1/websites/admin-site/routes/"+route.ID, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("delete route status = %d (%s)", resp.StatusCode, body)
+	}
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/websites/admin-site/routes", nil)
+	_ = json.Unmarshal([]byte(body), &list)
+	if resp.StatusCode != http.StatusOK || len(list.Items) != 0 {
+		t.Errorf("route was not removed: %s", body)
+	}
+}
+
+func TestListWebsitesOwnerFilterAndSort(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/websites?owner=alex&sort_by=name&order=asc", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d (%s)", resp.StatusCode, body)
+	}
+	var result struct {
+		Items []store.Website `json:"items"`
+	}
+	_ = json.Unmarshal([]byte(body), &result)
+	if len(result.Items) != 1 || result.Items[0].TenantUser != "alex" {
+		t.Errorf("owner filter did not scope to alex: %+v", result.Items)
+	}
+
+	resp, body = panel.do(t, http.MethodGet, "/api/v1/websites?sort_by=name&order=desc", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("sorted list status = %d (%s)", resp.StatusCode, body)
+	}
+	_ = json.Unmarshal([]byte(body), &result)
+	if len(result.Items) < 2 || result.Items[0].Slug < result.Items[1].Slug {
+		t.Errorf("descending name order was not applied: %+v", result.Items)
+	}
+
+	resp, _ = panel.do(t, http.MethodGet, "/api/v1/websites?sort_by=size", nil)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("unsupported website sort should be 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestWebsiteLogsDryRun(t *testing.T) {
+	panel := newTestPanel(t)
+	panel.login(t, "admin")
+
+	resp, body := panel.do(t, http.MethodGet, "/api/v1/websites/admin-site/logs?lines=50", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("logs status = %d (%s)", resp.StatusCode, body)
+	}
+	var result struct {
+		Unit  string   `json:"unit"`
+		Mode  string   `json:"mode"`
+		Lines []string `json:"lines"`
+		Note  string   `json:"note"`
+	}
+	_ = json.Unmarshal([]byte(body), &result)
+	if result.Unit != "barepod-app@admin-site.service" {
+		t.Errorf("unit = %q", result.Unit)
+	}
+	if result.Mode != "dry-run" || result.Note == "" {
+		t.Errorf("expected an honest dry-run note, got %+v", result)
+	}
+
+	panel.login(t, "alex")
+	resp, _ = panel.do(t, http.MethodGet, "/api/v1/websites/admin-site/logs", nil)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("cross-tenant logs status = %d, want 404", resp.StatusCode)
+	}
+}
+
 func TestPingWebsiteUsesStoredUpstream(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)

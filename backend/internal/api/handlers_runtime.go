@@ -221,6 +221,7 @@ func (s *Server) applyVhost(r *http.Request, site *store.Website) error {
 		_, _ = webserver.WriteMaintenancePage(site.Slug, secSpec.MaintenanceTitle, secSpec.MaintenanceMessage)
 	}
 	spec = spec.WithSecurity(secSpec)
+	spec = spec.WithRoutes(s.routeSpecsFor(site.Slug))
 	_, err := webserver.Apply(r.Context(), engine, s.host.VhostsFor(engine), s.host, spec)
 	if active := s.deploy.ActiveEngine(); active != "" && !strings.EqualFold(active, engine) {
 		_ = webserver.GrantRead(r.Context(), s.host, home, siteDir, webserver.WebUser(active))
@@ -304,6 +305,7 @@ func (s *Server) handleVhostPreview(w http.ResponseWriter, r *http.Request, user
 	if sec, err := s.store.GetWebsiteSecurity(site.Slug); err == nil && sec != nil {
 		spec = spec.WithSecurity(s.buildSecuritySpec(sec))
 	}
+	spec = spec.WithRoutes(s.routeSpecsFor(site.Slug))
 	config, err := webserver.Render(engine, spec)
 	if err != nil {
 		writeError(w, http.StatusNotImplemented, "not_supported_yet", err.Error())

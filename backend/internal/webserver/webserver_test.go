@@ -7,6 +7,31 @@ import (
 	"testing"
 )
 
+func TestPathRoutesRenderInEveryEngine(t *testing.T) {
+	routes := []RouteSpec{{Path: "/api", Upstream: "http://127.0.0.1:9000", Websocket: true, StripPrefix: true}}
+	base := Spec{Slug: "shop", Domain: "shop.example.com", Kind: "php",
+		DocRoot: "/home/alex/apps/shop", Socket: "/home/alex/apps/shop/fpm.sock", Routes: routes}
+
+	cases := map[string]string{
+		Nginx:         "location ^~ /api {",
+		Caddy:         "handle_path /api/* {",
+		Apache:        "<Location \"/api\">",
+		OpenLiteSpeed: "context /api {",
+	}
+	for engine, want := range cases {
+		cfg, err := Render(engine, base)
+		if err != nil {
+			t.Fatalf("%s: %v", engine, err)
+		}
+		if !strings.Contains(cfg, want) {
+			t.Errorf("%s vhost is missing %q:\n%s", engine, want, cfg)
+		}
+		if !strings.Contains(cfg, "127.0.0.1:9000") {
+			t.Errorf("%s vhost does not name the route upstream:\n%s", engine, cfg)
+		}
+	}
+}
+
 func TestNginxPhpVhostSendsToFpm(t *testing.T) {
 	cfg, err := Render(Nginx, Spec{
 		Slug: "shop", Domain: "shop.example.com", Kind: "php",
@@ -98,7 +123,6 @@ func TestCaddySSL(t *testing.T) {
 		}
 	}
 }
-
 
 func TestCaddyVhosts(t *testing.T) {
 	php, err := Render(Caddy, Spec{
@@ -280,10 +304,10 @@ func TestAvailableUsesTheInjectedLookPath(t *testing.T) {
 
 func TestSecurityDirectivesNginxAndCaddy(t *testing.T) {
 	spec := Spec{
-		Slug:    "portal",
-		Domain:  "portal.local",
-		Kind:    "nodejs",
-		Port:    3000,
+		Slug:   "portal",
+		Domain: "portal.local",
+		Kind:   "nodejs",
+		Port:   3000,
 		Security: SecuritySpec{
 			MaintenanceMode:      true,
 			MaintenanceTitle:     "Portal Updating",

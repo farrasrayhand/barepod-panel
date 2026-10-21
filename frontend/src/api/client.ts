@@ -96,6 +96,18 @@ export interface ApiWebsite {
   autoDeploy?: boolean;
 }
 
+export interface ApiWebsiteRoute {
+  id: string;
+  websiteSlug: string;
+  path: string;
+  upstream: string;
+  description?: string;
+  websocket: boolean;
+  stripPrefix: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface ApiDeployKey {
   algorithm: string;
   publicKey: string;
@@ -879,6 +891,33 @@ export const api = {
     ),
 
   website: (slug: string) => request<ApiWebsite>(`/websites/${slug}`),
+  /** Path routes rendered into the site's vhost. `/` is reserved for the primary upstream. */
+  websiteRoutes: (slug: string) =>
+    request<{ items: ApiWebsiteRoute[] }>(`/websites/${slug}/routes`),
+  createWebsiteRoute: (
+    slug: string,
+    payload: { path: string; upstream: string; description?: string; websocket?: boolean; stripPrefix?: boolean },
+  ) =>
+    request<ApiWebsiteRoute>(`/websites/${slug}/routes`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateWebsiteRoute: (
+    slug: string,
+    id: string,
+    payload: { path?: string; upstream?: string; description?: string; websocket?: boolean; stripPrefix?: boolean },
+  ) =>
+    request<ApiWebsiteRoute>(`/websites/${slug}/routes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteWebsiteRoute: (slug: string, id: string) =>
+    request<{ ok: boolean }>(`/websites/${slug}/routes/${id}`, { method: 'DELETE' }),
+  /** The service unit's journal (journalctl), not the web-server access log. */
+  websiteLogs: (slug: string, lines = 300) =>
+    request<{ unit: string; mode: string; lines: string[]; note?: string }>(
+      `/websites/${slug}/logs?lines=${lines}`,
+    ),
   /** The site's real .env, read from the daemon. Secret values come masked unless the
    *  session is elevated and `reveal` is asked for. */
   websiteEnv: (slug: string, reveal = false) =>

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +18,30 @@ import (
 // githubAPIBase is the public API in production. It is a variable only so tests can point every
 // provider call at an httptest server instead of the real GitHub.
 var githubAPIBase = "https://api.github.com"
+
+// providerGET is the one HTTP shape the provider clients share: context-bound, a bounded
+// response body, and the caller's auth header. A provider's own error text stays available so
+// the UI can say why discovery failed instead of returning an empty list.
+func providerGET(ctx context.Context, endpoint string, headers map[string]string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("User-Agent", "BarePod-Panel")
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return data, resp.StatusCode, nil
+}
 
 type testGitProviderRequest struct {
 	Provider string `json:"provider"`
@@ -205,29 +231,18 @@ func (s *Server) handleListGitProviderRepos(w http.ResponseWriter, r *http.Reque
 
 	switch p.Provider {
 	case "github":
-		reqURL := githubAPIBase + "/user/repos?per_page=100&sort=updated"
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+		data, status, err := providerGET(ctx, githubAPIBase+"/user/repos?per_page=100&sort=updated", map[string]string{
+			"Authorization": "Bearer " + token,
+			"Accept":        "application/vnd.github+json",
+		})
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+			writeError(w, http.StatusBadGateway, "upstream_error", "GitHub error: "+err.Error())
 			return
 		}
-		httpReq.Header.Set("Authorization", "Bearer "+token)
-		httpReq.Header.Set("Accept", "application/vnd.github+json")
-		httpReq.Header.Set("User-Agent", "BarePod-Panel")
-
-		client := &http.Client{}
-		resp, err := client.Do(httpReq)
-		if err != nil {
-			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("GitHub error: %v", err))
+		if status != http.StatusOK {
+			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("GitHub returned HTTP %d", status))
 			return
 		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("GitHub returned HTTP %d", resp.StatusCode))
-			return
-		}
-
 		var rawRepos []struct {
 			Name          string `json:"name"`
 			FullName      string `json:"full_name"`
@@ -238,22 +253,147 @@ func (s *Server) handleListGitProviderRepos(w http.ResponseWriter, r *http.Reque
 			HTMLURL       string `json:"html_url"`
 			Description   string `json:"description"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&rawRepos); err != nil {
+		if err := json.Unmarshal(data, &rawRepos); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not parse repository list")
 			return
 		}
-
 		for _, r := range rawRepos {
 			repos = append(repos, gitRepoItem{
-				Name:          r.Name,
-				FullName:      r.FullName,
-				DefaultBranch: r.DefaultBranch,
-				Private:       r.Private,
-				CloneURL:      r.CloneURL,
-				SSHURL:        r.SSHURL,
-				HTMLURL:       r.HTMLURL,
-				Description:   r.Description,
+				Name: r.Name, FullName: r.FullName, DefaultBranch: r.DefaultBranch, Private: r.Private,
+				CloneURL: r.CloneURL, SSHURL: r.SSHURL, HTMLURL: r.HTMLURL, Description: r.Description,
 			})
+		}
+
+	case "gitlab":
+		base := strings.TrimRight(strings.TrimSpace(p.APIURL), "/")
+		if base == "" {
+			base = "https://gitlab.com"
+		}
+		data, status, err := providerGET(ctx, base+"/api/v4/projects?membership=true&per_page=100&order_by=updated_at", map[string]string{
+			"PRIVATE-TOKEN": token,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "upstream_error", "GitLab error: "+err.Error())
+			return
+		}
+		if status != http.StatusOK {
+			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("GitLab returned HTTP %d", status))
+			return
+		}
+		var rawRepos []struct {
+			Name              string `json:"name"`
+			PathWithNamespace string `json:"path_with_namespace"`
+			DefaultBranch     string `json:"default_branch"`
+			Visibility        string `json:"visibility"`
+			HTTPURLToRepo     string `json:"http_url_to_repo"`
+			SSHURLToRepo      string `json:"ssh_url_to_repo"`
+			WebURL            string `json:"web_url"`
+			Description       string `json:"description"`
+		}
+		if err := json.Unmarshal(data, &rawRepos); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not parse repository list")
+			return
+		}
+		for _, r := range rawRepos {
+			repos = append(repos, gitRepoItem{
+				Name: r.Name, FullName: r.PathWithNamespace, DefaultBranch: r.DefaultBranch,
+				Private: strings.EqualFold(r.Visibility, "private"), CloneURL: r.HTTPURLToRepo,
+				SSHURL: r.SSHURLToRepo, HTMLURL: r.WebURL, Description: r.Description,
+			})
+		}
+
+	case "gitea":
+		base := strings.TrimRight(strings.TrimSpace(p.APIURL), "/")
+		if base == "" {
+			writeError(w, http.StatusBadRequest, "missing_base_url", "Gitea/Forgejo needs a base URL")
+			return
+		}
+		data, status, err := providerGET(ctx, base+"/api/v1/user/repos?limit=50&page=1", map[string]string{
+			"Authorization": "token " + token,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "upstream_error", "Gitea error: "+err.Error())
+			return
+		}
+		if status != http.StatusOK {
+			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("Gitea returned HTTP %d", status))
+			return
+		}
+		var rawRepos []struct {
+			Name          string `json:"name"`
+			FullName      string `json:"full_name"`
+			DefaultBranch string `json:"default_branch"`
+			Private       bool   `json:"private"`
+			CloneURL      string `json:"clone_url"`
+			SSHURL        string `json:"ssh_url"`
+			HTMLURL       string `json:"html_url"`
+			Description   string `json:"description"`
+		}
+		if err := json.Unmarshal(data, &rawRepos); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not parse repository list")
+			return
+		}
+		for _, r := range rawRepos {
+			repos = append(repos, gitRepoItem{
+				Name: r.Name, FullName: r.FullName, DefaultBranch: r.DefaultBranch, Private: r.Private,
+				CloneURL: r.CloneURL, SSHURL: r.SSHURL, HTMLURL: r.HTMLURL, Description: r.Description,
+			})
+		}
+
+	case "bitbucket":
+		base := strings.TrimRight(strings.TrimSpace(p.APIURL), "/")
+		if base == "" {
+			base = "https://api.bitbucket.org/2.0"
+		}
+		data, status, err := providerGET(ctx, base+"/repositories?pagelen=100", map[string]string{
+			"Authorization": "Bearer " + token,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "upstream_error", "Bitbucket error: "+err.Error())
+			return
+		}
+		if status != http.StatusOK {
+			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("Bitbucket returned HTTP %d", status))
+			return
+		}
+		var payload struct {
+			Values []struct {
+				Name        string `json:"name"`
+				FullName    string `json:"full_name"`
+				IsPrivate   bool   `json:"is_private"`
+				Description string `json:"description"`
+				MainBranch  struct {
+					Name string `json:"name"`
+				} `json:"mainbranch"`
+				Links struct {
+					Clone []struct {
+						Name string `json:"name"`
+						Href string `json:"href"`
+					} `json:"clone"`
+					HTML struct {
+						Href string `json:"href"`
+					} `json:"html"`
+				} `json:"links"`
+			} `json:"values"`
+		}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not parse repository list")
+			return
+		}
+		for _, r := range payload.Values {
+			item := gitRepoItem{
+				Name: r.Name, FullName: r.FullName, DefaultBranch: r.MainBranch.Name,
+				Private: r.IsPrivate, HTMLURL: r.Links.HTML.Href, Description: r.Description,
+			}
+			for _, clone := range r.Links.Clone {
+				switch strings.ToLower(clone.Name) {
+				case "https":
+					item.CloneURL = clone.Href
+				case "ssh":
+					item.SSHURL = clone.Href
+				}
+			}
+			repos = append(repos, item)
 		}
 
 	default:
@@ -314,43 +454,119 @@ func (s *Server) handleListGitProviderBranches(w http.ResponseWriter, r *http.Re
 
 	switch p.Provider {
 	case "github":
-		reqURL := fmt.Sprintf("%s/repos/%s/branches?per_page=100", githubAPIBase, repo)
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+		data, status, err := providerGET(ctx, fmt.Sprintf("%s/repos/%s/branches?per_page=100", githubAPIBase, repo), map[string]string{
+			"Authorization": "Bearer " + token,
+			"Accept":        "application/vnd.github+json",
+		})
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+			writeError(w, http.StatusBadGateway, "upstream_error", "GitHub error: "+err.Error())
 			return
 		}
-		httpReq.Header.Set("Authorization", "Bearer "+token)
-		httpReq.Header.Set("Accept", "application/vnd.github+json")
-		httpReq.Header.Set("User-Agent", "BarePod-Panel")
-
-		client := &http.Client{}
-		resp, err := client.Do(httpReq)
-		if err != nil {
-			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("GitHub error: %v", err))
+		if status != http.StatusOK {
+			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("GitHub returned HTTP %d", status))
 			return
 		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("GitHub returned HTTP %d", resp.StatusCode))
-			return
-		}
-
 		var rawBranches []struct {
 			Name string `json:"name"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&rawBranches); err != nil {
+		if err := json.Unmarshal(data, &rawBranches); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "Could not parse branch list")
 			return
 		}
-
 		for _, b := range rawBranches {
 			branches = append(branches, b.Name)
 		}
-		// The wizard preselects this, so it has to be the repository's own answer rather than a
-		// guess from the branch names.
 		defaultBranch = githubDefaultBranch(ctx, token, repo)
+
+	case "gitlab":
+		base := strings.TrimRight(strings.TrimSpace(p.APIURL), "/")
+		if base == "" {
+			base = "https://gitlab.com"
+		}
+		escaped := url.PathEscape(repo)
+		data, status, err := providerGET(ctx, base+"/api/v4/projects/"+escaped+"/repository/branches?per_page=100", map[string]string{"PRIVATE-TOKEN": token})
+		if err != nil || status != http.StatusOK {
+			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("GitLab branch lookup failed (HTTP %d): %v", status, err))
+			return
+		}
+		var rawBranches []struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(data, &rawBranches); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not parse branch list")
+			return
+		}
+		for _, b := range rawBranches {
+			branches = append(branches, b.Name)
+		}
+		if body, code, err := providerGET(ctx, base+"/api/v4/projects/"+escaped, map[string]string{"PRIVATE-TOKEN": token}); err == nil && code == http.StatusOK {
+			var project struct {
+				DefaultBranch string `json:"default_branch"`
+			}
+			_ = json.Unmarshal(body, &project)
+			defaultBranch = project.DefaultBranch
+		}
+
+	case "gitea":
+		base := strings.TrimRight(strings.TrimSpace(p.APIURL), "/")
+		if base == "" {
+			writeError(w, http.StatusBadRequest, "missing_base_url", "Gitea/Forgejo needs a base URL")
+			return
+		}
+		data, status, err := providerGET(ctx, base+"/api/v1/repos/"+repo+"/branches?limit=100", map[string]string{"Authorization": "token " + token})
+		if err != nil || status != http.StatusOK {
+			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("Gitea branch lookup failed (HTTP %d): %v", status, err))
+			return
+		}
+		var rawBranches []struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(data, &rawBranches); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not parse branch list")
+			return
+		}
+		for _, b := range rawBranches {
+			branches = append(branches, b.Name)
+		}
+		if body, code, err := providerGET(ctx, base+"/api/v1/repos/"+repo, map[string]string{"Authorization": "token " + token}); err == nil && code == http.StatusOK {
+			var project struct {
+				DefaultBranch string `json:"default_branch"`
+			}
+			_ = json.Unmarshal(body, &project)
+			defaultBranch = project.DefaultBranch
+		}
+
+	case "bitbucket":
+		base := strings.TrimRight(strings.TrimSpace(p.APIURL), "/")
+		if base == "" {
+			base = "https://api.bitbucket.org/2.0"
+		}
+		data, status, err := providerGET(ctx, base+"/repositories/"+repo+"/refs/branches?pagelen=100", map[string]string{"Authorization": "Bearer " + token})
+		if err != nil || status != http.StatusOK {
+			writeError(w, http.StatusBadGateway, "upstream_error", fmt.Sprintf("Bitbucket branch lookup failed (HTTP %d): %v", status, err))
+			return
+		}
+		var payload struct {
+			Values []struct {
+				Name string `json:"name"`
+			} `json:"values"`
+		}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "Could not parse branch list")
+			return
+		}
+		for _, b := range payload.Values {
+			branches = append(branches, b.Name)
+		}
+		if body, code, err := providerGET(ctx, base+"/repositories/"+repo, map[string]string{"Authorization": "Bearer " + token}); err == nil && code == http.StatusOK {
+			var project struct {
+				MainBranch struct {
+					Name string `json:"name"`
+				} `json:"mainbranch"`
+			}
+			_ = json.Unmarshal(body, &project)
+			defaultBranch = project.MainBranch.Name
+		}
 
 	default:
 		branches = []string{"main", "master"}

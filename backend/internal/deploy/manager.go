@@ -1458,6 +1458,16 @@ func stepWriteVhost(ctx context.Context, s *state) error {
 			RateLimitBurst:       sec.RateLimitBurst,
 		})
 	}
+	if storedRoutes, err := s.m.store.ListWebsiteRoutes(s.req.Slug); err == nil {
+		routes := make([]webserver.RouteSpec, 0, len(storedRoutes))
+		for _, route := range storedRoutes {
+			routes = append(routes, webserver.RouteSpec{
+				Path: route.Path, Upstream: route.Upstream,
+				Websocket: route.Websocket, StripPrefix: route.StripPrefix,
+			})
+		}
+		spec = spec.WithRoutes(routes)
+	}
 	path, err := webserver.Apply(ctx, engine, dir, s.m.host, spec)
 	if err != nil {
 		return err
