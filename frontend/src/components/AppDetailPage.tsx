@@ -1726,9 +1726,11 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
       const fromApi = runtimeConfigData?.config?.installedVersions;
       return Array.isArray(fromApi) ? fromApi : [];
     }
-    if (app.runtime === 'python') return ['3.10', '3.11', '3.12'];
-    if (app.runtime === 'ruby') return ['3.1', '3.2', '3.3'];
-    if (app.runtime === 'go') return ['1.21', '1.22', '1.23'];
+    if (['python', 'ruby', 'go'].includes(app.runtime)) {
+      // Only what the host really has, like Node and PHP above.
+      const fromApi = runtimeConfigData?.config?.installedVersions;
+      return Array.isArray(fromApi) ? fromApi : [];
+    }
     return [];
   }, [app.runtime, runtimeConfigData]);
 

@@ -1,13 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/stack"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/phpext"
 	"github.com/farrasrayhand/barepod-panel/backend/internal/phpfpm"
@@ -47,7 +50,19 @@ func installedNodeVersions() []string {
 	return out
 }
 
-func availableRuntimeVersions(runtime string) []string {
+// installedRuntime asks the host which versions of a runtime are really there, bounded so a slow
+// probe cannot hold a page load.
+func (s *Server) installedRuntime(name string) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	out := stack.InstalledRuntimeVersions(ctx, s.host, name)
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func (s *Server) availableRuntimeVersions(runtime string) []string {
 	switch strings.ToLower(runtime) {
 	case "php":
 		vers := phpext.InstalledVersions()
@@ -58,13 +73,13 @@ func availableRuntimeVersions(runtime string) []string {
 	case "nodejs":
 		return installedNodeVersions()
 	case "python":
-		return []string{"3.10", "3.11", "3.12"}
+		return s.installedRuntime("python")
 	case "ruby":
-		return []string{"3.1", "3.2", "3.3"}
+		return s.installedRuntime("ruby")
 	case "go":
-		return []string{"1.21", "1.22", "1.23"}
+		return s.installedRuntime("go")
 	case "rust":
-		return []string{"stable"}
+		return s.installedRuntime("rust")
 	default:
 		return nil
 	}
@@ -79,7 +94,7 @@ func (s *Server) siteRuntime(site *store.Website) map[string]any {
 	out := map[string]any{
 		"runtime":           site.Runtime,
 		"version":           site.Version,
-		"availableVersions": availableRuntimeVersions(site.Runtime),
+		"availableVersions": s.availableRuntimeVersions(site.Runtime),
 		"webServer":         engine,
 		"siteEngine":        site.WebServer,
 		"engine":            engine,

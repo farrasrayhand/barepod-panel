@@ -106,6 +106,7 @@ func (s *Server) handleGetRuntimeConfig(w http.ResponseWriter, r *http.Request, 
 		resConfig["installedVersions"] = installedNodeVersions()
 
 	case "python":
+		resConfig["installedVersions"] = s.installedRuntime("python")
 		wsgiServer := "gunicorn"
 		if strings.EqualFold(site.Framework, "fastapi") {
 			wsgiServer = "uvicorn"
@@ -125,11 +126,13 @@ func (s *Server) handleGetRuntimeConfig(w http.ResponseWriter, r *http.Request, 
 		resConfig["venvPath"] = filepath.Join(siteDir, ".venv")
 
 	case "ruby":
+		resConfig["installedVersions"] = s.installedRuntime("ruby")
 		resConfig["appServer"] = stringVal(savedConfig["appServer"], "puma")
 		resConfig["workers"] = intVal(savedConfig["workers"], 2)
 		resConfig["threads"] = intVal(savedConfig["threads"], 5)
 
 	case "go", "rust":
+		resConfig["installedVersions"] = s.installedRuntime(site.Runtime)
 		defaultBin := "./bin/app"
 		if runtime == "rust" {
 			defaultBin = "./target/release/app"
