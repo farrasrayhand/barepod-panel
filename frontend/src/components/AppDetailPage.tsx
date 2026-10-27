@@ -1821,6 +1821,9 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
 
       if (await apiReachable()) {
         const res = await api.updateRuntimeConfig(app.name, payload);
+        if (app.runtime === 'nodejs' && typeof payload.port === 'number' && payload.port !== app.port) {
+          onUpdateApp?.({ ...app, port: payload.port });
+        }
         onShowToast?.(
           'Runtime Configuration Saved',
           app.runtime === 'php'
@@ -5328,7 +5331,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                       </datalist>
                     </div>
                     <span className="text-[10px] text-slate-400 mt-1 block">
-                      Translates to: <code>{nodePkgManager} {nodeScript === 'start' ? 'start' : `run ${nodeScript}`} -- --port {app.port}</code>
+                      Translates to: <code>{nodePkgManager} {nodeScript === 'start' ? 'start' : `run ${nodeScript}`} -- --port {nodePort || app.port}</code>
                     </span>
                   </div>
 
@@ -5353,7 +5356,7 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                 <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 font-mono text-[11px] text-slate-600 space-y-1">
                   <div className="font-bold text-slate-700">Supervisor Unit Drop-in Preview:</div>
                   <div className="text-purple-700">
-                    ExecStart={nodePkgManager} {nodeScript === 'start' ? 'start' : `run ${nodeScript}`} -- --port {app.port}
+                    ExecStart={nodePkgManager} {nodeScript === 'start' ? 'start' : `run ${nodeScript}`} -- --port {nodePort || app.port}
                   </div>
                   {nodeMemLimitMb > 0 && (
                     <div className="text-emerald-700">
@@ -5361,6 +5364,18 @@ systemctl reload ${app.name} 2>/dev/null || systemctl restart ${app.name} 2>/dev
                     </div>
                   )}
                   <div className="text-slate-400">EnvironmentFile=/home/{app.tenantUser}/web/{app.name}/.env</div>
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={handleSaveRuntimeConfig}
+                    disabled={isReloadingFpm || isSavingRuntimeConfig}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-2xs transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{isSavingRuntimeConfig ? 'Saving...' : 'Save & Apply'}</span>
+                  </button>
                 </div>
               </div>
             )}
