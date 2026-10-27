@@ -193,13 +193,60 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request, user *store.Us
 	ws := &wsConn{conn: conn}
 	defer func() { _ = conn.Close() }()
 
+	// Start the shell at the size the browser reports. It used to start at a guessed 100x30 and
+	// print its banner and prompt before the real size arrived, so the first screen was drawn for
+	// the wrong pane and a prompt could land off it. The browser sends its size the moment the
+	// socket opens; a client that does not gets the default after a short wait.
+	cols, rows := uint16(100), uint16(30)
+	// One goroutine owns every read: a websocket that fails a read (a timeout included) cannot be
+	// read again, so the wait for the first message must not be a read deadline.
+	type inboundFrame struct {
+		kind    int
+		payload []byte
+	}
+	inbound := make(chan inboundFrame, 8)
+	readerStop := make(chan struct{})
+	defer close(readerStop)
+	conn.SetReadLimit(ptyReadLimit)
+	go func() {
+		defer close(inbound)
+		for {
+			_ = conn.SetReadDeadline(time.Now().Add(ptyIdleTimeout))
+			kind, payload, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			select {
+			case inbound <- inboundFrame{kind, payload}:
+			case <-readerStop:
+				return
+			}
+		}
+	}()
+	var pending *inboundFrame
+	select {
+	case frame, ok := <-inbound:
+		if !ok {
+			return
+		}
+		var first controlMessage
+		if frame.kind == websocket.TextMessage && json.Unmarshal(frame.payload, &first) == nil && first.Type == "resize" {
+			if first.Cols >= 10 && first.Cols <= 500 && first.Rows >= 2 && first.Rows <= 200 {
+				cols, rows = first.Cols, first.Rows
+			}
+		} else {
+			pending = &frame
+		}
+	case <-time.After(1500 * time.Millisecond):
+	}
+
 	session, err := terminal.Start(terminal.Options{
 		Shell:     terminal.DefaultShell(),
 		Dir:       target.Dir,
 		UID:       target.UID,
 		GID:       target.GID,
-		Cols:      100,
-		Rows:      30,
+		Cols:      cols,
+		Rows:      rows,
 		Tenant:    target.Tenant,
 		Site:      target.Slug,
 		SitesRoot: s.host.SitesRoot,
@@ -234,9 +281,6 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request, user *store.Us
 		"mode":     s.host.Mode(),
 		"note":     note,
 	})
-
-	conn.SetReadLimit(ptyReadLimit)
-	_ = conn.SetReadDeadline(time.Now().Add(ptyIdleTimeout))
 
 	// PTY -> browser. Two stages so a slow websocket never blocks the shell:
 	//   pump    : reads the terminal into a buffered channel
@@ -286,21 +330,14 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request, user *store.Us
 	}()
 
 	// browser -> PTY (binary = stdin, text = control)
-	for {
-		_ = conn.SetReadDeadline(time.Now().Add(ptyIdleTimeout))
-		messageType, payload, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
-		switch messageType {
+	handle := func(frame inboundFrame) {
+		switch frame.kind {
 		case websocket.BinaryMessage:
-			if _, err := session.Write(payload); err != nil {
-				break
-			}
+			_, _ = session.Write(frame.payload)
 		case websocket.TextMessage:
 			var message controlMessage
-			if err := json.Unmarshal(payload, &message); err != nil {
-				continue
+			if err := json.Unmarshal(frame.payload, &message); err != nil {
+				return
 			}
 			switch message.Type {
 			case "resize":
@@ -309,6 +346,12 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request, user *store.Us
 				_ = ws.json(map[string]any{"type": "pong", "ts": time.Now().UTC().Format(time.RFC3339)})
 			}
 		}
+	}
+	if pending != nil {
+		handle(*pending)
+	}
+	for frame := range inbound {
+		handle(frame)
 	}
 	_ = s.store.Audit(user.ID, "terminal.close", auditTarget, clientIP(r), "")
 }

@@ -84,6 +84,15 @@ func env(key, fallback string) string {
 	return fallback
 }
 
+// envAllowEmpty is env for a setting where an explicit empty value means "off": the variable being
+// set to "" must not fall back to the default.
+func envAllowEmpty(key, fallback string) string {
+	if v, ok := os.LookupEnv(key); ok {
+		return v
+	}
+	return fallback
+}
+
 func envInt(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
@@ -147,7 +156,7 @@ func Load(args []string) (Config, error) {
 	tls := fs.Bool("tls", envBool("BAREPOD_TLS", true), "serve the panel over HTTPS (a self-signed certificate is generated when none is given)")
 	tlsCert := fs.String("tls-cert", env("BAREPOD_TLS_CERT", ""), "TLS certificate path (default: a self-signed pair beside the panel database)")
 	tlsKey := fs.String("tls-key", env("BAREPOD_TLS_KEY", ""), "TLS private key path")
-	httpListen := fs.String("http-listen", env("BAREPOD_HTTP_LISTEN", ":80"), "plain-HTTP address that serves the server's default page (empty disables it); the web-server module will take this port over")
+	httpListen := fs.String("http-listen", envAllowEmpty("BAREPOD_HTTP_LISTEN", ":80"), "plain-HTTP address that serves the server's default page (empty disables it); the web-server module will take this port over")
 	httpsListen := fs.String("https-listen", env("BAREPOD_HTTPS_LISTEN", ""), "HTTPS address that serves the same default page over TLS (empty disables it); edge web server owns port 443")
 	dbPath := fs.String("db", DefaultDBPath(), "path to the panel SQLite database")
 	keyPath := fs.String("key", DefaultKeyPath(), "path to the secrets encryption key")

@@ -699,7 +699,15 @@ func runServe(args []string) error {
 	// hosted on this port yet, the panel is here" — instead of a browser's "This
 	// site can't be reached". The web-server module takes this port over later and
 	// serves a default vhost of its own.
-	if cfg.HTTPListen != "" {
+	// Once a web server is the panel's ingress it owns :80 and serves the same page from its own
+	// catch-all vhost. The daemon holding the port as well meant every site on it was answered with
+	// "not assigned to any website" while nginx, with a correct vhost, never saw a request.
+	ingressActive := false
+	if v, err := st.PanelSetting("active_web_server"); err == nil && webserver.Supported(strings.TrimSpace(v)) {
+		ingressActive = true
+		log.Printf("the %s ingress serves :80, so the daemon's own default-page listener is off", strings.TrimSpace(v))
+	}
+	if cfg.HTTPListen != "" && !ingressActive {
 		go func() {
 			log.Printf("serving the default page on http://%s (no website is configured there yet)", cfg.HTTPListen)
 			if err := http.ListenAndServe(cfg.HTTPListen, statusPageHandler(noSitePage)); err != nil {

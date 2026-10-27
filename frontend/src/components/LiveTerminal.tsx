@@ -115,6 +115,11 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({
               setIdentity(`${control.shell ?? 'shell'} · ${control.user ?? ''} · ${confinement}`.trim());
               setMode(control.mode ?? '');
               if (control.note) term.writeln(`\x1b[90m# ${control.note}\x1b[0m`);
+              // The pane may have settled since the socket opened: fit again, tell the shell, and
+              // give the terminal the keyboard so typing works without a first click.
+              fit.fit();
+              socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+              term.focus();
             }
             if (control.type === 'error') {
               setStatus('error');
