@@ -1014,6 +1014,25 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
     })();
   }, [isOpen, currentUsername, isAdmin]);
 
+  // Ports already taken on the host or by another site: a new app starts at its runtime's default
+  // and moves up to the first free one, so two Node apps do not both claim 3000.
+  const [usedPorts, setUsedPorts] = useState<number[]>([]);
+  useEffect(() => {
+    if (!isOpen) return;
+    let active = true;
+    api.usedPorts()
+      .then((res) => { if (active) setUsedPorts(res.ports ?? []); })
+      .catch(() => { /* the default port is still a valid first choice */ });
+    return () => { active = false; };
+  }, [isOpen]);
+  const appPort = useMemo(() => {
+    const base = defaultPortFor(runtime);
+    if (runtime === 'php' || runtime === 'static') return base;
+    let port = base;
+    while (usedPorts.includes(port) && port < 65535) port++;
+    return port;
+  }, [runtime, usedPorts]);
+
   const runtimeConfigs: Record<RuntimeType, { versions: string[]; frameworks: string[] }> = useMemo(() => {
     const getVersions = (name: string, fallback: string[]) => {
       const rt = stackStatus?.runtimes?.[name];
@@ -1368,7 +1387,7 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
 
   const getGeneratedConfig = () => {
     const dName = domain || 'example.com';
-    const upTarget = appMode === 'proxy' ? upstreamUrl || 'http://127.0.0.1:8080' : `http://127.0.0.1:${defaultPortFor(runtime)}`;
+    const upTarget = appMode === 'proxy' ? upstreamUrl || 'http://127.0.0.1:8080' : `http://127.0.0.1:${appPort}`;
 
     if (webServer === 'caddy') {
       return `${dName} {
@@ -1451,7 +1470,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
   const handleDeploy = async () => {
     const resolvedPort = appMode === 'proxy'
       ? Number((upstreamUrl.match(/:(\d+)/) || [])[1] || 8080)
-      : defaultPortFor(runtime);
+      : appPort;
 
     const buildScript =
       detectedFw?.buildCommand

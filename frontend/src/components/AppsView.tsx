@@ -32,6 +32,7 @@ import { AppDetailPage, type AppDetailTab } from './AppDetailPage';
 import { DangerConfirmModal } from './DangerConfirmModal';
 import { api } from '../api/client';
 import { toWebApp } from '../api/adapters';
+import { siteUrl } from '../utils/address';
 
 interface AppsViewProps {
   apps: WebApp[];
@@ -453,7 +454,7 @@ export const AppsView: React.FC<AppsViewProps> = ({
                           </button>
                           <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
                             <a
-                              href={`https://${app.domain}`}
+                              href={siteUrl(app)}
                               target="_blank"
                               rel="noreferrer"
                               className="text-slate-500 hover:text-blue-600 inline-flex items-center gap-1 text-xs"

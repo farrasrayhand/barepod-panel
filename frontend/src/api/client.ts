@@ -814,6 +814,8 @@ export const api = {
    * Panel-wide settings. `externalAddress` is the address an external client should use — the daemon
    * cannot detect it, so the operator sets it and every snippet prefers it.
    */
+  /** Every port an app could collide with: listening on the host or already given to a site. */
+  usedPorts: () => request<{ ports: number[] }>('/system/ports/used'),
   /** The ports this host is actually listening on, measured rather than written into a screen. */
   systemPorts: () =>
     request<{

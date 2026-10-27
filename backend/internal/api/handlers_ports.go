@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -58,6 +59,31 @@ func (s *Server) handleSystemPorts(w http.ResponseWriter, r *http.Request, _ *st
 		"sshPorts": sshdConfiguredPorts(),
 		"note":     "measured on this host with ss, not written into the screen",
 	})
+}
+
+// handleUsedPorts lists every port an app could collide with: what the host listens on plus the
+// port each existing site was given. The Add Website wizard picks the first free one above the
+// runtime default, so two Node apps no longer both land on 3000.
+func (s *Server) handleUsedPorts(w http.ResponseWriter, r *http.Request, _ *store.User, _ *store.Session) {
+	used := map[int]bool{}
+	if listening, err := s.listeningPorts(r); err == nil {
+		for port := range listening {
+			used[port] = true
+		}
+	}
+	if sites, err := s.store.ListWebsites(); err == nil {
+		for _, site := range sites {
+			if site.Port > 0 && site.Runtime != "php" && site.Runtime != "static" {
+				used[site.Port] = true
+			}
+		}
+	}
+	ports := make([]int, 0, len(used))
+	for port := range used {
+		ports = append(ports, port)
+	}
+	sort.Ints(ports)
+	writeJSON(w, http.StatusOK, map[string]any{"ports": ports})
 }
 
 // listeningPorts reads the local TCP ports something is bound to.

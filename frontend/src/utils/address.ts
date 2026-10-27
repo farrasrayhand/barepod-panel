@@ -21,3 +21,10 @@ export function describeAddress(address: string): { label: string; tone: 'loopba
     (first === 100 && second >= 64 && second <= 127);
   return privateRange ? { label: 'Private', tone: 'private' } : { label: 'Public', tone: 'public' };
 }
+
+/**
+ * The scheme a site is really reachable on: https only when the panel issued a certificate or the
+ * site is published through a Cloudflare tunnel (which terminates TLS). A plain site is http.
+ */
+export const siteUrl = (app: { domain: string; ssl?: boolean; tunnelEnabled?: boolean }): string =>
+  `${app.ssl || app.tunnelEnabled ? 'https' : 'http'}://${app.domain}`;

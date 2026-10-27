@@ -255,6 +255,7 @@ func New(d Deps) http.Handler {
 	// The ports this host is actually listening on, because the settings screen used to have them
 	// written into it — including none for SSH.
 	mux.HandleFunc("GET /api/v1/system/ports", s.requireAuth(s.handleSystemPorts))
+	mux.HandleFunc("GET /api/v1/system/ports/used", s.requireAuth(s.handleUsedPorts))
 
 	// Changing a port the host itself listens on. Administrative, audited, and written the same way in
 	// both: validate, keep a copy, write, verify, and put the copy back if the verification fails.

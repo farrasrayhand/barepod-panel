@@ -102,6 +102,8 @@ func (s *Server) handleGetRuntimeConfig(w http.ResponseWriter, r *http.Request, 
 		resConfig["entrypoint"] = stringVal(savedConfig["entrypoint"], "npm start")
 		resConfig["memoryLimitMb"] = intVal(savedConfig["memoryLimitMb"], 0)
 		resConfig["detectedScripts"] = detectedScripts
+		resConfig["port"] = site.Port
+		resConfig["installedVersions"] = installedNodeVersions()
 
 	case "python":
 		wsgiServer := "gunicorn"
@@ -235,6 +237,17 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 		req.Config["startScript"] = script
 		req.Config["packageManager"] = pkgManager
 		req.Config["memoryLimitMb"] = memLimitMb
+		// Some apps ignore --port and PORT and read their own settings file, so the port the vhost
+		// proxies to has to be editable here.
+		if newPort := intVal(req.Config["port"], 0); newPort > 0 && newPort <= 65535 && newPort != site.Port {
+			if err := s.store.UpdateWebsitePort(site.Slug, newPort); err != nil {
+				writeError(w, http.StatusInternalServerError, "store_error", "Failed to update the port: "+err.Error())
+				return
+			}
+			site.Port = newPort
+			_ = s.applyVhost(r, site)
+		}
+		req.Config["port"] = site.Port
 		portStr := strconv.Itoa(site.Port)
 
 		var execStart []string

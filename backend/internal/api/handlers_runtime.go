@@ -3,7 +3,10 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/phpext"
@@ -22,6 +25,28 @@ func (s *Server) siteOr404(w http.ResponseWriter, r *http.Request, user *store.U
 	return site, true
 }
 
+// installedNodeVersions lists the Node majors unpacked under /opt/barepod/node, newest first: the
+// only versions a site can really be switched to. A hardcoded 18/20/22 offered majors that were
+// never installed.
+func installedNodeVersions() []string {
+	entries, err := os.ReadDir("/opt/barepod/node")
+	if err != nil {
+		return []string{}
+	}
+	out := []string{}
+	for _, e := range entries {
+		if n, err := strconv.Atoi(e.Name()); err == nil && e.IsDir() {
+			out = append(out, strconv.Itoa(n))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, _ := strconv.Atoi(out[i])
+		b, _ := strconv.Atoi(out[j])
+		return a > b
+	})
+	return out
+}
+
 func availableRuntimeVersions(runtime string) []string {
 	switch strings.ToLower(runtime) {
 	case "php":
@@ -31,7 +56,7 @@ func availableRuntimeVersions(runtime string) []string {
 		}
 		return []string{"8.1", "8.2", "8.3", "8.4"}
 	case "nodejs":
-		return []string{"18", "20", "22"}
+		return installedNodeVersions()
 	case "python":
 		return []string{"3.10", "3.11", "3.12"}
 	case "ruby":

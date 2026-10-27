@@ -650,7 +650,13 @@ func stepWriteEnv(ctx context.Context, s *state) error {
 	// 2. Standard application defaults
 	env["APP_NAME"] = s.req.Slug
 	env["APP_DOMAIN"] = s.req.Domain
-	env["APP_URL"] = "https://" + s.req.Domain
+	// https only when the site really terminates TLS (a certificate, or a Cloudflare tunnel);
+	// a plain site told to generate https links breaks its own redirects and assets.
+	scheme := "http"
+	if s.req.SSL || s.req.TunnelEnabled {
+		scheme = "https"
+	}
+	env["APP_URL"] = scheme + "://" + s.req.Domain
 	env["PORT"] = strconv.Itoa(s.req.Port)
 	if _, ok := env["APP_ENV"]; !ok || env["APP_ENV"] == "local" || env["APP_ENV"] == "" {
 		env["APP_ENV"] = "production"
@@ -1572,16 +1578,9 @@ func stepHealthCheck(ctx context.Context, s *state) error {
 		}
 		return nil
 	}
-	// A site with a vhost is asked for by name through the web server: that is the
-	// real proof it is served (a PHP site's FPM listens on a socket, not a port).
-	if webserver.Supported(s.m.ActiveEngine()) && strings.TrimSpace(s.req.Domain) != "" {
-		err := checkVhost(ctx, s)
-		if err == nil || s.req.Port <= 0 || s.req.Runtime == "php" || s.req.Runtime == "static" {
-			return err
-		}
-		// The web server is not answering on loopback port 80 (it may listen elsewhere, behind a
-		// tunnel or another proxy). The app itself is what this deploy started, so ask it directly
-		// and report the ingress problem as a warning instead of failing a working app.
+	// An app that listens on a port must accept connections there before the web server's answer
+	// means anything: nginx replies 404/502 for a dead upstream, and a 404 once passed as healthy.
+	if s.req.Port > 0 && s.req.Runtime != "php" && s.req.Runtime != "static" {
 		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(s.req.Port))
 		appDeadline := time.Now().Add(30 * time.Second)
 		for {
@@ -1589,11 +1588,10 @@ func stepHealthCheck(ctx context.Context, s *state) error {
 			if dErr == nil {
 				_ = conn.Close()
 				s.log("stdout", "healthy: the app accepts connections on "+addr)
-				s.log("stdout", "warning: "+err.Error()+" — check which port the web server listens on (ss -ltnp | grep nginx)")
-				return nil
+				break
 			}
 			if time.Now().After(appDeadline) {
-				return fmt.Errorf("%w; the app also does not accept connections on %s (see journalctl -u barepod-app@%s)", err, addr, s.req.Slug)
+				return fmt.Errorf("health check failed: the app does not listen on %s — see journalctl -u barepod-app@%s -n 50", addr, s.req.Slug)
 			}
 			select {
 			case <-ctx.Done():
@@ -1601,6 +1599,11 @@ func stepHealthCheck(ctx context.Context, s *state) error {
 			case <-time.After(time.Second):
 			}
 		}
+	}
+	// A site with a vhost is asked for by name through the web server: that is the
+	// real proof it is served (a PHP site's FPM listens on a socket, not a port).
+	if webserver.Supported(s.m.ActiveEngine()) && strings.TrimSpace(s.req.Domain) != "" {
+		return checkVhost(ctx, s)
 	}
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(s.req.Port))
 	deadline := time.Now().Add(30 * time.Second)
