@@ -1575,7 +1575,32 @@ func stepHealthCheck(ctx context.Context, s *state) error {
 	// A site with a vhost is asked for by name through the web server: that is the
 	// real proof it is served (a PHP site's FPM listens on a socket, not a port).
 	if webserver.Supported(s.m.ActiveEngine()) && strings.TrimSpace(s.req.Domain) != "" {
-		return checkVhost(ctx, s)
+		err := checkVhost(ctx, s)
+		if err == nil || s.req.Port <= 0 || s.req.Runtime == "php" || s.req.Runtime == "static" {
+			return err
+		}
+		// The web server is not answering on loopback port 80 (it may listen elsewhere, behind a
+		// tunnel or another proxy). The app itself is what this deploy started, so ask it directly
+		// and report the ingress problem as a warning instead of failing a working app.
+		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(s.req.Port))
+		appDeadline := time.Now().Add(30 * time.Second)
+		for {
+			conn, dErr := net.DialTimeout("tcp", addr, 2*time.Second)
+			if dErr == nil {
+				_ = conn.Close()
+				s.log("stdout", "healthy: the app accepts connections on "+addr)
+				s.log("stdout", "warning: "+err.Error()+" — check which port the web server listens on (ss -ltnp | grep nginx)")
+				return nil
+			}
+			if time.Now().After(appDeadline) {
+				return fmt.Errorf("%w; the app also does not accept connections on %s (see journalctl -u barepod-app@%s)", err, addr, s.req.Slug)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Second):
+			}
+		}
 	}
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(s.req.Port))
 	deadline := time.Now().Add(30 * time.Second)
