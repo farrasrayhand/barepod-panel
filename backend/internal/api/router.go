@@ -346,6 +346,7 @@ func New(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/git/providers/test", s.requireAuth(s.handleTestUserGitProvider))
 	mux.HandleFunc("GET /api/v1/git/providers/{id}/repos", s.requireAuth(s.handleListGitProviderRepos))
 	mux.HandleFunc("GET /api/v1/git/providers/{id}/branches", s.requireAuth(s.handleListGitProviderBranches))
+	mux.HandleFunc("GET /api/v1/git/remote-branches", s.requireAuth(s.handleRemoteBranches))
 	mux.HandleFunc("DELETE /api/v1/git/providers/{id}", s.requireAuth(s.handleDeleteUserGitProvider))
 
 	// Me Git Providers Aliases (per API Contract)

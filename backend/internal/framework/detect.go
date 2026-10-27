@@ -12,21 +12,21 @@ import (
 // DetectedFramework holds framework, runtime, build, and infrastructure recommendations
 // inferred from project files (composer.json, package.json, requirements.txt, etc.).
 type DetectedFramework struct {
-	Name             string   `json:"name"`                      // e.g. "laravel", "nextjs", "vite", "astro", "express", "django", "fastapi", "static"
-	Title            string   `json:"title"`                     // e.g. "Laravel 12", "Next.js", "Vite (React/Vue SPA)"
+	Name             string   `json:"name"`                       // e.g. "laravel", "nextjs", "vite", "astro", "express", "django", "fastapi", "static"
+	Title            string   `json:"title"`                      // e.g. "Laravel 12", "Next.js", "Vite (React/Vue SPA)"
 	FrameworkVersion string   `json:"frameworkVersion,omitempty"` // e.g. "12.70.0" or "12"
 	MinPHPVersion    string   `json:"minPhpVersion,omitempty"`    // e.g. "8.2"
 	CompatiblePHP    []string `json:"compatiblePhp,omitempty"`    // e.g. ["8.2", "8.3", "8.4"]
-	Runtime          string   `json:"runtime"`                   // "php" | "nodejs" | "python" | "static" | "go"
-	Version          string   `json:"version"`                   // e.g. "8.4" for PHP, "22" for Node, "3.12" for Python
-	PackageManager   string   `json:"packageManager"`            // "npm", "pnpm", "yarn", "bun", "composer", "pip"
-	DocRoot          string   `json:"docRoot"`                   // "public", "dist", "build", "."
-	BuildCommand     string   `json:"buildCommand"`              // e.g. "composer install..." or "npm run build"
-	StartCommand     string   `json:"startCommand"`              // e.g. "npm start"
-	Port             int      `json:"port"`                      // e.g. 3000, 5000, 8001
-	DatabaseEngine   string   `json:"databaseEngine"`            // "mariadb", "postgres", "sqlite", ""
-	CacheEngine      string   `json:"cacheEngine"`               // "redis", ""
-	IsProxy          bool     `json:"isProxy"`                   // true if node/python service behind reverse proxy
+	Runtime          string   `json:"runtime"`                    // "php" | "nodejs" | "python" | "static" | "go"
+	Version          string   `json:"version"`                    // e.g. "8.4" for PHP, "22" for Node, "3.12" for Python
+	PackageManager   string   `json:"packageManager"`             // "npm", "pnpm", "yarn", "bun", "composer", "pip"
+	DocRoot          string   `json:"docRoot"`                    // "public", "dist", "build", "."
+	BuildCommand     string   `json:"buildCommand"`               // e.g. "composer install..." or "npm run build"
+	StartCommand     string   `json:"startCommand"`               // e.g. "npm start"
+	Port             int      `json:"port"`                       // e.g. 3000, 5000, 8001
+	DatabaseEngine   string   `json:"databaseEngine"`             // "mariadb", "postgres", "sqlite", ""
+	CacheEngine      string   `json:"cacheEngine"`                // "redis", ""
+	IsProxy          bool     `json:"isProxy"`                    // true if node/python service behind reverse proxy
 }
 
 type composerJSON struct {
@@ -104,20 +104,17 @@ func Detect(dir string) *DetectedFramework {
 		return detectFromPython(string(data))
 	}
 
-	// 5. Check Go
-	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-		return &DetectedFramework{
-			Name:           "go",
-			Title:          "Go Application",
-			Runtime:        "go",
-			Version:        "1.22",
-			BuildCommand:   "go build -o app .",
-			StartCommand:   "./app",
-			Port:           8080,
-			DocRoot:        ".",
-			IsProxy:        true,
-			DatabaseEngine: "postgres",
+	// 5. Check Go, Ruby and Rust
+	if data, err := os.ReadFile(filepath.Join(dir, "go.mod")); err == nil {
+		return detectFromGoMod(string(data))
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "Gemfile")); err == nil {
+		if fw := detectFromGemfile(string(data)); fw != nil {
+			return fw
 		}
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "Cargo.toml")); err == nil {
+		return detectFromCargo(string(data))
 	}
 
 	// 6. Check Native PHP
@@ -193,6 +190,7 @@ func DetectArchive(r io.ReaderAt, size int64) *DetectedFramework {
 	hasWP := false
 	hasIndexHTML := false
 	hasIndexPHP := false
+	var goModStr, gemStr, cargoStr string
 	hasGoMod := false
 	hasPnpmLock := false
 	hasYarnLock := false
@@ -221,6 +219,11 @@ func DetectArchive(r io.ReaderAt, size int64) *DetectedFramework {
 			hasWP = true
 		case "go.mod":
 			hasGoMod = true
+			goModStr = readZipText(f, 128*1024)
+		case "Gemfile":
+			gemStr = readZipText(f, 128*1024)
+		case "Cargo.toml":
+			cargoStr = readZipText(f, 128*1024)
 		case "index.php":
 			hasIndexPHP = true
 		case "index.html":
@@ -268,18 +271,15 @@ func DetectArchive(r io.ReaderAt, size int64) *DetectedFramework {
 		return detectFromPython(reqStr)
 	}
 	if hasGoMod {
-		return &DetectedFramework{
-			Name:           "go",
-			Title:          "Go Application",
-			Runtime:        "go",
-			Version:        "1.22",
-			BuildCommand:   "go build -o app .",
-			StartCommand:   "./app",
-			Port:           8080,
-			DocRoot:        ".",
-			IsProxy:        true,
-			DatabaseEngine: "postgres",
+		return detectFromGoMod(goModStr)
+	}
+	if gemStr != "" {
+		if fw := detectFromGemfile(gemStr); fw != nil {
+			return fw
 		}
+	}
+	if cargoStr != "" {
+		return detectFromCargo(cargoStr)
 	}
 	if hasIndexPHP {
 		return &DetectedFramework{
@@ -460,6 +460,10 @@ func detectFromComposer(data []byte, dir string) *DetectedFramework {
 			DatabaseEngine: "mariadb",
 			Port:           8001,
 		}
+	}
+
+	if fw := detectPHPExtra(allDeps, &c, dir, phpVer); fw != nil {
+		return fw
 	}
 
 	// Generic PHP
@@ -657,7 +661,7 @@ func detectFromPython(content string) *DetectedFramework {
 	}
 	return &DetectedFramework{
 		Name:           "flask",
-		Title:          "Flask / Python",
+		Title:          "Flask",
 		Runtime:        "python",
 		Version:        "3.12",
 		PackageManager: "pip",
@@ -667,4 +671,14 @@ func detectFromPython(content string) *DetectedFramework {
 		Port:           5000,
 		IsProxy:        true,
 	}
+}
+
+func readZipText(f *zip.File, limit int64) string {
+	rc, err := f.Open()
+	if err != nil {
+		return ""
+	}
+	defer rc.Close()
+	data, _ := io.ReadAll(io.LimitReader(rc, limit))
+	return string(data)
 }

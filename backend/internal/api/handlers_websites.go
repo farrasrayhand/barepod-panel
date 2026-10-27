@@ -229,10 +229,16 @@ func (s *Server) handleDetectFrameworkFromSource(w http.ResponseWriter, r *http.
 
 	// 2. Check JSON payload for existing directory
 	var payload struct {
-		Tenant string `json:"tenant"`
-		Slug   string `json:"slug"`
+		Tenant     string `json:"tenant"`
+		Slug       string `json:"slug"`
+		Repo       string `json:"repo"`
+		Branch     string `json:"branch"`
+		ProviderID string `json:"providerId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err == nil && payload.Slug != "" {
+	if err := json.NewDecoder(r.Body).Decode(&payload); err == nil && payload.Repo != "" {
+		s.detectFromGitPayload(w, r, user, payload.Repo, payload.Branch, payload.ProviderID)
+		return
+	} else if err == nil && payload.Slug != "" {
 		tenant := payload.Tenant
 		if tenant == "" || user.Role != "admin" {
 			tenant = user.Username

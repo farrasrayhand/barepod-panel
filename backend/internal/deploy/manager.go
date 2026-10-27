@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -1278,6 +1279,19 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 		return nil
 	}
 
+	// A Node site builds with the major the panel unpacked under /opt/barepod/node, which is not on
+	// the tenant's default PATH. Put it first, and fail with the cause when it was never installed
+	// rather than letting the script die at "npm: not found" (exit 127).
+	if s.req.Runtime == "nodejs" {
+		if ver := strings.TrimSpace(s.req.Version); nodeVersionPattern.MatchString(ver) {
+			fmt.Fprintf(&pre, "[ -d /opt/barepod/node/%[1]s/bin ] && export PATH=\"/opt/barepod/node/%[1]s/bin:$PATH\"\n", ver)
+		}
+		if _, err := s.m.host.RunInSite(ctx, s.req.Tenant, s.req.Slug,
+			[]string{"sh", "-c", pre.String() + "command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1"}); err != nil {
+			return fmt.Errorf("Node.js %s is not installed on this server: install it under Stack > Runtimes, then redeploy", s.req.Version)
+		}
+	}
+
 	// The script runs as the tenant, which cannot reload a service: systemctl needs root. Those lines
 	// are run by the daemon itself, in place, so a "systemctl reload php-fpm" after a build still lands
 	// at the same point. Their failure is a notice, not a deploy failure — a reload with nothing to
@@ -1616,3 +1630,5 @@ func checkVhost(ctx context.Context, s *state) error {
 		}
 	}
 }
+
+var nodeVersionPattern = regexp.MustCompile(`^\d+(\.\d+)*$`)

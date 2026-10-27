@@ -1052,6 +1052,15 @@ export const api = {
     form.append('archive', file, file.name);
     return uploadForm<{ ok: boolean; framework?: DetectedFramework }>('/websites/detect-framework', form);
   },
+  detectFrameworkFromRepo: (repo: string, branch: string, providerId?: string) =>
+    request<{ ok: boolean; framework?: DetectedFramework; error?: string }>('/websites/detect-framework', {
+      method: 'POST',
+      body: JSON.stringify({ repo, branch, providerId }),
+    }),
+  listRemoteBranches: (repo: string, providerId?: string) =>
+    request<{ repo: string; branches: string[]; defaultBranch: string }>(
+      `/git/remote-branches?repo=${encodeURIComponent(repo)}${providerId ? `&provider=${encodeURIComponent(providerId)}` : ''}`,
+    ),
   detectFrameworkFromExisting: (tenant: string, slug: string) =>
     request<{ ok: boolean; framework?: DetectedFramework }>('/websites/detect-framework', {
       method: 'POST',

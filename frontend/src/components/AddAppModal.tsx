@@ -797,6 +797,37 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
     return () => { active = false; };
   }, [isOpen]);
 
+  const detectFromGit = async (repoUrl: string, branch: string) => {
+    if (!repoUrl.trim()) return;
+    setIsDetecting(true);
+    try {
+      const res = await api.detectFrameworkFromRepo(repoUrl.trim(), branch, gitProviders[0]?.id);
+      if (res.ok && res.framework) applyDetectedFramework(res.framework);
+    } catch {
+      // detection is a convenience; the user can still pick the runtime by hand
+    } finally {
+      setIsDetecting(false);
+    }
+  };
+
+  const loadRemoteBranches = async (repoUrl: string) => {
+    if (!/^(https?:\/\/|git@|ssh:\/\/)/.test(repoUrl.trim())) return;
+    setLoadingBranches(true);
+    try {
+      const res = await api.listRemoteBranches(repoUrl.trim(), gitProviders[0]?.id);
+      if (res.branches?.length) {
+        setGitBranches(res.branches);
+        const pick = res.branches.includes(gitBranch) ? gitBranch : res.defaultBranch || res.branches[0];
+        setGitBranch(pick);
+        void detectFromGit(repoUrl, pick);
+      }
+    } catch {
+      setGitBranches([]);
+    } finally {
+      setLoadingBranches(false);
+    }
+  };
+
   const handleSelectDiscoveredRepo = async (repo: GitRepoItem) => {
     setSelectedRepoFullName(repo.fullName);
     setGitRepo(repo.cloneUrl || `https://github.com/${repo.fullName}`);
@@ -812,8 +843,10 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
           setGitBranches(bRes.branches);
           // Prefer the repository's own default branch over the one embedded in the list row.
           if (bRes.defaultBranch) setGitBranch(bRes.defaultBranch);
+          void detectFromGit(repo.cloneUrl || `https://github.com/${repo.fullName}`, bRes.defaultBranch || repo.defaultBranch || bRes.branches[0]);
         } else {
           setGitBranches([repo.defaultBranch || 'main']);
+          void detectFromGit(repo.cloneUrl || `https://github.com/${repo.fullName}`, repo.defaultBranch || 'main');
         }
       } catch (err) {
         console.warn('Failed to load branches', err);
@@ -984,11 +1017,10 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   const runtimeConfigs: Record<RuntimeType, { versions: string[]; frameworks: string[] }> = useMemo(() => {
     const getVersions = (name: string, fallback: string[]) => {
       const rt = stackStatus?.runtimes?.[name];
-      if (rt) {
-        if (rt.installed && rt.installed.length > 0) return rt.installed;
-        if (rt.available && rt.available.length > 0) return rt.supported?.length ? rt.supported : rt.available;
-      }
-      return fallback;
+      // Once the host has been probed, only what is really installed may be chosen: offering an
+      // uninstalled version made the build fail later with "npm: not found".
+      if (rt) return rt.installed ?? [];
+      return stackStatus ? [] : fallback;
     };
 
     return {
@@ -1173,8 +1205,17 @@ export const AddAppModal: React.FC<AddAppModalProps> = ({
   }, [runtime, runtimeConfigs]);
 
   const compatibleRuntimes = useMemo(() => {
-    return getCompatibleRuntimeVersions(runtime, framework, frameworkVersion, rawAvailableVersions);
-  }, [runtime, framework, frameworkVersion, rawAvailableVersions]);
+    const res = getCompatibleRuntimeVersions(runtime, framework, frameworkVersion, rawAvailableVersions);
+    // The compatibility table falls back to its own list when nothing matches; never offer a
+    // version the host does not have.
+    if (!stackStatus || !['php', 'nodejs', 'python', 'go', 'rust', 'ruby'].includes(runtime)) return res;
+    const versions = res.versions.filter((v) => rawAvailableVersions.includes(v));
+    return {
+      ...res,
+      versions,
+      recommended: versions.includes(res.recommended) ? res.recommended : versions[0] ?? '',
+    };
+  }, [runtime, framework, frameworkVersion, rawAvailableVersions, stackStatus]);
 
   useEffect(() => {
     if (compatibleRuntimes.versions.length > 0 && !compatibleRuntimes.versions.includes(version)) {
@@ -2092,7 +2133,10 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                           ) : gitBranches.length > 0 ? (
                             <select
                               value={gitBranch}
-                              onChange={(e) => setGitBranch(e.target.value)}
+                              onChange={(e) => {
+                                setGitBranch(e.target.value);
+                                void detectFromGit(gitRepo, e.target.value);
+                              }}
                               className={inputClass}
                             >
                               {gitBranches.map((b) => (
@@ -2155,6 +2199,7 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                           type="text"
                           value={gitRepo}
                           onChange={(e) => setGitRepo(e.target.value)}
+                          onBlur={() => void loadRemoteBranches(gitRepo)}
                           placeholder="https://github.com/user/repo"
                           className={inputClass}
                         />
@@ -2163,13 +2208,33 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-semibold text-slate-700 mb-1">Branch</label>
-                          <input
-                            type="text"
-                            value={gitBranch}
-                            onChange={(e) => setGitBranch(e.target.value)}
-                            className={inputClass}
-                            placeholder="main"
-                          />
+                          {loadingBranches ? (
+                            <div className="flex items-center gap-1.5 p-2 rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-400">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Loading branches...</span>
+                            </div>
+                          ) : gitBranches.length > 0 ? (
+                            <select
+                              value={gitBranch}
+                              onChange={(e) => {
+                                setGitBranch(e.target.value);
+                                void detectFromGit(gitRepo, e.target.value);
+                              }}
+                              className={inputClass}
+                            >
+                              {gitBranches.map((b) => (
+                                <option key={b} value={b}>{b}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={gitBranch}
+                              onChange={(e) => setGitBranch(e.target.value)}
+                              className={inputClass}
+                              placeholder="main"
+                            />
+                          )}
                         </div>
                         <label className="flex items-center gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50/50 cursor-pointer text-xs self-end">
                           <input
@@ -2436,7 +2501,12 @@ ${proxyWebsocket ? '        proxy_set_header Upgrade $http_upgrade;\n        pro
                         </label>
                         <span className="text-[10px] text-slate-400">Select version</span>
                       </div>
-                      <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass}>
+                      {compatibleRuntimes.versions.length === 0 && (
+                        <p className="text-[11px] text-amber-700 mb-1.5 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-100">
+                          No {runtime.toUpperCase()} version is installed on this server. Install one under Stack &gt; Runtimes first.
+                        </p>
+                      )}
+                      <select value={version} onChange={(e) => setVersion(e.target.value)} className={inputClass} disabled={compatibleRuntimes.versions.length === 0}>
                         {compatibleRuntimes.versions.map((ver) => (
                           <option key={ver} value={ver}>
                             {ver} {ver === compatibleRuntimes.recommended ? '(Recommended)' : ''}
