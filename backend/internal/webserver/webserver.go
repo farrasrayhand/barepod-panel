@@ -1051,6 +1051,9 @@ func WriteDefault(engine, dir string) (string, error) {
 		if _, err := os.Lstat(defaultConf); err == nil {
 			_ = os.Rename(defaultConf, defaultConf+".barepod-disabled")
 		}
+		if err := EnsureNginxInclude(filepath.Join(filepath.Dir(dir), "nginx.conf"), dir); err != nil {
+			return "", err
+		}
 	}
 	if strings.EqualFold(engine, Caddy) {
 		if err := WriteCaddyConfig(filepath.Join(filepath.Dir(dir), "Caddyfile"), dir, false); err != nil {
@@ -1338,4 +1341,53 @@ func EnsureNginxRealIP(confDDir string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(confDDir, "barepod-realip.conf"), []byte(NginxRealIPConfig), 0o644)
+}
+
+// EnsureNginxInclude makes nginx.conf read the panel's vhost directory. The nginx.org package
+// ships an nginx.conf that includes only conf.d/*.conf: every site vhost and the catch-all sat in
+// sites-enabled unread, nginx listened on no port at all, and `nginx -t` still passed. The include
+// is added right after the conf.d one (or at the top of the http block) and only when no active,
+// uncommented line already includes the directory. A missing nginx.conf is left alone.
+func EnsureNginxInclude(confPath, vhostDir string) error {
+	data, err := os.ReadFile(confPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("webserver: read %s: %w", confPath, err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "include") && strings.Contains(trimmed, vhostDir) {
+			return nil
+		}
+	}
+	directive := "    include " + filepath.Join(vhostDir, "*.conf") + ";"
+	lines := strings.Split(string(data), "\n")
+	at := -1
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "include") && strings.Contains(trimmed, "conf.d/") {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		for i, line := range lines {
+			if t := strings.TrimSpace(line); t == "http {" || t == "http{" {
+				at = i
+				break
+			}
+		}
+	}
+	if at < 0 {
+		return fmt.Errorf("webserver: %s has no http block to include %s in", confPath, vhostDir)
+	}
+	out := append([]string{}, lines[:at+1]...)
+	out = append(out, directive)
+	out = append(out, lines[at+1:]...)
+	if err := os.WriteFile(confPath, []byte(strings.Join(out, "\n")), 0o644); err != nil {
+		return fmt.Errorf("webserver: write %s: %w", confPath, err)
+	}
+	return nil
 }
