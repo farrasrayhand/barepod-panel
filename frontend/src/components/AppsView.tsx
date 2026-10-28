@@ -581,13 +581,22 @@ export const AppsView: React.FC<AppsViewProps> = ({
                               <span>Port {app.port}</span>
                             </span>
                           )}
-                          <span
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200"
-                            title="Auto SSL Certificate Active"
-                          >
-                            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
-                            <span>SSL</span>
-                          </span>
+                          {app.ssl || app.tunnelEnabled ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200"
+                              title={app.tunnelEnabled ? 'HTTPS terminated by the Cloudflare tunnel' : 'SSL certificate active'}
+                            >
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                              <span>SSL</span>
+                            </span>
+                          ) : (
+                            <span
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200"
+                              title="No certificate: the site is served over plain HTTP"
+                            >
+                              <span>HTTP only</span>
+                            </span>
+                          )}
                         </div>
                       </td>
 
