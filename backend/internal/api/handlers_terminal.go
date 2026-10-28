@@ -264,6 +264,8 @@ func (s *Server) servePTY(w http.ResponseWriter, r *http.Request, user *store.Us
 	note := "This shell runs as the website's owner account."
 	if target.Host {
 		note = "This is a host shell: commands run with the daemon's privileges (root)."
+	} else if jailed && jailMode == "root" {
+		note = "This shell runs as the website's owner inside a jail: the website is the only folder in it, and system tools are read-only."
 	} else if jailed && jailMode == "home" {
 		note = fmt.Sprintf("This shell runs as the website's owner: %s is the website itself, so `cd ..` leaves the account's own files behind and the other sites are not even names here.", target.Dir)
 	} else {

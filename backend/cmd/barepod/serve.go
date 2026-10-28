@@ -409,6 +409,7 @@ func runServe(args []string) error {
 
 	// Ensure interactive terminal MOTD banner exists
 	ensureProfileMOTD()
+	ensureUnprivilegedPing()
 
 	// Synchronize any existing stopped/maintenance pages to the latest design
 	if n := webserver.SyncAllMaintenancePages(); n > 0 {
@@ -811,5 +812,28 @@ echo ""
 `
 	if current, err := os.ReadFile(motdPath); err != nil || string(current) != content {
 		_ = os.WriteFile(motdPath, []byte(content), 0o755)
+	}
+}
+
+// ensureUnprivilegedPing lets ordinary users ping through ICMP datagram sockets. A tenant shell's
+// jail mounts the system read-only and nosuid, which also strips ping's cap_net_raw file
+// capability, so ping failed with "missing cap_net_raw". Ubuntu and Fedora enable this range by
+// default; LXC containers often keep the kernel's "1 0" (nobody). Opening the range grants no
+// raw-socket access, only ICMP echo, and the jail keeps nosuid.
+func ensureUnprivilegedPing() {
+	const proc = "/proc/sys/net/ipv4/ping_group_range"
+	const want = "0 2147483647"
+	current, err := os.ReadFile(proc)
+	if err != nil {
+		return
+	}
+	if strings.Join(strings.Fields(string(current)), " ") != want {
+		if err := os.WriteFile(proc, []byte(want), 0o644); err != nil {
+			log.Printf("ping: could not allow unprivileged ICMP (%v); tenant shells cannot ping", err)
+			return
+		}
+	}
+	if _, err := os.Stat("/etc/sysctl.d"); err == nil {
+		_ = os.WriteFile("/etc/sysctl.d/60-barepod-ping.conf", []byte("# Managed by BarePod Panel: unprivileged ICMP echo, so ping works in jailed tenant shells.\nnet.ipv4.ping_group_range = "+want+"\n"), 0o644)
 	}
 }
