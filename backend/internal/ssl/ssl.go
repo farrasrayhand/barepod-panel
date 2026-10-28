@@ -262,10 +262,13 @@ func IssueLetsEncrypt(ctx context.Context, domain string, aliases []string, emai
 		return nil, fmt.Errorf("pre-flight DNS check failed: %w. Point domain DNS A-record to this host before requesting Let's Encrypt", err)
 	}
 
-	webrootDir, err := EnsureACMEDir()
-	if err != nil {
+	if _, err := EnsureACMEDir(); err != nil {
 		return nil, err
 	}
+	// certbot's --webroot takes the document root and appends .well-known/acme-challenge itself.
+	// Handing it the challenge directory wrote every token one level too deep, where the web
+	// server (rooted at ACMEDir) answered 404.
+	webrootDir := ACMEDir
 
 	// Check if certbot exists
 	certbotPath, err := exec.LookPath("certbot")
