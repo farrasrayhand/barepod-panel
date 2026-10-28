@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -702,10 +703,15 @@ func runServe(args []string) error {
 	// Once a web server is the panel's ingress it owns :80 and serves the same page from its own
 	// catch-all vhost. The daemon holding the port as well meant every site on it was answered with
 	// "not assigned to any website" while nginx, with a correct vhost, never saw a request.
-	ingressActive := false
+	// The engine is the saved choice, or nginx when none was saved — the same fallback deploys use
+	// to write vhosts — and it counts once its binary is installed.
+	ingressEngine := webserver.DefaultEngine
 	if v, err := st.PanelSetting("active_web_server"); err == nil && webserver.Supported(strings.TrimSpace(v)) {
-		ingressActive = true
-		log.Printf("the %s ingress serves :80, so the daemon's own default-page listener is off", strings.TrimSpace(v))
+		ingressEngine = strings.ToLower(strings.TrimSpace(v))
+	}
+	ingressActive := webserver.Available(ingressEngine, exec.LookPath)
+	if ingressActive {
+		log.Printf("the %s ingress serves :80, so the daemon's own default-page listener is off", ingressEngine)
 	}
 	if cfg.HTTPListen != "" && !ingressActive {
 		go func() {
