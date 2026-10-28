@@ -40,6 +40,7 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({
   const [message, setMessage] = useState('Connecting…');
   const [identity, setIdentity] = useState('');
   const [mode, setMode] = useState('');
+  const [note, setNote] = useState('');
 
   const { size: termSize, height: defaultHeight, setSize: setTermSize } = usePanelSize({ sm: 320, md: 460, lg: 650 });
   const activeHeight = height ?? defaultHeight;
@@ -114,7 +115,9 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({
                   : `confined to this site (${control.masked ?? 0} paths hidden)`;
               setIdentity(`${control.shell ?? 'shell'} · ${control.user ?? ''} · ${confinement}`.trim());
               setMode(control.mode ?? '');
-              if (control.note) term.writeln(`\x1b[90m# ${control.note}\x1b[0m`);
+              // Shown above the pane, not written into it: a login banner that clears the screen
+              // (the LXC MOTD does) used to wipe it before anyone could read it.
+              setNote(control.note ?? '');
               // The pane may have settled since the socket opened: fit again, tell the shell, and
               // give the terminal the keyboard so typing works without a first click.
               fit.fit();
@@ -207,6 +210,10 @@ export const LiveTerminal: React.FC<LiveTerminalProps> = ({
           <AlertCircle className="w-3.5 h-3.5 text-slate-400" />
           <span>{message}</span>
         </div>
+      )}
+
+      {note && (
+        <p className="text-[11px] text-slate-500 font-mono"># {note}</p>
       )}
 
       {/* Terminal Screen Frame with Height Resize Controls */}
