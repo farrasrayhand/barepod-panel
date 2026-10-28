@@ -147,7 +147,8 @@ fi
 
 # Configure interactive terminal MOTD banner
 mkdir -p /etc/profile.d
-cat << 'EOFBANNER' > /etc/profile.d/00_barepod.sh
+rm -f /etc/profile.d/00_barepod.sh
+cat << 'EOFBANNER' > /etc/profile.d/zz_barepod.sh
 #!/bin/bash
 # BarePod Panel Custom MOTD / Interactive Terminal Banner
 
@@ -187,7 +188,7 @@ echo -e "  ⏰  Host Uptime    : ${UPTIME}"
 echo -e "  ${DIM}─────────────────────────────────────────────────────────────${NC}"
 echo ""
 EOFBANNER
-chmod 0755 /etc/profile.d/00_barepod.sh 2>/dev/null || true
+chmod 0755 /etc/profile.d/zz_barepod.sh 2>/dev/null || true
 
 # Ensure cloudflared is installed for Cloudflare Tunnel support
 if ! command -v cloudflared >/dev/null 2>&1; then

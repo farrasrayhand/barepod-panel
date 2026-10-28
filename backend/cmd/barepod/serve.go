@@ -762,7 +762,11 @@ func runServe(args []string) error {
 }
 
 func ensureProfileMOTD() {
-	motdPath := "/etc/profile.d/00_barepod.sh"
+	// profile.d runs in name order, and a host's own banner (the Proxmox community-scripts LXC
+	// one is 00_lxc-details.sh) clears the screen: as 00_barepod.sh ours ran first and was wiped.
+	// The zz_ name runs last, so the BarePod banner is the one left on screen.
+	motdPath := "/etc/profile.d/zz_barepod.sh"
+	_ = os.Remove("/etc/profile.d/00_barepod.sh")
 	if _, err := os.Stat("/etc/profile.d"); err != nil {
 		return
 	}
