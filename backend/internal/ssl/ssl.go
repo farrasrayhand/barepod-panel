@@ -23,9 +23,12 @@ import (
 )
 
 const (
-	ACMEDir    = "/var/lib/barepod/acme"
-	CertsDir   = "/etc/barepod/ssl"
-	LetsDir    = "/etc/letsencrypt/live"
+	// ACMEDir is the HTTP-01 webroot the web server serves /.well-known/acme-challenge/ from. It
+	// must sit outside /var/lib/barepod: that directory is 0700, so nginx (www-data) could not
+	// traverse it and answered Let's Encrypt with 403.
+	ACMEDir  = "/var/www/barepod-acme"
+	CertsDir = "/etc/barepod/ssl"
+	LetsDir  = "/etc/letsencrypt/live"
 )
 
 // CertInfo describes parsed certificate metadata for the UI and vhost configuration.

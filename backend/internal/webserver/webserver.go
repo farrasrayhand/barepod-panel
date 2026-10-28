@@ -536,7 +536,7 @@ func nginxServerBody(b *strings.Builder, s Spec) {
 	nginxTuningDirectives(b, s)
 	b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
 	b.WriteString("        default_type \"text/plain\";\n")
-	b.WriteString("        root /var/lib/barepod/acme;\n")
+	b.WriteString("        root /var/www/barepod-acme;\n")
 	b.WriteString("    }\n\n")
 	nginxSecurityDirectives(b, s)
 	nginxLocations(b, s)
@@ -561,7 +561,7 @@ func nginxVhost(s Spec) string {
 	if hasSSL && s.ForceHTTPS {
 		b.WriteString("    location ^~ /.well-known/acme-challenge/ {\n")
 		b.WriteString("        default_type \"text/plain\";\n")
-		b.WriteString("        root /var/lib/barepod/acme;\n")
+		b.WriteString("        root /var/www/barepod-acme;\n")
 		b.WriteString("    }\n\n")
 		b.WriteString("    set $redirect_to_https 0;\n")
 		b.WriteString("    if ($http_x_forwarded_proto != \"https\") {\n")

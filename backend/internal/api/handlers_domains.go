@@ -484,6 +484,9 @@ func (s *Server) handleIssueSSL(w http.ResponseWriter, r *http.Request, user *st
 			warning = fmt.Sprintf("Domain '%s' does not resolve to this host in public DNS. BarePod issued a local self-signed SSL certificate so HTTPS is operational immediately.", d.Domain)
 		} else {
 			_ = ip
+			// Re-render the vhost first, so the challenge location points at the current ACME
+			// webroot: a vhost written by an older version still named one nginx cannot read.
+			_ = s.applyVhost(r, site)
 			info, err = ssl.IssueLetsEncrypt(r.Context(), d.Domain, nil, s.letsEncryptContact(req.Email))
 			if err != nil {
 				// Held before the fallback overwrites err: the reason is the point of the
