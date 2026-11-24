@@ -143,7 +143,12 @@ func AutoHeal(ctx context.Context, runner host.Runner, activeEngine string) []st
 		caddyIsBackend = strings.TrimSpace(listens80) != ""
 	}
 
-	if caddyInstalled {
+	wantCaddy := activeEngine == "" || strings.EqualFold(activeEngine, string(webserver.Caddy)) || nginxIsBackend
+	wantNginx := activeEngine == "" || strings.EqualFold(activeEngine, string(webserver.Nginx)) || nginxIsBackend
+	wantApache := activeEngine == "" || strings.EqualFold(activeEngine, "apache") || strings.EqualFold(activeEngine, "apache2")
+	wantLS := activeEngine == "" || strings.EqualFold(activeEngine, "openlitespeed") || strings.EqualFold(activeEngine, "lshttpd")
+
+	if caddyInstalled && wantCaddy {
 		_, _ = runner.Run(ctx, "", "bash", "-c", "chmod 755 /etc/barepod 2>/dev/null; chmod 755 /etc/barepod/ssl 2>/dev/null; chmod -R a+rX /etc/barepod/ssl 2>/dev/null; mkdir -p /var/log/caddy && chown -R caddy:caddy /var/log/caddy 2>/dev/null && chmod 755 /var/log/caddy && chmod 664 /var/log/caddy/*.log 2>/dev/null || true")
 		_ = os.MkdirAll("/etc/caddy/sites", 0755)
 
@@ -160,7 +165,7 @@ func AutoHeal(ctx context.Context, runner host.Runner, activeEngine string) []st
 			actions = append(actions, "caddy: regenerated clean Caddyfile & restarted service")
 		}
 	}
-	if nginxInstalled {
+	if nginxInstalled && wantNginx {
 		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/nginx && chown -R www-data:adm /var/log/nginx 2>/dev/null && chmod 755 /var/log/nginx && chmod 664 /var/log/nginx/*.log 2>/dev/null || true")
 
 		// If Nginx is Edge Ingress, ensure all sites listen on standard public 80/443 (not leftover 8082, 127.0.0.1:80, or [::1]:80)
@@ -190,7 +195,7 @@ if changed:
 			actions = append(actions, "nginx: repaired log permissions & started service")
 		}
 	}
-	if isBinaryInstalled("apache2") || isServiceInstalled(ctx, runner, "apache2") {
+	if wantApache && (isBinaryInstalled("apache2") || isServiceInstalled(ctx, runner, "apache2")) {
 		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /var/log/apache2 && chown -R www-data:adm /var/log/apache2 2>/dev/null && chmod 755 /var/log/apache2 && chmod 664 /var/log/apache2/*.log 2>/dev/null || true")
 		if _, err := os.Stat("/etc/apache2/ports.conf"); err == nil {
 			_, _ = runner.Run(ctx, "", "bash", "-c", "sed -i 's/Listen 80$/Listen 127.0.0.1:8080/' /etc/apache2/ports.conf 2>/dev/null || true; sed -i 's/Listen 443$/Listen 127.0.0.1:8443/' /etc/apache2/ports.conf 2>/dev/null || true")
@@ -202,13 +207,19 @@ if changed:
 			actions = append(actions, "apache2: ensured internal port 8080 & started service")
 		}
 	}
-	if isBinaryInstalled("openlitespeed") || isServiceInstalled(ctx, runner, "lshttpd") {
+	if wantLS && (isBinaryInstalled("openlitespeed") || isServiceInstalled(ctx, runner, "lshttpd")) {
 		_, _ = runner.Run(ctx, "", "bash", "-c", "mkdir -p /usr/local/lsws/logs && chown -R nobody:nogroup /usr/local/lsws/logs 2>/dev/null && chmod 755 /usr/local/lsws/logs && chmod 664 /usr/local/lsws/logs/*.log 2>/dev/null || true")
 	}
 
+	webWanted := map[string]bool{
+		"nginx":   wantNginx,
+		"caddy":   wantCaddy,
+		"apache2": wantApache,
+		"lshttpd": wantLS,
+	}
 	webServices := []string{"nginx", "caddy", "apache2", "lshttpd"}
 	for _, unit := range webServices {
-		if isServiceInstalled(ctx, runner, unit) {
+		if webWanted[unit] && isServiceInstalled(ctx, runner, unit) {
 			_, _ = runner.Run(ctx, "", "systemctl", "enable", unit)
 		}
 	}
