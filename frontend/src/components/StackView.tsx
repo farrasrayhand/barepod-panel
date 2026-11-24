@@ -847,12 +847,39 @@ export const StackView: React.FC<StackViewProps> = ({ onShowToast }) => {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <span className="inline-flex items-center gap-1.5 text-xs font-medium">
-                          <span className={`w-2 h-2 rounded-full ${state?.running ? 'bg-emerald-500' : state?.installed ? 'bg-amber-500' : 'bg-slate-300'}`} />
-                          <span className={state?.running ? 'text-emerald-700' : state?.installed ? 'text-amber-700' : 'text-slate-400'}>
-                            {state?.running ? 'Running' : state?.installed ? 'Stopped' : 'Not installed'}
-                          </span>
-                        </span>
+                        {(() => {
+                          const isUnusedAndOff = Boolean(state?.installed && !state?.running && !activeIngress && !isUsedBySites);
+                          const dotClass = state?.running
+                            ? 'bg-emerald-500'
+                            : isUnusedAndOff
+                              ? 'bg-slate-400'
+                              : state?.installed
+                                ? 'bg-amber-500'
+                                : 'bg-slate-300';
+                          const textClass = state?.running
+                            ? 'text-emerald-700'
+                            : isUnusedAndOff
+                              ? 'text-slate-500'
+                              : state?.installed
+                                ? 'text-amber-700'
+                                : 'text-slate-400';
+                          const label = state?.running
+                            ? 'Running'
+                            : isUnusedAndOff
+                              ? 'Off (Unused)'
+                              : state?.installed
+                                ? 'Stopped'
+                                : 'Not installed';
+                          return (
+                            <span
+                              className="inline-flex items-center gap-1.5 text-xs font-medium"
+                              title={isUnusedAndOff ? 'Tidak digunakan oleh website mana pun dan dalam keadaan nonaktif' : undefined}
+                            >
+                              <span className={`w-2 h-2 rounded-full ${dotClass}`} />
+                              <span className={textClass}>{label}</span>
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
