@@ -654,7 +654,7 @@ apt-get -o DPkg::Lock::Timeout=600 install -y lsb-release ca-certificates curl g
 curl -fsSL https://packages.sury.org/php/apt.gpg -o /usr/share/keyrings/sury-php.gpg
 echo "deb [signed-by=/usr/share/keyrings/sury-php.gpg] https://packages.sury.org/php/ $(lsb_release -sc) main" > /etc/apt/sources.list.d/sury-php.list
 echo "Updating apt package index..."
-apt-get -o DPkg::Lock::Timeout=600 update`
+apt-get -o DPkg::Lock::Timeout=600 update --allow-releaseinfo-change`
 
 // deadsnakesRepoScript adds the deadsnakes PPA, where the Python versions Ubuntu does
 // not ship come from.
@@ -663,7 +663,7 @@ echo "Configuring deadsnakes PPA repository..."
 apt-get -o DPkg::Lock::Timeout=600 install -y software-properties-common
 add-apt-repository -y ppa:deadsnakes/ppa
 echo "Updating apt package index..."
-apt-get -o DPkg::Lock::Timeout=600 update`
+apt-get -o DPkg::Lock::Timeout=600 update --allow-releaseinfo-change`
 
 // The database engines' own repositories. Ubuntu carries one version of each, which is why
 // a version list from the distribution alone is a single entry: PGDG carries one package
@@ -675,7 +675,7 @@ install -d /usr/share/postgresql-common/pgdg
 curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
 echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
 echo "Updating apt package index..."
-apt-get -o DPkg::Lock::Timeout=600 update`
+apt-get -o DPkg::Lock::Timeout=600 update --allow-releaseinfo-change`
 
 const mariadbRepoScript = `set -e
 echo "Configuring MariaDB repository..."
@@ -691,7 +691,7 @@ deb [signed-by=/usr/share/keyrings/mariadb-keyring.pgp] https://mirror.mariadb.o
 EOF
 sed -i "s/CODENAME/$CODENAME/g" /etc/apt/sources.list.d/mariadb.list
 echo "Updating apt package index..."
-apt-get -o DPkg::Lock::Timeout=600 update`
+apt-get -o DPkg::Lock::Timeout=600 update --allow-releaseinfo-change`
 
 // mysqlRepoScript adds Oracle's APT source with whichever of its published signing keys apt
 // accepts. Oracle renews the key and retires the old file, and an expired one is rejected
@@ -711,7 +711,7 @@ for KEYFILE in $KEYS; do
   if curl -fsSL "https://repo.mysql.com/$KEYFILE" -o /tmp/mysql-key.asc && [ -s /tmp/mysql-key.asc ]; then
     gpg --dearmor -o /usr/share/keyrings/mysql.gpg < /tmp/mysql-key.asc 2>/dev/null || true
     echo "deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/${DISTRO}/ ${CODENAME} mysql-9.7-lts mysql-8.4-lts mysql-8.0" > /etc/apt/sources.list.d/mysql.list
-    if apt-get -o DPkg::Lock::Timeout=600 update; then
+    if apt-get -o DPkg::Lock::Timeout=600 update --allow-releaseinfo-change; then
       echo "MySQL repository accepted with $KEYFILE."
       exit 0
     fi
@@ -746,7 +746,7 @@ fi
 curl -fsSL https://packages.redis.io/gpg | gpg --dearmor --yes -o /usr/share/keyrings/redis-archive-keyring.gpg
 echo "deb [signed-by=/usr/share/keyrings/redis-archive-keyring.gpg] https://packages.redis.io/deb ${CODENAME} main" > /etc/apt/sources.list.d/redis.list
 echo "Updating apt package index..."
-apt-get -o DPkg::Lock::Timeout=600 update`
+apt-get -o DPkg::Lock::Timeout=600 update --allow-releaseinfo-change`
 
 // The web servers' own repositories: Ubuntu pins one nginx and one caddy, and both
 // projects publish releases faster than the distribution.
@@ -756,7 +756,7 @@ apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-rel
 curl -fsSL https://nginx.org/keys/nginx_signing.key -o /usr/share/keyrings/nginx-archive-keyring.asc
 echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.asc] https://nginx.org/packages/mainline/ubuntu $(lsb_release -cs) nginx" > /etc/apt/sources.list.d/nginx.list
 echo "Updating apt package index..."
-apt-get -o DPkg::Lock::Timeout=600 update`
+apt-get -o DPkg::Lock::Timeout=600 update --allow-releaseinfo-change`
 
 const caddyRepoScript = `set -e
 echo "Configuring Caddy repository..."
@@ -764,7 +764,7 @@ apt-get -o DPkg::Lock::Timeout=600 install -y curl ca-certificates gnupg lsb-rel
 curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
 curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt > /etc/apt/sources.list.d/caddy-stable.list
 echo "Updating apt package index..."
-apt-get -o DPkg::Lock::Timeout=600 update`
+apt-get -o DPkg::Lock::Timeout=600 update --allow-releaseinfo-change`
 
 // Apache and OpenLiteSpeed carry more versions than Ubuntu's single package: the ondrej
 // PPA for Apache, and LiteSpeed's own repository for OpenLiteSpeed. Each one undoes itself

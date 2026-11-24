@@ -583,7 +583,7 @@ var registry = []Job{
 			}
 			// Refresh the package lists first; without this the job can run daily against
 			// stale metadata and honestly report "no packages" while updates are pending.
-			if out, err := env.Host.Run(ctx, []string{"apt-get", "-o", "DPkg::Lock::Timeout=600", "update", "-qq"}); err != nil {
+			if out, err := env.Host.Run(ctx, []string{"apt-get", "-o", "DPkg::Lock::Timeout=600", "update", "--allow-releaseinfo-change", "-qq"}); err != nil {
 				return strings.TrimSpace(out), fmt.Errorf("apt-get update: %w", err)
 			}
 			// unattended-upgrade is the security-only path when the host has it configured.
@@ -614,7 +614,7 @@ var registry = []Job{
 			}
 			aptEnv := []string{"DEBIAN_FRONTEND=noninteractive"}
 			if out, err := env.Host.Runner.RunEnv(ctx, "", aptEnv,
-				"apt-get", "-o", "DPkg::Lock::Timeout=600", "update", "-qq"); err != nil {
+				"apt-get", "-o", "DPkg::Lock::Timeout=600", "update", "--allow-releaseinfo-change", "-qq"); err != nil {
 				return strings.TrimSpace(out), fmt.Errorf("apt-get update: %w", err)
 			}
 			// Plain upgrade, not full-upgrade: it keeps existing packages installed and

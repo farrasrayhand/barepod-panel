@@ -124,9 +124,9 @@ func AutoHeal(ctx context.Context, runner host.Runner, activeEngine string) []st
 	caddyInstalled := isBinaryInstalled("caddy") || isServiceInstalled(ctx, runner, "caddy")
 
 	// Detect configured ingress. In BarePod, Nginx is default.
-	// If Nginx sites use 8082, Caddy is the intended edge ingress.
+	// If Caddy is the active ingress (or unknown) and Nginx sites use 8082, Caddy is the edge ingress.
 	nginxIsBackend := false
-	if nginxInstalled {
+	if nginxInstalled && (activeEngine == "" || strings.EqualFold(activeEngine, string(webserver.Caddy))) {
 		grep8082, _ := runner.Run(ctx, "", "grep", "-rn", "8082", "/etc/nginx/sites-enabled/")
 		if strings.TrimSpace(grep8082) != "" {
 			nginxIsBackend = true
