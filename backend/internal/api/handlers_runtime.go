@@ -174,12 +174,12 @@ func (s *Server) handlePutRuntime(w http.ResponseWriter, r *http.Request, user *
 			_, _ = phpfpm.Write(r.Context(), s.host, spec)
 			_ = s.applyVhost(r, site)
 			if s.host.Materialises() {
-				_, _ = s.host.ServiceAction(r.Context(), "restart", site.Slug)
+				_, _ = s.host.ServiceAction(r.Context(), "reload-or-restart", site.Slug)
 			}
 		} else {
 			_ = s.applyVhost(r, site)
 			if s.host.Materialises() {
-				_, _ = s.host.ServiceAction(r.Context(), "restart", site.Slug)
+				_, _ = s.host.ServiceAction(r.Context(), "reload-or-restart", site.Slug)
 			}
 		}
 		_ = s.store.Audit(user.ID, "website.version_change", site.Slug, clientIP(r), "new_version="+newVer)
@@ -365,9 +365,9 @@ func (s *Server) handlePhpFpmReload(w http.ResponseWriter, r *http.Request, user
 		writeError(w, http.StatusConflict, "not_applicable", "This site has no PHP-FPM pool (runtime "+site.Runtime+")")
 		return
 	}
-	out, err := s.host.ServiceAction(r.Context(), "restart", site.Slug)
+	out, err := s.host.ServiceAction(r.Context(), "reload-or-restart", site.Slug)
 	if err != nil && s.host.Materialises() {
-		writeError(w, http.StatusBadGateway, "service_error", "systemctl restart failed: "+strings.TrimSpace(out))
+		writeError(w, http.StatusBadGateway, "service_error", "systemctl reload-or-restart failed: "+strings.TrimSpace(out))
 		return
 	}
 	_ = s.store.Audit(user.ID, "website.php_fpm_reload", site.Slug, clientIP(r), s.host.Mode())

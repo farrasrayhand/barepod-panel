@@ -141,3 +141,14 @@ func TestTemplateUsesInstancePlaceholder(t *testing.T) {
 		t.Error("template is missing the %i instance placeholder")
 	}
 }
+
+func TestDropInSetsGracefulReloadForPHP(t *testing.T) {
+	phpDropIn := DropIn(Spec{Runtime: "php", Tenant: "alex", WorkDir: "/home/alex/web/app"})
+	if !strings.Contains(phpDropIn, "ExecReload=/bin/kill -USR2 $MAINPID") {
+		t.Errorf("PHP drop-in is missing graceful ExecReload:\n%s", phpDropIn)
+	}
+	nodeDropIn := DropIn(Spec{Runtime: "nodejs", Tenant: "alex", WorkDir: "/home/alex/web/app"})
+	if strings.Contains(nodeDropIn, "ExecReload=") {
+		t.Errorf("non-PHP drop-in should not set PHP SIGUSR2 ExecReload:\n%s", nodeDropIn)
+	}
+}

@@ -92,6 +92,11 @@ func DropIn(s Spec) string {
 		b.WriteString("ExecStart=\n")
 		fmt.Fprintf(&b, "ExecStart=%s\n", strings.Join(s.ExecStart, " "))
 	}
+	if strings.EqualFold(s.Runtime, "php") {
+		// PHP-FPM handles SIGUSR2 as a graceful worker reload without closing fpm.sock,
+		// preventing 502 Bad Gateway errors during config reloads.
+		b.WriteString("ExecReload=/bin/kill -USR2 $MAINPID\n")
+	}
 	fmt.Fprintf(&b, "Restart=%s\n", restart)
 	b.WriteString("NoNewPrivileges=true\n")
 	b.WriteString("PrivateTmp=true\n")

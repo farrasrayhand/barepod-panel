@@ -458,7 +458,10 @@ func stepFetchSource(ctx context.Context, s *state) error {
 				s.logOutput(out)
 			}
 		}
-		if err := s.runInSite(ctx, argv); err != nil {
+		if err := s.removePlaceholderIndex(); err != nil {
+			s.log("stdout", "note: could not remove placeholder index.html: "+err.Error())
+		}
+		if err := s.runScaffoldCommand(ctx, argv); err != nil {
 			return err
 		}
 		for _, extra := range provision.PostScaffold(s.req.Framework) {
@@ -546,6 +549,47 @@ func (s *state) hasApplicationEntry() bool {
 
 // cleanupPlaceholderIndex removes the temporary BarePod default page if the project
 // has its own application entrypoint (e.g. index.php, composer.json, package.json).
+func (s *state) removePlaceholderIndex() error {
+	target := filepath.Join(s.siteDir, "index.html")
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return nil
+	}
+	if !strings.Contains(string(data), "BarePod Panel") {
+		return nil
+	}
+	if err := os.Remove(target); err != nil {
+		return err
+	}
+	s.log("stdout", "removed BarePod placeholder index.html before scaffold")
+	return nil
+}
+
+// runScaffoldCommand runs a scaffold command in the site directory. For
+// `composer create-project ... .`, when materialising on a real host, it
+// scaffolds into a temporary subdirectory and moves files into place so
+// pre-existing panel files (.env, php-fpm.conf, etc.) never trigger
+// "Project directory is not empty".
+func (s *state) runScaffoldCommand(ctx context.Context, argv []string) error {
+	if s.m.host.Materialises() && len(argv) >= 4 && argv[0] == "composer" && argv[1] == "create-project" && argv[len(argv)-1] == "." {
+		tmpDir := ".barepod-scaffold"
+		_ = os.RemoveAll(filepath.Join(s.siteDir, tmpDir))
+		staged := make([]string, len(argv))
+		copy(staged, argv)
+		staged[len(staged)-1] = tmpDir
+		if err := s.runInSite(ctx, staged); err != nil {
+			_ = os.RemoveAll(filepath.Join(s.siteDir, tmpDir))
+			return err
+		}
+		mergeCmd := fmt.Sprintf("shopt -s dotglob nullglob && for f in %s/*; do base=$(basename \"$f\"); if [ ! -e \"$base\" ]; then mv \"$f\" .; fi; done && rm -rf %s", tmpDir, tmpDir)
+		if err := s.runInSite(ctx, []string{"bash", "-c", mergeCmd}); err != nil {
+			return err
+		}
+		return nil
+	}
+	return s.runInSite(ctx, argv)
+}
+
 func (s *state) cleanupPlaceholderIndex() {
 	target := filepath.Join(s.siteDir, "index.html")
 	data, err := os.ReadFile(target)
@@ -1506,6 +1550,14 @@ func stepRenderUnit(ctx context.Context, s *state) error {
 	limits := s.m.tenantLimits(s.req.Tenant)
 	// The hard quota or the shared weight, whichever the panel's allocation mode calls for.
 	cpuQuota, cpuWeight := resources.CPUPlan(limits, s.m.sharingPolicy())
+	tune := resources.DetectRuntimeTune(limits.MemoryMB)
+	extraEnv := map[string]string{}
+	switch strings.ToLower(s.req.Runtime) {
+	case "nodejs":
+		extraEnv["NODE_OPTIONS"] = fmt.Sprintf("--max-old-space-size=%d", tune.NodeMaxOldSpaceMB)
+	case "go":
+		extraEnv["GOMEMLIMIT"] = fmt.Sprintf("%dMiB", tune.GoMemLimitMB)
+	}
 	spec := supervisor.Spec{
 		Slug:      s.req.Slug,
 		Tenant:    s.req.Tenant,
@@ -1518,12 +1570,13 @@ func stepRenderUnit(ctx context.Context, s *state) error {
 		// keep state beside the site (composer, npm cache), and it is the tenant's own
 		// space — not another account's.
 		ReadWritePath: filepath.Join(s.m.host.SitesRoot, s.req.Tenant),
-		ExecStart:     provision.ExecStart(s.req.Runtime, s.req.Version, s.req.Framework, s.siteDir, s.req.Port),
+		ExecStart:     provision.ExecStartForLimits(s.req.Runtime, s.req.Version, s.req.Framework, s.siteDir, s.req.Port, limits.MemoryMB),
 		Port:          s.req.Port,
 		MemoryMaxMB:   limits.MemoryMB,
 		CPUQuota:      cpuQuota,
 		CPUWeight:     cpuWeight,
 		TasksMax:      limits.TasksMax,
+		ExtraEnv:      extraEnv,
 	}
 
 	templatePath, dropInPath, err := supervisor.Write(s.m.host.UnitsDir, spec)

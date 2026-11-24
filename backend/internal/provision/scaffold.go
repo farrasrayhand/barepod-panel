@@ -8,6 +8,8 @@ import (
 	"html"
 	"strconv"
 	"strings"
+
+	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 )
 
 // Scaffold returns the command that downloads/scaffolds a framework into the
@@ -334,7 +336,14 @@ def healthz():
 // ExecStart returns the command a systemd unit runs for this website.
 // PHP uses a per-site FPM master, everything else runs the app server directly.
 func ExecStart(runtime, version, framework, workDir string, port int) []string {
+	return ExecStartForLimits(runtime, version, framework, workDir, port, 0)
+}
+
+// ExecStartForLimits returns the command a systemd unit runs, auto-tuning worker
+// counts from pkgMemoryMB (if > 0) or the host's hardware specifications.
+func ExecStartForLimits(runtime, version, framework, workDir string, port, pkgMemoryMB int) []string {
 	p := strconv.Itoa(port)
+	tune := resources.DetectRuntimeTune(pkgMemoryMB)
 	switch strings.ToLower(runtime) {
 	case "php":
 		// One FPM master per website keeps pools isolated per tenant.
@@ -343,16 +352,21 @@ func ExecStart(runtime, version, framework, workDir string, port int) []string {
 		return []string{"npm", "start", "--", "--port", p}
 	case "python":
 		// FastAPI/Starlette need an ASGI worker; Flask runs on the default one.
-		workers := []string{"--workers", "2"}
+		workers := []string{"--workers", strconv.Itoa(tune.PythonWorkers)}
 		if strings.EqualFold(framework, "fastapi") {
-			workers = []string{"--workers", "2", "-k", "uvicorn.workers.UvicornWorker"}
+			workers = append(workers, "-k", "uvicorn.workers.UvicornWorker")
 		}
 		start := []string{workDir + "/.venv/bin/gunicorn", "-b", "127.0.0.1:" + p}
 		return append(start, append(workers, "app:app")...)
 	case "go":
 		return []string{workDir + "/bin/app"}
 	case "ruby":
-		return []string{"bundle", "exec", "puma", "-p", p}
+		return []string{
+			"bundle", "exec", "puma",
+			"-p", p,
+			"-w", strconv.Itoa(tune.RubyWorkers),
+			"-t", fmt.Sprintf("%d:%d", tune.RubyThreads, tune.RubyThreads),
+		}
 	case "rust":
 		return []string{workDir + "/target/release/app"}
 	case "static":

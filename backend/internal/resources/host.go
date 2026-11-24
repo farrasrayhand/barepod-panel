@@ -87,6 +87,11 @@ func ParseCPUList(content string) int {
 	return count
 }
 
+// DetectMemoryMB reports the host's total physical memory in MiB.
+func DetectMemoryMB() int {
+	return detectMemoryMB()
+}
+
 // detectMemoryMB reads total RAM. Linux is read from /proc/meminfo; on other
 // platforms (a development machine) we fall back to sysctl hw.memsize so the
 // capacity guard still shows real numbers.

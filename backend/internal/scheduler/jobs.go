@@ -419,6 +419,12 @@ var registry = []Job{
 		},
 	},
 	{
+		ID: "runtime_autotune", Label: "Runtime spec auto-tuner", Category: "watchdog",
+		Desc:            "Re-tune PHP-FPM, Node.js, Python, Ruby, and Go worker/memory limits automatically when host RAM or CPU changes.",
+		DefaultSchedule: "*/5 * * * *", DefaultEnabled: true, Implemented: true,
+		Run: reconcileRuntimeAutoTune,
+	},
+	{
 		ID: "git_commit_watcher", Label: "Git commit watcher", Category: "deploy",
 		Desc:            "Check the remote branch of auto-deploy sites in poll mode and redeploy when it moved.",
 		DefaultSchedule: "*/5 * * * *", DefaultEnabled: true, Implemented: true, Timeout: 5 * time.Minute,

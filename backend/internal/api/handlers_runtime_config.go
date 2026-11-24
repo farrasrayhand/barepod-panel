@@ -192,6 +192,7 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 	limits := s.limitsForTenant(site.TenantUser)
 	// The hard quota or the shared weight, whichever the panel's allocation mode calls for.
 	cpuQuota, cpuWeight := resources.CPUPlan(limits, s.sharingPolicy())
+	tune := resources.DetectRuntimeTune(limits.MemoryMB)
 
 	switch runtime {
 	case "php":
@@ -208,7 +209,7 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 
 		maxChildren := intVal(req.Config["maxChildren"], phpfpm.MaxChildren(limits.MemoryMB))
 		if maxChildren <= 0 {
-			maxChildren = 5
+			maxChildren = phpfpm.MaxChildren(limits.MemoryMB)
 		}
 
 		spec := phpfpm.Spec{
@@ -226,11 +227,14 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 		}
 
 		if s.host.Materialises() {
-			_, _ = s.host.ServiceAction(r.Context(), "restart", site.Slug)
+			_, _ = s.host.ServiceAction(r.Context(), "reload-or-restart", site.Slug)
 		}
 
 	case "nodejs":
 		memLimitMb := intVal(req.Config["memoryLimitMb"], 0)
+		if memLimitMb <= 0 {
+			memLimitMb = tune.NodeMaxOldSpaceMB
+		}
 		script := stringVal(req.Config["script"], "")
 		if script == "" {
 			script = stringVal(req.Config["startScript"], "start")
@@ -297,7 +301,10 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 		if wsgiServer == "" {
 			wsgiServer = stringVal(req.Config["runner"], "gunicorn")
 		}
-		workers := intVal(req.Config["workers"], 2)
+		workers := intVal(req.Config["workers"], tune.PythonWorkers)
+		if workers <= 0 {
+			workers = tune.PythonWorkers
+		}
 		timeout := intVal(req.Config["timeout"], 60)
 		req.Config["wsgiServer"] = wsgiServer
 		req.Config["runner"] = wsgiServer
@@ -330,6 +337,11 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			execStart = append(args, "app:app")
 		}
 
+		extraEnv := map[string]string{}
+		if runtime == "go" {
+			extraEnv["GOMEMLIMIT"] = fmt.Sprintf("%dMiB", tune.GoMemLimitMB)
+		}
+
 		unitSpec := supervisor.Spec{
 			Slug:        site.Slug,
 			Tenant:      site.TenantUser,
@@ -344,6 +356,7 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			CPUQuota:    cpuQuota,
 			CPUWeight:   cpuWeight,
 			TasksMax:    limits.TasksMax,
+			ExtraEnv:    extraEnv,
 		}
 
 		if _, _, err := supervisor.Write(s.host.UnitsDir, unitSpec); err != nil {
@@ -357,8 +370,14 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 		}
 
 	case "ruby":
-		workers := intVal(req.Config["workers"], 2)
-		threads := intVal(req.Config["threads"], 5)
+		workers := intVal(req.Config["workers"], tune.RubyWorkers)
+		if workers <= 0 {
+			workers = tune.RubyWorkers
+		}
+		threads := intVal(req.Config["threads"], tune.RubyThreads)
+		if threads <= 0 {
+			threads = tune.RubyThreads
+		}
 		portStr := strconv.Itoa(site.Port)
 
 		execStart := []string{
@@ -366,6 +385,11 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			"-p", portStr,
 			"-w", strconv.Itoa(workers),
 			"-t", fmt.Sprintf("%d:%d", threads, threads),
+		}
+
+		extraEnv := map[string]string{}
+		if runtime == "go" {
+			extraEnv["GOMEMLIMIT"] = fmt.Sprintf("%dMiB", tune.GoMemLimitMB)
 		}
 
 		unitSpec := supervisor.Spec{
@@ -382,6 +406,7 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			CPUQuota:    cpuQuota,
 			CPUWeight:   cpuWeight,
 			TasksMax:    limits.TasksMax,
+			ExtraEnv:    extraEnv,
 		}
 
 		if _, _, err := supervisor.Write(s.host.UnitsDir, unitSpec); err != nil {
@@ -412,6 +437,11 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			execStart = append(execStart, strings.Fields(customArgs)...)
 		}
 
+		extraEnv := map[string]string{}
+		if runtime == "go" {
+			extraEnv["GOMEMLIMIT"] = fmt.Sprintf("%dMiB", tune.GoMemLimitMB)
+		}
+
 		unitSpec := supervisor.Spec{
 			Slug:        site.Slug,
 			Tenant:      site.TenantUser,
@@ -426,6 +456,7 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			CPUQuota:    cpuQuota,
 			CPUWeight:   cpuWeight,
 			TasksMax:    limits.TasksMax,
+			ExtraEnv:    extraEnv,
 		}
 
 		if _, _, err := supervisor.Write(s.host.UnitsDir, unitSpec); err != nil {
@@ -461,6 +492,11 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 	default:
 		// fallback to generic exec
 		execStart := provision.ExecStart(site.Runtime, site.Version, site.Framework, siteDir, site.Port)
+		extraEnv := map[string]string{}
+		if runtime == "go" {
+			extraEnv["GOMEMLIMIT"] = fmt.Sprintf("%dMiB", tune.GoMemLimitMB)
+		}
+
 		unitSpec := supervisor.Spec{
 			Slug:        site.Slug,
 			Tenant:      site.TenantUser,
@@ -475,6 +511,7 @@ func (s *Server) handleSaveRuntimeConfig(w http.ResponseWriter, r *http.Request,
 			CPUQuota:    cpuQuota,
 			CPUWeight:   cpuWeight,
 			TasksMax:    limits.TasksMax,
+			ExtraEnv:    extraEnv,
 		}
 		_, _, _ = supervisor.Write(s.host.UnitsDir, unitSpec)
 		if s.host.Materialises() {

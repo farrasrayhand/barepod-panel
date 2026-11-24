@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/farrasrayhand/barepod-panel/backend/internal/host"
+	"github.com/farrasrayhand/barepod-panel/backend/internal/resources"
 )
 
 // Directives holds per-site php_admin_value and process manager customizations.
@@ -40,40 +41,53 @@ type Spec struct {
 // removed with the site and inherits the directory's web-readable group.
 func SocketIn(siteDir string) string { return filepath.Join(siteDir, "fpm.sock") }
 
-// MaxChildren derives a pool size from the package's memory allowance: PHP workers
-// are memory-hungry, so allow one per 64 MiB (at least 2, at most 20).
+// TuneProfile holds auto-tuned PHP-FPM pool settings derived from package or host specs.
+type TuneProfile struct {
+	MaxChildren        int
+	MemoryLimitMB      int
+	ProcessIdleTimeout string
+	MaxRequests        int
+}
+
+// MaxChildren derives a pool size from the package's memory allowance, or
+// automatically from the host's RAM and CPU cores when no package limit is set.
 func MaxChildren(memoryMB int) int {
-	if memoryMB <= 0 {
-		return 5
+	return AutoMaxChildren(memoryMB, resources.DetectMemoryMB(), resources.DetectCPUCores())
+}
+
+// AutoMaxChildren computes pm.max_children from a package memory limit (if set)
+// or from the host's hardware specs (RAM in MiB and CPU core count) in shared/unlimited mode.
+func AutoMaxChildren(packageMemoryMB, hostMemoryMB, hostCPUCores int) int {
+	return AutoTune(packageMemoryMB, hostMemoryMB, hostCPUCores).MaxChildren
+}
+
+// AutoTune computes PHP-FPM pool parameters from the package memory allowance
+// (when capped) or from the host's RAM and CPU cores (when unlimited/shared).
+func AutoTune(packageMemoryMB, hostMemoryMB, hostCPUCores int) TuneProfile {
+	t := resources.TuneRuntime(packageMemoryMB, hostMemoryMB, hostCPUCores)
+	return TuneProfile{
+		MaxChildren:        t.PHPMaxChildren,
+		MemoryLimitMB:      t.PHPMemoryMB,
+		ProcessIdleTimeout: t.PHPIdleTimeout,
+		MaxRequests:        t.PHPMaxRequests,
 	}
-	n := memoryMB / 64
-	if n < 2 {
-		n = 2
-	}
-	if n > 20 {
-		n = 20
-	}
-	return n
 }
 
 // Config renders the pool file. user/group are deliberately absent: the systemd unit
 // already runs the master as the tenant, and FPM cannot setuid below that.
 func Config(s Spec) string {
-	mem := s.MemoryMB
-	if mem <= 0 {
-		mem = 256
-	}
+	tune := AutoTune(s.MemoryMB, resources.DetectMemoryMB(), resources.DetectCPUCores())
 	children := s.MaxChildren
 	if children <= 0 {
-		children = MaxChildren(s.MemoryMB)
+		children = tune.MaxChildren
 	}
 	idleTimeout := strings.TrimSpace(s.Directives.ProcessIdleTimeout)
 	if idleTimeout == "" {
-		idleTimeout = "10s"
+		idleTimeout = tune.ProcessIdleTimeout
 	}
 	memLimit := strings.TrimSpace(s.Directives.MemoryLimit)
 	if memLimit == "" {
-		memLimit = fmt.Sprintf("%dM", mem)
+		memLimit = fmt.Sprintf("%dM", tune.MemoryLimitMB)
 	}
 	uploadMax := strings.TrimSpace(s.Directives.UploadMaxSize)
 	if uploadMax == "" {
@@ -99,7 +113,7 @@ func Config(s Spec) string {
 	b.WriteString("pm = ondemand\n")
 	fmt.Fprintf(&b, "pm.max_children = %d\n", children)
 	fmt.Fprintf(&b, "pm.process_idle_timeout = %s\n", idleTimeout)
-	b.WriteString("pm.max_requests = 500\n")
+	fmt.Fprintf(&b, "pm.max_requests = %d\n", tune.MaxRequests)
 	b.WriteString("catch_workers_output = yes\n")
 	fmt.Fprintf(&b, "chdir = %s\n", s.SiteDir)
 	// A pool may only reach its own site (plus /tmp): another tenant's files are not
