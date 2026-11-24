@@ -1271,6 +1271,7 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 		fmt.Fprintf(&pre, "export CACHE_PASS=%q\n", s.cachePass)
 		fmt.Fprintf(&pre, "export REDIS_PASSWORD=%q\n", s.cachePass)
 	}
+	pre.WriteString(runtimePathPreamble(s.req.Runtime, s.req.Version))
 
 	lines := strings.Split(script, "\n")
 	var cleanedLines []string
@@ -1381,6 +1382,31 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 
 	s.log("stdout", "build automation completed successfully")
 	return nil
+}
+
+// runtimePathPreamble pins PATH during build automation to the exact runtime
+// version configured for the website (e.g. /usr/bin/php8.4 for PHP 8.4) so
+// system-wide alternative upgrades (like PHP 8.6) never hijack builds.
+func runtimePathPreamble(runtime, version string) string {
+	ver := strings.TrimSpace(version)
+	switch strings.ToLower(strings.TrimSpace(runtime)) {
+	case "php":
+		if ver == "" {
+			return ""
+		}
+		bin := "/usr/bin/php" + ver
+		return fmt.Sprintf("if [ -x %q ]; then _bp_bin=$(mktemp -d); ln -sf %q \"$_bp_bin/php\"; export PATH=\"$_bp_bin:$PATH\"; trap 'rm -rf \"$_bp_bin\"' EXIT; fi\n", bin, bin)
+	case "python":
+		var b strings.Builder
+		b.WriteString("if [ -d .venv/bin ]; then export PATH=\"$PWD/.venv/bin:$PATH\"; fi\n")
+		if ver != "" {
+			bin := "/usr/bin/python" + ver
+			fmt.Fprintf(&b, "if [ -x %q ]; then _bp_bin=$(mktemp -d); ln -sf %q \"$_bp_bin/python\"; ln -sf %q \"$_bp_bin/python3\"; export PATH=\"$_bp_bin:$PATH\"; trap 'rm -rf \"$_bp_bin\"' EXIT; fi\n", bin, bin, bin)
+		}
+		return b.String()
+	default:
+		return ""
+	}
 }
 
 // isPrivilegedBuildLine reports a step that cannot run as the tenant. Only service control is
