@@ -82,15 +82,18 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
   const ramPer = packageLimits.memoryMb === undefined ? 1024 : Number(packageLimits.memoryMb) || 0;
   const diskPer = packageLimits.diskQuotaGb === undefined ? 10 : Number(packageLimits.diskQuotaGb) || 0;
 
-  // Shared resources are deliberately allowed to exceed their reservations. For
-  // those the usable headroom is the physical capacity, not "capacity - claims";
-  // otherwise a 142% RAM claim would report zero new users even though the host
-  // is mostly idle. Disk uses the filesystem's free space.
+  // Shared resources are deliberately allowed to exceed their reservations.
+  // In Shared CPU mode, tenants share time-slices (typical 3x safe concurrency
+  // adjusted by live CPU load) instead of locking a full core exclusively.
+  // In Shared RAM mode, use actual free physical RAM (total - live used) when available.
+  const liveCpuFactor = data.live ? Math.max(0.1, 1 - data.live.cpuPercent / 100) : 1;
   const cpuRemaining = overcommit.cpu
-    ? data.capacity.cpuCores * 100
+    ? data.capacity.cpuCores * 100 * 3 * liveCpuFactor
     : Math.max(0, data.capacity.cpuCores * 100 - Number(allocation.cpuQuotaPercent || 0));
   const ramRemaining = overcommit.ram
-    ? data.capacity.memoryMb
+    ? data.live
+      ? Math.max(0, data.capacity.memoryMb - data.live.memoryUsedMb)
+      : data.capacity.memoryMb
     : Math.max(0, data.capacity.memoryMb - Number(allocation.memoryMb || 0));
   const diskRemaining = data.capacity.diskFreeGb > 0
     ? data.capacity.diskFreeGb
