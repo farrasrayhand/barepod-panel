@@ -182,7 +182,7 @@ func (s *Server) handleCapacity(w http.ResponseWriter, r *http.Request, _ *store
 	exceeds := resources.Exceeds(claims, capacity, policy)
 	s.noteCapacityChange(exceeds)
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"capacity":   capacity,
 		"allocation": allocation,
 		"usage":      ratios,
@@ -199,7 +199,20 @@ func (s *Server) handleCapacity(w http.ResponseWriter, r *http.Request, _ *store
 		// `users` capability, not `monitoring`.
 		"quotaEnforced": sysinfo.QuotaEnforced(),
 		"checkedAt":     time.Now().UTC().Format(time.RFC3339),
-	})
+	}
+	if s.metrics != nil {
+		snap := s.metrics.Latest()
+		if snap.Available {
+			payload["live"] = map[string]any{
+				"cpuPercent":    snap.CPUPercent,
+				"memoryUsedMb":  snap.MemoryUsedBytes / (1024 * 1024),
+				"memoryTotalMb": snap.MemoryTotal / (1024 * 1024),
+				"swapUsedMb":    snap.SwapUsedBytes / (1024 * 1024),
+				"swapTotalMb":   snap.SwapTotalBytes / (1024 * 1024),
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 type updateGroupRequest struct {

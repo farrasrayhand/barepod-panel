@@ -15,6 +15,13 @@ interface CapacityPayload {
   overcommit: { cpu: boolean; ram: boolean; disk: boolean };
   suggested: Record<string, number>;
   packages: { name: string; members: number; limits: Record<string, number> }[];
+  live?: {
+    cpuPercent: number;
+    memoryUsedMb: number;
+    memoryTotalMb: number;
+    swapUsedMb: number;
+    swapTotalMb: number;
+  };
 }
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
@@ -190,6 +197,7 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
           </div>
           <p className="text-[11px] text-indigo-700 mt-1">
             Maximum {addableLabel} on the <strong>{activePackage.name}</strong> package. {addable > 0 ? `${bottleneckLabel === 'no resource' ? 'No package resource is limiting' : `${bottleneckLabel} is the first limit.`}` : 'Free CPU, RAM, or disk first.'}
+            {overcommit.cpu && overcommit.ram ? ' (Shared CPU/RAM: actual capacity depends on real workload.)' : ''}
           </p>
         </div>
       </div>
@@ -198,18 +206,29 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
         {resource(
           'CPU',
           `${data.capacity.cpuCores} vCPU`,
-          `${(Number(allocation.cpuQuotaPercent || 0) / 100).toFixed(2)} vCPU promised (${pct(usage.cpu)})`,
-          usage.cpu * 100,
+          overcommit.cpu && data.live
+            ? `${data.live.cpuPercent.toFixed(1)}% real used · ${(Number(allocation.cpuQuotaPercent || 0) / 100).toFixed(2)} vCPU`
+            : `${(Number(allocation.cpuQuotaPercent || 0) / 100).toFixed(2)} vCPU promised (${pct(usage.cpu)})`,
+          overcommit.cpu && data.live ? data.live.cpuPercent : usage.cpu * 100,
           'bg-blue-600',
           overcommit.cpu,
         )}
         {resource(
           'RAM',
           `${(data.capacity.memoryMb / 1024).toFixed(1)} GB`,
-          `${(Number(allocation.memoryMb || 0) / 1024).toFixed(1)} GB promised (${pct(usage.ram)})`,
-          usage.ram * 100,
+          overcommit.ram && data.live
+            ? `${(data.live.memoryUsedMb / 1024).toFixed(1)} GB real used (${Math.round((data.live.memoryUsedMb / Math.max(1, data.capacity.memoryMb)) * 100)}%)`
+            : `${(Number(allocation.memoryMb || 0) / 1024).toFixed(1)} GB promised (${pct(usage.ram)})`,
+          overcommit.ram && data.live
+            ? (data.live.memoryUsedMb / Math.max(1, data.capacity.memoryMb)) * 100
+            : usage.ram * 100,
           'bg-emerald-600',
           overcommit.ram,
+          data.live
+            ? data.live.swapTotalMb > 0
+              ? `Swap ${(data.live.swapTotalMb / 1024).toFixed(1)} GB`
+              : 'No swap'
+            : undefined,
         )}
         {resource(
           'Disk',
