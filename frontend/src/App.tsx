@@ -1,30 +1,31 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { Server, Sparkles, X } from 'lucide-react';
 import type { NavItem, WebApp, UpdateInfo } from './types';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
-import { AppsView } from './components/AppsView';
-import { AddAppModal } from './components/AddAppModal';
-import { WebTerminalView } from './components/WebTerminalView';
-import { DatabasesView } from './components/DatabasesView';
-import { CloudflareTunnelView } from './components/CloudflareTunnelView';
-import { PodsView } from './components/PodsView';
-import { UsersView } from './components/UsersView';
-import { OverviewView } from './components/OverviewView';
-import { ServerMonitoringView } from './components/ServerMonitoringView';
-import { PanelSettingsView } from './components/PanelSettingsView';
-import { ApiMcpView } from './components/ApiMcpView';
-import { DeployLogPanel } from './components/DeployLogPanel';
 import { Footer } from './components/Footer';
-import { ProfileView } from './components/ProfileView';
-import { DomainsView } from './components/DomainsView';
-import { HostFilesView } from './components/HostFilesView';
-import { StackView } from './components/StackView';
-import { BackupMigrationView } from './components/BackupMigrationView';
-import { ActivityLogView } from './components/ActivityLogView';
 import { ToastContainer } from './components/Toast';
 import type { ToastMessage } from './components/Toast';
 import { LoginView } from './components/LoginView';
+
+const AppsView = lazy(() => import('./components/AppsView').then((m) => ({ default: m.AppsView })));
+const AddAppModal = lazy(() => import('./components/AddAppModal').then((m) => ({ default: m.AddAppModal })));
+const WebTerminalView = lazy(() => import('./components/WebTerminalView').then((m) => ({ default: m.WebTerminalView })));
+const DatabasesView = lazy(() => import('./components/DatabasesView').then((m) => ({ default: m.DatabasesView })));
+const CloudflareTunnelView = lazy(() => import('./components/CloudflareTunnelView').then((m) => ({ default: m.CloudflareTunnelView })));
+const PodsView = lazy(() => import('./components/PodsView').then((m) => ({ default: m.PodsView })));
+const UsersView = lazy(() => import('./components/UsersView').then((m) => ({ default: m.UsersView })));
+const OverviewView = lazy(() => import('./components/OverviewView').then((m) => ({ default: m.OverviewView })));
+const ServerMonitoringView = lazy(() => import('./components/ServerMonitoringView').then((m) => ({ default: m.ServerMonitoringView })));
+const PanelSettingsView = lazy(() => import('./components/PanelSettingsView').then((m) => ({ default: m.PanelSettingsView })));
+const ApiMcpView = lazy(() => import('./components/ApiMcpView').then((m) => ({ default: m.ApiMcpView })));
+const DeployLogPanel = lazy(() => import('./components/DeployLogPanel').then((m) => ({ default: m.DeployLogPanel })));
+const ProfileView = lazy(() => import('./components/ProfileView').then((m) => ({ default: m.ProfileView })));
+const DomainsView = lazy(() => import('./components/DomainsView').then((m) => ({ default: m.DomainsView })));
+const HostFilesView = lazy(() => import('./components/HostFilesView').then((m) => ({ default: m.HostFilesView })));
+const StackView = lazy(() => import('./components/StackView').then((m) => ({ default: m.StackView })));
+const BackupMigrationView = lazy(() => import('./components/BackupMigrationView').then((m) => ({ default: m.BackupMigrationView })));
+const ActivityLogView = lazy(() => import('./components/ActivityLogView').then((m) => ({ default: m.ActivityLogView })));
 import { useSession } from './hooks/useSession';
 import { useIsDesktop } from './hooks/useIsDesktop';
 import { api } from './api/client';
@@ -663,6 +664,7 @@ export function App() {
 
         {/* Dynamic Views */}
         <main ref={mainRef} data-scroll-root className="flex-1 overflow-y-auto">
+          <Suspense fallback={<div className="p-6 text-xs text-slate-400">Loading view...</div>}>
           {currentTab === 'overview' && (
             <OverviewView
               apps={apps}
@@ -803,9 +805,11 @@ export function App() {
           )}
 
           <Footer daemonVersion={session.daemonVersion} />
+          </Suspense>
         </main>
       </div>
       {/* Add App Modal */}
+      <Suspense fallback={null}>
       <AddAppModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
@@ -841,6 +845,7 @@ export function App() {
           }}
         />
       )}
+      </Suspense>
 
       {stackPrompt && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-start sm:items-center justify-center p-4 overflow-y-auto">

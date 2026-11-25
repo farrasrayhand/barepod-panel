@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -337,30 +338,62 @@ func statusPageHandler(page statusPage) http.Handler {
 // on that same port into a redirect: a browser that typed http://host:8443 is sent
 // to https://host:8443 instead of Go's "Client sent an HTTP request to an HTTPS
 // server". A real TLS handshake is passed through untouched.
+//
+// Connection classification (peeking the first byte) runs in a per-connection
+// goroutine so idle/preconnect TCP sockets from browsers never block Accept().
 type redirectingListener struct {
 	net.Listener
 	tlsConfig *tls.Config
 	httpsPort string
+	once      sync.Once
+	readyCh   chan net.Conn
+	errCh     chan error
+}
+
+func (l *redirectingListener) start() {
+	l.once.Do(func() {
+		l.readyCh = make(chan net.Conn, 64)
+		l.errCh = make(chan error, 1)
+		go func() {
+			for {
+				conn, err := l.Listener.Accept()
+				if err != nil {
+					l.errCh <- err
+					return
+				}
+				go l.classify(conn)
+			}
+		}()
+	})
+}
+
+func (l *redirectingListener) classify(conn net.Conn) {
+	wrapped := &peekedConn{Conn: conn, reader: bufio.NewReader(conn)}
+	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	first, err := wrapped.reader.Peek(1)
+	_ = conn.SetReadDeadline(time.Time{})
+	if err != nil {
+		_ = conn.Close()
+		return
+	}
+	if first[0] == 0x16 { // a TLS ClientHello: let the TLS server take it
+		select {
+		case l.readyCh <- tls.Server(wrapped, l.tlsConfig):
+		default:
+			_ = conn.Close()
+		}
+		return
+	}
+	l.answerRedirect(wrapped)
 }
 
 func (l *redirectingListener) Accept() (net.Conn, error) {
-	for {
-		conn, err := l.Listener.Accept()
-		if err != nil {
-			return nil, err
-		}
-		wrapped := &peekedConn{Conn: conn, reader: bufio.NewReader(conn)}
-		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-		first, err := wrapped.reader.Peek(1)
-		_ = conn.SetReadDeadline(time.Time{})
-		if err != nil {
-			_ = conn.Close()
-			continue
-		}
-		if first[0] == 0x16 { // a TLS ClientHello: let the TLS server take it
-			return tls.Server(wrapped, l.tlsConfig), nil
-		}
-		go l.answerRedirect(wrapped)
+	l.start()
+	select {
+	case conn := <-l.readyCh:
+		return conn, nil
+	case err := <-l.errCh:
+		return nil, err
 	}
 }
 
