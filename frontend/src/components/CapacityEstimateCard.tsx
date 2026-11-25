@@ -125,19 +125,20 @@ export const CapacityEstimateCard: React.FC<CapacityEstimateCardProps> = ({ enab
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">{label}</span>
         {shared && (
-          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-white border border-amber-200 text-amber-700">
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700">
             Shared
           </span>
         )}
       </div>
       <div className="font-mono font-bold text-slate-800 text-sm mt-1">{total}</div>
-      <div className={`text-[10px] mt-0.5 ${percent > 100 ? 'text-amber-700' : 'text-slate-500'}`}>
+      <div className={`text-[10px] mt-0.5 ${!shared && percent > 100 ? 'text-amber-700' : 'text-slate-500'}`}>
         {promised}
+        {shared && percent > 100 ? ' · soft quota' : ''}
         {detail ? ` · ${detail}` : ''}
       </div>
       <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden mt-2">
         <div
-          className={`h-full rounded-full ${percent > 100 ? 'bg-amber-500' : color}`}
+          className={`h-full rounded-full ${!shared && percent > 100 ? 'bg-amber-500' : color}`}
           style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
         />
       </div>

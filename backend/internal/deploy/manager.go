@@ -1280,6 +1280,13 @@ func stepRunBuildScript(ctx context.Context, s *state) error {
 		if trimmed == "" {
 			continue
 		}
+		// Step 3 (Fetch source code) already fetched and checked out the target commit
+		// using the site's SSH deploy key; a bare `git pull` inside the build script
+		// lacks that key and fails with Permission denied (publickey).
+		if s.req.Source.Kind == "github" && (trimmed == "git pull" || strings.HasPrefix(trimmed, "git pull ")) {
+			s.log("stdout", "skipped redundant '"+trimmed+"' (source already checked out in step 3)")
+			continue
+		}
 		// Make WordPress steps resilient against existing wp-config or already-installed site
 		if strings.HasPrefix(trimmed, "wp core config") || strings.HasPrefix(trimmed, "wp config create") {
 			trimmed = "[ -f wp-config.php ] || " + trimmed + " --skip-check --force"
